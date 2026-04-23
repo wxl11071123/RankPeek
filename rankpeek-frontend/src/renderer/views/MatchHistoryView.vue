@@ -18,17 +18,19 @@
       <span>请先连接客户端，识别到当前账号后这里会自动显示数据。</span>
     </section>
 
-    <section v-else class="content-grid">
-      <SummonerOverviewPanel
-        :summoner="currentSummoner"
-        :user-tag="userTag"
-        :solo-rank="soloRank"
-        :flex-rank="flexRank"
-        :ranked-win-rates="rankedWinRates"
-        @copy-name="handleCopyName"
-      />
-
+    <section v-else class="content-stack">
       <div class="history-shell">
+        <SummonerOverviewPanel
+          class="overview-embed"
+          :summoner="currentSummoner"
+          :user-tag="userTag"
+          :solo-rank="soloRank"
+          :flex-rank="flexRank"
+          :ranked-win-rates="rankedWinRates"
+          embedded
+          @copy-name="handleCopyName"
+        />
+
         <div class="history-toolbar">
           <div>
             <h2>最近对局</h2>
@@ -98,12 +100,6 @@
                   </div>
                 </div>
 
-                <div class="stat-strip">
-                  <span :style="{ color: getKdaColor(getKdaValue(match)) }">{{ getKdaText(match) }}</span>
-                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.goldEarned) }} 金币</span>
-                  <span>{{ totalCs(getCurrentPlayer(match)?.stats) }} 补刀</span>
-                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.totalDamageDealtToChampions) }} 伤害</span>
-                </div>
               </div>
             </div>
 
@@ -164,6 +160,7 @@ import MatchDetailModal from '@/components/summoner/MatchDetailModal.vue'
 import MatchRosterCompact from '@/components/summoner/MatchRosterCompact.vue'
 import SummonerOverviewPanel from '@/components/summoner/SummonerOverviewPanel.vue'
 import { useGameStore } from '@/stores/game'
+import { DEFAULT_ANALYSIS_QUEUE_MODE, getDefaultMatchQueueMode } from '@/utils/matchPreferences'
 import type {
   ChampionOption,
   GameDetail,
@@ -183,6 +180,7 @@ interface MatchRosterPlayer {
   gameName: string
   tagLine: string
   summonerName?: string
+  stats?: Participant['stats']
 }
 
 interface PlayerInMatch extends Participant {
@@ -200,11 +198,13 @@ const championOptions = ref<ChampionOption[]>([])
 const modeOptions = ref<GameModeOption[]>([])
 const filterChampionId = ref(-1)
 const filterQueueId = ref(0)
+const defaultMatchQueueMode = ref(0)
 const currentPage = ref(1)
 const loading = ref(false)
 const showDetailModal = ref(false)
 const selectedGameDetail = ref<GameDetail | null>(null)
 const selectedMatchHistory = ref<MatchHistory | null>(null)
+let settingsLoadPromise: Promise<void> | null = null
 
 const pageSize = 10
 const maxTotalRecords = 50
@@ -214,7 +214,6 @@ const currentSummonerName = computed(() => gameStore.summonerName || '')
 const soloRank = computed<QueueInfo | null>(() => gameStore.soloRank)
 const flexRank = computed<QueueInfo | null>(() => gameStore.flexRank)
 const totalPages = computed(() => Math.max(1, Math.ceil(maxTotalRecords / pageSize)))
-const summaryMode = computed(() => (filterQueueId.value > 0 ? filterQueueId.value : 0))
 const hasFilters = computed(() => filterChampionId.value > 0 || filterQueueId.value > 0)
 
 const matchStateMeta = computed(() => {
@@ -249,17 +248,36 @@ const matchStateMeta = computed(() => {
   }
 })
 
-async function loadFilterOptions() {
-  try {
-    const [champions, modes] = await Promise.all([
-      apiClient.getChampionOptions(),
-      apiClient.getGameModes()
-    ])
-    championOptions.value = champions
-    modeOptions.value = modes
-  } catch (err) {
-    console.error('Failed to load filter options', err)
+async function ensurePageSettingsLoaded() {
+  if (settingsLoadPromise) {
+    await settingsLoadPromise
+    return
   }
+
+  settingsLoadPromise = (async () => {
+    try {
+      const [champions, modes, savedDefaultQueueMode] = await Promise.all([
+        apiClient.getChampionOptions(),
+        apiClient.getGameModes(),
+        getDefaultMatchQueueMode()
+      ])
+      championOptions.value = champions
+      modeOptions.value = modes
+      defaultMatchQueueMode.value = savedDefaultQueueMode
+    } catch (err) {
+      console.error('Failed to load page settings', err)
+    } finally {
+      settingsLoadPromise = null
+    }
+  })()
+
+  await settingsLoadPromise
+}
+
+function applyDefaultFilters() {
+  filterChampionId.value = -1
+  filterQueueId.value = defaultMatchQueueMode.value
+  currentPage.value = 1
 }
 
 async function loadData() {
@@ -271,7 +289,7 @@ async function loadData() {
   try {
     await gameStore.fetchRank(currentSummoner.value.puuid)
     const [tagData, winRates] = await Promise.all([
-      apiClient.getUserTagByPuuid(currentSummoner.value.puuid, 0),
+      apiClient.getUserTagByPuuid(currentSummoner.value.puuid, DEFAULT_ANALYSIS_QUEUE_MODE),
       apiClient.getRankedWinRates(currentSummoner.value.puuid)
     ])
     userTag.value = tagData
@@ -326,7 +344,7 @@ async function loadVisibleUserTagSummaries(matches: MatchHistory[]) {
   }
 
   try {
-    userTagSummaries.value = await apiClient.getUserTagSummaryBatch(puuids, summaryMode.value)
+    userTagSummaries.value = await apiClient.getUserTagSummaryBatch(puuids, DEFAULT_ANALYSIS_QUEUE_MODE)
   } catch (err) {
     console.warn('Failed to load summary tags', err)
     userTagSummaries.value = {}
@@ -361,7 +379,8 @@ function getTeamPlayers(match: MatchHistory, teamId: number): MatchRosterPlayer[
         puuid: player?.puuid || '',
         gameName: player?.gameName || '',
         tagLine: player?.tagLine || '',
-        summonerName: player?.summonerName || ''
+        summonerName: player?.summonerName || '',
+        stats: participant.stats
       }
     })
 }
@@ -401,40 +420,6 @@ function isMatchWin(match: MatchHistory): boolean {
   return Boolean(getCurrentPlayer(match)?.stats?.win)
 }
 
-function getKdaValue(match: MatchHistory): number {
-  const stats = getCurrentPlayer(match)?.stats
-  return calculateKda(stats?.kills || 0, stats?.deaths || 0, stats?.assists || 0)
-}
-
-function getKdaText(match: MatchHistory): string {
-  const stats = getCurrentPlayer(match)?.stats
-  if (!stats) {
-    return '0.0 KDA'
-  }
-  return `${stats.kills}/${stats.deaths}/${stats.assists} · ${getKdaValue(match).toFixed(1)} KDA`
-}
-
-function calculateKda(kills: number, deaths: number, assists: number): number {
-  if (deaths <= 0) {
-    return kills + assists
-  }
-  return (kills + assists) / deaths
-}
-
-function getKdaColor(kda: number): string {
-  if (kda >= 4) {
-    return '#3d9b7a'
-  }
-  if (kda <= 1.5) {
-    return '#c45c5c'
-  }
-  return 'var(--text-primary)'
-}
-
-function totalCs(stats?: Participant['stats']): number {
-  return (stats?.totalMinionsKilled || 0) + (stats?.neutralMinionsKilled || 0)
-}
-
 function getChampionUrl(championId?: number): string {
   return championId && championId > 0
     ? `http://127.0.0.1:8080/api/v1/asset/champion/${championId}`
@@ -456,31 +441,16 @@ function formatShortDate(timestamp?: number): string {
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
-function formatNumber(value?: number): string {
-  if (value == null) {
-    return '0'
-  }
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(1)}m`
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)}`.replace(/\.0$/, '') + 'k'
-  }
-  return String(value)
-}
-
 async function handleFilterChange() {
   currentPage.value = 1
   await loadMatchHistory()
 }
 
 async function resetFilter() {
-  if (!hasFilters.value) {
+  if (filterChampionId.value === -1 && filterQueueId.value === defaultMatchQueueMode.value) {
     return
   }
-  filterChampionId.value = -1
-  filterQueueId.value = 0
-  currentPage.value = 1
+  applyDefaultFilters()
   await loadMatchHistory()
 }
 
@@ -537,7 +507,7 @@ function handleCopyName() {
 }
 
 onMounted(async () => {
-  await loadFilterOptions()
+  await ensurePageSettingsLoaded()
 })
 
 watch(
@@ -546,9 +516,8 @@ watch(
     if (!puuid) {
       return
     }
-    currentPage.value = 1
-    filterChampionId.value = -1
-    filterQueueId.value = 0
+    await ensurePageSettingsLoaded()
+    applyDefaultFilters()
     await loadData()
   },
   { immediate: true }
@@ -618,11 +587,8 @@ watch(
   cursor: not-allowed;
 }
 
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+.content-stack {
+  min-width: 0;
 }
 
 .history-shell {
@@ -630,6 +596,10 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.overview-embed {
+  margin-bottom: 2px;
 }
 
 .history-toolbar {
@@ -758,16 +728,8 @@ watch(
   color: var(--text-primary);
 }
 
-.champion-copy span,
-.stat-strip {
+.champion-copy span {
   color: var(--text-secondary);
-}
-
-.stat-strip {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  font-size: 13px;
 }
 
 .roster-grid {
@@ -806,12 +768,6 @@ watch(
 .page-indicator {
   color: var(--text-secondary);
   font-size: 13px;
-}
-
-@media (max-width: 1080px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 720px) {

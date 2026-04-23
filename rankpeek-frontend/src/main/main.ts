@@ -1,10 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell, Tray, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import * as fs from 'fs'
+import { getTrayMenuEntries, getWindowCloseAction, getWindowMinimizeAction, type TrayMenuAction } from './trayBehavior'
 
 let mainWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
+let appTray: Tray | null = null
+let isQuitting = false
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -14,7 +17,9 @@ const logFile = join(logDir, 'rankpeek.log')
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true })
 }
+
 const logStream = fs.createWriteStream(logFile, { flags: 'a' })
+const boundsFile = join(app.getPath('userData'), 'window-bounds.json')
 
 function log(level: string, message: string) {
   const timestamp = new Date().toISOString()
@@ -23,36 +28,158 @@ function log(level: string, message: string) {
   console.log(logLine.trim())
 }
 
-const boundsFile = join(app.getPath('userData'), 'window-bounds.json')
+function getMainIconPath() {
+  return isDev
+    ? join(__dirname, '../../public/icon.ico')
+    : join(process.resourcesPath, 'public/icon.ico')
+}
+
+function getTrayIconPath() {
+  return isDev
+    ? join(__dirname, '../../public/tray-icon.ico')
+    : join(process.resourcesPath, 'public/tray-icon.ico')
+}
 
 function loadWindowBounds(): { width: number; height: number; x: number; y: number } | null {
   try {
     if (fs.existsSync(boundsFile)) {
-      const data = fs.readFileSync(boundsFile, 'utf-8')
-      return JSON.parse(data)
+      return JSON.parse(fs.readFileSync(boundsFile, 'utf-8'))
     }
   } catch {
     log('WARN', 'Failed to load window bounds')
   }
+
   return null
 }
 
 function saveWindowBounds() {
-  if (mainWindow) {
-    try {
-      const bounds = mainWindow.getBounds()
-      fs.writeFileSync(boundsFile, JSON.stringify(bounds))
-    } catch {
-      log('WARN', 'Failed to save window bounds')
-    }
+  if (!mainWindow) {
+    return
   }
+
+  try {
+    fs.writeFileSync(boundsFile, JSON.stringify(mainWindow.getBounds()))
+  } catch {
+    log('WARN', 'Failed to save window bounds')
+  }
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow()
+    return
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show()
+  }
+
+  mainWindow.focus()
+}
+
+function hideWindowToTray() {
+  if (!mainWindow) {
+    return
+  }
+
+  saveWindowBounds()
+  mainWindow.hide()
+  log('INFO', 'Window hidden to tray')
+}
+
+function navigateRenderer(path: string) {
+  if (!mainWindow) {
+    return
+  }
+
+  showMainWindow()
+  if (mainWindow.webContents.isLoadingMainFrame()) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow?.webContents.send('tray:navigate', path)
+    })
+    return
+  }
+
+  mainWindow.webContents.send('tray:navigate', path)
+}
+
+function toggleDevTools() {
+  if (!mainWindow) {
+    return
+  }
+
+  if (mainWindow.webContents.isDevToolsOpened()) {
+    mainWindow.webContents.closeDevTools()
+    return
+  }
+
+  mainWindow.webContents.openDevTools({ mode: 'detach' })
+}
+
+function handleTrayAction(action: TrayMenuAction) {
+  switch (action) {
+    case 'show-window':
+      showMainWindow()
+      return
+    case 'hide-window':
+      hideWindowToTray()
+      return
+    case 'navigate-home':
+      navigateRenderer('/')
+      return
+    case 'navigate-summoner':
+      navigateRenderer('/summoner')
+      return
+    case 'navigate-match-history':
+      navigateRenderer('/match-history')
+      return
+    case 'toggle-devtools':
+      toggleDevTools()
+      return
+    case 'quit':
+      isQuitting = true
+      app.quit()
+      return
+    default:
+      return
+  }
+}
+
+function createTray() {
+  if (appTray) {
+    return
+  }
+
+  appTray = new Tray(getTrayIconPath())
+  appTray.setToolTip('RankPeek')
+
+  const menuEntries: MenuItemConstructorOptions[] = getTrayMenuEntries().map((entry) => (
+    entry.action === 'separator'
+      ? { type: 'separator' }
+      : {
+          label: entry.label,
+          click: () => handleTrayAction(entry.action)
+        }
+  ))
+
+  appTray.setContextMenu(Menu.buildFromTemplate(menuEntries))
+
+  appTray.on('click', () => {
+    if (mainWindow?.isVisible()) {
+      hideWindowToTray()
+      return
+    }
+
+    showMainWindow()
+  })
 }
 
 function createWindow() {
   const storedBounds = loadWindowBounds()
-  const iconPath = isDev
-    ? join(__dirname, '../../public/icon.ico')
-    : join(process.resourcesPath, 'public/icon.ico')
 
   mainWindow = new BrowserWindow({
     width: storedBounds?.width ?? 1200,
@@ -71,13 +198,35 @@ function createWindow() {
       webSecurity: true,
       spellcheck: false
     },
-    icon: iconPath,
+    icon: getMainIconPath(),
     titleBarStyle: 'hidden',
     thickFrame: true
   })
 
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
+    const action = getWindowCloseAction({
+      isTrayEnabled: Boolean(appTray),
+      isQuitting
+    })
+
+    if (action === 'hide-to-tray') {
+      event.preventDefault()
+      hideWindowToTray()
+      return
+    }
+
     saveWindowBounds()
+  })
+
+  mainWindow.on('minimize', () => {
+    const action = getWindowMinimizeAction({
+      isTrayEnabled: Boolean(appTray),
+      isQuitting
+    })
+
+    if (action === 'keep-minimized') {
+      saveWindowBounds()
+    }
   })
 
   mainWindow.on('closed', () => {
@@ -93,35 +242,31 @@ function createWindow() {
   })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    void mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) {
-      shell.openExternal(url)
+      void shell.openExternal(url)
     }
+
     return { action: 'deny' }
   })
 }
 
-/**
- * 启动后端服务 (Native Image)
- */
 async function startBackend(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (isDev) {
-      // 开发模式：假设后端已在运行
-      console.log('Development mode: Backend should be running on port 8080')
+      log('INFO', 'Development mode: backend is expected on port 8080')
       resolve()
       return
     }
 
     const exePath = join(process.resourcesPath, 'backend', 'rankpeek-backend.exe')
-
-    console.log('Starting backend from:', exePath)
+    log('INFO', `Starting backend from ${exePath}`)
 
     backendProcess = spawn(exePath, [], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -136,53 +281,46 @@ async function startBackend(): Promise<void> {
       console.error(`Backend Error: ${data}`)
     })
 
-    backendProcess.on('error', (err) => {
-      console.error('Failed to start backend:', err)
-      reject(err)
+    backendProcess.on('error', (error) => {
+      console.error('Failed to start backend:', error)
+      reject(error)
     })
 
-    // 等待后端启动
-    waitForBackend().then(resolve).catch(reject)
+    void waitForBackend().then(resolve).catch(reject)
   })
 }
 
-/**
- * 等待后端服务就绪
- */
 async function waitForBackend(): Promise<void> {
   const maxRetries = 30
   const retryInterval = 500
 
-  for (let i = 0; i < maxRetries; i++) {
+  for (let index = 0; index < maxRetries; index += 1) {
     try {
       const response = await fetch('http://127.0.0.1:8080/actuator/health')
       if (response.ok) {
-        console.log('Backend is ready!')
+        log('INFO', 'Backend is ready')
         return
       }
     } catch {
-      // 继续等待
+      // Keep waiting until the backend answers.
     }
-    await new Promise(resolve => setTimeout(resolve, retryInterval))
+
+    await new Promise((resolve) => setTimeout(resolve, retryInterval))
   }
 
   throw new Error('Backend failed to start within timeout')
 }
 
-/**
- * 停止后端服务
- */
 function stopBackend() {
-  if (backendProcess) {
-    console.log('Stopping backend...')
-    backendProcess.kill()
-    backendProcess = null
+  if (!backendProcess) {
+    return
   }
+
+  log('INFO', 'Stopping backend')
+  backendProcess.kill()
+  backendProcess = null
 }
 
-// ========== IPC 处理 ==========
-
-// 窗口控制
 ipcMain.handle('window:minimize', () => {
   mainWindow?.minimize()
 })
@@ -190,39 +328,35 @@ ipcMain.handle('window:minimize', () => {
 ipcMain.handle('window:maximize', () => {
   if (mainWindow?.isMaximized()) {
     mainWindow.unmaximize()
-  } else {
-    mainWindow?.maximize()
+    return
   }
+
+  mainWindow?.maximize()
 })
 
 ipcMain.handle('window:close', () => {
   mainWindow?.close()
 })
 
-// 打开外部链接（使用系统默认浏览器）
 ipcMain.handle('shell:openExternal', async (_, url: string) => {
   try {
     if (!url || !url.startsWith('http')) {
       throw new Error('Invalid URL')
     }
-    // 使用系统默认浏览器打开
+
     await shell.openExternal(url, { activate: true })
     return { success: true }
   } catch (error) {
-    console.error('打开外部链接失败:', error)
+    console.error('Failed to open external link:', error)
     return { success: false, error: String(error) }
   }
 })
 
-// 获取应用版本
-ipcMain.handle('app:getVersion', () => {
-  return app.getVersion()
-})
-
-// ========== 应用生命周期 ==========
+ipcMain.handle('app:getVersion', () => app.getVersion())
 
 app.whenReady().then(async () => {
   try {
+    createTray()
     await startBackend()
     createWindow()
   } catch (error) {
@@ -231,24 +365,24 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
+    showMainWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  stopBackend()
-  if (process.platform !== 'darwin') {
+  if (isQuitting && process.platform !== 'darwin') {
+    stopBackend()
     app.quit()
   }
 })
 
 app.on('before-quit', () => {
+  isQuitting = true
+  appTray?.destroy()
+  appTray = null
   stopBackend()
 })
 
-// 处理未捕获的异常
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error)
 })

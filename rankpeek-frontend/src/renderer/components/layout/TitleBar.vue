@@ -37,13 +37,13 @@ const close = () => window.electronAPI?.closeWindow()
       </button>
       <button class="control-btn maximize" @click="maximize" title="最大化">
         <svg viewBox="0 0 12 12">
-          <rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" />
         </svg>
       </button>
       <button class="control-btn close" @click="close" title="关闭">
         <svg viewBox="0 0 12 12">
-          <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5"/>
-          <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5" />
+          <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.5" />
         </svg>
       </button>
     </div>

@@ -30,17 +30,19 @@
       <span>你可以直接输入完整 Riot ID，也可以从其他页面点击玩家名字跳转过来。</span>
     </section>
 
-    <section v-else-if="searchResult" class="content-grid">
-      <SummonerOverviewPanel
-        :summoner="searchResult"
-        :user-tag="searchUserTag"
-        :solo-rank="searchSoloRank"
-        :flex-rank="searchFlexRank"
-        :ranked-win-rates="searchRankedWinRates"
-        @copy-name="handleCopyName"
-      />
-
+    <section v-else-if="searchResult" class="content-stack">
       <div class="history-shell">
+        <SummonerOverviewPanel
+          class="overview-embed"
+          :summoner="searchResult"
+          :user-tag="searchUserTag"
+          :solo-rank="searchSoloRank"
+          :flex-rank="searchFlexRank"
+          :ranked-win-rates="searchRankedWinRates"
+          embedded
+          @copy-name="handleCopyName"
+        />
+
         <div class="history-toolbar">
           <div>
             <h2>最近对局</h2>
@@ -176,6 +178,7 @@ import MatchDetailModal from '@/components/summoner/MatchDetailModal.vue'
 import MatchRosterCompact from '@/components/summoner/MatchRosterCompact.vue'
 import SummonerOverviewPanel from '@/components/summoner/SummonerOverviewPanel.vue'
 import { useGameStore } from '@/stores/game'
+import { DEFAULT_ANALYSIS_QUEUE_MODE, getDefaultMatchQueueMode } from '@/utils/matchPreferences'
 import type {
   ChampionOption,
   GameDetail,
@@ -197,6 +200,7 @@ interface MatchRosterPlayer {
   gameName: string
   tagLine: string
   summonerName?: string
+  stats?: Participant['stats']
 }
 
 interface PlayerInMatch extends Participant {
@@ -218,12 +222,14 @@ const championOptions = ref<ChampionOption[]>([])
 const modeOptions = ref<GameModeOption[]>([])
 const filterChampionId = ref(-1)
 const filterQueueId = ref(0)
+const defaultMatchQueueMode = ref(0)
 const currentPage = ref(1)
 const loading = ref(false)
 const showDetailModal = ref(false)
 const selectedGameDetail = ref<GameDetail | null>(null)
 const selectedMatchHistory = ref<MatchHistory | null>(null)
 const error = ref('')
+let settingsLoadPromise: Promise<void> | null = null
 
 const pageSize = 10
 const maxTotalRecords = 50
@@ -232,7 +238,6 @@ const totalPages = computed(() => Math.max(1, Math.ceil(maxTotalRecords / pageSi
 const selectedSummonerName = computed(() => formatSummonerName(searchResult.value))
 const searchSoloRank = computed<QueueInfo | null>(() => searchRank.value?.queueMap?.RANKED_SOLO_5x5 || null)
 const searchFlexRank = computed<QueueInfo | null>(() => searchRank.value?.queueMap?.RANKED_FLEX_SR || null)
-const summaryMode = computed(() => (filterQueueId.value > 0 ? filterQueueId.value : 0))
 const hasFilters = computed(() => filterChampionId.value > 0 || filterQueueId.value > 0)
 
 const matchStateMeta = computed(() => {
@@ -267,17 +272,36 @@ const matchStateMeta = computed(() => {
   }
 })
 
-async function loadFilterOptions() {
-  try {
-    const [champions, modes] = await Promise.all([
-      apiClient.getChampionOptions(),
-      apiClient.getGameModes()
-    ])
-    championOptions.value = champions
-    modeOptions.value = modes
-  } catch (err) {
-    console.error('Failed to load filter options', err)
+async function ensurePageSettingsLoaded() {
+  if (settingsLoadPromise) {
+    await settingsLoadPromise
+    return
   }
+
+  settingsLoadPromise = (async () => {
+    try {
+      const [champions, modes, savedDefaultQueueMode] = await Promise.all([
+        apiClient.getChampionOptions(),
+        apiClient.getGameModes(),
+        getDefaultMatchQueueMode()
+      ])
+      championOptions.value = champions
+      modeOptions.value = modes
+      defaultMatchQueueMode.value = savedDefaultQueueMode
+    } catch (err) {
+      console.error('Failed to load page settings', err)
+    } finally {
+      settingsLoadPromise = null
+    }
+  })()
+
+  await settingsLoadPromise
+}
+
+function applyDefaultFilters() {
+  filterChampionId.value = -1
+  filterQueueId.value = defaultMatchQueueMode.value
+  currentPage.value = 1
 }
 
 async function searchSummoner(nameOverride?: string) {
@@ -286,12 +310,11 @@ async function searchSummoner(nameOverride?: string) {
     return
   }
 
+  await ensurePageSettingsLoaded()
   searchName.value = keyword
   loading.value = true
   error.value = ''
-  currentPage.value = 1
-  filterChampionId.value = -1
-  filterQueueId.value = 0
+  applyDefaultFilters()
   userTagSummaries.value = {}
   showDetailModal.value = false
   selectedGameDetail.value = null
@@ -312,7 +335,7 @@ async function searchSummoner(nameOverride?: string) {
     searchResult.value = summoner
     const [rank, userTag, winRates] = await Promise.all([
       apiClient.getRank(summoner.puuid),
-      apiClient.getUserTagByPuuid(summoner.puuid, 0),
+      apiClient.getUserTagByPuuid(summoner.puuid, DEFAULT_ANALYSIS_QUEUE_MODE),
       apiClient.getRankedWinRates(summoner.puuid)
     ])
 
@@ -370,7 +393,7 @@ async function loadVisibleUserTagSummaries(matches: MatchHistory[]) {
   }
 
   try {
-    userTagSummaries.value = await apiClient.getUserTagSummaryBatch(puuids, summaryMode.value)
+    userTagSummaries.value = await apiClient.getUserTagSummaryBatch(puuids, DEFAULT_ANALYSIS_QUEUE_MODE)
   } catch (err) {
     console.warn('Failed to load summary tags', err)
     userTagSummaries.value = {}
@@ -405,7 +428,8 @@ function getTeamPlayers(match: MatchHistory, teamId: number): MatchRosterPlayer[
         puuid: player?.puuid || '',
         gameName: player?.gameName || '',
         tagLine: player?.tagLine || '',
-        summonerName: player?.summonerName || ''
+        summonerName: player?.summonerName || '',
+        stats: participant.stats
       }
     })
 }
@@ -530,12 +554,10 @@ async function handleFilterChange() {
 }
 
 async function resetFilter() {
-  if (!hasFilters.value) {
+  if (filterChampionId.value === -1 && filterQueueId.value === defaultMatchQueueMode.value) {
     return
   }
-  filterChampionId.value = -1
-  filterQueueId.value = 0
-  currentPage.value = 1
+  applyDefaultFilters()
   await loadMatchHistory()
 }
 
@@ -602,7 +624,7 @@ async function applyRouteQueryName(value: unknown) {
 }
 
 onMounted(async () => {
-  await loadFilterOptions()
+  await ensurePageSettingsLoaded()
   await applyRouteQueryName(route.query.name)
 })
 
@@ -701,11 +723,8 @@ watch(
   cursor: not-allowed;
 }
 
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+.content-stack {
+  min-width: 0;
 }
 
 .history-shell {
@@ -713,6 +732,10 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.overview-embed {
+  margin-bottom: 2px;
 }
 
 .history-toolbar {
@@ -893,12 +916,6 @@ watch(
 .page-indicator {
   color: var(--text-secondary);
   font-size: 13px;
-}
-
-@media (max-width: 1080px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 720px) {

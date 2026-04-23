@@ -52,6 +52,11 @@ It pulls data from the local League Client (LCU) and turns it into fast player l
 - Auto pick / ban helpers
 - Settings-driven toggles for repetitive client actions
 
+> [!WARNING]
+> RankPeek strongly recommends that users do not enable automation features such as auto pick / ban, auto accept, or auto queue.
+> Any automation against the League client may increase account risk.
+> Any bans, restrictions, warnings, or other negative consequences caused by using this software are the sole responsibility of the user.
+
 ## How It Works
 
 RankPeek is a Windows desktop application built with:

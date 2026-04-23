@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { apiClient } from '@/api/httpClient'
 import type { UserTag, AramBalanceData } from '@/types/api'
+import { DEFAULT_ANALYSIS_QUEUE_MODE } from '@/utils/matchPreferences'
 
 export const useUserTagStore = defineStore('userTag', () => {
   // 状态
@@ -14,7 +15,7 @@ export const useUserTagStore = defineStore('userTag', () => {
   /**
    * 根据名称获取用户标签
    */
-  async function fetchUserTagByName(name: string, mode = 0) {
+  async function fetchUserTagByName(name: string, mode: number = DEFAULT_ANALYSIS_QUEUE_MODE) {
     loading.value = true
     error.value = ''
 
@@ -31,7 +32,7 @@ export const useUserTagStore = defineStore('userTag', () => {
   /**
    * 根据 PUUID 获取用户标签
    */
-  async function fetchUserTagByPuuid(puuid: string, mode = 0) {
+  async function fetchUserTagByPuuid(puuid: string, mode: number = DEFAULT_ANALYSIS_QUEUE_MODE) {
     loading.value = true
     error.value = ''
 

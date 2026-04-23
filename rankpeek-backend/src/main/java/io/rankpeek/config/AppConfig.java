@@ -32,6 +32,7 @@ public class AppConfig {
     public static class Settings {
         private Auto auto = new Auto();
         private Ai ai = new Ai();
+        private Match match = new Match();
     }
 
     @Data
@@ -100,6 +101,15 @@ public class AppConfig {
         private String model;
     }
 
+    @Data
+    public static class Match {
+        /**
+         * 战绩查询默认队列模式
+         * 0=全部, 420=单双排, 440=灵活排位, 430=匹配, 450=大乱斗, 2400=海克斯大乱斗
+         */
+        private int defaultQueueMode = 0;
+    }
+
     // ========== 便捷方法 ==========
 
     public boolean isAutoMatchEnabled() {
@@ -134,6 +144,10 @@ public class AppConfig {
         return settings.getAuto().getBanChampionSlice();
     }
 
+    public int getDefaultMatchQueueMode() {
+        return normalizeQueueMode(settings.getMatch().getDefaultQueueMode());
+    }
+
     /**
      * 更新配置
      */
@@ -145,6 +159,30 @@ public class AppConfig {
     }
 
     private void updateInternalSettings(String key, Object value) {
+        if ("settings".equals(key) && value instanceof Map<?, ?> settingsMap) {
+            settingsMap.forEach((nestedKey, nestedValue) ->
+                updateInternalSettings("settings." + nestedKey, nestedValue));
+            return;
+        }
+
+        if ("settings.auto".equals(key) && value instanceof Map<?, ?> autoMap) {
+            autoMap.forEach((nestedKey, nestedValue) ->
+                updateInternalSettings("settings.auto." + nestedKey, nestedValue));
+            return;
+        }
+
+        if ("settings.ai".equals(key) && value instanceof Map<?, ?> aiMap) {
+            aiMap.forEach((nestedKey, nestedValue) ->
+                updateInternalSettings("settings.ai." + nestedKey, nestedValue));
+            return;
+        }
+
+        if ("settings.match".equals(key) && value instanceof Map<?, ?> matchMap) {
+            matchMap.forEach((nestedKey, nestedValue) ->
+                updateInternalSettings("settings.match." + nestedKey, nestedValue));
+            return;
+        }
+
         if (key.startsWith("settings.auto.")) {
             String autoKey = key.substring("settings.auto.".length());
 
@@ -183,6 +221,12 @@ public class AppConfig {
                 case "endpoint" -> settings.getAi().setEndpoint(toString(value));
                 case "model" -> settings.getAi().setModel(toString(value));
             }
+        } else if (key.startsWith("settings.match.")) {
+            String matchKey = key.substring("settings.match.".length());
+
+            switch (matchKey) {
+                case "defaultQueueMode" -> settings.getMatch().setDefaultQueueMode(normalizeQueueMode(toInt(value)));
+            }
         }
     }
 
@@ -215,6 +259,13 @@ public class AppConfig {
 
     private int clampDelay(int delay) {
         return Math.max(0, Math.min(10, delay));
+    }
+
+    private int normalizeQueueMode(int queueMode) {
+        return switch (queueMode) {
+            case 0, 420, 440, 430, 450, 2400 -> queueMode;
+            default -> 0;
+        };
     }
 
     private String toString(Object value) {

@@ -13,7 +13,7 @@
 
     <groupId>io.rankpeek</groupId>
     <artifactId>rankpeek-backend</artifactId>
-    <version>0.0.8</version>
+    <version>1.0.0</version>
     <name>rankpeek-backend</name>
     <description>RankPeek local backend service</description>
 

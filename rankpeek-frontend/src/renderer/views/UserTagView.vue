@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useUserTagStore } from '@/stores/userTag'
 import { useGameStore } from '@/stores/game'
 import { GAME_MODE_OPTIONS } from '@/utils/constants'
+import { DEFAULT_ANALYSIS_QUEUE_MODE } from '@/utils/matchPreferences'
 import UserTagCard from '@/components/userTag/UserTagCard.vue'
 import FriendDisputeCard from '@/components/userTag/FriendDisputeCard.vue'
 
@@ -10,7 +11,7 @@ const userTagStore = useUserTagStore()
 const gameStore = useGameStore()
 
 const searchName = ref('')
-const selectedMode = ref(0)
+const selectedMode = ref(DEFAULT_ANALYSIS_QUEUE_MODE)
 const modeOptions = GAME_MODE_OPTIONS
 
 async function search() {

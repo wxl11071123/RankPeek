@@ -1,11 +1,35 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import Sidebar from '@/components/layout/Sidebar.vue'
 import { useGameStore } from '@/stores/game'
 
 const gameStore = useGameStore()
+const router = useRouter()
+
+let removeTrayNavigateListener: (() => void) | null = null
 
 gameStore.initConnection()
+
+onMounted(() => {
+  if (!window.electronAPI?.onTrayNavigate) {
+    return
+  }
+
+  removeTrayNavigateListener = window.electronAPI.onTrayNavigate((path) => {
+    if (router.currentRoute.value.path === path) {
+      return
+    }
+
+    void router.push(path)
+  })
+})
+
+onBeforeUnmount(() => {
+  removeTrayNavigateListener?.()
+  removeTrayNavigateListener = null
+})
 </script>
 
 <template>

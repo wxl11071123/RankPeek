@@ -206,6 +206,9 @@ export interface AppConfig {
       endpoint?: string
       model?: string
     }
+    match: {
+      defaultQueueMode: number
+    }
   }
 }
 

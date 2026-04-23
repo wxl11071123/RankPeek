@@ -11,7 +11,7 @@ const menuItems = [
   { path: '/summoner', icon: '👤', label: '战绩查询' },
   { path: '/match-history', icon: '📊', label: '召唤师信息' },
   { path: '/user-tag', icon: '🏷️', label: '标签分析' },
-  { path: '/tag-config', icon: '📋', label: '标签配置' },
+  { path: '/tag-config', icon: '📝', label: '标签配置' },
   { path: '/automation', icon: '⚙️', label: '自动化' },
   { path: '/settings', icon: '🔧', label: '设置' }
 ]
@@ -19,19 +19,12 @@ const menuItems = [
 const currentPath = computed(() => route.path)
 
 function navigateTo(path: string) {
-  router.push(path)
+  void router.push(path)
 }
 </script>
 
 <template>
   <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="app-brand">
-        <span class="brand-icon">🎮</span>
-        <span class="brand-text">RankPeek</span>
-      </div>
-    </div>
-
     <nav class="sidebar-nav">
       <ul class="nav-list">
         <li
@@ -48,7 +41,7 @@ function navigateTo(path: string) {
     </nav>
 
     <div class="sidebar-footer">
-      <div class="version">v0.0.8</div>
+      <div class="version">v1.0.0</div>
     </div>
   </aside>
 </template>
@@ -64,32 +57,9 @@ function navigateTo(path: string) {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-.sidebar-header {
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.app-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-icon {
-  font-size: 24px;
-}
-
-.brand-text {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.28px;
-}
-
 .sidebar-nav {
   flex: 1;
-  padding: 12px 12px;
+  padding: 18px 12px 12px;
   overflow-y: auto;
 }
 
@@ -102,14 +72,14 @@ function navigateTo(path: string) {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 14px;
+  padding: 12px 16px;
   margin-bottom: 2px;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   letter-spacing: -0.224px;
 }
@@ -126,14 +96,14 @@ function navigateTo(path: string) {
 }
 
 .nav-icon {
-  font-size: 16px;
-  width: 20px;
+  font-size: 18px;
+  width: 22px;
   text-align: center;
   flex-shrink: 0;
 }
 
 .nav-label {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .sidebar-footer {

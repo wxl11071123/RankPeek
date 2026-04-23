@@ -1,39 +1,56 @@
 <script setup lang="ts">
 import { apiClient } from "@/api/httpClient";
 import { useThemeStore } from "@/stores/theme";
-import { ref, onMounted } from "vue";
+import type { GameModeOption } from "@/types/api";
+import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from "@/utils/matchPreferences";
+import { computed, onMounted, ref } from "vue";
+import brandMarkDark from "@/assets/branding/rankpeek-mark-dark.png";
+import brandMarkLight from "@/assets/branding/rankpeek-mark-light.png";
+import brandGlow from "@/assets/branding/rankpeek-white-glow.png";
 
 const themeStore = useThemeStore();
-const appVersion = ref("0.0.8");
-
-// AI 设置
+const appVersion = ref("1.0.0");
 const aiEnabled = ref(false);
 const aiApiKey = ref("");
 const aiEndpoint = ref("https://api.deepseek.com");
 const aiModel = ref("deepseek-chat");
 const showApiKey = ref(false);
+const defaultMatchQueueMode = ref(0);
+const matchModeOptions = ref<GameModeOption[]>([]);
 
-// 获取版本号
+const aboutLogoSrc = computed(() =>
+  themeStore.theme === "dark" ? brandMarkLight : brandMarkDark,
+);
+
 if (window.electronAPI) {
-  window.electronAPI.getVersion().then((v) => (appVersion.value = v));
+  window.electronAPI.getVersion().then((version) => {
+    appVersion.value = version;
+  });
 }
 
-// 加载配置
 onMounted(async () => {
   try {
-    const config = await apiClient.getConfig();
+    const [config, modes, savedDefaultQueueMode] = await Promise.all([
+      apiClient.getConfig(),
+      apiClient.getGameModes(),
+      getDefaultMatchQueueMode(true),
+    ]);
+    matchModeOptions.value = modes;
+    defaultMatchQueueMode.value = savedDefaultQueueMode;
     if (config?.settings?.ai) {
       aiEnabled.value = config.settings.ai.enabled ?? false;
       aiApiKey.value = config.settings.ai.apiKey ?? "";
       aiEndpoint.value = config.settings.ai.endpoint ?? "https://api.deepseek.com";
       aiModel.value = config.settings.ai.model ?? "deepseek-chat";
     }
-  } catch (e) {
-    console.error("加载配置失败", e);
+    if (config?.settings?.match) {
+      defaultMatchQueueMode.value = config.settings.match.defaultQueueMode ?? savedDefaultQueueMode;
+    }
+  } catch (error) {
+    console.error("加载设置失败", error);
   }
 });
 
-// 保存 AI 设置
 async function saveAiSettings() {
   try {
     await apiClient.setConfig("settings.ai.enabled", aiEnabled.value);
@@ -41,15 +58,27 @@ async function saveAiSettings() {
     await apiClient.setConfig("settings.ai.endpoint", aiEndpoint.value);
     await apiClient.setConfig("settings.ai.model", aiModel.value);
     alert("AI 设置已保存");
-  } catch (e) {
-    console.error("保存 AI 设置失败", e);
+  } catch (error) {
+    console.error("保存 AI 设置失败", error);
     alert("保存失败");
   }
 }
 
-// 清除缓存
+async function saveMatchSettings() {
+  try {
+    await apiClient.setConfig("settings.match.defaultQueueMode", defaultMatchQueueMode.value);
+    setCachedDefaultMatchQueueMode(defaultMatchQueueMode.value);
+    alert("默认查战绩模式已保存");
+  } catch (error) {
+    console.error("淇濆瓨榛樿鎴樼哗妯″紡澶辫触", error);
+    alert("淇濆瓨澶辫触");
+  }
+}
+
 async function clearCache() {
-  if (!confirm("确定要清除所有缓存吗？")) return;
+  if (!confirm("确定要清除本地缓存吗？")) {
+    return;
+  }
 
   try {
     const currentTheme = themeStore.theme;
@@ -57,13 +86,12 @@ async function clearCache() {
     themeStore.setTheme(currentTheme);
     await apiClient.getConfig();
     alert("缓存已清除");
-  } catch (e) {
-    console.error("清除缓存失败", e);
+  } catch (error) {
+    console.error("清除缓存失败", error);
     alert("清除缓存失败");
   }
 }
 
-// 导出配置
 async function exportConfig() {
   try {
     const config = await apiClient.getConfig();
@@ -71,26 +99,27 @@ async function exportConfig() {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `rankpeek-config-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `rankpeek-config-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
     URL.revokeObjectURL(url);
-  } catch (e) {
-    console.error("导出配置失败", e);
+  } catch (error) {
+    console.error("导出配置失败", error);
     alert("导出配置失败");
   }
 }
 
-// 导入配置
 async function importConfig() {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = ".json";
 
-  input.onchange = async (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+  input.onchange = async (event) => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) {
+      return;
+    }
 
     try {
       const text = await file.text();
@@ -101,16 +130,15 @@ async function importConfig() {
       }
 
       alert("配置已导入");
-    } catch (e) {
-      console.error("导入配置失败", e);
-      alert("导入配置失败：文件格式不正确");
+    } catch (error) {
+      console.error("导入配置失败", error);
+      alert("导入失败：文件格式不正确");
     }
   };
 
   input.click();
 }
 
-// 打开外部链接
 async function openExternal(url: string) {
   if (!window.electronAPI) {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -123,8 +151,8 @@ async function openExternal(url: string) {
       console.error("打开链接失败:", result.error);
       window.open(url, "_blank", "noopener,noreferrer");
     }
-  } catch (e) {
-    console.error("打开外部链接失败", e);
+  } catch (error) {
+    console.error("打开外部链接失败", error);
     window.open(url, "_blank", "noopener,noreferrer");
   }
 }
@@ -134,46 +162,49 @@ async function openExternal(url: string) {
   <div class="settings-view">
     <div class="page-header">
       <h1>系统设置</h1>
-      <p>应用程序配置</p>
+      <p>调整 RankPeek 的品牌、AI 与本地运行选项。</p>
     </div>
 
-    <!-- 关于 -->
     <div class="settings-section">
       <h2>关于</h2>
       <div class="about-card">
-        <div class="app-logo">🎮</div>
+        <div class="app-logo">
+          <img :src="aboutLogoSrc" alt="RankPeek logo" />
+        </div>
         <div class="app-info">
           <h3>RankPeek</h3>
-          <p>英雄联盟战绩查询工具</p>
+          <p>英雄联盟对局侦察工具</p>
           <p class="version">版本 {{ appVersion }}</p>
+        </div>
+        <div class="app-showcase">
+          <img :src="brandGlow" alt="RankPeek showcase artwork" />
         </div>
       </div>
     </div>
 
-    <!-- AI 设置 -->
     <div class="settings-section">
       <h2>AI 分析</h2>
       <div class="ai-settings">
         <div class="setting-item">
           <div class="setting-info">
             <span class="setting-label">启用 AI 分析</span>
-            <span class="setting-desc">开启后可使用 DeepSeek AI 分析对局数据</span>
+            <span class="setting-desc">开启后可使用 DeepSeek 对对局数据做赛前锐评。</span>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" v-model="aiEnabled" />
+            <input v-model="aiEnabled" type="checkbox" />
             <span class="toggle-slider"></span>
           </label>
         </div>
 
-        <div class="setting-item" v-if="aiEnabled">
+        <div v-if="aiEnabled" class="setting-item">
           <div class="setting-info">
             <span class="setting-label">API 密钥</span>
-            <span class="setting-desc">DeepSeek API Key</span>
+            <span class="setting-desc">用于调用 DeepSeek 接口。</span>
           </div>
           <div class="api-key-input">
             <input
-              :type="showApiKey ? 'text' : 'password'"
               v-model="aiApiKey"
+              :type="showApiKey ? 'text' : 'password'"
               placeholder="sk-xxxxxxxxxxxxxxxx"
               class="text-input"
             />
@@ -183,65 +214,59 @@ async function openExternal(url: string) {
           </div>
         </div>
 
-        <div class="setting-item" v-if="aiEnabled">
+        <div v-if="aiEnabled" class="setting-item">
           <div class="setting-info">
-            <span class="setting-label">API 端点</span>
-            <span class="setting-desc">DeepSeek API 地址（通常无需修改）</span>
+            <span class="setting-label">API 地址</span>
+            <span class="setting-desc">默认即可，只有代理或中转场景才需要修改。</span>
           </div>
           <input
-            type="text"
             v-model="aiEndpoint"
+            type="text"
             placeholder="https://api.deepseek.com"
             class="text-input full-width"
           />
         </div>
 
-        <div class="setting-item" v-if="aiEnabled">
+        <div v-if="aiEnabled" class="setting-item">
           <div class="setting-info">
             <span class="setting-label">模型</span>
-            <span class="setting-desc">使用的 AI 模型</span>
+            <span class="setting-desc">选择用于赛前分析的 DeepSeek 模型。</span>
           </div>
           <select v-model="aiModel" class="select-input">
-            <option value="deepseek-chat">deepseek-chat（推荐）</option>
+            <option value="deepseek-chat">deepseek-chat</option>
             <option value="deepseek-reasoner">deepseek-reasoner</option>
           </select>
         </div>
 
-        <div class="setting-actions" v-if="aiEnabled">
+        <div v-if="aiEnabled" class="setting-actions">
           <button class="save-btn" @click="saveAiSettings">保存设置</button>
           <a
             href="https://platform.deepseek.com/api_keys"
             class="get-key-link"
             @click.prevent="openExternal('https://platform.deepseek.com/api_keys')"
           >
-            获取 API Key →
+            获取 API Key
           </a>
         </div>
       </div>
     </div>
 
-    <!-- 外观设置 -->
     <div class="settings-section">
       <h2>外观</h2>
       <div class="appearance-settings">
         <div class="setting-item">
           <div class="setting-info">
             <span class="setting-label">主题模式</span>
-            <span class="setting-desc">选择明亮或暗黑主题</span>
+            <span class="setting-desc">切换浅色或深色主题，logo 会跟着自动换版。</span>
           </div>
           <div class="theme-toggle">
             <button
               class="theme-btn"
               :class="{ active: themeStore.theme === 'light' }"
+              title="浅色模式"
               @click="themeStore.setTheme('light')"
-              title="明亮模式"
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="5" />
                 <path
                   d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
@@ -251,15 +276,10 @@ async function openExternal(url: string) {
             <button
               class="theme-btn"
               :class="{ active: themeStore.theme === 'dark' }"
+              title="深色模式"
               @click="themeStore.setTheme('dark')"
-              title="暗黑模式"
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             </button>
@@ -268,55 +288,74 @@ async function openExternal(url: string) {
       </div>
     </div>
 
-    <!-- 快捷键 -->
+    <div class="settings-section">
+      <h2>战绩查询</h2>
+      <div class="appearance-settings">
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">默认查战绩模式</span>
+            <span class="setting-desc">控制“我的战绩”和“战绩查询”页面首次打开时默认展示哪类对局。</span>
+          </div>
+          <select v-model="defaultMatchQueueMode" class="select-input">
+            <option
+              v-for="mode in matchModeOptions"
+              :key="mode.id"
+              :value="mode.id"
+            >
+              {{ mode.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="setting-actions">
+          <button class="save-btn" @click="saveMatchSettings">保存默认模式</button>
+          <span class="setting-desc">软件内的标签与数据分析默认仍基于单双排。</span>
+        </div>
+      </div>
+    </div>
+
     <div class="settings-section">
       <h2>快捷键</h2>
       <div class="shortcut-list">
         <div class="shortcut-item">
           <span class="shortcut-key">Ctrl + R</span>
-          <span class="shortcut-action">刷新数据</span>
+          <span class="shortcut-action">刷新当前页面数据</span>
         </div>
         <div class="shortcut-item">
           <span class="shortcut-key">Ctrl + W</span>
-          <span class="shortcut-action">关闭窗口</span>
+          <span class="shortcut-action">关闭当前窗口</span>
         </div>
         <div class="shortcut-item">
           <span class="shortcut-key">F12</span>
-          <span class="shortcut-action">开发者工具</span>
+          <span class="shortcut-action">打开开发者工具</span>
         </div>
       </div>
     </div>
 
-    <!-- 链接 -->
     <div class="settings-section">
       <h2>相关链接</h2>
       <div class="link-list">
         <a
           href="https://github.com/wxl11071123/RankPeek"
           class="link-item"
-          @click.prevent="
-            openExternal('https://github.com/wxl11071123/RankPeek')
-          "
+          @click.prevent="openExternal('https://github.com/wxl11071123/RankPeek')"
         >
-          <span class="link-icon">📦</span>
+          <span class="link-icon">📁</span>
           <span class="link-text">GitHub 仓库</span>
           <span class="link-arrow">→</span>
         </a>
         <a
           href="https://github.com/wxl11071123/RankPeek/issues"
           class="link-item"
-          @click.prevent="
-            openExternal('https://github.com/wxl11071123/RankPeek/issues')
-          "
+          @click.prevent="openExternal('https://github.com/wxl11071123/RankPeek/issues')"
         >
-          <span class="link-icon">🐛</span>
-          <span class="link-text">反馈问题</span>
+          <span class="link-icon">💬</span>
+          <span class="link-text">问题反馈</span>
           <span class="link-arrow">→</span>
         </a>
       </div>
     </div>
 
-    <!-- 数据 -->
     <div class="settings-section">
       <h2>数据管理</h2>
       <div class="data-actions">
@@ -330,7 +369,7 @@ async function openExternal(url: string) {
 
 <style scoped>
 .settings-view {
-  max-width: 640px;
+  max-width: 720px;
   margin: 0 auto;
 }
 
@@ -369,8 +408,10 @@ async function openExternal(url: string) {
 }
 
 .about-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 220px;
   gap: 20px;
+  align-items: center;
   padding: 24px;
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
@@ -378,14 +419,21 @@ async function openExternal(url: string) {
 }
 
 .app-logo {
-  font-size: 48px;
-  width: 72px;
-  height: 72px;
+  width: 84px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-xl);
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.18), rgba(7, 11, 21, 0.82));
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.app-logo img {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
 }
 
 .app-info h3 {
@@ -411,7 +459,27 @@ async function openExternal(url: string) {
   color: var(--text-tertiary);
 }
 
-.ai-settings {
+.app-showcase {
+  height: 120px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #030711;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.app-showcase img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.12);
+}
+
+.ai-settings,
+.appearance-settings {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -464,10 +532,7 @@ async function openExternal(url: string) {
 .toggle-slider {
   position: absolute;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background-color: rgba(120, 120, 128, 0.32);
   transition: 0.3s;
   border-radius: var(--radius-pill);
@@ -494,14 +559,15 @@ async function openExternal(url: string) {
   transform: translateX(20px);
 }
 
-.text-input {
+.text-input,
+.select-input {
   padding: 10px 14px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 13px;
-  min-width: 200px;
+  min-width: 220px;
   letter-spacing: -0.224px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -510,7 +576,8 @@ async function openExternal(url: string) {
   width: 100%;
 }
 
-.text-input:focus {
+.text-input:focus,
+.select-input:focus {
   outline: none;
   border-color: var(--input-focus-border);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
@@ -536,25 +603,6 @@ async function openExternal(url: string) {
 
 .toggle-visibility:hover {
   background: var(--bg-hover);
-}
-
-.select-input {
-  padding: 10px 14px;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 13px;
-  min-width: 200px;
-  cursor: pointer;
-  letter-spacing: -0.224px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.select-input:focus {
-  outline: none;
-  border-color: var(--input-focus-border);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
 }
 
 .setting-actions {
@@ -595,7 +643,42 @@ async function openExternal(url: string) {
   text-decoration: underline;
 }
 
-.shortcut-list {
+.theme-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.theme-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.theme-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.theme-btn.active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.theme-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.shortcut-list,
+.link-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -624,12 +707,6 @@ async function openExternal(url: string) {
   font-size: 14px;
   color: var(--text-secondary);
   letter-spacing: -0.224px;
-}
-
-.link-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .link-item {
@@ -684,43 +761,13 @@ async function openExternal(url: string) {
   background: var(--bg-hover);
 }
 
-.appearance-settings {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+@media (max-width: 960px) {
+  .about-card {
+    grid-template-columns: 84px 1fr;
+  }
 
-.theme-toggle {
-  display: flex;
-  gap: 6px;
-  padding: 4px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-}
-
-.theme-btn {
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
-}
-
-.theme-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.theme-btn.active {
-  background: var(--accent-color);
-  color: white;
-}
-
-.theme-btn svg {
-  width: 18px;
-  height: 18px;
+  .app-showcase {
+    grid-column: 1 / -1;
+  }
 }
 </style>

@@ -11,4 +11,5 @@ export interface ElectronAPI {
   getVersion: () => Promise<string>
   platform: string
   onBackendReady: (callback: () => void) => () => void
+  onTrayNavigate: (callback: (path: string) => void) => () => void
 }

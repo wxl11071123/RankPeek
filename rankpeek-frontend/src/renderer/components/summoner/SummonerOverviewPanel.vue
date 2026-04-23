@@ -13,13 +13,16 @@ import master from '@/assets/imgs/tier/master.png'
 import grandmaster from '@/assets/imgs/tier/grandmaster.png'
 import challenger from '@/assets/imgs/tier/challenger.png'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   summoner: Summoner
   userTag: UserTag | null
   soloRank: QueueInfo | null
   flexRank: QueueInfo | null
   rankedWinRates: Record<string, WinRate> | null
-}>()
+  embedded?: boolean
+}>(), {
+  embedded: false
+})
 
 const emit = defineEmits<{
   copyName: []
@@ -39,6 +42,27 @@ const tierIconMap: Record<string, string> = {
   challenger
 }
 
+const tierLabelMap: Record<string, string> = {
+  UNRANKED: '未定级',
+  IRON: '黑铁',
+  BRONZE: '青铜',
+  SILVER: '白银',
+  GOLD: '黄金',
+  PLATINUM: '铂金',
+  EMERALD: '翡翠',
+  DIAMOND: '钻石',
+  MASTER: '超凡大师',
+  GRANDMASTER: '傲世宗师',
+  CHALLENGER: '最强王者'
+}
+
+const divisionLabelMap: Record<string, string> = {
+  I: '一',
+  II: '二',
+  III: '三',
+  IV: '四'
+}
+
 function fullName(): string {
   return props.summoner.tagLine
     ? `${props.summoner.gameName}#${props.summoner.tagLine}`
@@ -56,13 +80,25 @@ function getTierIcon(tier?: string): string {
 }
 
 function getTierText(queueInfo: QueueInfo | null): string {
-  if (!queueInfo?.tier || queueInfo.tier === 'UNRANKED') {
-    return '未定级'
+  if (!queueInfo) {
+    return tierLabelMap.UNRANKED
   }
-  if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(queueInfo.tier)) {
-    return `${queueInfo.tier} ${queueInfo.leaguePoints} LP`
+
+  const tierKey = queueInfo?.tier?.toUpperCase()
+  if (!tierKey || tierKey === 'UNRANKED') {
+    return tierLabelMap.UNRANKED
   }
-  return `${queueInfo.tier} ${queueInfo.division} ${queueInfo.leaguePoints} LP`
+
+  const tierLabel = tierLabelMap[tierKey] || queueInfo.tier
+  if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tierKey)) {
+    return `${tierLabel} ${queueInfo.leaguePoints} LP`
+  }
+
+  const divisionKey = queueInfo?.division?.toUpperCase()
+  const divisionLabel = divisionKey ? (divisionLabelMap[divisionKey] || queueInfo.division) : ''
+  return divisionLabel
+    ? `${tierLabel} ${divisionLabel} ${queueInfo.leaguePoints} LP`
+    : `${tierLabel} ${queueInfo.leaguePoints} LP`
 }
 
 function getWinRatePercent(wins: number, losses: number): number {
@@ -123,7 +159,7 @@ function statusMeta() {
 </script>
 
 <template>
-  <div class="overview-panel">
+  <div class="overview-panel" :class="{ embedded: props.embedded }">
     <div class="user-card">
       <div class="user-card-header">
         <div class="avatar-wrapper">
@@ -217,36 +253,28 @@ function statusMeta() {
 
     <div class="rank-cards">
       <div class="rank-card">
-        <div class="rank-icon-area">
-          <span class="rank-label">单排</span>
-          <img class="rank-img" :src="getTierIcon(soloRank?.tier)" alt="" />
-          <div class="rank-tier">{{ getTierText(soloRank) }}</div>
+        <span class="rank-label">单双排</span>
+        <img class="rank-img" :src="getTierIcon(soloRank?.tier)" alt="" />
+        <div class="rank-tier">{{ getTierText(soloRank) }}</div>
+        <div class="win-rate-badge">
+          {{ getWinRatePercent(rankedWinRates?.RANKED_SOLO_5x5?.wins || 0, rankedWinRates?.RANKED_SOLO_5x5?.losses || 0) }}%
         </div>
-        <div class="rank-stats">
-          <div class="win-rate-badge">
-            {{ getWinRatePercent(rankedWinRates?.RANKED_SOLO_5x5?.wins || 0, rankedWinRates?.RANKED_SOLO_5x5?.losses || 0) }}%
-          </div>
-          <div class="rank-wl">
-            <span>{{ rankedWinRates?.RANKED_SOLO_5x5?.wins || 0 }}胜</span>
-            <span>{{ rankedWinRates?.RANKED_SOLO_5x5?.losses || 0 }}负</span>
-          </div>
+        <div class="rank-wl">
+          <span>{{ rankedWinRates?.RANKED_SOLO_5x5?.wins || 0 }}胜</span>
+          <span>{{ rankedWinRates?.RANKED_SOLO_5x5?.losses || 0 }}负</span>
         </div>
       </div>
 
       <div class="rank-card">
-        <div class="rank-icon-area">
-          <span class="rank-label">灵活组排</span>
-          <img class="rank-img" :src="getTierIcon(flexRank?.tier)" alt="" />
-          <div class="rank-tier">{{ getTierText(flexRank) }}</div>
+        <span class="rank-label">灵活组排</span>
+        <img class="rank-img" :src="getTierIcon(flexRank?.tier)" alt="" />
+        <div class="rank-tier">{{ getTierText(flexRank) }}</div>
+        <div class="win-rate-badge">
+          {{ getWinRatePercent(rankedWinRates?.RANKED_FLEX_SR?.wins || 0, rankedWinRates?.RANKED_FLEX_SR?.losses || 0) }}%
         </div>
-        <div class="rank-stats">
-          <div class="win-rate-badge">
-            {{ getWinRatePercent(rankedWinRates?.RANKED_FLEX_SR?.wins || 0, rankedWinRates?.RANKED_FLEX_SR?.losses || 0) }}%
-          </div>
-          <div class="rank-wl">
-            <span>{{ rankedWinRates?.RANKED_FLEX_SR?.wins || 0 }}胜</span>
-            <span>{{ rankedWinRates?.RANKED_FLEX_SR?.losses || 0 }}负</span>
-          </div>
+        <div class="rank-wl">
+          <span>{{ rankedWinRates?.RANKED_FLEX_SR?.wins || 0 }}胜</span>
+          <span>{{ rankedWinRates?.RANKED_FLEX_SR?.losses || 0 }}负</span>
         </div>
       </div>
     </div>
@@ -303,6 +331,12 @@ function statusMeta() {
   gap: 16px;
 }
 
+.overview-panel.embedded {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  align-items: stretch;
+}
+
 .user-card,
 .relationship-col,
 .rank-card,
@@ -314,6 +348,15 @@ function statusMeta() {
 
 .user-card {
   padding: 16px;
+}
+
+.overview-panel.embedded > * {
+  min-width: 0;
+}
+
+.overview-panel.embedded > .user-card,
+.overview-panel.embedded > .relationship-section {
+  height: 100%;
 }
 
 .user-card-header {
@@ -445,6 +488,7 @@ function statusMeta() {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  align-items: stretch;
 }
 
 .relationship-col,
@@ -453,8 +497,16 @@ function statusMeta() {
   padding: 14px;
 }
 
+.relationship-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .section-header {
+  font-size: 16px;
   font-weight: 700;
+  line-height: 1.2;
   margin-bottom: 10px;
 }
 
@@ -470,48 +522,68 @@ function statusMeta() {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
 }
 
 .relationship-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  min-height: 42px;
 }
 
 .relationship-avatar {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
 }
 
 .relationship-name {
   color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.relationship-rate {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.relationship-list > .empty-text {
+  font-size: 15px;
+  line-height: 1.6;
+  padding-top: 8px;
 }
 
 .rank-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  align-self: stretch;
 }
 
 .rank-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-}
-
-.rank-icon-area {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: 100%;
+  padding: 18px;
 }
 
-.rank-label,
+.rank-label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .stat-label {
   font-size: 11px;
   text-transform: uppercase;
@@ -520,22 +592,35 @@ function statusMeta() {
 }
 
 .rank-img {
-  width: 54px;
-  height: 54px;
+  width: 72px;
+  height: 72px;
+}
+
+.rank-tier {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  word-break: keep-all;
 }
 
 .win-rate-badge {
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 999px;
   background: rgba(92, 163, 234, 0.12);
   color: #5ca3ea;
   text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-.rank-stats {
+.rank-wl {
   display: flex;
-  flex-direction: column;
   gap: 8px;
+  font-size: 16px;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .stat-row {
@@ -552,6 +637,7 @@ function statusMeta() {
 }
 
 @media (max-width: 1080px) {
+  .overview-panel.embedded,
   .relationship-section,
   .rank-cards {
     grid-template-columns: 1fr;

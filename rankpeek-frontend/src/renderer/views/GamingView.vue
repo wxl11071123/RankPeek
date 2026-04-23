@@ -135,6 +135,7 @@ import { useRouter } from 'vue-router'
 import { apiClient } from '@/api/httpClient'
 import type { SessionData, AIAnalysisResult } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
+import { DEFAULT_ANALYSIS_QUEUE_MODE } from '@/utils/matchPreferences'
 
 const router = useRouter()
 
@@ -201,7 +202,7 @@ async function fetchSessionData() {
 
   loading.value = true
   try {
-    const data = await apiClient.getSessionData()
+    const data = await apiClient.getSessionData(DEFAULT_ANALYSIS_QUEUE_MODE)
     sessionData.value = data
     // 成功时重置失败计数
     failCount.value = 0
@@ -261,7 +262,7 @@ async function analyzeSession(mode: string = 'team') {
 
   isAnalyzing.value = true
   try {
-    const result = await apiClient.analyzeSession(mode, sessionData.value.queueId || undefined)
+    const result = await apiClient.analyzeSession(mode, DEFAULT_ANALYSIS_QUEUE_MODE)
     analysisResult.value = result
   } catch (error) {
     console.error('AI 分析失败:', error)

@@ -1,6 +1,7 @@
 package io.rankpeek.service;
 
 import io.rankpeek.constant.GameConstants;
+import io.rankpeek.constant.QueueType;
 import io.rankpeek.model.*;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -60,7 +61,7 @@ public class SessionAnalysisService {
 
         List<String> lobbyPhases = List.of("Lobby", "Matchmaking", "ReadyCheck");
         if (lobbyPhases.contains(phase)) {
-            return processLobbyPhase(phase);
+            return processLobbyPhase(phase, mode);
         }
 
         if ("ChampSelect".equals(phase)) {
@@ -96,8 +97,9 @@ public class SessionAnalysisService {
             typeCn = GameConstants.getQueueCnName(queueId);
         }
 
-        List<SessionSummoner> teamOne = buildTeamFromChampSelectPlayers(myTeam, queueId);
-        List<SessionSummoner> teamTwo = buildTeamFromChampSelectPlayers(theirTeam, queueId);
+        int analysisMode = resolveAnalysisMode(mode);
+        List<SessionSummoner> teamOne = buildTeamFromChampSelectPlayers(myTeam, analysisMode);
+        List<SessionSummoner> teamTwo = buildTeamFromChampSelectPlayers(theirTeam, analysisMode);
 
         ensureMyTeamIsFirst(teamOne, teamTwo, mySummoner.getPuuid());
 
@@ -126,14 +128,14 @@ public class SessionAnalysisService {
         return null;
     }
 
-    private List<SessionSummoner> buildTeamFromChampSelectPlayers(List<ChampionSelectSession.Player> players, Integer queueId) {
+    private List<SessionSummoner> buildTeamFromChampSelectPlayers(List<ChampionSelectSession.Player> players, Integer analysisMode) {
         if (players == null || players.isEmpty()) {
             return List.of();
         }
 
         List<CompletableFuture<SessionSummoner>> futures = players.stream()
                 .map(p -> CompletableFuture.supplyAsync(
-                        () -> processChampSelectPlayer(p, queueId),
+                        () -> processChampSelectPlayer(p, analysisMode),
                         dataLoaderExecutor))
                 .toList();
 
@@ -142,7 +144,7 @@ public class SessionAnalysisService {
                 .toList();
     }
 
-    private SessionSummoner processChampSelectPlayer(ChampionSelectSession.Player player, Integer queueId) {
+    private SessionSummoner processChampSelectPlayer(ChampionSelectSession.Player player, Integer analysisMode) {
         String puuid = player.getPuuid();
         Integer championId = player.getChampionId() != null ? player.getChampionId() : 0;
 
@@ -155,7 +157,7 @@ public class SessionAnalysisService {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
             List<MatchHistory> history = safeGetMatchHistory(puuid);
-            UserTag userTag = safeBuildSessionUserTag(puuid, queueId, rank, history);
+            UserTag userTag = safeBuildSessionUserTag(puuid, analysisMode, rank, history);
 
             return SessionSummoner.builder()
                     .championId(championId)
@@ -240,8 +242,9 @@ public class SessionAnalysisService {
             }
         }
 
-        List<SessionSummoner> teamOne = processTeam(session.getGameData().getTeamOne(), queueId);
-        List<SessionSummoner> teamTwo = processTeam(session.getGameData().getTeamTwo(), queueId);
+        int analysisMode = resolveAnalysisMode(mode);
+        List<SessionSummoner> teamOne = processTeam(session.getGameData().getTeamOne(), analysisMode);
+        List<SessionSummoner> teamTwo = processTeam(session.getGameData().getTeamTwo(), analysisMode);
 
         addPreGroupMarkers(teamOne, teamTwo);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
@@ -260,7 +263,7 @@ public class SessionAnalysisService {
      * 处理大厅阶段数据
      * 从 Lobby API 获取队列信息和队友列表
      */
-    private SessionData processLobbyPhase(String phase) {
+    private SessionData processLobbyPhase(String phase, Integer mode) {
         try {
             Lobby lobby = gameFlowService.getLobby();
             if (lobby == null) {
@@ -286,7 +289,8 @@ public class SessionAnalysisService {
             }
 
             // 从 Lobby 成员构建队伍数据
-            List<SessionSummoner> teamOne = buildTeamFromLobbyMembers(lobby.getMembers(), queueId);
+            int analysisMode = resolveAnalysisMode(mode);
+            List<SessionSummoner> teamOne = buildTeamFromLobbyMembers(lobby.getMembers(), analysisMode);
 
             return SessionData.builder()
                 .phase(phase)
@@ -310,14 +314,14 @@ public class SessionAnalysisService {
     /**
      * 从 Lobby 成员构建队伍数据
      */
-    private List<SessionSummoner> buildTeamFromLobbyMembers(List<Lobby.Member> members, Integer queueId) {
+    private List<SessionSummoner> buildTeamFromLobbyMembers(List<Lobby.Member> members, Integer analysisMode) {
         if (members == null || members.isEmpty()) {
             return List.of();
         }
 
         List<CompletableFuture<SessionSummoner>> futures = members.stream()
             .map(member -> CompletableFuture.supplyAsync(
-                () -> processLobbyMember(member, queueId),
+                () -> processLobbyMember(member, analysisMode),
                 dataLoaderExecutor))
             .toList();
 
@@ -330,7 +334,7 @@ public class SessionAnalysisService {
     /**
      * 处理单个 Lobby 成员
      */
-    private SessionSummoner processLobbyMember(Lobby.Member member, Integer queueId) {
+    private SessionSummoner processLobbyMember(Lobby.Member member, Integer analysisMode) {
         String puuid = member.getPuuid();
         if (puuid == null || puuid.isEmpty()) {
             return null;
@@ -340,7 +344,7 @@ public class SessionAnalysisService {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
             List<MatchHistory> history = safeGetMatchHistory(puuid);
-            UserTag userTag = safeBuildSessionUserTag(puuid, queueId, rank, history);
+            UserTag userTag = safeBuildSessionUserTag(puuid, analysisMode, rank, history);
 
             return SessionSummoner.builder()
                 .championId(0)
@@ -522,14 +526,14 @@ public class SessionAnalysisService {
     /**
      * 处理队伍数据（使用指定线程池并行处理）
      */
-    private List<SessionSummoner> processTeam(List<GameSession.OnePlayer> team, Integer queueId) {
+    private List<SessionSummoner> processTeam(List<GameSession.OnePlayer> team, Integer analysisMode) {
         if (team == null || team.isEmpty()) {
             return List.of();
         }
 
         List<CompletableFuture<SessionSummoner>> futures = team.stream()
                 .map(player -> CompletableFuture.supplyAsync(
-                        () -> processPlayer(player, queueId),
+                        () -> processPlayer(player, analysisMode),
                         dataLoaderExecutor))
                 .toList();
 
@@ -541,7 +545,7 @@ public class SessionAnalysisService {
     /**
      * 处理单个玩家数据（串行获取各数据，避免嵌套并行）
      */
-    private SessionSummoner processPlayer(GameSession.OnePlayer player, Integer queueId) {
+    private SessionSummoner processPlayer(GameSession.OnePlayer player, Integer analysisMode) {
         String puuid = player.getPuuid();
         Integer championId = player.getChampionId();
 
@@ -554,7 +558,7 @@ public class SessionAnalysisService {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
             List<MatchHistory> history = safeGetMatchHistory(puuid);
-            UserTag userTag = safeBuildSessionUserTag(puuid, queueId, rank, history);
+            UserTag userTag = safeBuildSessionUserTag(puuid, analysisMode, rank, history);
 
             return SessionSummoner.builder()
                     .championId(championId)
@@ -620,6 +624,13 @@ public class SessionAnalysisService {
     /**
      * 构建空的 SessionSummoner
      */
+    private int resolveAnalysisMode(Integer mode) {
+        if (mode != null && mode > 0) {
+            return mode;
+        }
+        return QueueType.QUEUE_SOLO_5X5;
+    }
+
     private SessionSummoner buildEmptySessionSummoner(Integer championId) {
         return SessionSummoner.builder()
                 .championId(championId)

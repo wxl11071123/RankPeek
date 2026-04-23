@@ -39,6 +39,8 @@ public class ConfigController {
 
         Map<String, Object> settings = new HashMap<>();
         Map<String, Object> auto = new HashMap<>();
+        Map<String, Object> ai = new HashMap<>();
+        Map<String, Object> match = new HashMap<>();
 
         auto.put("startMatchSwitch", appConfig.isAutoMatchEnabled());
         auto.put("acceptMatchSwitch", appConfig.isAutoAcceptEnabled());
@@ -47,7 +49,16 @@ public class ConfigController {
         auto.put("pickChampionSlice", appConfig.getPickChampions());
         auto.put("banChampionSlice", appConfig.getBanChampions());
 
+        ai.put("enabled", appConfig.getSettings().getAi().isEnabled());
+        ai.put("apiKey", appConfig.getSettings().getAi().getApiKey());
+        ai.put("endpoint", appConfig.getSettings().getAi().getEndpoint());
+        ai.put("model", appConfig.getSettings().getAi().getModel());
+
+        match.put("defaultQueueMode", appConfig.getDefaultMatchQueueMode());
+
         settings.put("auto", auto);
+        settings.put("ai", ai);
+        settings.put("match", match);
         config.put("settings", settings);
 
         return ApiResponse.success(config);
@@ -111,6 +122,23 @@ public class ConfigController {
                 case "banChampionSwitch" -> appConfig.isAutoBanEnabled();
                 case "pickChampionSlice" -> appConfig.getPickChampions();
                 case "banChampionSlice" -> appConfig.getBanChampions();
+                default -> null;
+            };
+        }
+        if (key.startsWith("settings.ai.")) {
+            String aiKey = key.substring("settings.ai.".length());
+            return switch (aiKey) {
+                case "enabled" -> appConfig.getSettings().getAi().isEnabled();
+                case "apiKey" -> appConfig.getSettings().getAi().getApiKey();
+                case "endpoint" -> appConfig.getSettings().getAi().getEndpoint();
+                case "model" -> appConfig.getSettings().getAi().getModel();
+                default -> null;
+            };
+        }
+        if (key.startsWith("settings.match.")) {
+            String matchKey = key.substring("settings.match.".length());
+            return switch (matchKey) {
+                case "defaultQueueMode" -> appConfig.getDefaultMatchQueueMode();
                 default -> null;
             };
         }
