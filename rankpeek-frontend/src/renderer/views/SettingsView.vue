@@ -4,6 +4,8 @@ import { useThemeStore } from "@/stores/theme";
 import type { GameModeOption } from "@/types/api";
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from "@/utils/matchPreferences";
 import { computed, onMounted, ref } from "vue";
+import brandSymbolBlack from "@/assets/branding/rankpeek-symbol-black.png";
+import brandSymbolWhite from "@/assets/branding/rankpeek-symbol-white.png";
 import brandEyeBlack from "@/assets/branding/rankpeek-eye-black.png";
 import brandEyeWhite from "@/assets/branding/rankpeek-eye-white.png";
 
@@ -16,9 +18,14 @@ const aiModel = ref("deepseek-chat");
 const showApiKey = ref(false);
 const defaultMatchQueueMode = ref(0);
 const matchModeOptions = ref<GameModeOption[]>([]);
+const showcaseBackgroundLines = [
+  "RANKPEEK · 对战信息 · 标签分析 · 赛后复盘 ·",
+  "英雄池 · 近期状态 · 局内侦察 · AI 锐评 ·",
+  "MATCH SCOUT · USER TAGS · POST GAME ·",
+];
 
 const aboutLogoSrc = computed(() =>
-  themeStore.theme === "dark" ? brandEyeBlack : brandEyeWhite,
+  themeStore.theme === "dark" ? brandSymbolBlack : brandSymbolWhite,
 );
 
 const aboutShowcaseSrc = computed(() =>
@@ -172,7 +179,7 @@ async function openExternal(url: string) {
       <h2>关于</h2>
       <div class="about-card" :class="`theme-${themeStore.theme}`">
         <div class="app-logo">
-          <img :src="aboutLogoSrc" alt="RankPeek logo" />
+          <img :src="aboutLogoSrc" alt="RankPeek app symbol" />
         </div>
         <div class="app-info">
           <h3>RankPeek</h3>
@@ -180,7 +187,19 @@ async function openExternal(url: string) {
           <p class="version">版本 {{ appVersion }}</p>
         </div>
         <div class="app-showcase">
-          <img :src="aboutShowcaseSrc" alt="RankPeek eye logo artwork" />
+          <div class="showcase-backdrop" aria-hidden="true">
+            <div
+              v-for="(line, index) in showcaseBackgroundLines"
+              :key="`${line}-${index}`"
+              class="showcase-track"
+              :class="{ mirrored: index % 2 === 1 }"
+            >
+              <span v-for="copy in 2" :key="`${line}-${copy}`">{{ line }}</span>
+            </div>
+          </div>
+          <div class="showcase-center-mark">
+            <img class="showcase-mark" :src="aboutShowcaseSrc" alt="RankPeek eye logo artwork" />
+          </div>
         </div>
       </div>
     </div>
@@ -412,7 +431,7 @@ async function openExternal(url: string) {
 
 .about-card {
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr) 248px;
+  grid-template-columns: 120px minmax(0, 1fr) 248px;
   gap: 24px;
   align-items: center;
   padding: 24px;
@@ -422,20 +441,20 @@ async function openExternal(url: string) {
 }
 
 .app-logo {
-  width: 104px;
-  height: 104px;
+  width: 120px;
+  height: 120px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px;
+  padding: 12px;
   border-radius: 28px;
   overflow: hidden;
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .app-logo img {
-  width: 100%;
-  height: 100%;
+  width: 96%;
+  height: 96%;
   object-fit: contain;
 }
 
@@ -464,19 +483,91 @@ async function openExternal(url: string) {
 
 .app-showcase {
   height: 144px;
-  padding: 14px;
+  padding: 18px 20px;
+  position: relative;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   border-radius: 28px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   overflow: hidden;
+  isolation: isolate;
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.app-showcase img {
+.showcase-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px 0;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.showcase-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.22),
+    transparent 22%,
+    transparent 78%,
+    rgba(255, 255, 255, 0.22)
+  );
+  pointer-events: none;
+}
+
+.showcase-track {
+  display: flex;
+  width: max-content;
+  gap: 22px;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  animation: showcase-scroll-left 24s linear infinite;
+}
+
+.showcase-track.mirrored {
+  animation-name: showcase-scroll-right;
+}
+
+.showcase-track span {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.showcase-center-mark {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.showcase-center-mark::before {
+  content: "";
+  position: absolute;
+  width: 166px;
+  height: 166px;
+  border-radius: 999px;
+  filter: blur(10px);
+  opacity: 0.56;
+  z-index: -1;
+}
+
+.showcase-mark {
+  width: 154px;
+  height: 154px;
   object-fit: contain;
 }
 
@@ -492,6 +583,52 @@ async function openExternal(url: string) {
   background: linear-gradient(180deg, #05070f, #0d1220);
   border-color: rgba(148, 163, 184, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 36px rgba(2, 6, 23, 0.14);
+}
+
+.about-card.theme-dark .showcase-track {
+  color: rgba(15, 23, 42, 0.15);
+}
+
+.about-card.theme-dark .showcase-center-mark::before {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0));
+}
+
+.about-card.theme-light .showcase-backdrop::after {
+  background: linear-gradient(
+    90deg,
+    rgba(5, 7, 15, 0.44),
+    transparent 22%,
+    transparent 78%,
+    rgba(5, 7, 15, 0.44)
+  );
+}
+
+.about-card.theme-light .showcase-track {
+  color: rgba(241, 245, 249, 0.13);
+}
+
+.about-card.theme-light .showcase-center-mark::before {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0));
+}
+
+@keyframes showcase-scroll-left {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-34%);
+  }
+}
+
+@keyframes showcase-scroll-right {
+  from {
+    transform: translateX(-34%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
 }
 
 .ai-settings,
@@ -779,7 +916,7 @@ async function openExternal(url: string) {
 
 @media (max-width: 960px) {
   .about-card {
-    grid-template-columns: 104px 1fr;
+    grid-template-columns: 120px 1fr;
   }
 
   .app-showcase {
