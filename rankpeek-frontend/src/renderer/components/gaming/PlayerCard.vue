@@ -23,22 +23,15 @@
               {{ sessionSummoner.summoner.gameName }}
             </button>
 
-            <div v-if="!recordStatusMeta && visibleUserTags.length" class="name-tags">
+            <div v-if="!recordStatusMeta && userTags.length" class="name-tags">
               <span
-                v-for="tag in visibleUserTags"
+                v-for="tag in userTags"
                 :key="tag.tagName"
                 class="tag-chip"
                 :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
                 :title="tag.tagDesc"
               >
                 {{ tag.tagName }}
-              </span>
-              <span
-                v-if="hiddenUserTagCount > 0"
-                class="tag-chip neutral more-chip"
-                :title="hiddenUserTagsTitle"
-              >
-                +{{ hiddenUserTagCount }}
               </span>
             </div>
           </div>
@@ -124,7 +117,6 @@ const emit = defineEmits<{
 
 const isAnalyzing = ref(false)
 const analysisResult = ref<AIAnalysisResult | null>(null)
-const INLINE_TAG_LIMIT = 4
 
 const tierIconMap: Record<string, string> = {
   unranked,
@@ -165,12 +157,27 @@ const recordStatusMeta = computed(() => {
 })
 
 const userTags = computed(() => props.sessionSummoner.userTag?.tag || [])
-const visibleUserTags = computed(() => userTags.value.slice(0, INLINE_TAG_LIMIT))
-const hiddenUserTagCount = computed(() => Math.max(userTags.value.length - INLINE_TAG_LIMIT, 0))
-const hiddenUserTagsTitle = computed(() => userTags.value
-  .slice(INLINE_TAG_LIMIT)
-  .map((tag) => tag.tagName)
-  .join(' / '))
+
+const tierLabelMap: Record<string, string> = {
+  UNRANKED: '未定级',
+  IRON: '黑铁',
+  BRONZE: '青铜',
+  SILVER: '白银',
+  GOLD: '黄金',
+  PLATINUM: '铂金',
+  EMERALD: '翡翠',
+  DIAMOND: '钻石',
+  MASTER: '超凡大师',
+  GRANDMASTER: '傲世宗师',
+  CHALLENGER: '最强王者'
+}
+
+const divisionLabelMap: Record<string, string> = {
+  I: '一',
+  II: '二',
+  III: '三',
+  IV: '四'
+}
 
 const teamClass = computed(() => {
   if (props.team === 'blue') return 'team-blue'
@@ -234,21 +241,13 @@ function hasTier(queueInfo?: QueueInfo | null): boolean {
   return Boolean(queueInfo?.tier && queueInfo.tier !== 'UNRANKED')
 }
 
-function normalizeTier(tier?: string): string {
-  const normalized = tier?.toUpperCase()
-  const tierMap: Record<string, string> = {
-    IRON: 'IRON',
-    BRONZE: 'BRONZE',
-    SILVER: 'SILVER',
-    GOLD: 'GOLD',
-    PLATINUM: 'PLATINUM',
-    EMERALD: 'EMERALD',
-    DIAMOND: 'DIAMOND',
-    MASTER: 'MASTER',
-    GRANDMASTER: 'GRANDMASTER',
-    CHALLENGER: 'CHALLENGER'
-  }
-  return normalized ? tierMap[normalized] || normalized : 'UNRANKED'
+function normalizeTierKey(tier?: string): string {
+  return tier?.toUpperCase() || 'UNRANKED'
+}
+
+function getTierLabel(tier?: string): string {
+  const tierKey = normalizeTierKey(tier)
+  return tierLabelMap[tierKey] || tier || tierLabelMap.UNRANKED
 }
 
 function hasRankSignal(queueInfo?: QueueInfo | null): boolean {
@@ -277,14 +276,21 @@ const tierText = computed(() => {
     return games > 0 ? `定级中 · ${games}场` : '定级中'
   }
 
-  if (queueInfo.displayRank?.trim()) {
-    return queueInfo.displayRank.trim()
-  }
-
   if (hasTier(queueInfo)) {
-    const division = queueInfo.division && queueInfo.division !== 'NA' ? ` ${queueInfo.division}` : ''
-    const lp = Number.isFinite(queueInfo.leaguePoints) ? ` ${queueInfo.leaguePoints} LP` : ''
-    return `${normalizeTier(queueInfo.tier)}${division}${lp}`.trim()
+    const tierKey = normalizeTierKey(queueInfo.tier)
+    const tierLabel = getTierLabel(queueInfo.tier)
+
+    if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tierKey)) {
+      return `${tierLabel} ${queueInfo.leaguePoints} LP`
+    }
+
+    const divisionKey = queueInfo.division?.toUpperCase()
+    const divisionLabel = divisionKey ? (divisionLabelMap[divisionKey] || queueInfo.division) : ''
+    if (divisionLabel) {
+      return `${tierLabel} ${divisionLabel} ${queueInfo.leaguePoints} LP`
+    }
+
+    return `${tierLabel} ${queueInfo.leaguePoints} LP`
   }
 
   if (hasRankSignal(queueInfo)) {
@@ -501,10 +507,6 @@ async function handleAnalyzeSession() {
   border-radius: 999px;
   font-size: 10px;
   line-height: 1.15;
-}
-
-.more-chip {
-  opacity: 0.9;
 }
 
 .tag-chip.good {

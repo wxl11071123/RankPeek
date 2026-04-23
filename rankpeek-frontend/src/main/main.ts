@@ -1,10 +1,13 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, Tray, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell, Tray, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import * as fs from 'fs'
+import { pathToFileURL } from 'url'
 import { getTrayMenuEntries, getWindowCloseAction, getWindowMinimizeAction, type TrayMenuAction } from './trayBehavior'
+import { buildSplashHtml, getSplashPalette } from './splashScreen'
 
 let mainWindow: BrowserWindow | null = null
+let splashWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 let appTray: Tray | null = null
 let isQuitting = false
@@ -38,6 +41,12 @@ function getTrayIconPath() {
   return isDev
     ? join(__dirname, '../../public/tray-icon.ico')
     : join(process.resourcesPath, 'public/tray-icon.ico')
+}
+
+function getBrandingAssetPath(fileName: string) {
+  return isDev
+    ? join(__dirname, '../../public/branding', fileName)
+    : join(process.resourcesPath, 'public/branding', fileName)
 }
 
 function loadWindowBounds(): { width: number; height: number; x: number; y: number } | null {
@@ -178,6 +187,62 @@ function createTray() {
   })
 }
 
+function createSplashWindow() {
+  if (splashWindow) {
+    return
+  }
+
+  const palette = getSplashPalette(nativeTheme.shouldUseDarkColors)
+  const logoUrl = pathToFileURL(getBrandingAssetPath(palette.logoFile)).toString()
+
+  splashWindow = new BrowserWindow({
+    width: 420,
+    height: 420,
+    show: true,
+    frame: false,
+    transparent: false,
+    backgroundColor: palette.surfaceColor,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    center: true,
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
+    }
+  })
+
+  splashWindow.removeMenu()
+  void splashWindow.loadURL(
+    `data:text/html;charset=UTF-8,${encodeURIComponent(
+      buildSplashHtml({
+        logoUrl,
+        surfaceColor: palette.surfaceColor,
+        glowColor: palette.glowColor,
+        labelColor: palette.labelColor
+      })
+    )}`
+  )
+
+  splashWindow.on('closed', () => {
+    splashWindow = null
+  })
+}
+
+function closeSplashWindow() {
+  if (!splashWindow) {
+    return
+  }
+
+  splashWindow.close()
+  splashWindow = null
+}
+
 function createWindow() {
   const storedBounds = loadWindowBounds()
 
@@ -188,6 +253,7 @@ function createWindow() {
     y: storedBounds?.y,
     minWidth: 900,
     minHeight: 600,
+    show: false,
     frame: false,
     transparent: false,
     backgroundColor: '#1a1a2e',
@@ -239,6 +305,12 @@ function createWindow() {
 
   mainWindow.on('move', () => {
     saveWindowBounds()
+  })
+
+  mainWindow.once('ready-to-show', () => {
+    closeSplashWindow()
+    mainWindow?.show()
+    mainWindow?.focus()
   })
 
   if (isDev) {
@@ -356,11 +428,13 @@ ipcMain.handle('app:getVersion', () => app.getVersion())
 
 app.whenReady().then(async () => {
   try {
+    createSplashWindow()
     createTray()
     await startBackend()
     createWindow()
   } catch (error) {
     console.error('Failed to start application:', error)
+    closeSplashWindow()
     app.quit()
   }
 
@@ -378,6 +452,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  closeSplashWindow()
   appTray?.destroy()
   appTray = null
   stopBackend()

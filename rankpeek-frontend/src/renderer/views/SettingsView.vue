@@ -4,9 +4,8 @@ import { useThemeStore } from "@/stores/theme";
 import type { GameModeOption } from "@/types/api";
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from "@/utils/matchPreferences";
 import { computed, onMounted, ref } from "vue";
-import brandMarkDark from "@/assets/branding/rankpeek-mark-dark.png";
-import brandMarkLight from "@/assets/branding/rankpeek-mark-light.png";
-import brandGlow from "@/assets/branding/rankpeek-white-glow.png";
+import brandEyeBlack from "@/assets/branding/rankpeek-eye-black.png";
+import brandEyeWhite from "@/assets/branding/rankpeek-eye-white.png";
 
 const themeStore = useThemeStore();
 const appVersion = ref("1.0.0");
@@ -19,7 +18,11 @@ const defaultMatchQueueMode = ref(0);
 const matchModeOptions = ref<GameModeOption[]>([]);
 
 const aboutLogoSrc = computed(() =>
-  themeStore.theme === "dark" ? brandMarkLight : brandMarkDark,
+  themeStore.theme === "dark" ? brandEyeBlack : brandEyeWhite,
+);
+
+const aboutShowcaseSrc = computed(() =>
+  themeStore.theme === "dark" ? brandEyeBlack : brandEyeWhite,
 );
 
 if (window.electronAPI) {
@@ -167,7 +170,7 @@ async function openExternal(url: string) {
 
     <div class="settings-section">
       <h2>关于</h2>
-      <div class="about-card">
+      <div class="about-card" :class="`theme-${themeStore.theme}`">
         <div class="app-logo">
           <img :src="aboutLogoSrc" alt="RankPeek logo" />
         </div>
@@ -177,7 +180,7 @@ async function openExternal(url: string) {
           <p class="version">版本 {{ appVersion }}</p>
         </div>
         <div class="app-showcase">
-          <img :src="brandGlow" alt="RankPeek showcase artwork" />
+          <img :src="aboutShowcaseSrc" alt="RankPeek eye logo artwork" />
         </div>
       </div>
     </div>
@@ -409,8 +412,8 @@ async function openExternal(url: string) {
 
 .about-card {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 220px;
-  gap: 20px;
+  grid-template-columns: 104px minmax(0, 1fr) 248px;
+  gap: 24px;
   align-items: center;
   padding: 24px;
   background: var(--bg-secondary);
@@ -419,20 +422,20 @@ async function openExternal(url: string) {
 }
 
 .app-logo {
-  width: 84px;
-  height: 84px;
+  width: 104px;
+  height: 104px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.18), rgba(7, 11, 21, 0.82));
-  border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  padding: 14px;
+  border-radius: 28px;
+  overflow: hidden;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .app-logo img {
-  width: 46px;
-  height: 46px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
@@ -460,22 +463,35 @@ async function openExternal(url: string) {
 }
 
 .app-showcase {
-  height: 120px;
-  padding: 10px;
+  height: 144px;
+  padding: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #030711;
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   overflow: hidden;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .app-showcase img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transform: scale(1.12);
+  object-fit: contain;
+}
+
+.about-card.theme-dark .app-logo,
+.about-card.theme-dark .app-showcase {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 247, 250, 0.92));
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+}
+
+.about-card.theme-light .app-logo,
+.about-card.theme-light .app-showcase {
+  background: linear-gradient(180deg, #05070f, #0d1220);
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 36px rgba(2, 6, 23, 0.14);
 }
 
 .ai-settings,
@@ -763,7 +779,7 @@ async function openExternal(url: string) {
 
 @media (max-width: 960px) {
   .about-card {
-    grid-template-columns: 84px 1fr;
+    grid-template-columns: 104px 1fr;
   }
 
   .app-showcase {
