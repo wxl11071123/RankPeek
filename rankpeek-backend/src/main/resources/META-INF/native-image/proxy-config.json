@@ -1,0 +1,8 @@
+[
+  {
+    "interfaces": ["io.rankpeek.jna.Kernel32"]
+  },
+  {
+    "interfaces": ["io.rankpeek.jna.Ntdll"]
+  }
+]

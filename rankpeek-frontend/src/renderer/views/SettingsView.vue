@@ -1,0 +1,726 @@
+<script setup lang="ts">
+import { apiClient } from "@/api/httpClient";
+import { useThemeStore } from "@/stores/theme";
+import { ref, onMounted } from "vue";
+
+const themeStore = useThemeStore();
+const appVersion = ref("0.0.8");
+
+// AI 设置
+const aiEnabled = ref(false);
+const aiApiKey = ref("");
+const aiEndpoint = ref("https://api.deepseek.com");
+const aiModel = ref("deepseek-chat");
+const showApiKey = ref(false);
+
+// 获取版本号
+if (window.electronAPI) {
+  window.electronAPI.getVersion().then((v) => (appVersion.value = v));
+}
+
+// 加载配置
+onMounted(async () => {
+  try {
+    const config = await apiClient.getConfig();
+    if (config?.settings?.ai) {
+      aiEnabled.value = config.settings.ai.enabled ?? false;
+      aiApiKey.value = config.settings.ai.apiKey ?? "";
+      aiEndpoint.value = config.settings.ai.endpoint ?? "https://api.deepseek.com";
+      aiModel.value = config.settings.ai.model ?? "deepseek-chat";
+    }
+  } catch (e) {
+    console.error("加载配置失败", e);
+  }
+});
+
+// 保存 AI 设置
+async function saveAiSettings() {
+  try {
+    await apiClient.setConfig("settings.ai.enabled", aiEnabled.value);
+    await apiClient.setConfig("settings.ai.apiKey", aiApiKey.value);
+    await apiClient.setConfig("settings.ai.endpoint", aiEndpoint.value);
+    await apiClient.setConfig("settings.ai.model", aiModel.value);
+    alert("AI 设置已保存");
+  } catch (e) {
+    console.error("保存 AI 设置失败", e);
+    alert("保存失败");
+  }
+}
+
+// 清除缓存
+async function clearCache() {
+  if (!confirm("确定要清除所有缓存吗？")) return;
+
+  try {
+    const currentTheme = themeStore.theme;
+    localStorage.clear();
+    themeStore.setTheme(currentTheme);
+    await apiClient.getConfig();
+    alert("缓存已清除");
+  } catch (e) {
+    console.error("清除缓存失败", e);
+    alert("清除缓存失败");
+  }
+}
+
+// 导出配置
+async function exportConfig() {
+  try {
+    const config = await apiClient.getConfig();
+    const blob = new Blob([JSON.stringify(config, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rankpeek-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error("导出配置失败", e);
+    alert("导出配置失败");
+  }
+}
+
+// 导入配置
+async function importConfig() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json";
+
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const config = JSON.parse(text);
+
+      if (config.settings) {
+        await apiClient.setConfig("settings", config.settings);
+      }
+
+      alert("配置已导入");
+    } catch (e) {
+      console.error("导入配置失败", e);
+      alert("导入配置失败：文件格式不正确");
+    }
+  };
+
+  input.click();
+}
+
+// 打开外部链接
+async function openExternal(url: string) {
+  if (!window.electronAPI) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  try {
+    const result = await window.electronAPI.openExternal(url);
+    if (result && !result.success) {
+      console.error("打开链接失败:", result.error);
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  } catch (e) {
+    console.error("打开外部链接失败", e);
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+</script>
+
+<template>
+  <div class="settings-view">
+    <div class="page-header">
+      <h1>系统设置</h1>
+      <p>应用程序配置</p>
+    </div>
+
+    <!-- 关于 -->
+    <div class="settings-section">
+      <h2>关于</h2>
+      <div class="about-card">
+        <div class="app-logo">🎮</div>
+        <div class="app-info">
+          <h3>RankPeek</h3>
+          <p>英雄联盟战绩查询工具</p>
+          <p class="version">版本 {{ appVersion }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI 设置 -->
+    <div class="settings-section">
+      <h2>AI 分析</h2>
+      <div class="ai-settings">
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">启用 AI 分析</span>
+            <span class="setting-desc">开启后可使用 DeepSeek AI 分析对局数据</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" v-model="aiEnabled" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item" v-if="aiEnabled">
+          <div class="setting-info">
+            <span class="setting-label">API 密钥</span>
+            <span class="setting-desc">DeepSeek API Key</span>
+          </div>
+          <div class="api-key-input">
+            <input
+              :type="showApiKey ? 'text' : 'password'"
+              v-model="aiApiKey"
+              placeholder="sk-xxxxxxxxxxxxxxxx"
+              class="text-input"
+            />
+            <button class="toggle-visibility" @click="showApiKey = !showApiKey">
+              {{ showApiKey ? "隐藏" : "显示" }}
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-item" v-if="aiEnabled">
+          <div class="setting-info">
+            <span class="setting-label">API 端点</span>
+            <span class="setting-desc">DeepSeek API 地址（通常无需修改）</span>
+          </div>
+          <input
+            type="text"
+            v-model="aiEndpoint"
+            placeholder="https://api.deepseek.com"
+            class="text-input full-width"
+          />
+        </div>
+
+        <div class="setting-item" v-if="aiEnabled">
+          <div class="setting-info">
+            <span class="setting-label">模型</span>
+            <span class="setting-desc">使用的 AI 模型</span>
+          </div>
+          <select v-model="aiModel" class="select-input">
+            <option value="deepseek-chat">deepseek-chat（推荐）</option>
+            <option value="deepseek-reasoner">deepseek-reasoner</option>
+          </select>
+        </div>
+
+        <div class="setting-actions" v-if="aiEnabled">
+          <button class="save-btn" @click="saveAiSettings">保存设置</button>
+          <a
+            href="https://platform.deepseek.com/api_keys"
+            class="get-key-link"
+            @click.prevent="openExternal('https://platform.deepseek.com/api_keys')"
+          >
+            获取 API Key →
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 外观设置 -->
+    <div class="settings-section">
+      <h2>外观</h2>
+      <div class="appearance-settings">
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">主题模式</span>
+            <span class="setting-desc">选择明亮或暗黑主题</span>
+          </div>
+          <div class="theme-toggle">
+            <button
+              class="theme-btn"
+              :class="{ active: themeStore.theme === 'light' }"
+              @click="themeStore.setTheme('light')"
+              title="明亮模式"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path
+                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                />
+              </svg>
+            </button>
+            <button
+              class="theme-btn"
+              :class="{ active: themeStore.theme === 'dark' }"
+              @click="themeStore.setTheme('dark')"
+              title="暗黑模式"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快捷键 -->
+    <div class="settings-section">
+      <h2>快捷键</h2>
+      <div class="shortcut-list">
+        <div class="shortcut-item">
+          <span class="shortcut-key">Ctrl + R</span>
+          <span class="shortcut-action">刷新数据</span>
+        </div>
+        <div class="shortcut-item">
+          <span class="shortcut-key">Ctrl + W</span>
+          <span class="shortcut-action">关闭窗口</span>
+        </div>
+        <div class="shortcut-item">
+          <span class="shortcut-key">F12</span>
+          <span class="shortcut-action">开发者工具</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 链接 -->
+    <div class="settings-section">
+      <h2>相关链接</h2>
+      <div class="link-list">
+        <a
+          href="https://github.com/wxl11071123/RankPeek"
+          class="link-item"
+          @click.prevent="
+            openExternal('https://github.com/wxl11071123/RankPeek')
+          "
+        >
+          <span class="link-icon">📦</span>
+          <span class="link-text">GitHub 仓库</span>
+          <span class="link-arrow">→</span>
+        </a>
+        <a
+          href="https://github.com/wxl11071123/RankPeek/issues"
+          class="link-item"
+          @click.prevent="
+            openExternal('https://github.com/wxl11071123/RankPeek/issues')
+          "
+        >
+          <span class="link-icon">🐛</span>
+          <span class="link-text">反馈问题</span>
+          <span class="link-arrow">→</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- 数据 -->
+    <div class="settings-section">
+      <h2>数据管理</h2>
+      <div class="data-actions">
+        <button class="data-btn" @click="clearCache">清除缓存</button>
+        <button class="data-btn" @click="exportConfig">导出配置</button>
+        <button class="data-btn" @click="importConfig">导入配置</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.settings-view {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: 36px;
+}
+
+.page-header h1 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: var(--text-primary);
+  letter-spacing: -0.56px;
+}
+
+.page-header p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 0;
+  letter-spacing: -0.224px;
+}
+
+.settings-section {
+  margin-bottom: 36px;
+}
+
+.settings-section h2 {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.about-card {
+  display: flex;
+  gap: 20px;
+  padding: 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+}
+
+.app-logo {
+  font-size: 48px;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xl);
+}
+
+.app-info h3 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--text-primary);
+  letter-spacing: -0.4px;
+}
+
+.app-info p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+  letter-spacing: -0.224px;
+}
+
+.app-info .version {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  gap: 16px;
+}
+
+.setting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.setting-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.224px;
+}
+
+.setting-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: -0.12px;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(120, 120, 128, 0.32);
+  transition: 0.3s;
+  border-radius: var(--radius-pill);
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 27px;
+  width: 27px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #ffffff;
+  transition: 0.3s;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--success-color);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+
+.text-input {
+  padding: 10px 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 200px;
+  letter-spacing: -0.224px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.text-input.full-width {
+  width: 100%;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
+}
+
+.api-key-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toggle-visibility {
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  letter-spacing: -0.12px;
+}
+
+.toggle-visibility:hover {
+  background: var(--bg-hover);
+}
+
+.select-input {
+  padding: 10px 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 200px;
+  cursor: pointer;
+  letter-spacing: -0.224px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.select-input:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
+}
+
+.setting-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.save-btn {
+  padding: 10px 24px;
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  letter-spacing: -0.224px;
+}
+
+.save-btn:hover {
+  opacity: 0.85;
+}
+
+.get-key-link {
+  font-size: 13px;
+  color: var(--accent-color);
+  text-decoration: none;
+  letter-spacing: -0.224px;
+}
+
+.get-key-link:hover {
+  text-decoration: underline;
+}
+
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.shortcut-key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.shortcut-action {
+  font-size: 14px;
+  color: var(--text-secondary);
+  letter-spacing: -0.224px;
+}
+
+.link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.link-item:hover {
+  background: var(--bg-hover);
+}
+
+.link-icon {
+  font-size: 20px;
+}
+
+.link-text {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  letter-spacing: -0.224px;
+}
+
+.link-arrow {
+  color: var(--text-tertiary);
+}
+
+.data-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.data-btn {
+  padding: 10px 18px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  letter-spacing: -0.224px;
+}
+
+.data-btn:hover {
+  background: var(--bg-hover);
+}
+
+.appearance-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.theme-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.theme-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.theme-btn.active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.theme-btn svg {
+  width: 18px;
+  height: 18px;
+}
+</style>
