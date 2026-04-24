@@ -200,12 +200,6 @@ export interface AppConfig {
       pickChampionSlice: number[]
       banChampionSlice: number[]
     }
-    ai: {
-      enabled: boolean
-      apiKey?: string
-      endpoint?: string
-      model?: string
-    }
     match: {
       defaultQueueMode: number
     }
@@ -527,22 +521,6 @@ export interface GameStats {
 export interface GameTimeline {
   lane: string
   role: string
-}
-
-// ========== AI 分析 ==========
-
-// AI 分析结果
-export interface AIAnalysisResult {
-  success: boolean
-  content?: string
-  error?: string
-}
-
-// AI 分析请求
-export interface AIAnalysisRequest {
-  mode?: 'overview' | 'player'
-  participantId?: number
-  gameId: number
 }
 
 // ========== 会话数据 ==========

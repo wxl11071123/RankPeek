@@ -31,7 +31,6 @@ public class AppConfig {
     @Data
     public static class Settings {
         private Auto auto = new Auto();
-        private Ai ai = new Ai();
         private Match match = new Match();
     }
 
@@ -76,29 +75,6 @@ public class AppConfig {
          * 禁用英雄列表
          */
         private List<Integer> banChampionSlice = new ArrayList<>();
-    }
-
-    @Data
-    public static class Ai {
-        /**
-         * AI 分析开关
-         */
-        private boolean enabled = false;
-
-        /**
-         * API Key
-         */
-        private String apiKey;
-
-        /**
-         * API 端点
-         */
-        private String endpoint;
-
-        /**
-         * 模型名称
-         */
-        private String model;
     }
 
     @Data
@@ -171,12 +147,6 @@ public class AppConfig {
             return;
         }
 
-        if ("settings.ai".equals(key) && value instanceof Map<?, ?> aiMap) {
-            aiMap.forEach((nestedKey, nestedValue) ->
-                updateInternalSettings("settings.ai." + nestedKey, nestedValue));
-            return;
-        }
-
         if ("settings.match".equals(key) && value instanceof Map<?, ?> matchMap) {
             matchMap.forEach((nestedKey, nestedValue) ->
                 updateInternalSettings("settings.match." + nestedKey, nestedValue));
@@ -211,15 +181,6 @@ public class AppConfig {
                         settings.getAuto().setBanChampionSlice(new ArrayList<>(champions));
                     }
                 }
-            }
-        } else if (key.startsWith("settings.ai.")) {
-            String aiKey = key.substring("settings.ai.".length());
-
-            switch (aiKey) {
-                case "enabled" -> settings.getAi().setEnabled(toBoolean(value));
-                case "apiKey" -> settings.getAi().setApiKey(toString(value));
-                case "endpoint" -> settings.getAi().setEndpoint(toString(value));
-                case "model" -> settings.getAi().setModel(toString(value));
             }
         } else if (key.startsWith("settings.match.")) {
             String matchKey = key.substring("settings.match.".length());
@@ -268,12 +229,4 @@ public class AppConfig {
         };
     }
 
-    private String toString(Object value) {
-        if (value instanceof String s)
-            return s;
-        if (value instanceof Map<?, ?> m && m.containsKey("value")) {
-            return toString(m.get("value"));
-        }
-        return value != null ? value.toString() : null;
-    }
 }

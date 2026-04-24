@@ -1069,24 +1069,6 @@
     "allPublicFields": true
   },
   {
-    "name": "io.rankpeek.model.AIAnalysisResult",
-    "allDeclaredConstructors": true,
-    "allPublicConstructors": true,
-    "allDeclaredMethods": true,
-    "allPublicMethods": true,
-    "allDeclaredFields": true,
-    "allPublicFields": true
-  },
-  {
-    "name": "io.rankpeek.model.AIAnalysisRequest",
-    "allDeclaredConstructors": true,
-    "allPublicConstructors": true,
-    "allDeclaredMethods": true,
-    "allPublicMethods": true,
-    "allDeclaredFields": true,
-    "allPublicFields": true
-  },
-  {
     "name": "io.rankpeek.model.GamePhase",
     "allDeclaredConstructors": true,
     "allPublicConstructors": true,

@@ -130,46 +130,14 @@
         </div>
       </section>
 
-      <section class="ai-panel">
-        <div class="ai-toolbar">
-          <strong>AI 复盘</strong>
-
-          <div class="ai-controls">
-            <select v-model="aiMode" class="ai-select">
-              <option value="overview">全局复盘</option>
-              <option value="player">单人复盘</option>
-            </select>
-
-            <select v-if="aiMode === 'player'" v-model="aiTargetParticipantId" class="ai-select">
-              <option v-for="player in allPlayers" :key="player.participantId" :value="player.participantId">
-                {{ getPlayerName(player) }}
-              </option>
-            </select>
-
-            <button
-              class="ai-run-btn"
-              type="button"
-              :disabled="aiLoading || (aiMode === 'player' && !aiTargetParticipantId)"
-              @click="runAiAnalysis"
-            >
-              {{ aiLoading ? '分析中...' : '开始 AI 复盘' }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="aiError" class="ai-error">{{ aiError }}</div>
-        <pre v-else-if="aiResult" class="ai-output">{{ aiResult }}</pre>
-        <div v-else class="ai-empty">选择模式后，让 AI 来锐评这把。</div>
-      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { apiClient } from '@/api/httpClient'
+import { computed } from 'vue'
 import UserTagBadgeList from '@/components/summoner/UserTagBadgeList.vue'
-import type { AIAnalysisResult, GameDetail, GameParticipant, MatchHistory, UserTagSummary } from '@/types/api'
+import type { GameDetail, GameParticipant, MatchHistory, UserTagSummary } from '@/types/api'
 
 interface PlayerWithIdentity extends GameParticipant {
   puuid: string
@@ -190,12 +158,6 @@ const emit = defineEmits<{
   close: []
   navigateToPlayer: [gameName: string, tagLine: string]
 }>()
-
-const aiMode = ref<'overview' | 'player'>('overview')
-const aiTargetParticipantId = ref<number | null>(null)
-const aiLoading = ref(false)
-const aiResult = ref<string | null>(null)
-const aiError = ref<string | null>(null)
 
 const allPlayers = computed((): PlayerWithIdentity[] => {
   if (!props.gameDetail) {
@@ -327,36 +289,6 @@ function handlePlayerClick(player: PlayerWithIdentity) {
   emit('navigateToPlayer', player.gameName, player.tagLine)
   close()
 }
-
-async function runAiAnalysis() {
-  if (!props.gameDetail || aiLoading.value) {
-    return
-  }
-
-  aiLoading.value = true
-  aiError.value = null
-
-  try {
-    const result: AIAnalysisResult = await apiClient.analyzeGameDetail({
-      gameId: props.gameDetail.gameId,
-      mode: aiMode.value,
-      participantId: aiMode.value === 'player' ? aiTargetParticipantId.value ?? undefined : undefined
-    })
-
-    if (result.success && result.content) {
-      aiResult.value = result.content
-      return
-    }
-
-    aiResult.value = null
-    aiError.value = result.error || 'AI 复盘失败。'
-  } catch (error: any) {
-    aiResult.value = null
-    aiError.value = error?.message || 'AI 复盘失败。'
-  } finally {
-    aiLoading.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -435,8 +367,7 @@ async function runAiAnalysis() {
 .header-copy p,
 .hero-copy span,
 .player-stats span,
-.team-header span,
-.ai-empty {
+.team-header span {
   color: var(--text-secondary);
 }
 
@@ -466,8 +397,7 @@ async function runAiAnalysis() {
 
 .hero-copy strong,
 .team-header strong,
-.player-name,
-.ai-toolbar strong {
+.player-name {
   color: var(--text-primary);
 }
 
@@ -477,8 +407,7 @@ async function runAiAnalysis() {
   gap: 16px;
 }
 
-.team-card,
-.ai-panel {
+.team-card {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.02);
@@ -597,59 +526,9 @@ async function runAiAnalysis() {
   font-size: 12px;
 }
 
-.ai-panel {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.ai-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.ai-controls {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.ai-select,
-.ai-run-btn {
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.ai-run-btn {
-  cursor: pointer;
-}
-
-.ai-error {
-  color: #c45c5c;
-}
-
-.ai-output {
-  margin: 0;
-  padding: 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-primary);
-  white-space: pre-wrap;
-  line-height: 1.6;
-  font-family: inherit;
-}
-
 @media (max-width: 960px) {
   .match-header,
-  .teams-grid,
-  .ai-toolbar {
+  .teams-grid {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;

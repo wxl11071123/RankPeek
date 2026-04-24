@@ -34,12 +34,9 @@ cd rankpeek-backend
 copy .env.example .env
 ```
 
-编辑 `.env` 文件，配置 AI API：
+编辑 `.env` 文件，配置运行环境：
 
 ```bash
-AI_API_KEY=your-api-key-here
-AI_API_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1
-AI_MODEL=qwen-plus
 SPRING_PROFILES_ACTIVE=prod
 ```
 
@@ -152,16 +149,7 @@ npm install
 - 检查客户端是否以管理员权限运行
 - 重启应用
 
-### 4. AI 分析无响应
-
-**问题**：AI 分析功能不工作
-
-**解决方案**：
-- 检查 `.env` 文件中的 `AI_API_KEY` 是否正确
-- 检查网络连接
-- 查看日志文件 `logs/rankpeek.log`
-
-### 5. 端口被占用
+### 4. 端口被占用
 
 **问题**：后端启动失败，端口 8080 被占用
 

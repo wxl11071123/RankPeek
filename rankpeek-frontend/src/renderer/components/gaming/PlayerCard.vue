@@ -45,16 +45,6 @@
           </div>
         </div>
 
-        <div class="actions">
-          <button
-            class="ai-btn"
-            type="button"
-            :disabled="isAnalyzing"
-            @click="handleAnalyzeSession"
-          >
-            {{ isAnalyzing ? '分析中...' : analysisResult ? '查看AI' : 'AI' }}
-          </button>
-        </div>
       </div>
 
       <div v-if="recordStatusMeta" class="status-banner">
@@ -88,9 +78,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { apiClient } from '@/api/httpClient'
-import type { AIAnalysisResult, QueueInfo, RecordStatus, SessionSummoner } from '@/types/api'
+import { computed } from 'vue'
+import type { QueueInfo, RecordStatus, SessionSummoner } from '@/types/api'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
 import iron from '@/assets/imgs/tier/iron.png'
@@ -112,11 +101,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   navigateToPlayer: [gameName: string, tagLine: string]
-  analyzeResult: [result: AIAnalysisResult, playerGameName: string]
 }>()
-
-const isAnalyzing = ref(false)
-const analysisResult = ref<AIAnalysisResult | null>(null)
 
 const tierIconMap: Record<string, string> = {
   unranked,
@@ -309,26 +294,6 @@ function onNameClick() {
   }
 }
 
-async function handleAnalyzeSession() {
-  if (isAnalyzing.value) {
-    return
-  }
-
-  if (analysisResult.value) {
-    emit('analyzeResult', analysisResult.value, props.sessionSummoner.summoner?.gameName || '未知玩家')
-    return
-  }
-
-  isAnalyzing.value = true
-  try {
-    analysisResult.value = await apiClient.analyzeSession('player')
-    emit('analyzeResult', analysisResult.value, props.sessionSummoner.summoner?.gameName || '未知玩家')
-  } catch (error) {
-    console.error('Failed to analyze session player', error)
-  } finally {
-    isAnalyzing.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -361,7 +326,7 @@ async function handleAnalyzeSession() {
 
 .player-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
 }
@@ -461,28 +426,6 @@ async function handleAnalyzeSession() {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-}
-
-.actions {
-  display: flex;
-  align-items: flex-start;
-}
-
-.ai-btn {
-  min-width: 38px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(92, 163, 234, 0.25);
-  background: rgba(92, 163, 234, 0.12);
-  color: #5ca3ea;
-  font-size: 13px;
-  line-height: 1.1;
-  cursor: pointer;
-}
-
-.ai-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .status-banner {
@@ -609,10 +552,6 @@ async function handleAnalyzeSession() {
   .player-head {
     grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
-  }
-
-  .actions {
-    grid-column: 1 / -1;
   }
 
   .stats-grid {

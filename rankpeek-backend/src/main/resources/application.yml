@@ -26,12 +26,6 @@ app:
       ban-champion-switch: false
       pick-champion-slice: []
       ban-champion-slice: []
-    ai:
-      enabled: true
-      api-key: ${AI_API_KEY:}
-      endpoint: ${AI_API_ENDPOINT:https://dashscope.aliyuncs.com/compatible-mode/v1}
-      model: ${AI_MODEL:qwen-plus}
-
 logging:
   level:
     root: INFO

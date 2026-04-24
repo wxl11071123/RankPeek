@@ -55,14 +55,6 @@ public class CacheConfig {
     }
 
     /**
-     * 创建 AI 分析缓存
-     */
-    @Bean
-    public Cache<String, String> aiAnalysisCache() {
-        return createCache("aiAnalysis", 100, 30, TimeUnit.MINUTES);
-    }
-
-    /**
      * 创建用户标签缓存
      */
     @Bean

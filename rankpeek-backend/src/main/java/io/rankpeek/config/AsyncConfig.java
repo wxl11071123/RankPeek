@@ -53,24 +53,6 @@ public class AsyncConfig {
     }
 
     /**
-     * AI 分析线程池
-     * 专门用于处理耗时的 AI 分析任务
-     */
-    @Bean(name = "aiExecutor")
-    public Executor aiExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(5);
-        executor.setQueueCapacity(50);
-        executor.setThreadNamePrefix("ai-analysis-");
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-        executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.setAwaitTerminationSeconds(120);
-        executor.initialize();
-        return executor;
-    }
-
-    /**
      * 数据加载线程池
      * 专门用于批量数据加载（如战绩、段位等）
      */

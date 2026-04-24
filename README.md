@@ -4,7 +4,7 @@
 
 RankPeek is a desktop scouting tool for League of Legends that helps you read the lobby before the game starts.
 
-It pulls data from the local League Client (LCU) and turns it into fast player lookup, recent match summaries, teammate and opponent tags, live session scouting, and sharp AI-assisted analysis.
+It pulls data from the local League Client (LCU) and turns it into fast player lookup, recent match summaries, teammate and opponent tags, and live session scouting.
 
 ## Why RankPeek
 
@@ -12,7 +12,6 @@ It pulls data from the local League Client (LCU) and turns it into fast player l
 - Read teammate and opponent signals during champion select.
 - Surface lightweight tags such as streaks, carry patterns, weak links, and champion comfort picks.
 - Open match details on demand instead of waiting for every game card to pre-load.
-- Generate blunt, data-backed AI analysis for a match, a player, or an entire lobby.
 
 ## Feature Highlights
 
@@ -28,7 +27,7 @@ It pulls data from the local League Client (LCU) and turns it into fast player l
 - Recent matches with team rosters derived directly from match history data
 - Lazy-loaded match detail panels for better page speed
 - Teammate and opponent summary tags visible from the history page
-- Dedicated detail modal for deeper stats and AI review
+- Dedicated detail modal for deeper stats
 
 ### Player profiling
 
@@ -36,14 +35,6 @@ It pulls data from the local League Client (LCU) and turns it into fast player l
 - Best partner and tough opponent highlights
 - Summary tags for fast scanning
 - Full tag analysis view for deeper inspection
-
-### AI analysis
-
-- Match-level review
-- Single-player review
-- Session and lobby analysis
-- Verdict-first prompts with a sharper, more critical tone
-- Evidence-based output tied to real match metrics
 
 ### Automation
 
@@ -64,7 +55,6 @@ RankPeek is a Windows desktop application built with:
 - `Electron + Vue 3 + TypeScript` for the desktop UI
 - `Spring Boot + Java 21` for the local backend
 - `LCU HTTP + WebSocket` access for League client data
-- Optional AI integration through a chat-completions compatible endpoint
 
 The core experience is LCU-first. That means the app does not need a Riot public API key for its main scouting workflow, but it also respects the limits of what the local client can expose.
 
@@ -102,18 +92,6 @@ npm run electron:dev
 
 This starts the Vite dev server and opens the Electron shell for live UI iteration.
 
-### 3. Optional: enable AI analysis
-
-Set these environment variables before starting the backend:
-
-```powershell
-$env:AI_API_KEY="<your-api-key>"
-$env:AI_API_ENDPOINT="https://dashscope.aliyuncs.com/compatible-mode/v1"
-$env:AI_MODEL="qwen-plus"
-```
-
-Only `AI_API_KEY` is required. The endpoint and model are optional overrides.
-
 ## Build a Release
 
 For a full Windows release build with the native backend:
@@ -148,9 +126,8 @@ docs/                      Design and planning notes
 ## Development Notes
 
 - The repository is branded as `RankPeek`, while some internal folder names still use the older workspace naming.
-- Match history and session analysis are optimized around summary tags first, with full details loaded only when needed.
+- Match history and session pages are optimized around summary tags first, with full details loaded only when needed.
 - Private match history is handled as a first-class state instead of being treated as missing data.
-- AI analysis is intentionally sharp in tone, but it should stay evidence-based and avoid abusive language.
 
 ## Known Limits
 

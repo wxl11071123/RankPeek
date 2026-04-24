@@ -11,16 +11,11 @@ import brandEyeWhite from "@/assets/branding/rankpeek-eye-white.png";
 
 const themeStore = useThemeStore();
 const appVersion = ref("1.0.0");
-const aiEnabled = ref(false);
-const aiApiKey = ref("");
-const aiEndpoint = ref("https://api.deepseek.com");
-const aiModel = ref("deepseek-chat");
-const showApiKey = ref(false);
 const defaultMatchQueueMode = ref(0);
 const matchModeOptions = ref<GameModeOption[]>([]);
 const showcaseBackgroundLines = [
   "RANKPEEK · 对战信息 · 标签分析 · 赛后复盘 ·",
-  "英雄池 · 近期状态 · 局内侦察 · AI 锐评 ·",
+  "英雄池 · 近期状态 · 局内侦察 · 数据标签 ·",
   "MATCH SCOUT · USER TAGS · POST GAME ·",
 ];
 
@@ -47,12 +42,6 @@ onMounted(async () => {
     ]);
     matchModeOptions.value = modes;
     defaultMatchQueueMode.value = savedDefaultQueueMode;
-    if (config?.settings?.ai) {
-      aiEnabled.value = config.settings.ai.enabled ?? false;
-      aiApiKey.value = config.settings.ai.apiKey ?? "";
-      aiEndpoint.value = config.settings.ai.endpoint ?? "https://api.deepseek.com";
-      aiModel.value = config.settings.ai.model ?? "deepseek-chat";
-    }
     if (config?.settings?.match) {
       defaultMatchQueueMode.value = config.settings.match.defaultQueueMode ?? savedDefaultQueueMode;
     }
@@ -60,19 +49,6 @@ onMounted(async () => {
     console.error("加载设置失败", error);
   }
 });
-
-async function saveAiSettings() {
-  try {
-    await apiClient.setConfig("settings.ai.enabled", aiEnabled.value);
-    await apiClient.setConfig("settings.ai.apiKey", aiApiKey.value);
-    await apiClient.setConfig("settings.ai.endpoint", aiEndpoint.value);
-    await apiClient.setConfig("settings.ai.model", aiModel.value);
-    alert("AI 设置已保存");
-  } catch (error) {
-    console.error("保存 AI 设置失败", error);
-    alert("保存失败");
-  }
-}
 
 async function saveMatchSettings() {
   try {
@@ -172,7 +148,7 @@ async function openExternal(url: string) {
   <div class="settings-view">
     <div class="page-header">
       <h1>系统设置</h1>
-      <p>调整 RankPeek 的品牌、AI 与本地运行选项。</p>
+      <p>调整 RankPeek 的品牌、外观与本地运行选项。</p>
     </div>
 
     <div class="settings-section">
@@ -200,75 +176,6 @@ async function openExternal(url: string) {
           <div class="showcase-center-mark">
             <img class="showcase-mark" :src="aboutShowcaseSrc" alt="RankPeek eye logo artwork" />
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-section">
-      <h2>AI 分析</h2>
-      <div class="ai-settings">
-        <div class="setting-item">
-          <div class="setting-info">
-            <span class="setting-label">启用 AI 分析</span>
-            <span class="setting-desc">开启后可使用 DeepSeek 对对局数据做赛前锐评。</span>
-          </div>
-          <label class="toggle-switch">
-            <input v-model="aiEnabled" type="checkbox" />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div v-if="aiEnabled" class="setting-item">
-          <div class="setting-info">
-            <span class="setting-label">API 密钥</span>
-            <span class="setting-desc">用于调用 DeepSeek 接口。</span>
-          </div>
-          <div class="api-key-input">
-            <input
-              v-model="aiApiKey"
-              :type="showApiKey ? 'text' : 'password'"
-              placeholder="sk-xxxxxxxxxxxxxxxx"
-              class="text-input"
-            />
-            <button class="toggle-visibility" @click="showApiKey = !showApiKey">
-              {{ showApiKey ? "隐藏" : "显示" }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="aiEnabled" class="setting-item">
-          <div class="setting-info">
-            <span class="setting-label">API 地址</span>
-            <span class="setting-desc">默认即可，只有代理或中转场景才需要修改。</span>
-          </div>
-          <input
-            v-model="aiEndpoint"
-            type="text"
-            placeholder="https://api.deepseek.com"
-            class="text-input full-width"
-          />
-        </div>
-
-        <div v-if="aiEnabled" class="setting-item">
-          <div class="setting-info">
-            <span class="setting-label">模型</span>
-            <span class="setting-desc">选择用于赛前分析的 DeepSeek 模型。</span>
-          </div>
-          <select v-model="aiModel" class="select-input">
-            <option value="deepseek-chat">deepseek-chat</option>
-            <option value="deepseek-reasoner">deepseek-reasoner</option>
-          </select>
-        </div>
-
-        <div v-if="aiEnabled" class="setting-actions">
-          <button class="save-btn" @click="saveAiSettings">保存设置</button>
-          <a
-            href="https://platform.deepseek.com/api_keys"
-            class="get-key-link"
-            @click.prevent="openExternal('https://platform.deepseek.com/api_keys')"
-          >
-            获取 API Key
-          </a>
         </div>
       </div>
     </div>
@@ -631,7 +538,6 @@ async function openExternal(url: string) {
   }
 }
 
-.ai-settings,
 .appearance-settings {
   display: flex;
   flex-direction: column;
@@ -725,37 +631,11 @@ async function openExternal(url: string) {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.text-input.full-width {
-  width: 100%;
-}
-
 .text-input:focus,
 .select-input:focus {
   outline: none;
   border-color: var(--input-focus-border);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
-}
-
-.api-key-input {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.toggle-visibility {
-  padding: 8px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s;
-  letter-spacing: -0.12px;
-}
-
-.toggle-visibility:hover {
-  background: var(--bg-hover);
 }
 
 .setting-actions {
@@ -783,17 +663,6 @@ async function openExternal(url: string) {
 
 .save-btn:hover {
   opacity: 0.85;
-}
-
-.get-key-link {
-  font-size: 13px;
-  color: var(--accent-color);
-  text-decoration: none;
-  letter-spacing: -0.224px;
-}
-
-.get-key-link:hover {
-  text-decoration: underline;
 }
 
 .theme-toggle {

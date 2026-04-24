@@ -1,6 +1,4 @@
 import type {
-  AIAnalysisRequest,
-  AIAnalysisResult,
   ApiResponse,
   AppConfig,
   AramBalanceData,
@@ -475,36 +473,6 @@ class ApiClient {
    */
   async getGameDetail(gameId: number): Promise<GameDetail> {
     return this.get<GameDetail>(`/summoner/game-detail/${gameId}`)
-  }
-
-  // ========== AI 分析 API ==========
-
-  /**
-   * AI 分析对局详情
-   */
-  async analyzeGameDetail(request: AIAnalysisRequest): Promise<AIAnalysisResult> {
-    return this.post<AIAnalysisResult>('/ai/analyze', request)
-  }
-
-  /**
-   * AI 分析房间会话数据（组队阶段）
-   * @param analysisMode 分析模式：team（队伍分析）、player（单人分析）
-   * @param queueMode 队列模式（可选）
-   */
-  async analyzeSession(analysisMode?: string, queueMode?: number): Promise<AIAnalysisResult> {
-    const params = new URLSearchParams()
-    if (analysisMode) params.append('analysisMode', analysisMode)
-    if (queueMode != null) params.append('queueMode', String(queueMode))
-    const queryString = params.toString()
-    const url = queryString ? `/ai/analyze-session?${queryString}` : '/ai/analyze-session'
-    return this.post<AIAnalysisResult>(url)
-  }
-
-  /**
-   * 清除 AI 分析缓存
-   */
-  async clearAiCache(): Promise<void> {
-    return this.deleteVoid('/ai/cache')
   }
 
   // ========== 会话数据 API ==========
