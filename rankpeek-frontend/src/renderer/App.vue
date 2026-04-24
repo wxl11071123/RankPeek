@@ -66,6 +66,7 @@ onBeforeUnmount(() => {
 
 .main-content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   padding: 24px;
   background: var(--bg-primary);
@@ -79,5 +80,11 @@ onBeforeUnmount(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+@media (max-width: 760px) {
+  .main-content {
+    padding: 14px;
+  }
 }
 </style>

@@ -6,11 +6,11 @@
       <header class="match-header">
         <div class="header-main">
           <div class="result-pill" :class="{ win: myPlayer?.stats?.win, lose: !myPlayer?.stats?.win }">
-            {{ myPlayer?.stats?.win ? '胜利' : '失败' }}
+            {{ myPlayer?.stats?.win ? t('common.win') : t('common.loss') }}
           </div>
 
           <div class="header-copy">
-            <h3>{{ matchHistory.queueName || gameDetail.gameMode || '对局详情' }}</h3>
+            <h3>{{ matchHistory.queueName || gameDetail.gameMode || t('matchDetail.title') }}</h3>
             <p>{{ formatDate(gameDetail.gameCreation) }} · {{ formatDuration(gameDetail.gameDuration) }}</p>
           </div>
         </div>
@@ -28,10 +28,10 @@
         <div class="team-card">
           <div class="team-header blue">
             <div>
-              <strong>蓝色方</strong>
-              <span>{{ blueTeamKda }} · {{ formatNumber(blueTeamGold) }} 金币</span>
+              <strong>{{ t('common.blueTeam') }}</strong>
+              <span>{{ blueTeamKda }} · {{ formatNumber(blueTeamGold) }} {{ t('common.gold') }}</span>
             </div>
-            <span>{{ formatNumber(blueTeamDamage) }} 伤害</span>
+            <span>{{ formatNumber(blueTeamDamage) }} {{ t('common.damage') }}</span>
           </div>
 
           <div class="team-list">
@@ -48,7 +48,7 @@
                 <div class="player-copy">
                   <div class="player-name-row">
                     <span class="player-name">{{ getPlayerName(player) }}</span>
-                    <span v-if="player.puuid === currentPuuid" class="me-tag">我</span>
+                    <span v-if="player.puuid === currentPuuid" class="me-tag">{{ t('common.me') }}</span>
                   </div>
                   <UserTagBadgeList
                     compact
@@ -70,8 +70,8 @@
 
               <div class="player-stats">
                 <span>{{ getKdaText(player) }}</span>
-                <span>{{ formatNumber(player.stats?.goldEarned) }} 金币</span>
-                <span>{{ formatNumber(player.stats?.totalDamageDealtToChampions) }} 伤害</span>
+                <span>{{ formatNumber(player.stats?.goldEarned) }} {{ t('common.gold') }}</span>
+                <span>{{ formatNumber(player.stats?.totalDamageDealtToChampions) }} {{ t('common.damage') }}</span>
               </div>
             </button>
           </div>
@@ -80,10 +80,10 @@
         <div class="team-card">
           <div class="team-header red">
             <div>
-              <strong>红色方</strong>
-              <span>{{ redTeamKda }} · {{ formatNumber(redTeamGold) }} 金币</span>
+              <strong>{{ t('common.redTeam') }}</strong>
+              <span>{{ redTeamKda }} · {{ formatNumber(redTeamGold) }} {{ t('common.gold') }}</span>
             </div>
-            <span>{{ formatNumber(redTeamDamage) }} 伤害</span>
+            <span>{{ formatNumber(redTeamDamage) }} {{ t('common.damage') }}</span>
           </div>
 
           <div class="team-list">
@@ -100,7 +100,7 @@
                 <div class="player-copy">
                   <div class="player-name-row">
                     <span class="player-name">{{ getPlayerName(player) }}</span>
-                    <span v-if="player.puuid === currentPuuid" class="me-tag">我</span>
+                    <span v-if="player.puuid === currentPuuid" class="me-tag">{{ t('common.me') }}</span>
                   </div>
                   <UserTagBadgeList
                     compact
@@ -122,8 +122,8 @@
 
               <div class="player-stats">
                 <span>{{ getKdaText(player) }}</span>
-                <span>{{ formatNumber(player.stats?.goldEarned) }} 金币</span>
-                <span>{{ formatNumber(player.stats?.totalDamageDealtToChampions) }} 伤害</span>
+                <span>{{ formatNumber(player.stats?.goldEarned) }} {{ t('common.gold') }}</span>
+                <span>{{ formatNumber(player.stats?.totalDamageDealtToChampions) }} {{ t('common.damage') }}</span>
               </div>
             </button>
           </div>
@@ -137,6 +137,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import UserTagBadgeList from '@/components/summoner/UserTagBadgeList.vue'
+import { useI18n } from '@/i18n'
 import type { GameDetail, GameParticipant, MatchHistory, UserTagSummary } from '@/types/api'
 
 interface PlayerWithIdentity extends GameParticipant {
@@ -158,6 +159,8 @@ const emit = defineEmits<{
   close: []
   navigateToPlayer: [gameName: string, tagLine: string]
 }>()
+
+const { t } = useI18n()
 
 const allPlayers = computed((): PlayerWithIdentity[] => {
   if (!props.gameDetail) {
@@ -202,7 +205,7 @@ function getPlayerName(player: PlayerWithIdentity): string {
   if (player.gameName) {
     return player.tagLine ? `${player.gameName}#${player.tagLine}` : player.gameName
   }
-  return `玩家 ${player.participantId}`
+  return `${t('common.unknownPlayer')} ${player.participantId}`
 }
 
 function getChampionUrl(championId?: number): string {

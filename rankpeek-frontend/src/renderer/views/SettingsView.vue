@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { apiClient } from "@/api/httpClient";
 import { useThemeStore } from "@/stores/theme";
+import { useI18n } from "@/i18n";
 import type { GameModeOption } from "@/types/api";
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from "@/utils/matchPreferences";
 import { computed, onMounted, ref } from "vue";
@@ -10,14 +11,18 @@ import brandEyeBlack from "@/assets/branding/rankpeek-eye-black.png";
 import brandEyeWhite from "@/assets/branding/rankpeek-eye-white.png";
 
 const themeStore = useThemeStore();
+const { t } = useI18n();
 const appVersion = ref("1.0.0");
 const defaultMatchQueueMode = ref(0);
 const matchModeOptions = ref<GameModeOption[]>([]);
-const showcaseBackgroundLines = [
-  "RANKPEEK · 对战信息 · 标签分析 · 赛后复盘 ·",
-  "英雄池 · 近期状态 · 局内侦察 · 数据标签 ·",
-  "MATCH SCOUT · USER TAGS · POST GAME ·",
-];
+const githubRepoUrl = "https://github.com/wxl11071123/rankpeek";
+const githubIssuesUrl = "https://github.com/wxl11071123/rankpeek/issues";
+
+const showcaseBackgroundLines = computed(() => [
+  t("settings.showcaseLine1"),
+  t("settings.showcaseLine2"),
+  t("settings.showcaseLine3"),
+]);
 
 const aboutLogoSrc = computed(() =>
   themeStore.theme === "dark" ? brandSymbolBlack : brandSymbolWhite,
@@ -46,7 +51,7 @@ onMounted(async () => {
       defaultMatchQueueMode.value = config.settings.match.defaultQueueMode ?? savedDefaultQueueMode;
     }
   } catch (error) {
-    console.error("加载设置失败", error);
+    console.error("Failed to load settings", error);
   }
 });
 
@@ -54,15 +59,15 @@ async function saveMatchSettings() {
   try {
     await apiClient.setConfig("settings.match.defaultQueueMode", defaultMatchQueueMode.value);
     setCachedDefaultMatchQueueMode(defaultMatchQueueMode.value);
-    alert("默认查战绩模式已保存");
+    alert(t("settings.defaultModeSaved"));
   } catch (error) {
-    console.error("淇濆瓨榛樿鎴樼哗妯″紡澶辫触", error);
-    alert("淇濆瓨澶辫触");
+    console.error("Failed to save default match mode", error);
+    alert(t("settings.saveFailed"));
   }
 }
 
 async function clearCache() {
-  if (!confirm("确定要清除本地缓存吗？")) {
+  if (!confirm(t("settings.confirmClearCache"))) {
     return;
   }
 
@@ -71,10 +76,10 @@ async function clearCache() {
     localStorage.clear();
     themeStore.setTheme(currentTheme);
     await apiClient.getConfig();
-    alert("缓存已清除");
+    alert(t("settings.cacheCleared"));
   } catch (error) {
-    console.error("清除缓存失败", error);
-    alert("清除缓存失败");
+    console.error("Failed to clear cache", error);
+    alert(t("settings.clearCacheFailed"));
   }
 }
 
@@ -91,8 +96,8 @@ async function exportConfig() {
     anchor.click();
     URL.revokeObjectURL(url);
   } catch (error) {
-    console.error("导出配置失败", error);
-    alert("导出配置失败");
+    console.error("Failed to export config", error);
+    alert(t("settings.exportFailed"));
   }
 }
 
@@ -115,10 +120,10 @@ async function importConfig() {
         await apiClient.setConfig("settings", config.settings);
       }
 
-      alert("配置已导入");
+      alert(t("settings.configImported"));
     } catch (error) {
-      console.error("导入配置失败", error);
-      alert("导入失败：文件格式不正确");
+      console.error("Failed to import config", error);
+      alert(t("settings.importInvalid"));
     }
   };
 
@@ -134,11 +139,11 @@ async function openExternal(url: string) {
   try {
     const result = await window.electronAPI.openExternal(url);
     if (result && !result.success) {
-      console.error("打开链接失败:", result.error);
+      console.error("Failed to open link:", result.error);
       window.open(url, "_blank", "noopener,noreferrer");
     }
   } catch (error) {
-    console.error("打开外部链接失败", error);
+    console.error("Failed to open external link", error);
     window.open(url, "_blank", "noopener,noreferrer");
   }
 }
@@ -147,20 +152,20 @@ async function openExternal(url: string) {
 <template>
   <div class="settings-view">
     <div class="page-header">
-      <h1>系统设置</h1>
-      <p>调整 RankPeek 的品牌、外观与本地运行选项。</p>
+      <h1>{{ t("settings.title") }}</h1>
+      <p>{{ t("settings.subtitle") }}</p>
     </div>
 
     <div class="settings-section">
-      <h2>关于</h2>
+      <h2>{{ t("settings.about") }}</h2>
       <div class="about-card" :class="`theme-${themeStore.theme}`">
         <div class="app-logo">
           <img :src="aboutLogoSrc" alt="RankPeek app symbol" />
         </div>
         <div class="app-info">
           <h3>RankPeek</h3>
-          <p>英雄联盟对局侦察工具</p>
-          <p class="version">版本 {{ appVersion }}</p>
+          <p>{{ t("settings.tagline") }}</p>
+          <p class="version">{{ t("settings.version", { version: appVersion }) }}</p>
         </div>
         <div class="app-showcase">
           <div class="showcase-backdrop" aria-hidden="true">
@@ -181,18 +186,18 @@ async function openExternal(url: string) {
     </div>
 
     <div class="settings-section">
-      <h2>外观</h2>
+      <h2>{{ t("settings.appearance") }}</h2>
       <div class="appearance-settings">
         <div class="setting-item">
           <div class="setting-info">
-            <span class="setting-label">主题模式</span>
-            <span class="setting-desc">切换浅色或深色主题，logo 会跟着自动换版。</span>
+            <span class="setting-label">{{ t("settings.themeMode") }}</span>
+            <span class="setting-desc">{{ t("settings.themeDescription") }}</span>
           </div>
           <div class="theme-toggle">
             <button
               class="theme-btn"
               :class="{ active: themeStore.theme === 'light' }"
-              title="浅色模式"
+              :title="t('settings.lightMode')"
               @click="themeStore.setTheme('light')"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -205,7 +210,7 @@ async function openExternal(url: string) {
             <button
               class="theme-btn"
               :class="{ active: themeStore.theme === 'dark' }"
-              title="深色模式"
+              :title="t('settings.darkMode')"
               @click="themeStore.setTheme('dark')"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -218,12 +223,12 @@ async function openExternal(url: string) {
     </div>
 
     <div class="settings-section">
-      <h2>战绩查询</h2>
+      <h2>{{ t("settings.matchLookup") }}</h2>
       <div class="appearance-settings">
         <div class="setting-item">
           <div class="setting-info">
-            <span class="setting-label">默认查战绩模式</span>
-            <span class="setting-desc">控制“我的战绩”和“战绩查询”页面首次打开时默认展示哪类对局。</span>
+            <span class="setting-label">{{ t("settings.defaultMatchMode") }}</span>
+            <span class="setting-desc">{{ t("settings.defaultMatchModeDescription") }}</span>
           </div>
           <select v-model="defaultMatchQueueMode" class="select-input">
             <option
@@ -237,60 +242,60 @@ async function openExternal(url: string) {
         </div>
 
         <div class="setting-actions">
-          <button class="save-btn" @click="saveMatchSettings">保存默认模式</button>
-          <span class="setting-desc">软件内的标签与数据分析默认仍基于单双排。</span>
+          <button class="save-btn" @click="saveMatchSettings">{{ t("settings.saveDefaultMode") }}</button>
+          <span class="setting-desc">{{ t("settings.queueModeNote") }}</span>
         </div>
       </div>
     </div>
 
     <div class="settings-section">
-      <h2>快捷键</h2>
+      <h2>{{ t("settings.shortcuts") }}</h2>
       <div class="shortcut-list">
         <div class="shortcut-item">
           <span class="shortcut-key">Ctrl + R</span>
-          <span class="shortcut-action">刷新当前页面数据</span>
+          <span class="shortcut-action">{{ t("settings.shortcutRefresh") }}</span>
         </div>
         <div class="shortcut-item">
           <span class="shortcut-key">Ctrl + W</span>
-          <span class="shortcut-action">关闭当前窗口</span>
+          <span class="shortcut-action">{{ t("settings.shortcutClose") }}</span>
         </div>
         <div class="shortcut-item">
           <span class="shortcut-key">F12</span>
-          <span class="shortcut-action">打开开发者工具</span>
+          <span class="shortcut-action">{{ t("settings.shortcutDevTools") }}</span>
         </div>
       </div>
     </div>
 
     <div class="settings-section">
-      <h2>相关链接</h2>
+      <h2>{{ t("settings.links") }}</h2>
       <div class="link-list">
         <a
-          href="https://github.com/wxl11071123/RankPeek"
+          :href="githubRepoUrl"
           class="link-item"
-          @click.prevent="openExternal('https://github.com/wxl11071123/RankPeek')"
+          @click.prevent="openExternal(githubRepoUrl)"
         >
           <span class="link-icon">📁</span>
-          <span class="link-text">GitHub 仓库</span>
+          <span class="link-text">{{ t("settings.githubRepo") }}</span>
           <span class="link-arrow">→</span>
         </a>
         <a
-          href="https://github.com/wxl11071123/RankPeek/issues"
+          :href="githubIssuesUrl"
           class="link-item"
-          @click.prevent="openExternal('https://github.com/wxl11071123/RankPeek/issues')"
+          @click.prevent="openExternal(githubIssuesUrl)"
         >
           <span class="link-icon">💬</span>
-          <span class="link-text">问题反馈</span>
+          <span class="link-text">{{ t("settings.issueFeedback") }}</span>
           <span class="link-arrow">→</span>
         </a>
       </div>
     </div>
 
     <div class="settings-section">
-      <h2>数据管理</h2>
+      <h2>{{ t("settings.dataManagement") }}</h2>
       <div class="data-actions">
-        <button class="data-btn" @click="clearCache">清除缓存</button>
-        <button class="data-btn" @click="exportConfig">导出配置</button>
-        <button class="data-btn" @click="importConfig">导入配置</button>
+        <button class="data-btn" @click="clearCache">{{ t("settings.clearCache") }}</button>
+        <button class="data-btn" @click="exportConfig">{{ t("settings.exportConfig") }}</button>
+        <button class="data-btn" @click="importConfig">{{ t("settings.importConfig") }}</button>
       </div>
     </div>
   </div>

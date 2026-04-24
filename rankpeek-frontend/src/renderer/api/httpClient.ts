@@ -3,7 +3,6 @@ import type {
   AppConfig,
   AramBalanceData,
   AssetDetails,
-  AutomationStatus,
   ChampionOption,
   GameDetail,
   GameModeOption,
@@ -246,57 +245,6 @@ class ApiClient {
     } catch {
       return false
     }
-  }
-
-  // ========== 自动化 API ==========
-
-  /**
-   * 获取自动化任务状态
-   */
-  async getAutomationStatus(): Promise<AutomationStatus> {
-    return this.get<AutomationStatus>('/automation/status')
-  }
-
-  /**
-   * 启动自动匹配
-   */
-  async startAutoMatch(): Promise<void> {
-    return this.postVoid('/automation/match/start')
-  }
-
-  /**
-   * 停止自动匹配
-   */
-  async stopAutoMatch(): Promise<void> {
-    return this.postVoid('/automation/match/stop')
-  }
-
-  /**
-   * 设置自动接受
-   */
-  async setAutoAccept(enabled: boolean): Promise<void> {
-    return this.postVoid(`/automation/accept/${enabled}`)
-  }
-
-  /**
-   * 设置自动选人
-   */
-  async setAutoPick(enabled: boolean): Promise<void> {
-    return this.postVoid(`/automation/pick/${enabled}`)
-  }
-
-  /**
-   * 设置自动禁人
-   */
-  async setAutoBan(enabled: boolean): Promise<void> {
-    return this.postVoid(`/automation/ban/${enabled}`)
-  }
-
-  /**
-   * 批量设置自动化
-   */
-  async setBatchAutomation(settings: Record<string, boolean>): Promise<void> {
-    return this.postVoid('/automation/batch', settings)
   }
 
   // ========== 配置 API ==========

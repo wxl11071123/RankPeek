@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useGameStore } from '@/stores/game'
+import { t } from '@/i18n'
 
 const gameStore = useGameStore()
 
@@ -20,7 +21,7 @@ const close = () => window.electronAPI?.closeWindow()
           }"
         ></span>
         <span class="status-text">
-          {{ gameStore.connected ? '已连接' : '未连接' }}
+          {{ gameStore.connected ? t('common.connected') : t('common.disconnected') }}
         </span>
       </div>
 
@@ -30,17 +31,17 @@ const close = () => window.electronAPI?.closeWindow()
     </div>
 
     <div class="window-controls">
-      <button class="control-btn minimize" @click="minimize" title="最小化">
+      <button class="control-btn minimize" @click="minimize" :title="t('window.minimize')">
         <svg viewBox="0 0 12 12">
           <rect y="5" width="12" height="2" />
         </svg>
       </button>
-      <button class="control-btn maximize" @click="maximize" title="最大化">
+      <button class="control-btn maximize" @click="maximize" :title="t('window.maximize')">
         <svg viewBox="0 0 12 12">
           <rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" />
         </svg>
       </button>
-      <button class="control-btn close" @click="close" title="关闭">
+      <button class="control-btn close" @click="close" :title="t('window.close')">
         <svg viewBox="0 0 12 12">
           <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5" />
           <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.5" />

@@ -1,37 +1,34 @@
 <template>
   <div class="gaming-view">
-    <!-- 未在游戏中 -->
+    <!-- Waiting state -->
     <div v-if="!sessionData.phase" class="not-in-game">
       <div class="not-in-game-icon">🎮</div>
-      <h2>等待加入游戏</h2>
-      <p>当您进入选人阶段或游戏开始后，这里将显示双方玩家信息</p>
-      <!-- 断线提示 -->
+      <h2>{{ t('gaming.waitTitle') }}</h2>
+      <p>{{ t('gaming.waitBody') }}</p>
       <div v-if="isRefreshPaused" class="connection-error">
         <span class="error-icon">⚠️</span>
-        <span>连接中断，自动刷新已暂停</span>
-        <button class="resume-btn" @click="resumeRefresh">重新连接</button>
+        <span>{{ t('gaming.connectionPaused') }}</span>
+        <button class="resume-btn" @click="resumeRefresh">{{ t('common.reconnect') }}</button>
       </div>
-      <button v-else class="refresh-btn" @click="fetchSessionData">刷新状态</button>
+      <button v-else class="refresh-btn" @click="fetchSessionData">{{ t('common.refreshStatus') }}</button>
     </div>
 
-    <!-- 游戏中 -->
+    <!-- Active game state -->
     <div v-else class="gaming-content">
-      <!-- 断线提示栏 -->
       <div v-if="isRefreshPaused" class="connection-bar">
         <span class="error-icon">⚠️</span>
-        <span>连接中断，自动刷新已暂停</span>
-        <button class="resume-btn-small" @click="resumeRefresh">重新连接</button>
+        <span>{{ t('gaming.connectionPaused') }}</span>
+        <button class="resume-btn-small" @click="resumeRefresh">{{ t('common.reconnect') }}</button>
       </div>
-      <!-- 头部信息 -->
       <div class="gaming-header">
         <div class="phase-info">
           <span class="phase-badge" :class="phaseClass">{{ phaseCn }}</span>
-          <span class="queue-name">{{ sessionData.typeCn || '未知模式' }}</span>
+          <span class="queue-name">{{ sessionData.typeCn || t('common.unknownMode') }}</span>
         </div>
         <div class="header-actions">
           <button class="refresh-btn-small" @click="fetchSessionData" :disabled="loading">
             <span class="refresh-icon" :class="{ 'spinning': loading }">↻</span>
-            <span>{{ loading ? '刷新中...' : '刷新' }}</span>
+            <span>{{ loading ? t('common.refreshing') : t('common.refresh') }}</span>
             <span v-if="loading" class="loading-bar">
               <span class="loading-progress"></span>
             </span>
@@ -39,22 +36,18 @@
         </div>
       </div>
 
-      <!-- 双方队伍 -->
       <div class="teams-container">
-        <!-- 我方 -->
         <div class="team-column team-blue">
           <div class="team-header team-header-blue">
             <span class="team-icon">⚔</span>
-            我方队伍
+            {{ t('gaming.blueTeam') }}
           </div>
-          <!-- 无对局时显示占位 -->
           <template v-if="!sessionData.teamOne || sessionData.teamOne.length === 0">
             <div class="team-placeholder team-placeholder-blue">
               <span class="placeholder-icon">👀</span>
-              <span>等待加入游戏...</span>
+              <span>{{ t('gaming.waitingToJoin') }}</span>
             </div>
           </template>
-          <!-- 正常显示我方 -->
           <template v-else>
             <div class="team-players">
               <PlayerCard
@@ -68,29 +61,25 @@
           </template>
         </div>
 
-        <!-- 敌方 -->
         <div class="team-column team-red">
           <div class="team-header team-header-red">
             <span class="team-icon">🛡</span>
-            敌方队伍
+            {{ t('gaming.redTeam') }}
           </div>
-          <!-- 选人阶段且敌方无数据时显示等待动画 -->
           <template v-if="sessionData.phase === 'ChampSelect' && (!sessionData.teamTwo || sessionData.teamTwo.length === 0)">
             <div class="enemy-loading">
               <div class="loading-dots">
                 <span></span><span></span><span></span>
               </div>
-              <span class="loading-text">等待对手选择...</span>
+              <span class="loading-text">{{ t('gaming.waitingEnemySelect') }}</span>
             </div>
           </template>
-          <!-- 敌方无数据时显示占位 -->
           <template v-else-if="!sessionData.teamTwo || sessionData.teamTwo.length === 0">
             <div class="enemy-placeholder">
               <span class="placeholder-icon">👀</span>
-              <span>等待敌方数据...</span>
+              <span>{{ t('gaming.waitingEnemyData') }}</span>
             </div>
           </template>
-          <!-- 正常显示敌方 -->
           <template v-else>
             <div class="team-players">
               <PlayerCard
@@ -115,10 +104,11 @@ import { apiClient } from '@/api/httpClient'
 import type { SessionData } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
 import { DEFAULT_ANALYSIS_QUEUE_MODE } from '@/utils/matchPreferences'
+import { useI18n, type MessageKey } from '@/i18n'
 
 const router = useRouter()
+const { t } = useI18n()
 
-// 数据
 const sessionData = ref<SessionData>({
   phase: '',
   queueType: '',
@@ -131,33 +121,30 @@ const sessionData = ref<SessionData>({
 const loading = ref(false)
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 
-// 重试机制
 let retryCount = 0
 const maxRetries = 3
 
-// 失败计数与自动恢复
 const failCount = ref(0)
 const maxFailCount = 10
 const isRefreshPaused = ref(false)
 let autoResumeTimer: ReturnType<typeof setTimeout> | null = null
 
-// 阶段中文
 const phaseCn = computed(() => {
-  const phaseMap: Record<string, string> = {
-    'ChampSelect': '选人阶段',
-    'GameStart': '游戏开始',
-    'InProgress': '游戏进行中',
-    'PreEndOfGame': '即将结束',
-    'EndOfGame': '游戏结束',
-    'Lobby': '大厅',
-    'Matchmaking': '匹配中',
-    'ReadyCheck': '确认阶段',
-    'Reconnect': '重新连接'
+  const phaseMap: Record<string, MessageKey> = {
+    ChampSelect: 'gaming.phase.ChampSelect',
+    GameStart: 'gaming.phase.GameStart',
+    InProgress: 'gaming.phase.InProgress',
+    PreEndOfGame: 'gaming.phase.PreEndOfGame',
+    EndOfGame: 'gaming.phase.EndOfGame',
+    Lobby: 'gaming.phase.Lobby',
+    Matchmaking: 'gaming.phase.Matchmaking',
+    ReadyCheck: 'gaming.phase.ReadyCheck',
+    Reconnect: 'gaming.phase.Reconnect'
   }
-  return phaseMap[sessionData.value.phase] || sessionData.value.phase
+  const key = phaseMap[sessionData.value.phase]
+  return key ? t(key) : sessionData.value.phase
 })
 
-// 阶段样式类
 const phaseClass = computed(() => {
   const phase = sessionData.value.phase
   if (phase === 'InProgress' || phase === 'GameStart') return 'phase-playing'
@@ -166,22 +153,17 @@ const phaseClass = computed(() => {
   return ''
 })
 
-// 获取会话数据
 async function fetchSessionData() {
-  // 如果刷新已暂停，直接返回
   if (isRefreshPaused.value) return
 
   loading.value = true
   try {
     const data = await apiClient.getSessionData(DEFAULT_ANALYSIS_QUEUE_MODE)
     sessionData.value = data
-    // 成功时重置失败计数
     failCount.value = 0
   } catch (e) {
-    console.error('获取会话数据失败', e)
-    // 失败计数增加
+    console.error('Failed to fetch session data', e)
     failCount.value++
-    // 达到阈值时暂停刷新
     if (failCount.value >= maxFailCount) {
       pauseRefresh()
     }
@@ -190,22 +172,19 @@ async function fetchSessionData() {
   }
 }
 
-// 暂停自动刷新
 function pauseRefresh() {
   isRefreshPaused.value = true
   if (refreshInterval) {
     clearInterval(refreshInterval)
     refreshInterval = null
   }
-  // 15秒后自动恢复刷新
   if (autoResumeTimer) clearTimeout(autoResumeTimer)
   autoResumeTimer = setTimeout(() => {
-    console.log('自动恢复数据刷新')
+    console.log('Auto-resuming session refresh')
     resumeRefresh()
   }, 15000)
 }
 
-// 恢复自动刷新
 function resumeRefresh() {
   isRefreshPaused.value = false
   failCount.value = 0
@@ -219,7 +198,6 @@ function resumeRefresh() {
   }
 }
 
-// 跳转到玩家详情
 function handleNavigateToPlayer(gameName: string, tagLine: string) {
   router.push({
     path: '/summoner',
@@ -256,7 +234,7 @@ function checkAndRetryFetch() {
 
     if (enemyMissing && retryCount < maxRetries) {
       retryCount++
-      console.log(`敌方数据缺失，尝试 ${retryCount}/${maxRetries}，3秒后重试...`)
+      console.log(`Enemy data missing, retry ${retryCount}/${maxRetries} in 3 seconds`)
       setTimeout(() => {
         fetchSessionData()
         setTimeout(checkAndRetryFetch, 4000)
@@ -282,7 +260,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-/* 未在游戏中 */
+/* Waiting state */
 .not-in-game {
   display: flex;
   flex-direction: column;
@@ -328,7 +306,7 @@ onUnmounted(() => {
   transform: translateY(-1px);
 }
 
-/* 游戏中 */
+/* Active game state */
 .gaming-content {
   display: flex;
   flex-direction: column;
@@ -450,7 +428,7 @@ onUnmounted(() => {
   100% { width: 100%; }
 }
 
-/* 队伍 */
+/* Teams */
 .teams-container {
   display: flex;
   gap: 16px;
@@ -501,7 +479,7 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-/* 敌方加载状态 */
+/* Enemy loading state */
 .enemy-loading {
   flex: 1;
   display: flex;
@@ -548,7 +526,7 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* 敌方占位 */
+/* Enemy placeholder */
 .enemy-placeholder {
   flex: 1;
   display: flex;
@@ -563,7 +541,7 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
-/* 我方占位 - 绿色底色 */
+/* Ally placeholder */
 .team-placeholder {
   flex: 1;
   display: flex;
@@ -586,7 +564,7 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-/* 断线提示 */
+/* Connection warning */
 .connection-error {
   display: flex;
   align-items: center;

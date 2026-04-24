@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n, type MessageKey } from '@/i18n'
 import type { QueueInfo, Summoner, UserTag, WinRate } from '@/types/api'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
@@ -28,6 +29,8 @@ const emit = defineEmits<{
   copyName: []
 }>()
 
+const { t } = useI18n()
+
 const tierIconMap: Record<string, string> = {
   unranked,
   iron,
@@ -42,25 +45,25 @@ const tierIconMap: Record<string, string> = {
   challenger
 }
 
-const tierLabelMap: Record<string, string> = {
-  UNRANKED: '未定级',
-  IRON: '黑铁',
-  BRONZE: '青铜',
-  SILVER: '白银',
-  GOLD: '黄金',
-  PLATINUM: '铂金',
-  EMERALD: '翡翠',
-  DIAMOND: '钻石',
-  MASTER: '超凡大师',
-  GRANDMASTER: '傲世宗师',
-  CHALLENGER: '最强王者'
+const tierLabelMap: Record<string, MessageKey> = {
+  UNRANKED: 'tier.UNRANKED',
+  IRON: 'tier.IRON',
+  BRONZE: 'tier.BRONZE',
+  SILVER: 'tier.SILVER',
+  GOLD: 'tier.GOLD',
+  PLATINUM: 'tier.PLATINUM',
+  EMERALD: 'tier.EMERALD',
+  DIAMOND: 'tier.DIAMOND',
+  MASTER: 'tier.MASTER',
+  GRANDMASTER: 'tier.GRANDMASTER',
+  CHALLENGER: 'tier.CHALLENGER'
 }
 
-const divisionLabelMap: Record<string, string> = {
-  I: '一',
-  II: '二',
-  III: '三',
-  IV: '四'
+const divisionLabelMap: Record<string, MessageKey> = {
+  I: 'division.I',
+  II: 'division.II',
+  III: 'division.III',
+  IV: 'division.IV'
 }
 
 function fullName(): string {
@@ -81,21 +84,23 @@ function getTierIcon(tier?: string): string {
 
 function getTierText(queueInfo: QueueInfo | null): string {
   if (!queueInfo) {
-    return tierLabelMap.UNRANKED
+    return t(tierLabelMap.UNRANKED)
   }
 
   const tierKey = queueInfo?.tier?.toUpperCase()
   if (!tierKey || tierKey === 'UNRANKED') {
-    return tierLabelMap.UNRANKED
+    return t(tierLabelMap.UNRANKED)
   }
 
-  const tierLabel = tierLabelMap[tierKey] || queueInfo.tier
+  const tierLabel = tierLabelMap[tierKey] ? t(tierLabelMap[tierKey]) : queueInfo.tier
   if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tierKey)) {
     return `${tierLabel} ${queueInfo.leaguePoints} LP`
   }
 
   const divisionKey = queueInfo?.division?.toUpperCase()
-  const divisionLabel = divisionKey ? (divisionLabelMap[divisionKey] || queueInfo.division) : ''
+  const divisionLabel = divisionKey
+    ? (divisionLabelMap[divisionKey] ? t(divisionLabelMap[divisionKey]) : queueInfo.division)
+    : ''
   return divisionLabel
     ? `${tierLabel} ${divisionLabel} ${queueInfo.leaguePoints} LP`
     : `${tierLabel} ${queueInfo.leaguePoints} LP`
@@ -136,20 +141,20 @@ function statusMeta() {
   switch (props.userTag?.recordStatus) {
     case 'PRIVATE':
       return {
-        label: '战绩隐藏',
-        hint: 'LCU 能识别这个玩家，但近期战绩处于隐藏状态。',
+        label: t('badge.private'),
+        hint: t('overview.privateBody'),
         className: 'private'
       }
     case 'EMPTY':
       return {
-        label: '暂无近期对局',
-        hint: '近期可用战绩不足，暂时无法在这里展示。',
+        label: t('matchHistory.emptyTitle'),
+        hint: t('matchHistory.emptyBody'),
         className: 'empty'
       }
     case 'ERROR':
       return {
-        label: '加载失败',
-        hint: '最近一次请求没有返回可用的战绩数据。',
+        label: t('badge.error'),
+        hint: t('overview.errorBody'),
         className: 'error'
       }
     default:
@@ -174,7 +179,7 @@ function statusMeta() {
         <div class="user-info">
           <div class="user-name-row">
             <span class="user-name">{{ summoner.gameName }}</span>
-            <button class="copy-btn" type="button" @click="copyName">复制</button>
+            <button class="copy-btn" type="button" @click="copyName">{{ t('overview.copy') }}</button>
           </div>
           <div class="user-tag">#{{ summoner.tagLine }}</div>
         </div>
@@ -203,7 +208,7 @@ function statusMeta() {
       class="relationship-section"
     >
       <div class="relationship-col">
-        <div class="section-header good">最佳队友</div>
+        <div class="section-header good">{{ t('overview.bestAllies') }}</div>
         <div class="relationship-list">
           <div
             v-for="friend in userTag.recentData.friendAndDispute.friendsSummoner.slice(0, 5)"
@@ -221,13 +226,13 @@ function statusMeta() {
             </span>
           </div>
           <div v-if="userTag.recentData.friendAndDispute.friendsSummoner.length === 0" class="empty-text">
-            暂时还没有重复组到的高胜率队友。
+            {{ t('overview.noBestAllies') }}
           </div>
         </div>
       </div>
 
       <div class="relationship-col">
-        <div class="section-header bad">棘手对手</div>
+        <div class="section-header bad">{{ t('overview.toughOpponents') }}</div>
         <div class="relationship-list">
           <div
             v-for="enemy in userTag.recentData.friendAndDispute.disputeSummoner.slice(0, 5)"
@@ -245,7 +250,7 @@ function statusMeta() {
             </span>
           </div>
           <div v-if="userTag.recentData.friendAndDispute.disputeSummoner.length === 0" class="empty-text">
-            暂时还没有重复遇到的克制对手。
+            {{ t('overview.noToughOpponents') }}
           </div>
         </div>
       </div>
@@ -253,34 +258,34 @@ function statusMeta() {
 
     <div class="rank-cards">
       <div class="rank-card">
-        <span class="rank-label">单双排</span>
+        <span class="rank-label">{{ t('overview.soloQueue') }}</span>
         <img class="rank-img" :src="getTierIcon(soloRank?.tier)" alt="" />
         <div class="rank-tier">{{ getTierText(soloRank) }}</div>
         <div class="win-rate-badge">
           {{ getWinRatePercent(rankedWinRates?.RANKED_SOLO_5x5?.wins || 0, rankedWinRates?.RANKED_SOLO_5x5?.losses || 0) }}%
         </div>
         <div class="rank-wl">
-          <span>{{ rankedWinRates?.RANKED_SOLO_5x5?.wins || 0 }}胜</span>
-          <span>{{ rankedWinRates?.RANKED_SOLO_5x5?.losses || 0 }}负</span>
+          <span>{{ t('overview.wins', { count: rankedWinRates?.RANKED_SOLO_5x5?.wins || 0 }) }}</span>
+          <span>{{ t('overview.losses', { count: rankedWinRates?.RANKED_SOLO_5x5?.losses || 0 }) }}</span>
         </div>
       </div>
 
       <div class="rank-card">
-        <span class="rank-label">灵活组排</span>
+        <span class="rank-label">{{ t('overview.flexQueue') }}</span>
         <img class="rank-img" :src="getTierIcon(flexRank?.tier)" alt="" />
         <div class="rank-tier">{{ getTierText(flexRank) }}</div>
         <div class="win-rate-badge">
           {{ getWinRatePercent(rankedWinRates?.RANKED_FLEX_SR?.wins || 0, rankedWinRates?.RANKED_FLEX_SR?.losses || 0) }}%
         </div>
         <div class="rank-wl">
-          <span>{{ rankedWinRates?.RANKED_FLEX_SR?.wins || 0 }}胜</span>
-          <span>{{ rankedWinRates?.RANKED_FLEX_SR?.losses || 0 }}负</span>
+          <span>{{ t('overview.wins', { count: rankedWinRates?.RANKED_FLEX_SR?.wins || 0 }) }}</span>
+          <span>{{ t('overview.losses', { count: rankedWinRates?.RANKED_FLEX_SR?.losses || 0 }) }}</span>
         </div>
       </div>
     </div>
 
     <div v-if="userTag?.recordStatus === 'NORMAL' && userTag?.recentData" class="recent-stats-card">
-      <div class="recent-stats-header">近期状态</div>
+      <div class="recent-stats-header">{{ t('overview.recentStats') }}</div>
 
       <div class="stat-row">
         <span class="stat-label">KDA</span>
@@ -293,30 +298,33 @@ function statusMeta() {
       </div>
 
       <div class="stat-row">
-        <span class="stat-label">胜率</span>
+        <span class="stat-label">{{ t('overview.winRate') }}</span>
         <span
           class="stat-main"
           :style="{ color: getRateColor(getWinRatePercent(userTag.recentData.selectWins || 0, userTag.recentData.selectLosses || 0)) }"
         >
           {{ getWinRatePercent(userTag.recentData.selectWins || 0, userTag.recentData.selectLosses || 0) }}%
         </span>
-        <span class="stat-sub">{{ userTag.recentData.selectWins || 0 }}胜 {{ userTag.recentData.selectLosses || 0 }}负</span>
+        <span class="stat-sub">
+          {{ t('overview.wins', { count: userTag.recentData.selectWins || 0 }) }}
+          {{ t('overview.losses', { count: userTag.recentData.selectLosses || 0 }) }}
+        </span>
       </div>
 
       <div class="stat-row">
-        <span class="stat-label">伤害</span>
+        <span class="stat-label">{{ t('common.damage') }}</span>
         <span class="stat-main">{{ userTag.recentData.averageDamageDealtToChampions || 0 }}</span>
-        <span class="stat-sub">占比 {{ userTag.recentData.damageDealtToChampionsRate || 0 }}%</span>
+        <span class="stat-sub">{{ t('overview.shareRate', { value: userTag.recentData.damageDealtToChampionsRate || 0 }) }}</span>
       </div>
 
       <div class="stat-row">
-        <span class="stat-label">金币</span>
+        <span class="stat-label">{{ t('common.gold') }}</span>
         <span class="stat-main">{{ userTag.recentData.averageGold || 0 }}</span>
-        <span class="stat-sub">占比 {{ userTag.recentData.goldRate || 0 }}%</span>
+        <span class="stat-sub">{{ t('overview.shareRate', { value: userTag.recentData.goldRate || 0 }) }}</span>
       </div>
 
       <div class="stat-row">
-        <span class="stat-label">参团</span>
+        <span class="stat-label">{{ t('overview.participation') }}</span>
         <span class="stat-main">{{ userTag.recentData.groupRate || 0 }}%</span>
         <span class="stat-sub">{{ userTag.recentData.selectModeCn }}</span>
       </div>

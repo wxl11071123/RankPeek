@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { t, type MessageKey } from '@/i18n'
 
 const route = useRoute()
 const router = useRouter()
 
-const menuItems = [
-  { path: '/', icon: '🏠', label: '首页' },
-  { path: '/gaming', icon: '🎮', label: '对战信息' },
-  { path: '/summoner', icon: '👤', label: '战绩查询' },
-  { path: '/match-history', icon: '📊', label: '召唤师信息' },
-  { path: '/user-tag', icon: '🏷️', label: '标签分析' },
-  { path: '/tag-config', icon: '📝', label: '标签配置' },
-  { path: '/automation', icon: '⚙️', label: '自动化' },
-  { path: '/settings', icon: '🔧', label: '设置' }
+const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
+  { path: '/', icon: '🏠', labelKey: 'nav.home' },
+  { path: '/gaming', icon: '🎮', labelKey: 'nav.gaming' },
+  { path: '/summoner', icon: '👤', labelKey: 'nav.summoner' },
+  { path: '/match-history', icon: '📊', labelKey: 'nav.matchHistory' },
+  { path: '/user-tag', icon: '🏷️', labelKey: 'nav.userTag' },
+  { path: '/tag-config', icon: '📝', labelKey: 'nav.tagConfig' },
+  { path: '/settings', icon: '🔧', labelKey: 'nav.settings' }
 ]
 
 const currentPath = computed(() => route.path)
@@ -35,7 +35,7 @@ function navigateTo(path: string) {
           @click="navigateTo(item.path)"
         >
           <span class="nav-icon">{{ item.icon }}</span>
-          <span class="nav-label">{{ item.label }}</span>
+          <span class="nav-label">{{ t(item.labelKey) }}</span>
         </li>
       </ul>
     </nav>
@@ -48,7 +48,7 @@ function navigateTo(path: string) {
 
 <style scoped>
 .sidebar {
-  width: 220px;
+  width: 252px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-subtle);
   display: flex;
@@ -59,7 +59,7 @@ function navigateTo(path: string) {
 
 .sidebar-nav {
   flex: 1;
-  padding: 18px 12px 12px;
+  padding: 20px 14px 12px;
   overflow-y: auto;
 }
 
@@ -72,16 +72,17 @@ function navigateTo(path: string) {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 16px;
-  margin-bottom: 2px;
+  gap: 16px;
+  min-height: 62px;
+  padding: 16px 18px;
+  margin-bottom: 6px;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: -0.224px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
 .nav-item:hover {
@@ -96,14 +97,16 @@ function navigateTo(path: string) {
 }
 
 .nav-icon {
-  font-size: 18px;
-  width: 22px;
+  font-size: 25px;
+  width: 34px;
+  line-height: 1;
   text-align: center;
   flex-shrink: 0;
 }
 
 .nav-label {
-  font-size: 14px;
+  font-size: 17px;
+  line-height: 1.25;
 }
 
 .sidebar-footer {
@@ -113,10 +116,39 @@ function navigateTo(path: string) {
 
 .version {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-tertiary);
   text-align: center;
   letter-spacing: -0.12px;
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    width: 96px;
+  }
+
+  .sidebar-nav {
+    padding: 16px 10px;
+  }
+
+  .nav-item {
+    justify-content: center;
+    min-height: 66px;
+    padding: 16px 10px;
+  }
+
+  .nav-icon {
+    width: auto;
+    font-size: 30px;
+  }
+
+  .nav-label {
+    display: none;
+  }
+
+  .sidebar-footer {
+    padding: 12px 8px;
+  }
 }
 </style>

@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RestController;
 import io.rankpeek.config.AppConfig;
 import io.rankpeek.model.ApiResponse;
 import io.rankpeek.service.AssetService;
-import io.rankpeek.service.AutomationService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -27,7 +26,6 @@ import lombok.RequiredArgsConstructor;
 public class ConfigController {
 
     private final AppConfig appConfig;
-    private final AutomationService automationService;
     private final AssetService assetService;
 
     /**
@@ -38,19 +36,10 @@ public class ConfigController {
         Map<String, Object> config = new HashMap<>();
 
         Map<String, Object> settings = new HashMap<>();
-        Map<String, Object> auto = new HashMap<>();
         Map<String, Object> match = new HashMap<>();
-
-        auto.put("startMatchSwitch", appConfig.isAutoMatchEnabled());
-        auto.put("acceptMatchSwitch", appConfig.isAutoAcceptEnabled());
-        auto.put("pickChampionSwitch", appConfig.isAutoPickEnabled());
-        auto.put("banChampionSwitch", appConfig.isAutoBanEnabled());
-        auto.put("pickChampionSlice", appConfig.getPickChampions());
-        auto.put("banChampionSlice", appConfig.getBanChampions());
 
         match.put("defaultQueueMode", appConfig.getDefaultMatchQueueMode());
 
-        settings.put("auto", auto);
         settings.put("match", match);
         config.put("settings", settings);
 
@@ -74,9 +63,6 @@ public class ConfigController {
 
         // 更新配置
         appConfig.updateConfig(key, value);
-
-        // 触发自动化任务状态更新
-        handleAutomationConfigChange(key, value);
 
         return ApiResponse.success();
     }
@@ -106,18 +92,6 @@ public class ConfigController {
     // ========== 内部方法 ==========
 
     private Object getConfigValue(String key) {
-        if (key.startsWith("settings.auto.")) {
-            String autoKey = key.substring("settings.auto.".length());
-            return switch (autoKey) {
-                case "startMatchSwitch" -> appConfig.isAutoMatchEnabled();
-                case "acceptMatchSwitch" -> appConfig.isAutoAcceptEnabled();
-                case "pickChampionSwitch" -> appConfig.isAutoPickEnabled();
-                case "banChampionSwitch" -> appConfig.isAutoBanEnabled();
-                case "pickChampionSlice" -> appConfig.getPickChampions();
-                case "banChampionSlice" -> appConfig.getBanChampions();
-                default -> null;
-            };
-        }
         if (key.startsWith("settings.match.")) {
             String matchKey = key.substring("settings.match.".length());
             return switch (matchKey) {
@@ -126,29 +100,5 @@ public class ConfigController {
             };
         }
         return appConfig.getDynamicConfig().get(key);
-    }
-
-    private void handleAutomationConfigChange(String key, Object value) {
-        boolean enabled = toBoolean(value);
-
-        switch (key) {
-            case "settings.auto.startMatchSwitch" ->
-                automationService.setTaskEnabled(AutomationService.TASK_AUTO_MATCH, enabled);
-            case "settings.auto.acceptMatchSwitch" ->
-                automationService.setTaskEnabled(AutomationService.TASK_AUTO_ACCEPT, enabled);
-            case "settings.auto.pickChampionSwitch" ->
-                automationService.setTaskEnabled(AutomationService.TASK_AUTO_PICK, enabled);
-            case "settings.auto.banChampionSwitch" ->
-                automationService.setTaskEnabled(AutomationService.TASK_AUTO_BAN, enabled);
-        }
-    }
-
-    private boolean toBoolean(Object value) {
-        if (value instanceof Boolean b)
-            return b;
-        if (value instanceof Map<?, ?> m && m.containsKey("value")) {
-            return toBoolean(m.get("value"));
-        }
-        return false;
     }
 }

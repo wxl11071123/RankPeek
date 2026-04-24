@@ -179,27 +179,9 @@ export interface LobbyMember {
   teamId: number
 }
 
-// 自动化任务状态
-export interface AutomationStatus {
-  auto_match: boolean
-  auto_accept: boolean
-  auto_pick: boolean
-  auto_ban: boolean
-}
-
 // 配置
 export interface AppConfig {
   settings: {
-    auto: {
-      startMatchSwitch: boolean
-      startMatchDelay: number
-      acceptMatchSwitch: boolean
-      acceptMatchDelay: number
-      pickChampionSwitch: boolean
-      banChampionSwitch: boolean
-      pickChampionSlice: number[]
-      banChampionSlice: number[]
-    }
     match: {
       defaultQueueMode: number
     }

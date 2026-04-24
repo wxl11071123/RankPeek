@@ -6,5 +6,5 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "src/main/**/*.ts", "src/preload/**/*.ts"]
+  "include": ["vite.config*.mts", "src/main/**/*.ts", "src/preload/**/*.ts"]
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from '@/i18n'
 import type { Stats, UserTagSummary } from '@/types/api'
 import { buildMatchDetailItems, getTeamKdaLeaders } from './matchRosterDisplay'
 
@@ -22,6 +23,7 @@ const props = withDefaults(defineProps<{
   currentPuuid: ''
 })
 
+const { t } = useI18n()
 const emit = defineEmits<{
   navigateToPlayer: [gameName: string, tagLine: string]
 }>()
@@ -33,7 +35,7 @@ function getChampionUrl(championId: number): string {
 }
 
 function displayName(player: MatchRosterPlayer): string {
-  return player.gameName || player.summonerName || '未知玩家'
+  return player.gameName || player.summonerName || t('common.unknownPlayer')
 }
 
 function fullName(player: MatchRosterPlayer): string {

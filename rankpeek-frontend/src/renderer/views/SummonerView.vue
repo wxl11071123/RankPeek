@@ -2,8 +2,8 @@
   <div class="summoner-view">
     <section class="search-shell">
       <div class="search-copy">
-        <h1>战绩查询</h1>
-        <p>更快加载最近对局，批量补全队友标签，点击卡片时再按需展开完整对局详情。</p>
+        <h1>{{ t('summoner.title') }}</h1>
+        <p>{{ t('summoner.subtitle') }}</p>
       </div>
 
       <div class="search-bar">
@@ -11,23 +11,23 @@
           v-model="searchName"
           class="search-input"
           type="text"
-          placeholder="输入召唤师 Riot ID，例如 Faker#KR1"
+          :placeholder="t('summoner.placeholder')"
           @keyup.enter="searchSummoner()"
         />
         <button class="search-btn" type="button" :disabled="loading || !searchName.trim()" @click="searchSummoner()">
-          {{ loading ? '查询中...' : '查询' }}
+          {{ loading ? t('summoner.searching') : t('summoner.search') }}
         </button>
       </div>
     </section>
 
     <section v-if="error" class="state-card error">
-      <strong>查询失败</strong>
+      <strong>{{ t('summoner.errorTitle') }}</strong>
       <span>{{ error }}</span>
     </section>
 
     <section v-else-if="!searchResult && !loading" class="state-card">
-      <strong>查询召唤师</strong>
-      <span>你可以直接输入完整 Riot ID，也可以从其他页面点击玩家名字跳转过来。</span>
+      <strong>{{ t('summoner.emptyTitle') }}</strong>
+      <span>{{ t('summoner.emptyBody') }}</span>
     </section>
 
     <section v-else-if="searchResult" class="content-stack">
@@ -45,13 +45,13 @@
 
         <div class="history-toolbar">
           <div>
-            <h2>最近对局</h2>
-            <p>{{ selectedSummonerName }} 的战绩按页展示，完整对局详情只会在你点开卡片后再加载。</p>
+            <h2>{{ t('matchHistory.recentTitle') }}</h2>
+            <p>{{ t('summoner.recentBody', { name: selectedSummonerName }) }}</p>
           </div>
 
           <div class="filters">
             <select v-model="filterChampionId" class="filter-select" @change="handleFilterChange">
-              <option :value="-1">全部英雄</option>
+              <option :value="-1">{{ t('common.allChampions') }}</option>
               <option
                 v-for="champion in championOptions"
                 :key="champion.value"
@@ -62,7 +62,7 @@
             </select>
 
             <select v-model="filterQueueId" class="filter-select" @change="handleFilterChange">
-              <option :value="0">全部模式</option>
+              <option :value="0">{{ t('common.allModes') }}</option>
               <option
                 v-for="mode in modeOptions"
                 :key="mode.id"
@@ -72,13 +72,13 @@
               </option>
             </select>
 
-            <button class="ghost-btn" type="button" @click="resetFilter">重置</button>
+            <button class="ghost-btn" type="button" @click="resetFilter">{{ t('common.reset') }}</button>
           </div>
         </div>
 
         <div v-if="loading && !searchMatchHistory.length" class="state-card inner">
-          <strong>正在加载战绩</strong>
-          <span>当前会先拉取列表，再批量补队友标签，不会再提前瀑布式请求整场详情。</span>
+          <strong>{{ t('matchHistory.loadingTitle') }}</strong>
+          <span>{{ t('summoner.loadingBody') }}</span>
         </div>
 
         <div v-else-if="!searchMatchHistory.length" class="state-card inner">
@@ -95,7 +95,7 @@
           >
             <div class="match-card-main">
               <div class="match-outcome" :class="{ win: isMatchWin(match), lose: !isMatchWin(match) }">
-                <span class="outcome-text">{{ isMatchWin(match) ? '胜利' : '失败' }}</span>
+                <span class="outcome-text">{{ isMatchWin(match) ? t('common.win') : t('common.loss') }}</span>
                 <span class="outcome-meta">{{ formatShortDate(match.gameCreation) }}</span>
               </div>
 
@@ -107,23 +107,23 @@
                     alt=""
                   />
                   <div class="champion-copy">
-                    <strong>{{ match.queueName || match.gameMode || '未知模式' }}</strong>
+                    <strong>{{ match.queueName || match.gameMode || t('common.unknownMode') }}</strong>
                     <span>{{ formatDuration(match.gameDuration) }} · {{ getCurrentPlayerName(match) }}</span>
                   </div>
                 </div>
 
                 <div class="stat-strip">
                   <span :style="{ color: getKdaColor(getKdaValue(match)) }">{{ getKdaText(match) }}</span>
-                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.goldEarned) }} 金币</span>
-                  <span>{{ totalCs(getCurrentPlayer(match)?.stats) }} 补刀</span>
-                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.totalDamageDealtToChampions) }} 伤害</span>
+                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.goldEarned) }} {{ t('common.gold') }}</span>
+                  <span>{{ totalCs(getCurrentPlayer(match)?.stats) }} {{ t('common.cs') }}</span>
+                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.totalDamageDealtToChampions) }} {{ t('common.damage') }}</span>
                 </div>
               </div>
             </div>
 
             <div class="roster-grid">
               <div class="roster-column">
-                <div class="roster-title blue">蓝色方</div>
+                <div class="roster-title blue">{{ t('common.blueTeam') }}</div>
                 <MatchRosterCompact
                   :players="getTeamPlayers(match, 100)"
                   :summaries="userTagSummaries"
@@ -133,7 +133,7 @@
               </div>
 
               <div class="roster-column">
-                <div class="roster-title red">红色方</div>
+                <div class="roster-title red">{{ t('common.redTeam') }}</div>
                 <MatchRosterCompact
                   :players="getTeamPlayers(match, 200)"
                   :summaries="userTagSummaries"
@@ -147,11 +147,11 @@
 
         <div class="pagination">
           <button class="ghost-btn" type="button" :disabled="loading || currentPage <= 1" @click="prevPage">
-            上一页
+            {{ t('common.previousPage') }}
           </button>
-          <span class="page-indicator">第 {{ currentPage }} / {{ totalPages }} 页</span>
+          <span class="page-indicator">{{ t('common.pageIndicator', { current: currentPage, total: totalPages }) }}</span>
           <button class="ghost-btn" type="button" :disabled="loading || currentPage >= totalPages" @click="nextPage">
-            下一页
+            {{ t('common.nextPage') }}
           </button>
         </div>
       </div>
@@ -178,6 +178,7 @@ import MatchDetailModal from '@/components/summoner/MatchDetailModal.vue'
 import MatchRosterCompact from '@/components/summoner/MatchRosterCompact.vue'
 import SummonerOverviewPanel from '@/components/summoner/SummonerOverviewPanel.vue'
 import { useGameStore } from '@/stores/game'
+import { useI18n } from '@/i18n'
 import { DEFAULT_ANALYSIS_QUEUE_MODE, getDefaultMatchQueueMode } from '@/utils/matchPreferences'
 import type {
   ChampionOption,
@@ -210,6 +211,7 @@ interface PlayerInMatch extends Participant {
 const gameStore = useGameStore()
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const searchName = ref('')
 const searchResult = ref<Summoner | null>(null)
@@ -244,31 +246,31 @@ const matchStateMeta = computed(() => {
   const status = searchUserTag.value?.recordStatus
   if (status === 'PRIVATE') {
     return {
-      title: '战绩隐藏',
-      hint: '可以识别到这个玩家，但 LCU 内的近期战绩处于隐藏状态。'
+      title: t('matchHistory.privateTitle'),
+      hint: t('summoner.privateBody')
     }
   }
   if (status === 'EMPTY') {
     return {
-      title: '暂无近期对局',
-      hint: '近期可用战绩不足，暂时无法在这里展示。'
+      title: t('matchHistory.emptyTitle'),
+      hint: t('matchHistory.emptyBody')
     }
   }
   if (status === 'ERROR') {
     return {
-      title: '加载失败',
-      hint: '这次请求没有返回可用的战绩数据。'
+      title: t('matchHistory.errorTitle'),
+      hint: t('summoner.errorBody')
     }
   }
   if (hasFilters.value) {
     return {
-      title: '当前筛选下暂无对局',
-      hint: '试试切换英雄或模式筛选。'
+      title: t('matchHistory.filteredEmptyTitle'),
+      hint: t('matchHistory.filteredEmptyBody')
     }
   }
   return {
-    title: '暂无战绩',
-    hint: '当前没有可展示的可见对局样本。'
+    title: t('matchHistory.noMatchesTitle'),
+    hint: t('matchHistory.noMatchesBody')
   }
 })
 
@@ -328,7 +330,7 @@ async function searchSummoner(nameOverride?: string) {
       searchUserTag.value = null
       searchRankedWinRates.value = null
       searchMatchHistory.value = []
-      error.value = '没有找到这个 Riot ID 对应的召唤师。'
+      error.value = t('summoner.notFound')
       return
     }
 
@@ -346,7 +348,7 @@ async function searchSummoner(nameOverride?: string) {
     await loadMatchHistory()
   } catch (err) {
     console.error('Failed to search summoner', err)
-    error.value = '查询失败，请稍后再试。'
+    error.value = t('summoner.searchFailed')
   } finally {
     loading.value = false
   }
@@ -378,7 +380,7 @@ async function loadMatchHistory() {
     searchMatchHistory.value = []
     userTagSummaries.value = {}
     if (!error.value) {
-      error.value = '战绩加载失败。'
+      error.value = t('summoner.historyLoadFailed')
     }
   } finally {
     loading.value = false
@@ -457,7 +459,7 @@ function getCurrentPlayer(match: MatchHistory): PlayerInMatch | null {
     ? identity.player.tagLine
       ? `${identity.player.gameName}#${identity.player.tagLine}`
       : identity.player.gameName
-    : identity.player?.summonerName || '未知玩家'
+    : identity.player?.summonerName || t('common.unknownPlayer')
 
   return {
     ...participant,
