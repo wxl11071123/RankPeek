@@ -1,0 +1,35 @@
+server:
+  port: 8080
+  address: 127.0.0.1
+
+spring:
+  application:
+    name: rankpeek-backend
+
+  jackson:
+    default-property-inclusion: non_null
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+  threads:
+    virtual:
+      enabled: true
+
+app:
+  settings:
+    auto:
+      start-match-switch: false
+      start-match-delay: 0
+      accept-match-switch: false
+      accept-match-delay: 0
+      pick-champion-switch: false
+      ban-champion-switch: false
+      pick-champion-slice: []
+      ban-champion-slice: []
+logging:
+  level:
+    root: INFO
+    io.rankpeek: INFO
+    org.java_websocket: WARN
+  pattern:
+    console: "[%d{HH:mm:ss.SSS}] [%thread] %-5level %logger{36} - %msg%n"
