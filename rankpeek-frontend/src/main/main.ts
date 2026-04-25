@@ -319,7 +319,7 @@ function runStartupExit(mode: StartupExitMode) {
         log('WARN', `Failed to finish splash animation: ${String(error)}`)
       })
 
-    setTimeout(showMainWindowAfterSplash, mode === 'smooth' ? 2500 : 500)
+    setTimeout(showMainWindowAfterSplash, mode === 'smooth' ? 2500 : 1700)
     return
   }
 
