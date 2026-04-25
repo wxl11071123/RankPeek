@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiClient } from '@/api/httpClient'
+import HomeChart from '@/components/HomeChart.vue'
 import { useGameStore } from '@/stores/game'
-import { getTierCn, isRanked } from '@/utils/constants'
+import { isRanked } from '@/utils/constants'
 import {
   AUTO_ANALYSIS_INTERVALS,
   FORTUNE_POOL,
@@ -33,6 +34,52 @@ import type {
 } from '@/utils/homeInsights'
 
 const gameStore = useGameStore()
+
+const TIER_CN_MAP: Record<string, string> = {
+  iron: '黑铁',
+  bronze: '青铜',
+  silver: '白银',
+  gold: '黄金',
+  platinum: '铂金',
+  emerald: '翡翠',
+  diamond: '钻石',
+  master: '大师',
+  grandmaster: '宗师',
+  challenger: '王者',
+  坚韧黑铁: '黑铁',
+  黑铁: '黑铁',
+  英勇黄铜: '青铜',
+  青铜: '青铜',
+  不屈白银: '白银',
+  白银: '白银',
+  荣耀黄金: '黄金',
+  黄金: '黄金',
+  华贵铂金: '铂金',
+  铂金: '铂金',
+  流光翡翠: '翡翠',
+  翡翠: '翡翠',
+  璀璨钻石: '钻石',
+  钻石: '钻石',
+  超凡大师: '大师',
+  大师: '大师',
+  傲世宗师: '宗师',
+  宗师: '宗师',
+  最强王者: '王者',
+  王者: '王者'
+}
+
+const DIVISION_CN_MAP: Record<string, string> = {
+  i: '1',
+  ii: '2',
+  iii: '3',
+  iv: '4',
+  '1': '1',
+  '2': '2',
+  '3': '3',
+  '4': '4'
+}
+
+const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
 
 const analysis = ref<AnalysisSnapshot | null>(null)
 const analysisExpanded = ref(true)
@@ -253,17 +300,54 @@ function clearFortuneTimer() {
 }
 
 function formatRank(rank: QueueInfo | null): string {
-  if (!rank || !rank.tier) {
-    return t('common.notSet')
+  if (!rank || isUnrankedTier(rank.tier)) {
+    return '未定级'
   }
 
-  if (rank.displayRank) {
-    return rank.displayRank
+  const tier = formatTierCn(rank)
+  const division = formatDivision(rank)
+  return division ? `${tier} ${division}` : tier
+}
+
+function isUnrankedTier(tier?: string): boolean {
+  return UNRANKED_TIER_VALUES.has((tier || '').trim().toLowerCase())
+}
+
+function formatTierCn(rank: QueueInfo): string {
+  const displayTier = rank.displayRank?.trim().split(/\s+/)[0]
+  const candidates = [rank.tier, rank.tierCn, displayTier]
+  let fallback = ''
+
+  for (const candidate of candidates) {
+    const key = candidate?.trim()
+    if (!key) {
+      continue
+    }
+    const mappedTier = TIER_CN_MAP[key.toLowerCase()] || TIER_CN_MAP[key]
+    if (mappedTier) {
+      return mappedTier
+    }
+    if (!isUnrankedTier(key)) {
+      fallback ||= key
+    }
   }
 
-  const tier = getTierCn(rank.tier)
-  const division = rank.division ? ` ${rank.division}` : ''
-  return `${tier}${division} ${rank.leaguePoints ?? 0} LP`
+  return fallback || '未定级'
+}
+
+function formatDivision(rank: QueueInfo): string {
+  const displayDivision = rank.displayRank?.trim().split(/\s+/)[1]
+  const candidates = [rank.division, displayDivision]
+
+  for (const candidate of candidates) {
+    const key = candidate?.trim()
+    if (!key) {
+      continue
+    }
+    return DIVISION_CN_MAP[key.toLowerCase()] || key
+  }
+
+  return ''
 }
 
 function formatDateTime(timestamp?: number): string {
@@ -313,18 +397,18 @@ function formatMetricValue(value: number): string {
 <template>
   <div class="home-view">
     <section v-if="accountConnected && currentSummoner" class="account-panel">
-      <img class="account-avatar" :src="profileIconUrl" alt="" />
-      <div class="account-main">
-        <div class="account-kicker">
-          <span class="panel-eyebrow">{{ t('home.currentAccount') }}</span>
-          <span class="connection-pill connected">{{ t('home.clientConnected') }}</span>
+      <div class="account-identity">
+        <img class="account-avatar" :src="profileIconUrl" alt="" />
+        <div class="account-main">
+          <div class="summoner-heading">
+            <h2>{{ displayName }}</h2>
+            <span class="connection-pill connected">{{ t('home.clientConnected') }}</span>
+          </div>
+          <div class="rank-row">
+            <span>{{ t('home.soloQueue') }}：{{ formatRank(soloRank) }}</span>
+            <span>{{ t('home.flexQueue') }}：{{ formatRank(flexRank) }}</span>
+          </div>
         </div>
-        <h2>{{ displayName }}</h2>
-        <div class="rank-row">
-          <span>{{ t('home.soloQueue') }}：{{ formatRank(soloRank) }}</span>
-          <span>{{ t('home.flexQueue') }}：{{ formatRank(flexRank) }}</span>
-        </div>
-        <p>{{ t('home.accountHint') }}</p>
       </div>
       <button class="secondary-btn" type="button" @click="gameStore.refreshSummoner">
         {{ t('home.refreshAccount') }}
@@ -332,14 +416,15 @@ function formatMetricValue(value: number): string {
     </section>
 
     <section v-else class="account-panel disconnected-panel">
-      <div class="disconnected-mark">!</div>
-      <div class="account-main">
-        <div class="account-kicker">
-          <span class="panel-eyebrow">{{ t('home.currentAccount') }}</span>
-          <span class="connection-pill">{{ t('common.disconnected') }}</span>
+      <div class="account-identity">
+        <div class="disconnected-mark">!</div>
+        <div class="account-main">
+          <div class="account-kicker">
+            <span class="connection-pill">{{ t('common.disconnected') }}</span>
+          </div>
+          <h2>{{ t('home.noClientTitle') }}</h2>
+          <p>{{ t('home.noClientBody') }}</p>
         </div>
-        <h2>{{ t('home.noClientTitle') }}</h2>
-        <p>{{ t('home.noClientBody') }}</p>
       </div>
       <button class="primary-btn" type="button" @click="gameStore.checkConnection">
         {{ t('common.refreshConnection') }}
@@ -349,8 +434,7 @@ function formatMetricValue(value: number): string {
     <section class="feature-grid">
       <article class="ai-analysis-card">
         <div class="card-copy">
-          <div class="panel-eyebrow">{{ t('home.rankGrowth') }}</div>
-          <h2>{{ t('home.aiAnalysis') }}</h2>
+          <h2>电子教练</h2>
           <p>{{ t('home.aiAnalysisBody') }}</p>
         </div>
 
@@ -359,13 +443,18 @@ function formatMetricValue(value: number): string {
             {{ analysisLoading ? t('home.analyzing') : t('home.analyzeNow') }}
           </button>
           <button
-            class="secondary-btn auto-analysis-toggle"
+            class="auto-analysis-switch"
             type="button"
+            role="switch"
+            :aria-checked="autoAnalysis.enabled"
             :class="{ active: autoAnalysis.enabled }"
             :disabled="!accountConnected"
             @click="toggleAutoAnalysis"
           >
-            {{ autoAnalysis.enabled ? t('home.autoAnalysisOn') : t('home.autoAnalysisOff') }}
+            <span class="switch-track">
+              <span class="switch-thumb"></span>
+            </span>
+            <span class="switch-label">自动分析</span>
           </button>
           <select
             class="interval-select"
@@ -386,7 +475,7 @@ function formatMetricValue(value: number): string {
       </article>
 
       <article class="fortune-card" :class="fortuneTone">
-        <div class="panel-eyebrow">{{ t('home.cyberFortune') }}</div>
+        <div class="panel-eyebrow fortune-eyebrow">抽个签</div>
         <div class="fortune-layout">
           <div class="slot-reel" :class="{ rolling: fortuneRolling }">
             {{ fortuneRolling ? rollingFortuneLabel : fortuneLabel }}
@@ -484,6 +573,8 @@ function formatMetricValue(value: number): string {
         </div>
       </div>
     </section>
+
+    <HomeChart :puuid="currentSummoner?.puuid" :connected="accountConnected" />
   </div>
 </template>
 
@@ -532,12 +623,20 @@ function formatMetricValue(value: number): string {
 }
 
 .account-panel {
-  min-height: 152px;
+  min-height: 122px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
   padding: 22px;
+}
+
+.account-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 18px;
 }
 
 .account-avatar,
@@ -573,6 +672,16 @@ function formatMetricValue(value: number): string {
   min-width: 0;
 }
 
+.summoner-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+
 .account-kicker {
   display: flex;
   align-items: center;
@@ -596,14 +705,19 @@ function formatMetricValue(value: number): string {
 .account-main h2 {
   font-size: 30px;
   line-height: 1.15;
-  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summoner-heading h2 {
+  min-width: 0;
 }
 
 .rank-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 8px;
 }
 
 .rank-row span {
@@ -673,6 +787,57 @@ function formatMetricValue(value: number): string {
   color: var(--accent-hover);
 }
 
+.auto-analysis-switch {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.switch-track {
+  width: 54px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.18s ease;
+}
+
+.switch-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--text-secondary);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.auto-analysis-switch.active {
+  border-color: rgba(var(--accent-rgb), 0.72);
+}
+
+.auto-analysis-switch.active .switch-track {
+  background: var(--accent-color);
+}
+
+.auto-analysis-switch.active .switch-thumb {
+  transform: translateX(24px);
+  background: #ffffff;
+}
+
+.auto-analysis-switch:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .primary-btn:disabled,
 .secondary-btn:disabled,
 .fortune-button:disabled,
@@ -694,6 +859,12 @@ function formatMetricValue(value: number): string {
 
 .fortune-card {
   text-align: left;
+}
+
+.fortune-eyebrow {
+  color: white;
+  font-size: 26px;
+  font-weight: bold;
 }
 
 .fortune-layout {
@@ -913,6 +1084,14 @@ g:hover .chart-dot-value {
   .feature-grid,
   .account-panel {
     grid-template-columns: 1fr;
+  }
+
+  .account-panel {
+    align-items: flex-start;
+  }
+
+  .summoner-heading h2 {
+    font-size: 24px;
   }
 
   .account-avatar,
