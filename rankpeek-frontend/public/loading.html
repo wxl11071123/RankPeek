@@ -20,205 +20,287 @@
 
       body {
         position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         opacity: 1;
-        transition: opacity 0.5s ease;
+        color: #d4af37;
         -webkit-app-region: drag;
       }
 
-      .logo-scene {
-        position: relative;
-        width: 300px;
-        height: 300px;
+      .caustics-layer {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        mix-blend-mode: screen;
+      }
+
+      .caustic {
+        position: absolute;
+        border-radius: 999px;
+        opacity: 0.68;
+        filter: blur(16px);
+        background: radial-gradient(
+          ellipse at center,
+          rgba(212, 175, 55, 0.08) 0%,
+          rgba(212, 175, 55, 0.04) 38%,
+          transparent 74%
+        );
+        transition:
+          opacity 1.2s ease-out,
+          transform 1.2s ease-out,
+          filter 1.2s ease-out;
+      }
+
+      .caustic.one {
+        top: 28%;
+        left: calc(50% - 132px);
+        width: 190px;
+        height: 116px;
+        animation: causticOne 4s ease-in-out infinite;
+      }
+
+      .caustic.two {
+        top: 36%;
+        left: calc(50% - 20px);
+        width: 214px;
+        height: 132px;
+        opacity: 0.54;
+        animation: causticTwo 5.5s ease-in-out infinite;
+      }
+
+      .caustic.three {
+        top: 22%;
+        left: calc(50% - 54px);
+        width: 240px;
+        height: 150px;
+        opacity: 0.42;
+        animation: causticThree 7s ease-in-out infinite;
+      }
+
+      .water-scene {
+        position: fixed;
+        top: 38vh;
+        left: 50%;
+        width: 340px;
+        height: 320px;
+        transform: translateX(-50%);
         isolation: isolate;
       }
 
-      .logo {
+      .logo-reveal,
+      .reflection-reveal {
         position: absolute;
         left: 50%;
-        width: 200px;
-        height: 200px;
+        width: 180px;
+        height: 180px;
+        overflow: hidden;
+        transform: translateX(-50%);
+        will-change: clip-path, transform;
+      }
+
+      .logo-reveal {
+        bottom: 0;
+        z-index: 3;
+        clip-path: inset(100% 0 0 0);
+        animation: logoRise 2.5s cubic-bezier(0.33, 0.1, 0.36, 1) forwards;
+      }
+
+      .reflection-reveal {
+        top: 4px;
+        z-index: 1;
+        clip-path: inset(100% 0 0 0);
+        opacity: 0.2;
+        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, transparent 100%);
+        animation:
+          logoRise 2.5s cubic-bezier(0.33, 0.1, 0.36, 1) forwards,
+          reflectionWaterPulse 4s ease-in-out infinite;
+      }
+
+      .logo {
+        width: 180px;
+        height: 180px;
         object-fit: contain;
         pointer-events: none;
         user-select: none;
       }
 
-      .main-logo {
-        top: 50%;
-        z-index: 2;
+      #logo {
         opacity: 0.85;
-        filter: brightness(0.9) blur(0.3px);
-        transform: translate(-50%, -58%);
+        filter: brightness(0.9) blur(0.2px);
         animation: logoWaterPulse 4s ease-in-out infinite;
-      }
-
-      .reflection-logo {
-        top: calc(50% + 46px);
-        z-index: 1;
-        opacity: 0.25;
-        filter: brightness(0.9) blur(0.7px);
-        transform: translateX(-50%) scaleY(-1);
-        transform-origin: center top;
-        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.4) 0%, transparent 100%);
-        -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.4) 0%, transparent 100%);
-        animation: reflectionWaterPulse 4s ease-in-out infinite;
-      }
-
-      .caustics-layer {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        z-index: 3;
-        width: 300px;
-        height: 300px;
-        pointer-events: none;
-        mix-blend-mode: screen;
-        transform: translate(-50%, -50%);
-      }
-
-      .caustic {
-        position: absolute;
-        border-radius: 50%;
-        opacity: 0.72;
-        filter: blur(10px);
-        background: radial-gradient(
-          ellipse at center,
-          rgba(212, 175, 55, 0.08) 0%,
-          rgba(212, 175, 55, 0.04) 36%,
-          transparent 72%
-        );
         transition:
-          opacity 1.5s ease-out,
-          transform 1.5s ease-out,
-          filter 1.5s ease-out;
+          opacity 1.2s ease-out,
+          filter 1.2s ease-out;
       }
 
-      .caustic.one {
-        top: 40px;
-        left: 42px;
-        width: 150px;
-        height: 94px;
-        animation: causticOne 4s ease-in-out infinite;
+      #logoReflection {
+        opacity: 0.2;
+        filter: brightness(0.9) blur(0.6px);
+        transform: scaleY(-1);
+        transform-origin: center top;
+        transition:
+          opacity 1.2s ease-out,
+          filter 1.2s ease-out;
       }
 
-      .caustic.two {
-        right: 36px;
-        bottom: 78px;
-        width: 172px;
-        height: 104px;
-        animation: causticTwo 5.5s ease-in-out infinite;
-      }
-
-      .caustic.three {
-        top: 104px;
-        left: 72px;
-        width: 190px;
-        height: 126px;
-        opacity: 0.54;
-        animation: causticThree 7s ease-in-out infinite;
-      }
-
-      .brand {
-        position: fixed;
+      #appName {
+        position: absolute;
+        top: 92px;
         left: 50%;
-        bottom: 36px;
-        color: rgba(212, 175, 55, 0.3);
+        z-index: 4;
+        width: max-content;
+        color: rgba(212, 175, 55, 0.45);
         font-family: "Noto Serif SC", "Source Han Serif SC", "Times New Roman", serif;
-        font-size: 14px;
+        font-size: 22px;
         font-weight: 600;
-        letter-spacing: 0.3em;
+        letter-spacing: 0.25em;
         line-height: 1;
-        text-indent: 0.3em;
+        text-indent: 0.25em;
+        text-shadow: 0 0 6px rgba(212, 175, 55, 0.3);
+        -webkit-text-stroke: 0.5px rgba(212, 175, 55, 0.2);
+        clip-path: inset(0 0 100% 0);
+        opacity: 0;
         transform: translateX(-50%);
-        animation: brandPulse 4s ease-in-out infinite;
+        animation: textDrag 2.5s cubic-bezier(0.33, 0.1, 0.36, 1) forwards;
+        transition:
+          color 1.2s ease-out,
+          opacity 1.2s ease-out,
+          text-shadow 1.2s ease-out;
       }
 
-      body.smooth-exit .main-logo {
+      body.emerge .caustic {
+        animation-play-state: paused;
+        opacity: 0;
+        filter: blur(22px);
+        transform: translate(0, 0) scale(0.88);
+      }
+
+      body.emerge #logo {
         animation: none;
         opacity: 1;
+        filter: brightness(1.1) blur(0);
+      }
+
+      body.emerge #logoReflection {
+        opacity: 0;
         filter: brightness(1) blur(0);
-        transition:
-          opacity 1.5s ease-out,
-          filter 1.5s ease-out;
       }
 
-      body.smooth-exit .reflection-logo {
-        animation: none;
-        opacity: 0.4;
-        filter: brightness(1) blur(0.3px);
-        transition:
-          opacity 1.5s ease-out,
-          filter 1.5s ease-out;
+      body.emerge #appName {
+        color: #d4af37;
+        opacity: 1;
+        text-shadow: 0 0 10px rgba(212, 175, 55, 0.32);
       }
 
-      body.smooth-exit .caustic {
-        animation: none;
-        opacity: 0.24;
-        filter: blur(14px);
-        transform: translate(0, 0) scale(0.92);
-      }
-
-      body.quick-exit .main-logo,
-      body.quick-exit .reflection-logo,
-      body.quick-exit .caustic,
-      body.quick-exit .brand {
-        animation: none;
+      body.quick-exit .logo-reveal,
+      body.quick-exit .reflection-reveal,
+      body.quick-exit #logo,
+      body.quick-exit #logoReflection,
+      body.quick-exit #appName,
+      body.quick-exit .caustic {
+        animation-play-state: paused;
       }
 
       body.fade-out {
         opacity: 0;
       }
 
-      body.quick-fade-out {
-        opacity: 0;
-        transition: opacity 0.3s ease;
+      @keyframes logoRise {
+        0% {
+          clip-path: inset(100% 0 0 0);
+          transform: translateX(-50%) translateY(14px);
+        }
+
+        30% {
+          clip-path: inset(70% 0 0 0);
+          transform: translateX(-50%) translateY(5px);
+        }
+
+        40% {
+          clip-path: inset(70% 0 0 0);
+          transform: translateX(-50%) translateY(5px);
+        }
+
+        55% {
+          clip-path: inset(85% 0 0 0);
+          transform: translateX(-50%) translateY(10px);
+        }
+
+        70% {
+          clip-path: inset(0 0 0 0);
+          transform: translateX(-50%) translateY(-3px);
+        }
+
+        100% {
+          clip-path: inset(0 0 0 0);
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+
+      @keyframes textDrag {
+        0%,
+        65% {
+          clip-path: inset(0 0 100% 0);
+          opacity: 0;
+          transform: translateX(-50%) translateY(-8px);
+        }
+
+        75% {
+          clip-path: inset(0 0 0 0);
+          opacity: 0.8;
+          transform: translateX(-50%) translateY(3px);
+        }
+
+        100% {
+          clip-path: inset(0 0 0 0);
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
       }
 
       @keyframes logoWaterPulse {
         0%,
         100% {
-          filter: brightness(0.9) blur(0.3px);
+          filter: brightness(0.9) blur(0.2px);
         }
 
         50% {
-          filter: brightness(1.05) blur(0.1px);
+          filter: brightness(1.05) blur(0.05px);
         }
       }
 
       @keyframes reflectionWaterPulse {
         0%,
         100% {
-          opacity: 0.2;
-          filter: brightness(0.88) blur(0.8px);
+          opacity: 0.18;
+          filter: brightness(0.86) blur(0.8px);
         }
 
         50% {
-          opacity: 0.3;
-          filter: brightness(1.04) blur(0.45px);
+          opacity: 0.26;
+          filter: brightness(1.02) blur(0.45px);
         }
       }
 
       @keyframes causticOne {
         0%,
         100% {
-          transform: translate(-9px, 5px) rotate(2deg);
+          transform: translate(-10px, 6px) rotate(2deg);
         }
 
         50% {
-          transform: translate(13px, -12px) rotate(-3deg);
+          transform: translate(14px, -12px) rotate(-3deg);
         }
       }
 
       @keyframes causticTwo {
         0%,
         100% {
-          transform: translate(14px, -8px) rotate(-5deg);
+          transform: translate(15px, -8px) rotate(-4deg);
         }
 
         50% {
-          transform: translate(-13px, 12px) rotate(4deg);
+          transform: translate(-14px, 13px) rotate(4deg);
         }
       }
 
@@ -229,68 +311,67 @@
         }
 
         50% {
-          transform: translate(22px, 16px) rotate(-4deg);
-        }
-      }
-
-      @keyframes brandPulse {
-        0%,
-        100% {
-          opacity: 0.25;
-        }
-
-        50% {
-          opacity: 0.35;
+          transform: translate(23px, 17px) rotate(-4deg);
         }
       }
     </style>
   </head>
   <body>
-    <main class="logo-scene" aria-label="RankPeek">
-      <img src="splash-logo.png" class="logo main-logo" alt="" />
-      <img src="splash-logo.png" class="logo reflection-logo" alt="" />
-      <div class="caustics-layer" aria-hidden="true">
-        <span class="caustic one"></span>
-        <span class="caustic two"></span>
-        <span class="caustic three"></span>
+    <div class="caustics-layer" aria-hidden="true">
+      <span class="caustic one"></span>
+      <span class="caustic two"></span>
+      <span class="caustic three"></span>
+    </div>
+
+    <main class="water-scene" aria-label="RankPeek">
+      <div class="logo-reveal">
+        <img id="logo" class="logo" src="splash-logo.png" alt="" />
       </div>
+      <div class="reflection-reveal">
+        <img id="logoReflection" class="logo" src="splash-logo.png" alt="" />
+      </div>
+      <div id="appName">RankPeek</div>
     </main>
-    <div class="brand">RankPeek</div>
 
     <script>
       let exiting = false;
 
-      window.smoothExit = () => {
+      window.finishWithLCU = () => {
         if (exiting) {
           return;
         }
 
         exiting = true;
-        document.body.classList.add('smooth-exit');
+        document.body.classList.add('emerge');
 
         setTimeout(() => {
+          document.body.style.transition = 'opacity 0.5s ease';
           document.body.classList.add('fade-out');
           setTimeout(() => {
             document.body.style.display = 'none';
           }, 500);
-        }, 1800);
+        }, 1500);
       };
 
-      window.quickExit = () => {
+      window.finishWithoutLCU = () => {
         if (exiting) {
           return;
         }
 
         exiting = true;
         document.body.classList.add('quick-exit');
+        document.body.style.transition = 'opacity 0.4s ease';
 
         requestAnimationFrame(() => {
-          document.body.classList.add('quick-fade-out');
+          document.body.classList.add('fade-out');
           setTimeout(() => {
             document.body.style.display = 'none';
-          }, 300);
+          }, 400);
         });
       };
+
+      window.smoothExit = window.finishWithLCU;
+      window.quickExit = window.finishWithoutLCU;
     </script>
   </body>
 </html>

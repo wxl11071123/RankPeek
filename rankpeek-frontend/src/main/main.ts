@@ -12,14 +12,12 @@ let isQuitting = false
 let startupFallbackTimer: ReturnType<typeof setTimeout> | null = null
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null
 let noLcuTimeout: ReturnType<typeof setTimeout> | null = null
-let mainWindowReady = false
 let startupExitStarted = false
-let pendingStartupExitMode: StartupExitMode | null = null
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
-const STARTUP_CHECK_INTERVAL_MS = 1500
-const NO_LCU_TIMEOUT_MS = 2500
+const STARTUP_CHECK_INTERVAL_MS = 500
+const NO_LCU_TIMEOUT_MS = 6000
 const STARTUP_FORCE_TIMEOUT_MS = 10000
 
 type StartupExitMode = 'smooth' | 'quick'
@@ -268,11 +266,6 @@ function requestStartupExit(mode: StartupExitMode) {
     return
   }
 
-  pendingStartupExitMode = mode
-  if (!mainWindowReady) {
-    return
-  }
-
   runStartupExit(mode)
 }
 
@@ -282,7 +275,6 @@ function runStartupExit(mode: StartupExitMode) {
   }
 
   startupExitStarted = true
-  pendingStartupExitMode = null
   clearStartupTimers()
 
   const showMainWindowAfterSplash = () => {
@@ -297,8 +289,8 @@ function runStartupExit(mode: StartupExitMode) {
 
   if (splashWindow && !splashWindow.isDestroyed()) {
     const exitScript = mode === 'smooth'
-      ? 'typeof window.smoothExit === "function" && window.smoothExit()'
-      : 'typeof window.quickExit === "function" && window.quickExit()'
+      ? 'typeof window.finishWithLCU === "function" && window.finishWithLCU()'
+      : 'typeof window.finishWithoutLCU === "function" && window.finishWithoutLCU()'
 
     void splashWindow.webContents
       .executeJavaScript(exitScript)
@@ -317,21 +309,27 @@ function startStartupReadinessChecks() {
   clearStartupTimers()
 
   let lcuReady = false
-  let homeDataReady = false
+  let dataReady = false
+  let isChecking = false
 
   const checkReadiness = async () => {
-    if (startupExitStarted || homeDataReady) {
+    if (startupExitStarted || dataReady || isChecking) {
       return
     }
 
-    lcuReady = await checkLcuReady()
-    if (!lcuReady) {
-      return
-    }
+    isChecking = true
+    try {
+      lcuReady = await checkLcuReady()
+      if (!lcuReady) {
+        return
+      }
 
-    homeDataReady = await checkHomeDataReady()
-    if (homeDataReady) {
-      requestStartupExit('smooth')
+      dataReady = await checkHomeDataReady()
+      if (dataReady) {
+        requestStartupExit('smooth')
+      }
+    } finally {
+      isChecking = false
     }
   }
 
@@ -342,7 +340,7 @@ function startStartupReadinessChecks() {
   void checkReadiness()
 
   noLcuTimeout = setTimeout(() => {
-    if (!homeDataReady && !lcuReady) {
+    if (!dataReady && !lcuReady) {
       requestStartupExit('quick')
     }
   }, NO_LCU_TIMEOUT_MS)
@@ -371,17 +369,22 @@ async function checkLcuReady() {
 async function checkHomeDataReady() {
   const gameStatePayload = await fetchStartupJson(`${API_BASE_URL}/session/game-state`)
   const gameState = unwrapApiResponse(gameStatePayload)
-  if (hasSummonerPuuid(gameState)) {
-    return true
-  }
+  const gameStatePuuid = getSummonerPuuid(gameState)
 
   const summonerPayload = await fetchStartupJson(`${API_BASE_URL}/summoner/me`)
   const summoner = unwrapApiResponse(summonerPayload)
-  if (hasSummonerPuuid(summoner)) {
-    return true
-  }
+  const puuid = getSummonerPuuid(summoner) ?? gameStatePuuid
 
-  return false
+  return puuid ? hasRecentMatch(puuid) : false
+}
+
+async function hasRecentMatch(puuid: string) {
+  const matchesPayload = await fetchStartupJson(
+    `${API_BASE_URL}/summoner/matches/${encodeURIComponent(puuid)}?begIndex=0&endIndex=0`
+  )
+  const matches = unwrapApiResponse(matchesPayload)
+
+  return Array.isArray(matches) && matches.length > 0
 }
 
 async function fetchStartupJson(url: string): Promise<unknown> {
@@ -417,16 +420,16 @@ function isConnectedPayload(payload: unknown): boolean {
   return payload.connected === true
 }
 
-function hasSummonerPuuid(payload: unknown): boolean {
+function getSummonerPuuid(payload: unknown): string | null {
   if (!isRecord(payload)) {
-    return false
+    return null
   }
 
   if (typeof payload.puuid === 'string' && payload.puuid.length > 0) {
-    return true
+    return payload.puuid
   }
 
-  return hasSummonerPuuid(payload.summoner)
+  return getSummonerPuuid(payload.summoner)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -487,9 +490,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     clearStartupTimers()
-    mainWindowReady = false
     startupExitStarted = false
-    pendingStartupExitMode = null
     mainWindow = null
   })
 
@@ -499,13 +500,6 @@ function createWindow() {
 
   mainWindow.on('move', () => {
     saveWindowBounds()
-  })
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindowReady = true
-    if (pendingStartupExitMode) {
-      runStartupExit(pendingStartupExitMode)
-    }
   })
 
   startStartupReadinessChecks()
