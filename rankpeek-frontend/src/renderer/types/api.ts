@@ -156,6 +156,14 @@ export interface GameState {
   timestamp: number
 }
 
+export interface CacheUpdateEvent {
+  type: 'PLAYER_CACHE_UPDATED'
+  puuid: string
+  reason?: string
+  updatedScopes?: string[]
+  timestamp?: number
+}
+
 // 大厅信息
 export interface Lobby {
   lobbyId: string

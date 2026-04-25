@@ -1,8 +1,9 @@
 import { Client, IMessage } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
-import type { GameState } from '@/types/api'
+import type { GameState, CacheUpdateEvent } from '@/types/api'
 
 type GameStateCallback = (state: GameState) => void
+type CacheUpdateCallback = (event: CacheUpdateEvent) => void
 type GenericCallback = (data: unknown) => void
 
 class WebSocketClient {
@@ -10,6 +11,7 @@ class WebSocketClient {
   private gameStateCallbacks: Set<GameStateCallback> = new Set()
   private championSelectCallbacks: Set<GenericCallback> = new Set()
   private lobbyCallbacks: Set<GenericCallback> = new Set()
+  private cacheUpdateCallbacks: Set<CacheUpdateCallback> = new Set()
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private baseReconnectDelay = 1000
@@ -86,6 +88,21 @@ class WebSocketClient {
       const data = JSON.parse(message.body)
       this.lobbyCallbacks.forEach(cb => cb(data))
     })
+
+    this.client.subscribe('/topic/cache-updates', (message: IMessage) => {
+      try {
+        const data = JSON.parse(message.body) as CacheUpdateEvent
+        for (const callback of this.cacheUpdateCallbacks) {
+          try {
+            callback(data)
+          } catch (e) {
+            console.warn('Cache update callback failed', e)
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse cache update message', e)
+      }
+    })
   }
 
   /**
@@ -129,6 +146,11 @@ class WebSocketClient {
   onLobby(callback: GenericCallback): () => void {
     this.lobbyCallbacks.add(callback)
     return () => this.lobbyCallbacks.delete(callback)
+  }
+
+  onCacheUpdate(callback: CacheUpdateCallback): () => void {
+    this.cacheUpdateCallbacks.add(callback)
+    return () => this.cacheUpdateCallbacks.delete(callback)
   }
 }
 

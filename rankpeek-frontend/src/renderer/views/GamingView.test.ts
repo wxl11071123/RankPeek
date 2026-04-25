@@ -45,3 +45,47 @@ test('uses a vertical-first team layout with analysis actions above the teams', 
   assert.match(source, /\.teams-container\s*{\s*display:\s*grid;[\s\S]*grid-template-columns:\s*1fr;/)
   assert.match(source, /@media \(min-width:\s*1180px\)[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/)
 })
+
+test('subscribes to cache update events and refreshes only relevant current-session players', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import \{ wsClient \} from '@\/api\/websocketClient'/)
+  assert.match(source, /import type \{ CacheUpdateEvent, SessionData \} from '@\/types\/api'/)
+  assert.match(source, /let unsubscribeCacheUpdate: \(\(\) => void\) \| null = null/)
+  assert.match(source, /unsubscribeCacheUpdate = wsClient\.onCacheUpdate\(\(event: CacheUpdateEvent\) => \{/)
+  assert.match(source, /if \(isCacheUpdateRelevant\(event\)\) \{\s*scheduleCacheUpdateRefresh\(\)/)
+  assert.match(source, /function collectCurrentSessionPuuids\(\): Set<string>/)
+  assert.match(source, /for \(const player of sessionData\.value\.teamOne \|\| \[\]\)/)
+  assert.match(source, /for \(const player of sessionData\.value\.teamTwo \|\| \[\]\)/)
+  assert.match(source, /const puuid = player\?\.summoner\?\.puuid/)
+  assert.match(source, /return currentPuuids\.has\(event\.puuid\)/)
+  assert.match(source, /apiClient\.getSessionData\(DEFAULT_ANALYSIS_QUEUE_MODE\)/)
+})
+
+test('throttles cache update refreshes and respects paused refresh state', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const scheduleFunction = source.match(/function scheduleCacheUpdateRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /let cacheUpdateRefreshTimer: ReturnType<typeof setTimeout> \| null = null/)
+  assert.match(source, /let lastCacheUpdateRefreshAt = 0/)
+  assert.match(source, /const cacheUpdateRefreshDelay = 800/)
+  assert.match(source, /const minCacheUpdateRefreshInterval = 2500/)
+  assert.match(scheduleFunction, /if \(isRefreshPaused\.value\) return/)
+  assert.match(scheduleFunction, /if \(elapsed >= minCacheUpdateRefreshInterval\)/)
+  assert.match(scheduleFunction, /fetchSessionData\(\)/)
+  assert.match(scheduleFunction, /if \(cacheUpdateRefreshTimer\) return/)
+  assert.match(scheduleFunction, /cacheUpdateRefreshTimer = setTimeout/)
+  assert.match(scheduleFunction, /cacheUpdateRefreshDelay/)
+})
+
+test('cleans up cache update subscription and pending refresh timer on unmount', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const unmountBlock = source.match(/onUnmounted\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+
+  assert.match(unmountBlock, /if \(unsubscribeCacheUpdate\) \{/)
+  assert.match(unmountBlock, /unsubscribeCacheUpdate\(\)/)
+  assert.match(unmountBlock, /unsubscribeCacheUpdate = null/)
+  assert.match(unmountBlock, /if \(cacheUpdateRefreshTimer\) \{/)
+  assert.match(unmountBlock, /clearTimeout\(cacheUpdateRefreshTimer\)/)
+  assert.match(unmountBlock, /cacheUpdateRefreshTimer = null/)
+})

@@ -155,7 +155,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiClient } from '@/api/httpClient'
-import type { SessionData } from '@/types/api'
+import { wsClient } from '@/api/websocketClient'
+import type { CacheUpdateEvent, SessionData } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
 import { DEFAULT_ANALYSIS_QUEUE_MODE } from '@/utils/matchPreferences'
 import { useI18n, type MessageKey } from '@/i18n'
@@ -174,6 +175,11 @@ const sessionData = ref<SessionData>({
 
 const loading = ref(false)
 let refreshInterval: ReturnType<typeof setInterval> | null = null
+let unsubscribeCacheUpdate: (() => void) | null = null
+let cacheUpdateRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let lastCacheUpdateRefreshAt = 0
+const cacheUpdateRefreshDelay = 800
+const minCacheUpdateRefreshInterval = 2500
 
 let retryCount = 0
 const maxRetries = 3
@@ -228,6 +234,52 @@ async function fetchSessionData() {
   }
 }
 
+function collectCurrentSessionPuuids(): Set<string> {
+  const puuids = new Set<string>()
+
+  for (const player of sessionData.value.teamOne || []) {
+    const puuid = player?.summoner?.puuid
+    if (puuid) puuids.add(puuid)
+  }
+
+  for (const player of sessionData.value.teamTwo || []) {
+    const puuid = player?.summoner?.puuid
+    if (puuid) puuids.add(puuid)
+  }
+
+  return puuids
+}
+
+function isCacheUpdateRelevant(event: CacheUpdateEvent): boolean {
+  if (!event || event.type !== 'PLAYER_CACHE_UPDATED' || !event.puuid) {
+    return false
+  }
+
+  const currentPuuids = collectCurrentSessionPuuids()
+  return currentPuuids.has(event.puuid)
+}
+
+function scheduleCacheUpdateRefresh() {
+  if (isRefreshPaused.value) return
+
+  const now = Date.now()
+  const elapsed = now - lastCacheUpdateRefreshAt
+
+  if (elapsed >= minCacheUpdateRefreshInterval) {
+    lastCacheUpdateRefreshAt = now
+    fetchSessionData()
+    return
+  }
+
+  if (cacheUpdateRefreshTimer) return
+
+  cacheUpdateRefreshTimer = setTimeout(() => {
+    cacheUpdateRefreshTimer = null
+    lastCacheUpdateRefreshAt = Date.now()
+    fetchSessionData()
+  }, cacheUpdateRefreshDelay)
+}
+
 function pauseRefresh() {
   isRefreshPaused.value = true
   if (refreshInterval) {
@@ -264,6 +316,11 @@ function handleNavigateToPlayer(gameName: string, tagLine: string) {
 onMounted(() => {
   fetchSessionData()
   refreshInterval = setInterval(fetchSessionData, 5000)
+  unsubscribeCacheUpdate = wsClient.onCacheUpdate((event: CacheUpdateEvent) => {
+    if (isCacheUpdateRelevant(event)) {
+      scheduleCacheUpdateRefresh()
+    }
+  })
 })
 
 watch(() => sessionData.value.phase, (newVal, oldVal) => {
@@ -305,6 +362,14 @@ onUnmounted(() => {
   }
   if (autoResumeTimer) {
     clearTimeout(autoResumeTimer)
+  }
+  if (unsubscribeCacheUpdate) {
+    unsubscribeCacheUpdate()
+    unsubscribeCacheUpdate = null
+  }
+  if (cacheUpdateRefreshTimer) {
+    clearTimeout(cacheUpdateRefreshTimer)
+    cacheUpdateRefreshTimer = null
   }
 })
 </script>
