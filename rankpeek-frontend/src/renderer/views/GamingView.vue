@@ -178,6 +178,7 @@ let refreshInterval: ReturnType<typeof setInterval> | null = null
 let unsubscribeCacheUpdate: (() => void) | null = null
 let cacheUpdateRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let lastCacheUpdateRefreshAt = 0
+let sessionFetchInFlight = false
 const cacheUpdateRefreshDelay = 800
 const minCacheUpdateRefreshInterval = 2500
 
@@ -215,10 +216,12 @@ const phaseClass = computed(() => {
   return ''
 })
 
-async function fetchSessionData() {
-  if (isRefreshPaused.value) return
+async function fetchSessionData(options: { showLoading?: boolean } = {}) {
+  if (isRefreshPaused.value || sessionFetchInFlight) return
 
-  loading.value = true
+  const showLoading = options.showLoading !== false
+  sessionFetchInFlight = true
+  if (showLoading) loading.value = true
   try {
     const data = await apiClient.getSessionData(DEFAULT_ANALYSIS_QUEUE_MODE)
     sessionData.value = data
@@ -230,7 +233,8 @@ async function fetchSessionData() {
       pauseRefresh()
     }
   } finally {
-    loading.value = false
+    if (showLoading) loading.value = false
+    sessionFetchInFlight = false
   }
 }
 
@@ -267,7 +271,7 @@ function scheduleCacheUpdateRefresh() {
 
   if (elapsed >= minCacheUpdateRefreshInterval) {
     lastCacheUpdateRefreshAt = now
-    fetchSessionData()
+    fetchSessionData({ showLoading: false })
     return
   }
 
@@ -276,7 +280,7 @@ function scheduleCacheUpdateRefresh() {
   cacheUpdateRefreshTimer = setTimeout(() => {
     cacheUpdateRefreshTimer = null
     lastCacheUpdateRefreshAt = Date.now()
-    fetchSessionData()
+    fetchSessionData({ showLoading: false })
   }, cacheUpdateRefreshDelay)
 }
 

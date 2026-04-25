@@ -72,10 +72,26 @@ test('throttles cache update refreshes and respects paused refresh state', () =>
   assert.match(source, /const minCacheUpdateRefreshInterval = 2500/)
   assert.match(scheduleFunction, /if \(isRefreshPaused\.value\) return/)
   assert.match(scheduleFunction, /if \(elapsed >= minCacheUpdateRefreshInterval\)/)
-  assert.match(scheduleFunction, /fetchSessionData\(\)/)
+  assert.match(scheduleFunction, /fetchSessionData\(\{ showLoading: false \}\)/)
   assert.match(scheduleFunction, /if \(cacheUpdateRefreshTimer\) return/)
   assert.match(scheduleFunction, /cacheUpdateRefreshTimer = setTimeout/)
   assert.match(scheduleFunction, /cacheUpdateRefreshDelay/)
+})
+
+test('cache update refreshes stay quiet and do not overlap polling requests', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const fetchFunction = source.match(/async function fetchSessionData\([\s\S]*?\n\}/)?.[0] || ''
+  const scheduleFunction = source.match(/function scheduleCacheUpdateRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /let sessionFetchInFlight = false/)
+  assert.match(fetchFunction, /options: \{ showLoading\?: boolean \} = \{\}/)
+  assert.match(fetchFunction, /if \(isRefreshPaused\.value \|\| sessionFetchInFlight\) return/)
+  assert.match(fetchFunction, /const showLoading = options\.showLoading !== false/)
+  assert.match(fetchFunction, /sessionFetchInFlight = true/)
+  assert.match(fetchFunction, /if \(showLoading\) loading\.value = true/)
+  assert.match(fetchFunction, /if \(showLoading\) loading\.value = false/)
+  assert.match(fetchFunction, /sessionFetchInFlight = false/)
+  assert.match(scheduleFunction, /fetchSessionData\(\{ showLoading: false \}\)/)
 })
 
 test('cleans up cache update subscription and pending refresh timer on unmount', () => {
