@@ -89,59 +89,92 @@ const RANK_TONE_MAP: Record<string, string> = {
 
 const RANK_BADGE_STYLES: Record<string, Record<string, string>> = {
   iron: {
-    '--rank-start': '#2f353c',
-    '--rank-end': '#7d8794',
-    '--rank-text': '#f3f5f8'
+    '--rank-border': '#a88462',
+    '--rank-border-light': '#6f5136',
+    '--rank-hover-border': '#b89571',
+    '--rank-hover-border-light': '#8c6b4a',
+    '--rank-fill-rgb': '140, 107, 74',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   bronze: {
-    '--rank-start': '#5f412a',
-    '--rank-end': '#b88959',
-    '--rank-text': '#fff3e2'
+    '--rank-border': '#bec8d5',
+    '--rank-border-light': '#7d8794',
+    '--rank-hover-border': '#d1d9e3',
+    '--rank-hover-border-light': '#a9b4c2',
+    '--rank-fill-rgb': '169, 180, 194',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   silver: {
-    '--rank-start': '#7c8798',
-    '--rank-end': '#d4dce8',
-    '--rank-text': '#111827'
+    '--rank-border': '#c7d0d9',
+    '--rank-border-light': '#818b96',
+    '--rank-hover-border': '#d7dfe7',
+    '--rank-hover-border-light': '#b0b8c1',
+    '--rank-fill-rgb': '176, 184, 193',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   gold: {
-    '--rank-start': '#8c6815',
-    '--rank-end': '#d4af37',
-    '--rank-text': '#fff7d1'
+    '--rank-border': '#d2b862',
+    '--rank-border-light': '#967d2d',
+    '--rank-hover-border': '#dec778',
+    '--rank-hover-border-light': '#c4a747',
+    '--rank-fill-rgb': '196, 167, 71',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   platinum: {
-    '--rank-start': '#2f7f81',
-    '--rank-end': '#88d7d2',
-    '--rank-text': '#ecfffb'
+    '--rank-border': '#78c7c4',
+    '--rank-border-light': '#397b7a',
+    '--rank-hover-border': '#8ed4d2',
+    '--rank-hover-border-light': '#5da8a6',
+    '--rank-fill-rgb': '93, 168, 166',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   emerald: {
-    '--rank-start': '#14784b',
-    '--rank-end': '#50c878',
-    '--rank-text': '#effff5'
+    '--rank-border': '#72dc94',
+    '--rank-border-light': '#32985c',
+    '--rank-hover-border': '#86e6a4',
+    '--rank-hover-border-light': '#50c878',
+    '--rank-fill-rgb': '80, 200, 120',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   diamond: {
-    '--rank-start': '#355fd2',
-    '--rank-end': '#8ac5ff',
-    '--rank-text': '#f2f7ff'
+    '--rank-border': '#83aaf1',
+    '--rank-border-light': '#3f69bd',
+    '--rank-hover-border': '#9bbdf5',
+    '--rank-hover-border-light': '#5b8ce9',
+    '--rank-fill-rgb': '91, 140, 233',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   master: {
-    '--rank-start': '#6d3bd8',
-    '--rank-end': '#d4af37',
-    '--rank-text': '#fff7ef'
+    '--rank-border': '#b5aad7',
+    '--rank-border-light': '#75679d',
+    '--rank-hover-border': '#c5bbe2',
+    '--rank-hover-border-light': '#9b8ec4',
+    '--rank-fill-rgb': '155, 142, 196',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   grandmaster: {
-    '--rank-start': '#9b253f',
-    '--rank-end': '#d4af37',
-    '--rank-text': '#fff4ef'
+    '--rank-border': '#e1c45e',
+    '--rank-border-light': '#a98d2f',
+    '--rank-hover-border': '#ead275',
+    '--rank-hover-border-light': '#c4a747',
+    '--rank-fill-rgb': '196, 167, 71',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   },
   challenger: {
-    '--rank-start': '#176fc2',
-    '--rank-end': '#f2d572',
-    '--rank-text': '#ffffff'
+    '--rank-border': '#e2c567',
+    '--rank-border-light': '#a88722',
+    '--rank-hover-border': '#ead27d',
+    '--rank-hover-border-light': '#d4af37',
+    '--rank-fill-rgb': '212, 175, 55',
+    '--rank-inner-outline': 'inset 0 0 0 1px rgba(212, 175, 55, 0.3)'
   },
   unranked: {
-    '--rank-start': '#3f4652',
-    '--rank-end': '#7a8494',
-    '--rank-text': '#f6f7fb'
+    '--rank-border': '#8a94a3',
+    '--rank-border-light': '#6b7280',
+    '--rank-hover-border': '#a2acbb',
+    '--rank-hover-border-light': '#7a8494',
+    '--rank-fill-rgb': '122, 132, 148',
+    '--rank-inner-outline': '0 0 0 rgba(0, 0, 0, 0)'
   }
 }
 
@@ -356,6 +389,22 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
   return RANK_BADGE_STYLES[rankTone(rank)] || RANK_BADGE_STYLES.unranked
 }
 
+function formatRankTierPart(rank: QueueInfo | null): string {
+  if (!rank || isUnrankedTier(rank.tier)) {
+    return '未定级'
+  }
+
+  return formatTierCn(rank)
+}
+
+function formatRankDivisionPart(rank: QueueInfo | null): string {
+  if (!rank || isUnrankedTier(rank.tier)) {
+    return ''
+  }
+
+  return formatDivision(rank)
+}
+
 </script>
 
 <template>
@@ -371,11 +420,19 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
           <div class="rank-row">
             <span class="rank-badge" :style="rankBadgeStyle(soloRank)">
               <span class="rank-emblem" aria-hidden="true"></span>
-              <span class="rank-label">{{ t('home.soloQueue') }}：{{ formatRank(soloRank) }}</span>
+              <span class="rank-label">
+                <span class="rank-queue">{{ t('home.soloQueue') }}：</span>
+                <span class="rank-tier">{{ formatRankTierPart(soloRank) }}</span>
+                <span v-if="formatRankDivisionPart(soloRank)" class="rank-division">{{ formatRankDivisionPart(soloRank) }}</span>
+              </span>
             </span>
             <span class="rank-badge" :style="rankBadgeStyle(flexRank)">
               <span class="rank-emblem" aria-hidden="true"></span>
-              <span class="rank-label">{{ t('home.flexQueue') }}：{{ formatRank(flexRank) }}</span>
+              <span class="rank-label">
+                <span class="rank-queue">{{ t('home.flexQueue') }}：</span>
+                <span class="rank-tier">{{ formatRankTierPart(flexRank) }}</span>
+                <span v-if="formatRankDivisionPart(flexRank)" class="rank-division">{{ formatRankDivisionPart(flexRank) }}</span>
+              </span>
             </span>
           </div>
         </div>
@@ -468,6 +525,13 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
   --home-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
   --home-theme-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.42), 0 0 24px rgba(212, 175, 55, 0.34);
   --home-glow-border: rgba(212, 175, 55, 0.42);
+  --rank-text: #e0e0e0;
+  --switch-track-off: rgba(255, 255, 255, 0.14);
+  --switch-track-on: var(--accent-color);
+  --switch-track-border: rgba(255, 255, 255, 0.06);
+  --switch-thumb-color: #d7d9de;
+  --switch-thumb-active: #ffffff;
+  --switch-thumb-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
   max-width: 1180px;
   margin: 0 auto;
   display: flex;
@@ -612,75 +676,62 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 }
 
 .rank-badge {
-  --rank-start: #3f4652;
-  --rank-end: #7a8494;
-  --rank-text: #f6f7fb;
+  --rank-border: #8a94a3;
+  --rank-border-light: #6b7280;
+  --rank-hover-border: #a2acbb;
+  --rank-hover-border-light: #7a8494;
+  --rank-fill-rgb: 122, 132, 148;
+  --rank-inner-outline: 0 0 0 rgba(0, 0, 0, 0);
   position: relative;
-  isolation: isolate;
-  min-height: 38px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border: 1px solid rgba(255, 235, 159, 0.46);
-  border-radius: 999px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--rank-start) 92%, #000 8%), var(--rank-end)),
-    var(--bg-tertiary);
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1px solid var(--rank-border);
+  border-radius: 8px;
+  background: rgba(var(--rank-fill-rgb), 0.12);
   color: var(--rank-text);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -10px 18px rgba(0, 0, 0, 0.18),
-    0 0 10px rgba(212, 175, 55, 0.7),
-    0 0 20px rgba(212, 175, 55, 0.3);
+    inset -1px -1px 2px rgba(0, 0, 0, 0.15),
+    var(--rank-inner-outline);
   overflow: hidden;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.38);
-  font-size: 14px;
-  font-weight: 900;
+  text-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
   letter-spacing: 0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.rank-badge::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: conic-gradient(from 0deg, transparent, rgba(255, 232, 149, 0.78), transparent 36%, transparent);
-  opacity: 0.58;
-  animation: rank-ring-spin 8s linear infinite;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.rank-badge::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  background: linear-gradient(115deg, rgba(255, 255, 255, 0.2), transparent 30%, rgba(255, 255, 255, 0.08));
-  pointer-events: none;
-  z-index: 0;
+.rank-badge:hover {
+  border-color: var(--rank-hover-border);
+  background: rgba(var(--rank-fill-rgb), 0.16);
+  box-shadow:
+    inset -1px -1px 2px rgba(0, 0, 0, 0.15),
+    var(--rank-inner-outline),
+    0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
 .rank-emblem {
   position: relative;
   z-index: 1;
-  width: 14px;
-  height: 14px;
+  width: 9px;
+  height: 9px;
   flex: 0 0 auto;
   transform: rotate(45deg);
-  border: 1px solid rgba(255, 244, 187, 0.84);
-  border-radius: 3px;
-  background: linear-gradient(135deg, rgba(255, 252, 211, 0.96), rgba(212, 175, 55, 0.72));
-  box-shadow: 0 0 10px rgba(255, 226, 128, 0.52);
+  border: 1px solid var(--rank-border);
+  border-radius: 2px;
+  background: rgba(var(--rank-fill-rgb), 0.22);
+  box-shadow: inset -1px -1px 1px rgba(0, 0, 0, 0.16);
 }
 
 .rank-emblem::after {
   content: '';
   position: absolute;
-  inset: 3px;
-  border-radius: 2px;
-  background: var(--rank-start);
+  inset: 2px;
+  border-radius: 1px;
+  background: var(--rank-border);
+  opacity: 0.72;
 }
 
 .rank-label {
@@ -689,17 +740,36 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
   white-space: nowrap;
 }
 
+.rank-queue {
+  font-weight: 700;
+}
+
+.rank-tier {
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.rank-division {
+  margin-left: 2px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
 .coach-report-grid {
   --fortune-column-width: 286px;
   --coach-grid-gap: 16px;
+  --coach-report-height: 318px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--fortune-column-width);
+  align-items: start;
   gap: var(--coach-grid-gap);
   overflow: visible;
 }
 
 .coach-report-panel {
   min-width: 0;
+  min-height: var(--coach-report-height);
+  height: var(--coach-report-height);
   position: relative;
   z-index: 1;
   overflow: visible;
@@ -718,7 +788,9 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 }
 
 .fortune-card {
-  min-height: 250px;
+  min-height: var(--coach-report-height);
+  height: var(--coach-report-height);
+  box-sizing: border-box;
 }
 
 .card-copy h2 {
@@ -801,17 +873,20 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
   display: inline-flex;
   align-items: center;
   padding: 3px;
+  border: 1px solid var(--switch-track-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-  transition: background 0.18s ease;
+  background: var(--switch-track-off);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .switch-thumb {
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: var(--text-secondary);
-  transition: transform 0.18s ease, background 0.18s ease;
+  background: var(--switch-thumb-color);
+  box-shadow: var(--switch-thumb-shadow);
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .auto-analysis-switch.active {
@@ -819,12 +894,12 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 }
 
 .auto-analysis-switch.active .switch-track {
-  background: var(--accent-color);
+  background: var(--switch-track-on);
 }
 
 .auto-analysis-switch.active .switch-thumb {
   transform: translateX(24px);
-  background: #ffffff;
+  background: var(--switch-thumb-active);
 }
 
 .auto-analysis-switch:disabled {
@@ -854,7 +929,9 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 }
 
 .coach-report-panel :deep(.ai-coach-cards) {
-  min-height: max(298px, var(--coach-stack-height, 298px));
+  min-height: var(--coach-report-height);
+  height: var(--coach-report-height);
+  padding-top: 0;
   overflow: visible;
 }
 
@@ -872,6 +949,7 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 }
 
 .coach-report-panel :deep(.coach-stack-card) {
+  top: 0;
   transition:
     transform 0.4s ease,
     opacity 0.4s ease,
@@ -919,6 +997,7 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
   width: calc(100% + var(--fortune-column-width) + var(--coach-grid-gap));
   right: auto;
   z-index: 999;
+  padding-top: 0;
   transition: opacity 0.3s ease-in-out;
 }
 
@@ -930,16 +1009,80 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
     opacity 0.3s ease-in-out;
 }
 
-:global([data-theme="light"]) .coach-report-panel {
+:global([data-theme="light"] .coach-report-panel) {
   --coach-title-color: #2f2918;
   --coach-body-color: #4b4638;
   --coach-placeholder-color: #6f5b19;
 }
 
-:global([data-theme="light"]) .home-view {
-  --home-theme-glow: 0 0 0 1px rgba(171, 125, 23, 0.24), 0 0 16px rgba(171, 125, 23, 0.18);
-  --home-theme-glow-strong: 0 0 0 1px rgba(171, 125, 23, 0.34), 0 0 22px rgba(171, 125, 23, 0.26);
-  --home-glow-border: rgba(171, 125, 23, 0.34);
+:global([data-theme="light"] .rank-badge) {
+  border-color: var(--rank-border-light);
+  color: var(--rank-text);
+}
+
+:global([data-theme="light"] .rank-queue),
+:global([data-theme="light"] .rank-tier) {
+  color: #2c2c2c;
+}
+
+:global([data-theme="light"] .rank-division) {
+  color: rgba(44, 44, 44, 0.72);
+  opacity: 1;
+}
+
+:global([data-theme="light"] .rank-badge:hover) {
+  border-color: var(--rank-hover-border-light);
+}
+
+:global([data-theme="light"] .rank-emblem) {
+  border-color: var(--rank-border-light);
+}
+
+:global([data-theme="light"] .rank-emblem::after) {
+  background: var(--rank-border-light);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-stack-card),
+:global([data-theme="light"] .coach-report-panel .coach-expanded-card) {
+  border-color: rgba(180, 180, 190, 0.5);
+  background: linear-gradient(135deg, rgba(238, 240, 246, 0.82), rgba(244, 241, 232, 0.74));
+  color: #2c2c2c;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset -1px -1px 2px rgba(0, 0, 0, 0.08),
+    0 0 14px rgba(212, 175, 55, 0.08);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-stack-card::after) {
+  border-color: rgba(212, 175, 55, 0.18);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.08);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-stack-card:hover),
+:global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible) {
+  border-color: rgba(100, 116, 139, 0.38);
+  box-shadow:
+    inset -1px -1px 2px rgba(0, 0, 0, 0.08),
+    0 2px 8px rgba(100, 116, 139, 0.16);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-stack-card:hover::after),
+:global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible::after) {
+  border-color: rgba(212, 175, 55, 0.24);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.1);
+}
+
+:global([data-theme="light"] .home-view) {
+  --home-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
+  --home-theme-glow-strong: 0 0 0 1px rgba(100, 116, 139, 0.24), 0 0 20px rgba(100, 116, 139, 0.25);
+  --home-glow-border: rgba(100, 116, 139, 0.28);
+  --rank-text: #2c2c2c;
+  --switch-track-off: #d0d0d6;
+  --switch-track-on: #a3c9a3;
+  --switch-track-border: rgba(100, 116, 139, 0.28);
+  --switch-thumb-color: #f8f8fa;
+  --switch-thumb-active: #ffffff;
+  --switch-thumb-shadow: 0 1px 3px rgba(15, 23, 42, 0.24);
 }
 
 .fortune-card {
@@ -954,7 +1097,8 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 
 .fortune-layout {
   display: flex;
-  min-height: 198px;
+  min-height: 0;
+  height: calc(100% - 34px);
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
@@ -1012,12 +1156,6 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
   }
   100% {
     transform: translateY(2px);
-  }
-}
-
-@keyframes rank-ring-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 

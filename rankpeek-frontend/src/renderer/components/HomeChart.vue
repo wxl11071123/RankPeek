@@ -968,10 +968,10 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   font-weight: 700;
 }
 
-:global([data-theme="light"]) .home-chart-card {
-  --chart-theme-glow: 0 0 0 1px rgba(171, 125, 23, 0.24), 0 0 16px rgba(171, 125, 23, 0.18);
-  --chart-surface-glow: inset 0 -1px 0 rgba(171, 125, 23, 0.28), 0 10px 22px rgba(171, 125, 23, 0.08);
-  --chart-glow-border: rgba(171, 125, 23, 0.34);
+:global([data-theme="light"] .home-chart-card) {
+  --chart-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
+  --chart-surface-glow: inset 0 -1px 0 rgba(100, 116, 139, 0.22), 0 10px 22px rgba(100, 116, 139, 0.1);
+  --chart-glow-border: rgba(100, 116, 139, 0.28);
 }
 
 @media (max-width: 920px) {
