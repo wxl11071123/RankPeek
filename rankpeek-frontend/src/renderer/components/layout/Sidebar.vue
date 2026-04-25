@@ -2,18 +2,25 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { t, type MessageKey } from '@/i18n'
+import homeIcon from '@/assets/icons/home.svg'
+import scoutIcon from '@/assets/icons/scout.svg'
+import historyIcon from '@/assets/icons/history.svg'
+import summonerIcon from '@/assets/icons/summoner.svg'
+import tagsIcon from '@/assets/icons/tags.svg'
+import tagConfigIcon from '@/assets/icons/tag-config.svg'
+import settingsIcon from '@/assets/icons/settings.svg'
 
 const route = useRoute()
 const router = useRouter()
 
 const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
-  { path: '/', icon: '🏠', labelKey: 'nav.home' },
-  { path: '/gaming', icon: '🎮', labelKey: 'nav.gaming' },
-  { path: '/summoner', icon: '👤', labelKey: 'nav.summoner' },
-  { path: '/match-history', icon: '📊', labelKey: 'nav.matchHistory' },
-  { path: '/user-tag', icon: '🏷️', labelKey: 'nav.userTag' },
-  { path: '/tag-config', icon: '📝', labelKey: 'nav.tagConfig' },
-  { path: '/settings', icon: '🔧', labelKey: 'nav.settings' }
+  { path: '/', icon: homeIcon, labelKey: 'nav.home' },
+  { path: '/gaming', icon: scoutIcon, labelKey: 'nav.gaming' },
+  { path: '/summoner', icon: summonerIcon, labelKey: 'nav.summoner' },
+  { path: '/match-history', icon: historyIcon, labelKey: 'nav.matchHistory' },
+  { path: '/user-tag', icon: tagsIcon, labelKey: 'nav.userTag' },
+  { path: '/tag-config', icon: tagConfigIcon, labelKey: 'nav.tagConfig' },
+  { path: '/settings', icon: settingsIcon, labelKey: 'nav.settings' }
 ]
 
 const currentPath = computed(() => route.path)
@@ -32,9 +39,15 @@ function navigateTo(path: string) {
           :key="item.path"
           class="nav-item"
           :class="{ active: currentPath === item.path }"
+          :title="t(item.labelKey)"
+          :aria-label="t(item.labelKey)"
           @click="navigateTo(item.path)"
         >
-          <span class="nav-icon">{{ item.icon }}</span>
+          <span
+            class="nav-icon"
+            :style="{ '--nav-icon': `url(${item.icon})` }"
+            aria-hidden="true"
+          ></span>
           <span class="nav-label">{{ t(item.labelKey) }}</span>
         </li>
       </ul>
@@ -97,11 +110,23 @@ function navigateTo(path: string) {
 }
 
 .nav-icon {
-  font-size: 25px;
-  width: 34px;
-  line-height: 1;
-  text-align: center;
-  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: inline-block;
+  color: #d4af37;
+  background: currentColor;
+  mask: var(--nav-icon) center / contain no-repeat;
+  -webkit-mask: var(--nav-icon) center / contain no-repeat;
+  transition: color 0.15s;
+}
+
+.nav-item:hover .nav-icon {
+  color: #e6dfcd;
+}
+
+.nav-item.active .nav-icon {
+  color: #f1d36a;
 }
 
 .nav-label {
@@ -139,8 +164,9 @@ function navigateTo(path: string) {
   }
 
   .nav-icon {
-    width: auto;
-    font-size: 30px;
+    width: 22px;
+    height: 22px;
+    flex-basis: 22px;
   }
 
   .nav-label {
