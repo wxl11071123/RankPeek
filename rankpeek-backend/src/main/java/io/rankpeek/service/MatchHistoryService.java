@@ -129,7 +129,8 @@ public class MatchHistoryService {
                     puuidPrefix(puuid), begIndex, endIndex);
         }
         List<MatchHistory> matches = getMatchHistoryFetchResult(puuid, forceRefresh).getMatches();
-        return sliceMatches(matches, begIndex, endIndex);
+        List<MatchHistory> sliced = sliceMatches(matches, begIndex, endIndex);
+        return ensureRosterForVisibleMatches(puuid, matches, sliced);
     }
 
     /**
@@ -407,9 +408,160 @@ public class MatchHistoryService {
 
         List<MatchHistory> sliced = sliceMatches(filteredMatches, begIndex, endIndex);
         if (maxResults > 0 && sliced.size() > maxResults) {
-            return new ArrayList<>(sliced.subList(0, maxResults));
+            sliced = new ArrayList<>(sliced.subList(0, maxResults));
         }
-        return sliced;
+        return ensureRosterForVisibleMatches(puuid, allMatches, sliced);
+    }
+
+    private List<MatchHistory> ensureRosterForVisibleMatches(String puuid,
+                                                             List<MatchHistory> cachedMatches,
+                                                             List<MatchHistory> visibleMatches) {
+        long completeBefore = visibleMatches.stream().filter(this::hasCompleteRoster).count();
+        List<MatchHistory> hydratedMatches = ensureRosterForVisibleMatches(visibleMatches);
+        long completeAfter = hydratedMatches.stream().filter(this::hasCompleteRoster).count();
+
+        if (completeAfter > completeBefore && cacheRepository != null && cachedMatches != null && !cachedMatches.isEmpty()) {
+            saveMatchHistoryToLocalCache(puuid, cachedMatches);
+        }
+
+        return hydratedMatches;
+    }
+
+    private List<MatchHistory> ensureRosterForVisibleMatches(List<MatchHistory> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return List.of();
+        }
+
+        List<MatchHistory> hydratedMatches = new ArrayList<>(matches.size());
+        for (MatchHistory match : matches) {
+            if (hasCompleteRoster(match) || match == null || match.getGameId() == null) {
+                hydratedMatches.add(match);
+                continue;
+            }
+
+            try {
+                GameDetail detail = getGameDetailById(match.getGameId());
+                hydratedMatches.add(mergeGameDetailIntoMatchHistory(match, detail));
+            } catch (Exception e) {
+                log.debug("Failed to hydrate visible match roster, gameId={}", match.getGameId(), e);
+                hydratedMatches.add(match);
+            }
+        }
+        return hydratedMatches;
+    }
+
+    private boolean hasCompleteRoster(MatchHistory match) {
+        return match != null
+                && match.getParticipants() != null
+                && match.getParticipants().size() >= 10
+                && match.getParticipantIdentities() != null
+                && match.getParticipantIdentities().size() >= 10;
+    }
+
+    private MatchHistory mergeGameDetailIntoMatchHistory(MatchHistory match, GameDetail detail) {
+        if (match == null || detail == null) {
+            return match;
+        }
+        int currentParticipantCount = match.getParticipants() == null ? 0 : match.getParticipants().size();
+        int currentIdentityCount = match.getParticipantIdentities() == null ? 0 : match.getParticipantIdentities().size();
+        if (detail.getParticipants() != null && detail.getParticipants().size() >= currentParticipantCount) {
+            match.setParticipants(detail.getParticipants().stream()
+                    .map(this::toMatchParticipant)
+                    .toList());
+        }
+        if (detail.getParticipantIdentities() != null && detail.getParticipantIdentities().size() >= currentIdentityCount) {
+            match.setParticipantIdentities(detail.getParticipantIdentities().stream()
+                    .map(this::toMatchParticipantIdentity)
+                    .toList());
+        }
+        if (match.getQueueId() == null) {
+            match.setQueueId(detail.getQueueId());
+        }
+        if (match.getGameMode() == null) {
+            match.setGameMode(detail.getGameMode());
+        }
+        if (match.getGameType() == null) {
+            match.setGameType(detail.getGameType());
+        }
+        if (match.getMapId() == null) {
+            match.setMapId(detail.getMapId());
+        }
+        if (match.getGameCreation() == null) {
+            match.setGameCreation(detail.getGameCreation());
+        }
+        if (match.getGameDuration() == null && detail.getGameDuration() != null) {
+            match.setGameDuration(detail.getGameDuration().intValue());
+        }
+        return match;
+    }
+
+    private MatchHistory.Participant toMatchParticipant(GameDetail.GameParticipant gameParticipant) {
+        MatchHistory.Participant participant = new MatchHistory.Participant();
+        participant.setParticipantId(gameParticipant.getParticipantId());
+        participant.setTeamId(gameParticipant.getTeamId());
+        participant.setChampionId(gameParticipant.getChampionId());
+        participant.setSpell1Id(gameParticipant.getSpell1Id());
+        participant.setSpell2Id(gameParticipant.getSpell2Id());
+        participant.setStats(toMatchStats(gameParticipant.getStats()));
+        return participant;
+    }
+
+    private MatchHistory.Stats toMatchStats(GameDetail.Stats detailStats) {
+        MatchHistory.Stats stats = new MatchHistory.Stats();
+        if (detailStats == null) {
+            return stats;
+        }
+        stats.setWin(detailStats.getWin());
+        stats.setKills(detailStats.getKills());
+        stats.setDeaths(detailStats.getDeaths());
+        stats.setAssists(detailStats.getAssists());
+        stats.setGoldEarned(toInteger(detailStats.getGoldEarned()));
+        stats.setTotalDamageDealtToChampions(toInteger(detailStats.getTotalDamageDealtToChampions()));
+        stats.setTotalDamageTaken(toInteger(detailStats.getTotalDamageTaken()));
+        stats.setTotalHeal(toInteger(detailStats.getTotalHeal()));
+        stats.setTotalMinionsKilled(detailStats.getTotalMinionsKilled());
+        stats.setNeutralMinionsKilled(detailStats.getNeutralMinionsKilled());
+        stats.setItem0(detailStats.getItem0());
+        stats.setItem1(detailStats.getItem1());
+        stats.setItem2(detailStats.getItem2());
+        stats.setItem3(detailStats.getItem3());
+        stats.setItem4(detailStats.getItem4());
+        stats.setItem5(detailStats.getItem5());
+        stats.setItem6(detailStats.getItem6());
+        stats.setDamageDealtToChampionsRate(detailStats.getDamageDealtToChampionsRate());
+        stats.setDamageTakenRate(detailStats.getDamageTakenRate());
+        stats.setHealRate(detailStats.getHealRate());
+        stats.setMvp(detailStats.getMvp());
+        stats.setPerk0(detailStats.getPerk0());
+        stats.setMinionsKilled(detailStats.getTotalMinionsKilled());
+        stats.setDamageDealtToTurrets(toInteger(detailStats.getDamageDealtToTurrets()));
+        stats.setPlayerAugment1(detailStats.getPlayerAugment1());
+        stats.setPlayerAugment2(detailStats.getPlayerAugment2());
+        stats.setPlayerAugment3(detailStats.getPlayerAugment3());
+        stats.setPlayerAugment4(detailStats.getPlayerAugment4());
+        return stats;
+    }
+
+    private MatchHistory.ParticipantIdentity toMatchParticipantIdentity(GameDetail.ParticipantIdentity identity) {
+        MatchHistory.ParticipantIdentity participantIdentity = new MatchHistory.ParticipantIdentity();
+        participantIdentity.setParticipantId(identity.getParticipantId());
+
+        MatchHistory.Player player = new MatchHistory.Player();
+        if (identity.getPlayer() != null) {
+            player.setPuuid(identity.getPlayer().getPuuid());
+            player.setGameName(identity.getPlayer().getGameName());
+            player.setTagLine(identity.getPlayer().getTagLine());
+            player.setSummonerName(identity.getPlayer().getSummonerName());
+            player.setAccountId(identity.getPlayer().getAccountId());
+            player.setSummonerId(identity.getPlayer().getSummonerId());
+            player.setPlatformId(identity.getPlayer().getPlatformId());
+        }
+        participantIdentity.setPlayer(player);
+        return participantIdentity;
+    }
+
+    private Integer toInteger(Long value) {
+        return value == null ? null : value.intValue();
     }
 
     /**

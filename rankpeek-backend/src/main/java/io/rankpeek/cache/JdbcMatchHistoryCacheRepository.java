@@ -13,6 +13,9 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,16 +41,16 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         }
 
         try {
-            List<String> rawRows = jdbcTemplate.query(
+            List<CachedMatchRow> rawRows = jdbcTemplate.query(
                     """
-                            SELECT m.raw_json
+                            SELECT m.game_id, m.raw_json
                             FROM player_match_index i
                             JOIN match_cache m ON m.game_id = i.game_id
                             WHERE i.puuid = ?
                             ORDER BY i.game_creation DESC, i.game_id DESC
                             LIMIT ?
                             """,
-                    (rs, rowNum) -> rs.getString("raw_json"),
+                    (rs, rowNum) -> new CachedMatchRow(rs.getLong("game_id"), rs.getString("raw_json")),
                     puuid,
                     limit
             );
@@ -56,10 +59,19 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 return findEmptyFetchState(puuid);
             }
 
-            List<MatchHistory> matches = rawRows.stream()
-                    .map(rawJson -> readValue(rawJson, MatchHistory.class, "match history"))
-                    .flatMap(Optional::stream)
-                    .toList();
+            List<MatchHistory> matches = new ArrayList<>();
+            for (CachedMatchRow row : rawRows) {
+                Optional<MatchHistory> cachedMatch = readValue(row.rawJson(), MatchHistory.class, "match history");
+                if (cachedMatch.isEmpty()) {
+                    continue;
+                }
+
+                MatchHistory match = cachedMatch.get();
+                if (match.getGameId() == null) {
+                    match.setGameId(row.gameId());
+                }
+                matches.add(restoreRosterFromLocalCache(match));
+            }
 
             if (matches.isEmpty()) {
                 return Optional.empty();
@@ -571,6 +583,278 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         return participants;
     }
 
+    private MatchHistory restoreRosterFromLocalCache(MatchHistory match) {
+        if (hasCompleteRoster(match) || match == null || match.getGameId() == null) {
+            return match;
+        }
+
+        Optional<GameDetail> detail = findGameDetail(match.getGameId());
+        if (detail.isPresent()) {
+            mergeGameDetailIntoMatchHistory(match, detail.get());
+            if (hasCompleteRoster(match)) {
+                return match;
+            }
+        }
+
+        return rebuildRosterFromParticipantCache(match);
+    }
+
+    private MatchHistory rebuildRosterFromParticipantCache(MatchHistory match) {
+        try {
+            List<ParticipantCacheRow> rows = jdbcTemplate.query(
+                    """
+                            SELECT participant_id, puuid, team_id, champion_id, spell1_id, spell2_id,
+                                   win, kills, deaths, assists, gold_earned,
+                                   total_damage_dealt_to_champions, total_damage_taken,
+                                   total_minions_killed, neutral_minions_killed,
+                                   game_name, tag_line, summoner_name, raw_json
+                            FROM match_participant_cache
+                            WHERE game_id = ?
+                            ORDER BY participant_id
+                            """,
+                    (rs, rowNum) -> toParticipantCacheRow(rs),
+                    match.getGameId()
+            );
+            if (rows.isEmpty()) {
+                return match;
+            }
+
+            int currentParticipantCount = match.getParticipants() == null ? 0 : match.getParticipants().size();
+            int currentIdentityCount = match.getParticipantIdentities() == null ? 0 : match.getParticipantIdentities().size();
+            if (rows.size() < currentParticipantCount || rows.size() < currentIdentityCount) {
+                return match;
+            }
+
+            List<MatchHistory.Participant> participants = new ArrayList<>();
+            List<MatchHistory.ParticipantIdentity> identities = new ArrayList<>();
+            for (ParticipantCacheRow row : rows) {
+                participants.add(toMatchParticipant(row));
+                identities.add(toMatchParticipantIdentity(row));
+            }
+            match.setParticipants(participants);
+            match.setParticipantIdentities(identities);
+        } catch (Exception e) {
+            log.debug("Failed to rebuild roster from participant cache, gameId={}", match.getGameId(), e);
+        }
+        return match;
+    }
+
+    private boolean hasCompleteRoster(MatchHistory match) {
+        return match != null
+                && match.getParticipants() != null
+                && match.getParticipants().size() >= 10
+                && match.getParticipantIdentities() != null
+                && match.getParticipantIdentities().size() >= 10;
+    }
+
+    private MatchHistory mergeGameDetailIntoMatchHistory(MatchHistory match, GameDetail detail) {
+        if (match == null || detail == null) {
+            return match;
+        }
+        int currentParticipantCount = match.getParticipants() == null ? 0 : match.getParticipants().size();
+        int currentIdentityCount = match.getParticipantIdentities() == null ? 0 : match.getParticipantIdentities().size();
+        if (detail.getParticipants() != null && detail.getParticipants().size() >= currentParticipantCount) {
+            match.setParticipants(detail.getParticipants().stream()
+                    .map(this::toMatchParticipant)
+                    .toList());
+        }
+        if (detail.getParticipantIdentities() != null && detail.getParticipantIdentities().size() >= currentIdentityCount) {
+            match.setParticipantIdentities(detail.getParticipantIdentities().stream()
+                    .map(this::toMatchParticipantIdentity)
+                    .toList());
+        }
+        if (match.getQueueId() == null) {
+            match.setQueueId(detail.getQueueId());
+        }
+        if (match.getGameMode() == null) {
+            match.setGameMode(detail.getGameMode());
+        }
+        if (match.getGameType() == null) {
+            match.setGameType(detail.getGameType());
+        }
+        if (match.getMapId() == null) {
+            match.setMapId(detail.getMapId());
+        }
+        if (match.getGameCreation() == null) {
+            match.setGameCreation(detail.getGameCreation());
+        }
+        if (match.getGameDuration() == null && detail.getGameDuration() != null) {
+            match.setGameDuration(detail.getGameDuration().intValue());
+        }
+        return match;
+    }
+
+    private MatchHistory.Participant toMatchParticipant(GameDetail.GameParticipant gameParticipant) {
+        MatchHistory.Participant participant = new MatchHistory.Participant();
+        participant.setParticipantId(gameParticipant.getParticipantId());
+        participant.setTeamId(gameParticipant.getTeamId());
+        participant.setChampionId(gameParticipant.getChampionId());
+        participant.setSpell1Id(gameParticipant.getSpell1Id());
+        participant.setSpell2Id(gameParticipant.getSpell2Id());
+        participant.setStats(toMatchStats(gameParticipant.getStats()));
+        return participant;
+    }
+
+    private MatchHistory.Participant toMatchParticipant(ParticipantCacheRow row) {
+        MatchHistory.Participant participant = readValue(row.rawJson(), MatchHistory.Participant.class, "match participant")
+                .orElseGet(MatchHistory.Participant::new);
+        if (participant.getParticipantId() == null) {
+            participant.setParticipantId(row.participantId());
+        }
+        if (participant.getTeamId() == null) {
+            participant.setTeamId(row.teamId());
+        }
+        if (participant.getChampionId() == null) {
+            participant.setChampionId(row.championId());
+        }
+        if (participant.getSpell1Id() == null) {
+            participant.setSpell1Id(row.spell1Id());
+        }
+        if (participant.getSpell2Id() == null) {
+            participant.setSpell2Id(row.spell2Id());
+        }
+        if (participant.getStats() == null) {
+            participant.setStats(new MatchHistory.Stats());
+        }
+        fillStatsFromParticipantCache(participant.getStats(), row);
+        return participant;
+    }
+
+    private MatchHistory.Stats toMatchStats(GameDetail.Stats detailStats) {
+        MatchHistory.Stats stats = new MatchHistory.Stats();
+        if (detailStats == null) {
+            return stats;
+        }
+        stats.setWin(detailStats.getWin());
+        stats.setKills(detailStats.getKills());
+        stats.setDeaths(detailStats.getDeaths());
+        stats.setAssists(detailStats.getAssists());
+        stats.setGoldEarned(toInteger(detailStats.getGoldEarned()));
+        stats.setTotalDamageDealtToChampions(toInteger(detailStats.getTotalDamageDealtToChampions()));
+        stats.setTotalDamageTaken(toInteger(detailStats.getTotalDamageTaken()));
+        stats.setTotalHeal(toInteger(detailStats.getTotalHeal()));
+        stats.setTotalMinionsKilled(detailStats.getTotalMinionsKilled());
+        stats.setNeutralMinionsKilled(detailStats.getNeutralMinionsKilled());
+        stats.setItem0(detailStats.getItem0());
+        stats.setItem1(detailStats.getItem1());
+        stats.setItem2(detailStats.getItem2());
+        stats.setItem3(detailStats.getItem3());
+        stats.setItem4(detailStats.getItem4());
+        stats.setItem5(detailStats.getItem5());
+        stats.setItem6(detailStats.getItem6());
+        stats.setDamageDealtToChampionsRate(detailStats.getDamageDealtToChampionsRate());
+        stats.setDamageTakenRate(detailStats.getDamageTakenRate());
+        stats.setHealRate(detailStats.getHealRate());
+        stats.setMvp(detailStats.getMvp());
+        stats.setPerk0(detailStats.getPerk0());
+        stats.setMinionsKilled(detailStats.getTotalMinionsKilled());
+        stats.setDamageDealtToTurrets(toInteger(detailStats.getDamageDealtToTurrets()));
+        stats.setPlayerAugment1(detailStats.getPlayerAugment1());
+        stats.setPlayerAugment2(detailStats.getPlayerAugment2());
+        stats.setPlayerAugment3(detailStats.getPlayerAugment3());
+        stats.setPlayerAugment4(detailStats.getPlayerAugment4());
+        return stats;
+    }
+
+    private void fillStatsFromParticipantCache(MatchHistory.Stats stats, ParticipantCacheRow row) {
+        if (stats.getWin() == null) {
+            stats.setWin(row.win());
+        }
+        if (stats.getKills() == null) {
+            stats.setKills(row.kills());
+        }
+        if (stats.getDeaths() == null) {
+            stats.setDeaths(row.deaths());
+        }
+        if (stats.getAssists() == null) {
+            stats.setAssists(row.assists());
+        }
+        if (stats.getGoldEarned() == null) {
+            stats.setGoldEarned(row.goldEarned());
+        }
+        if (stats.getTotalDamageDealtToChampions() == null) {
+            stats.setTotalDamageDealtToChampions(row.totalDamageDealtToChampions());
+        }
+        if (stats.getTotalDamageTaken() == null) {
+            stats.setTotalDamageTaken(row.totalDamageTaken());
+        }
+        if (stats.getTotalMinionsKilled() == null) {
+            stats.setTotalMinionsKilled(row.totalMinionsKilled());
+        }
+        if (stats.getNeutralMinionsKilled() == null) {
+            stats.setNeutralMinionsKilled(row.neutralMinionsKilled());
+        }
+    }
+
+    private MatchHistory.ParticipantIdentity toMatchParticipantIdentity(GameDetail.ParticipantIdentity identity) {
+        MatchHistory.ParticipantIdentity participantIdentity = new MatchHistory.ParticipantIdentity();
+        participantIdentity.setParticipantId(identity.getParticipantId());
+
+        MatchHistory.Player player = new MatchHistory.Player();
+        if (identity.getPlayer() != null) {
+            player.setPuuid(identity.getPlayer().getPuuid());
+            player.setGameName(identity.getPlayer().getGameName());
+            player.setTagLine(identity.getPlayer().getTagLine());
+            player.setSummonerName(identity.getPlayer().getSummonerName());
+            player.setAccountId(identity.getPlayer().getAccountId());
+            player.setSummonerId(identity.getPlayer().getSummonerId());
+            player.setPlatformId(identity.getPlayer().getPlatformId());
+        }
+        participantIdentity.setPlayer(player);
+        return participantIdentity;
+    }
+
+    private MatchHistory.ParticipantIdentity toMatchParticipantIdentity(ParticipantCacheRow row) {
+        MatchHistory.ParticipantIdentity identity = new MatchHistory.ParticipantIdentity();
+        identity.setParticipantId(row.participantId());
+
+        MatchHistory.Player player = new MatchHistory.Player();
+        player.setPuuid(row.puuid());
+        player.setGameName(row.gameName());
+        player.setTagLine(row.tagLine());
+        player.setSummonerName(row.summonerName());
+        identity.setPlayer(player);
+        return identity;
+    }
+
+    private ParticipantCacheRow toParticipantCacheRow(ResultSet rs) throws SQLException {
+        return new ParticipantCacheRow(
+                getInteger(rs, "participant_id"),
+                rs.getString("puuid"),
+                getInteger(rs, "team_id"),
+                getInteger(rs, "champion_id"),
+                getInteger(rs, "spell1_id"),
+                getInteger(rs, "spell2_id"),
+                getBoolean(rs, "win"),
+                getInteger(rs, "kills"),
+                getInteger(rs, "deaths"),
+                getInteger(rs, "assists"),
+                getInteger(rs, "gold_earned"),
+                getInteger(rs, "total_damage_dealt_to_champions"),
+                getInteger(rs, "total_damage_taken"),
+                getInteger(rs, "total_minions_killed"),
+                getInteger(rs, "neutral_minions_killed"),
+                rs.getString("game_name"),
+                rs.getString("tag_line"),
+                rs.getString("summoner_name"),
+                rs.getString("raw_json")
+        );
+    }
+
+    private Integer getInteger(ResultSet rs, String columnName) throws SQLException {
+        int value = rs.getInt(columnName);
+        return rs.wasNull() ? null : value;
+    }
+
+    private Boolean getBoolean(ResultSet rs, String columnName) throws SQLException {
+        boolean value = rs.getBoolean(columnName);
+        return rs.wasNull() ? null : value;
+    }
+
+    private Integer toInteger(Long value) {
+        return value == null ? null : value.intValue();
+    }
+
     private MatchHistory latestMatch(List<MatchHistory> matches) {
         if (matches == null || matches.isEmpty()) {
             return null;
@@ -625,5 +909,30 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             return "null";
         }
         return puuid.substring(0, Math.min(8, puuid.length()));
+    }
+
+    private record CachedMatchRow(Long gameId, String rawJson) {
+    }
+
+    private record ParticipantCacheRow(
+            Integer participantId,
+            String puuid,
+            Integer teamId,
+            Integer championId,
+            Integer spell1Id,
+            Integer spell2Id,
+            Boolean win,
+            Integer kills,
+            Integer deaths,
+            Integer assists,
+            Integer goldEarned,
+            Integer totalDamageDealtToChampions,
+            Integer totalDamageTaken,
+            Integer totalMinionsKilled,
+            Integer neutralMinionsKilled,
+            String gameName,
+            String tagLine,
+            String summonerName,
+            String rawJson) {
     }
 }

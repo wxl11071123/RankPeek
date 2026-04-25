@@ -21,6 +21,7 @@ class JdbcMatchHistoryCacheRepositoryTest {
 
     private JdbcTemplate jdbcTemplate;
     private JdbcMatchHistoryCacheRepository repository;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
@@ -31,7 +32,8 @@ class JdbcMatchHistoryCacheRepositoryTest {
         );
         jdbcTemplate = new JdbcTemplate(dataSource);
         new LocalCacheSchemaInitializer(jdbcTemplate).initializeSchema();
-        repository = new JdbcMatchHistoryCacheRepository(jdbcTemplate, new ObjectMapper());
+        objectMapper = new ObjectMapper();
+        repository = new JdbcMatchHistoryCacheRepository(jdbcTemplate, objectMapper);
     }
 
     @Test
@@ -136,9 +138,42 @@ class JdbcMatchHistoryCacheRepositoryTest {
     }
 
     @Test
+    void findRecentMatchHistory_restoresIncompleteRosterFromGameDetailCache() {
+        repository.saveMatchHistory("target-puuid", List.of(createMatch(3001L, "target-puuid", 1)));
+        repository.saveGameDetail(createGameDetail(3001L, "target-puuid"));
+
+        Optional<MatchHistoryFetchResult> result = repository.findRecentMatchHistory("target-puuid", 50);
+
+        assertThat(result).isPresent();
+        MatchHistory match = result.get().getMatches().getFirst();
+        assertThat(match.getParticipants()).hasSize(10);
+        assertThat(match.getParticipantIdentities()).hasSize(10);
+        assertThat(match.getParticipantIdentities().get(9).getPlayer().getPuuid()).isEqualTo("detail-player-10");
+    }
+
+    @Test
+    void findRecentMatchHistory_restoresIncompleteRosterFromParticipantCache() throws Exception {
+        repository.saveMatchHistory("target-puuid", List.of(createMatch(3002L, "target-puuid", 10)));
+        jdbcTemplate.update(
+                "UPDATE match_cache SET raw_json = ? WHERE game_id = ?",
+                objectMapper.writeValueAsString(createMatch(3002L, "target-puuid", 1)),
+                3002L
+        );
+
+        Optional<MatchHistoryFetchResult> result = repository.findRecentMatchHistory("target-puuid", 50);
+
+        assertThat(result).isPresent();
+        MatchHistory match = result.get().getMatches().getFirst();
+        assertThat(match.getParticipants()).hasSize(10);
+        assertThat(match.getParticipantIdentities()).hasSize(10);
+        assertThat(match.getParticipants().get(9).getChampionId()).isEqualTo(20);
+        assertThat(match.getParticipantIdentities().get(9).getPlayer().getPuuid()).isEqualTo("player-10");
+    }
+
+    @Test
     void saveAndReadGameDetailSummonerAndRank() {
         GameDetail detail = new GameDetail();
-        detail.setGameId(3001L);
+        detail.setGameId(4001L);
         detail.setGameCreation(1710000000000L);
         repository.saveGameDetail(detail);
 
@@ -158,7 +193,7 @@ class JdbcMatchHistoryCacheRepositoryTest {
         rank.setQueueMap(queueMap);
         repository.saveRank("target-puuid", rank);
 
-        assertThat(repository.findGameDetail(3001L)).isPresent();
+        assertThat(repository.findGameDetail(4001L)).isPresent();
         assertThat(repository.findSummonerByPuuid("target-puuid")).map(Summoner::getGameName).contains("Tester");
         assertThat(repository.findSummonerByName("Tester", "CN1")).map(Summoner::getPuuid).contains("target-puuid");
         assertThat(repository.findRank("target-puuid"))
@@ -214,5 +249,54 @@ class JdbcMatchHistoryCacheRepositoryTest {
         match.setParticipants(participants);
         match.setParticipantIdentities(identities);
         return match;
+    }
+
+    private GameDetail createGameDetail(long gameId, String targetPuuid) {
+        GameDetail detail = new GameDetail();
+        detail.setGameId(gameId);
+        detail.setQueueId(420);
+        detail.setGameCreation(1710000000000L + gameId);
+        detail.setGameDuration(1800L);
+        detail.setGameMode("CLASSIC");
+        detail.setGameType("MATCHED_GAME");
+        detail.setMapId(11);
+
+        List<GameDetail.GameParticipant> participants = new ArrayList<>();
+        List<GameDetail.ParticipantIdentity> identities = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            String puuid = i == 1 ? targetPuuid : "detail-player-" + i;
+            GameDetail.GameParticipant participant = new GameDetail.GameParticipant();
+            participant.setParticipantId(i);
+            participant.setTeamId(i <= 5 ? 100 : 200);
+            participant.setChampionId(100 + i);
+            participant.setSpell1Id(4);
+            participant.setSpell2Id(14);
+            GameDetail.Stats stats = new GameDetail.Stats();
+            stats.setWin(i <= 5);
+            stats.setKills(i);
+            stats.setDeaths(2);
+            stats.setAssists(3);
+            stats.setGoldEarned(9000L + i);
+            stats.setTotalDamageDealtToChampions(12000L + i);
+            stats.setTotalDamageTaken(15000L + i);
+            stats.setTotalMinionsKilled(150 + i);
+            stats.setNeutralMinionsKilled(5);
+            participant.setStats(stats);
+            participants.add(participant);
+
+            GameDetail.ParticipantIdentity identity = new GameDetail.ParticipantIdentity();
+            identity.setParticipantId(i);
+            GameDetail.Player player = new GameDetail.Player();
+            player.setPuuid(puuid);
+            player.setGameName("DetailPlayer" + i);
+            player.setTagLine("CN1");
+            player.setSummonerName("DetailPlayer" + i);
+            identity.setPlayer(player);
+            identities.add(identity);
+        }
+
+        detail.setParticipants(participants);
+        detail.setParticipantIdentities(identities);
+        return detail;
     }
 }

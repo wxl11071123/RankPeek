@@ -47,7 +47,7 @@
 
           <div class="lookup-account-stats">
             <div class="lookup-stat">
-              <span>{{ t('summoner.matchSamples') }}</span>
+              <span>{{ t('summoner.currentPageCount') }}</span>
               <strong>{{ searchMatchHistory.length }}</strong>
             </div>
             <div class="lookup-stat">
@@ -160,7 +160,7 @@
             {{ t('common.previousPage') }}
           </button>
           <span class="page-indicator">{{ t('common.pageIndicator', { current: currentPage, total: totalPages }) }}</span>
-          <button class="ghost-btn" type="button" :disabled="loading || currentPage >= totalPages" @click="nextPage">
+          <button class="ghost-btn" type="button" :disabled="!hasNextPage" @click="nextPage">
             {{ t('common.nextPage') }}
           </button>
         </div>
@@ -250,6 +250,11 @@ const selectedSummonerName = computed(() => formatSummonerName(searchResult.valu
 const searchSoloRank = computed<QueueInfo | null>(() => searchRank.value?.queueMap?.RANKED_SOLO_5x5 || null)
 const searchFlexRank = computed<QueueInfo | null>(() => searchRank.value?.queueMap?.RANKED_FLEX_SR || null)
 const hasFilters = computed(() => filterChampionId.value > 0 || filterQueueId.value > 0)
+const hasNextPage = computed(() =>
+  !loading.value &&
+  searchMatchHistory.value.length === pageSize &&
+  currentPage.value < totalPages.value
+)
 
 const matchStateMeta = computed(() => {
   const status = searchUserTag.value?.recordStatus
@@ -581,7 +586,7 @@ async function prevPage() {
 }
 
 async function nextPage() {
-  if (currentPage.value >= totalPages.value) {
+  if (!hasNextPage.value) {
     return
   }
   currentPage.value += 1

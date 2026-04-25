@@ -132,7 +132,7 @@
             {{ t('common.previousPage') }}
           </button>
           <span class="page-indicator">{{ t('common.pageIndicator', { current: currentPage, total: totalPages }) }}</span>
-          <button class="ghost-btn" type="button" :disabled="loading || currentPage >= totalPages" @click="nextPage">
+          <button class="ghost-btn" type="button" :disabled="!hasNextPage" @click="nextPage">
             {{ t('common.nextPage') }}
           </button>
         </div>
@@ -217,6 +217,11 @@ const soloRank = computed<QueueInfo | null>(() => gameStore.soloRank)
 const flexRank = computed<QueueInfo | null>(() => gameStore.flexRank)
 const totalPages = computed(() => Math.max(1, Math.ceil(maxTotalRecords / pageSize)))
 const hasFilters = computed(() => filterChampionId.value > 0 || filterQueueId.value > 0)
+const hasNextPage = computed(() =>
+  !loading.value &&
+  matchHistory.value.length === pageSize &&
+  currentPage.value < totalPages.value
+)
 
 const matchStateMeta = computed(() => {
   const status = userTag.value?.recordStatus
@@ -465,7 +470,7 @@ async function prevPage() {
 }
 
 async function nextPage() {
-  if (currentPage.value >= totalPages.value) {
+  if (!hasNextPage.value) {
     return
   }
   currentPage.value += 1
