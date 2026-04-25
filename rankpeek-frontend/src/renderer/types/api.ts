@@ -164,6 +164,30 @@ export interface CacheUpdateEvent {
   timestamp?: number
 }
 
+export interface CacheStatus {
+  enabled: boolean
+  databasePath: string
+  databaseSizeBytes: number
+  summonerCount: number
+  rankCount: number
+  matchCount: number
+  gameDetailCount: number
+  participantCount: number
+  playerMatchIndexCount: number
+  trackedPlayerCount: number
+  latestMatchCreation: number | null
+}
+
+export type CacheClearScope = 'all' | 'memory' | 'localDb'
+
+export interface CacheClearResult {
+  cleared: boolean
+  scope: CacheClearScope
+  message: string
+  deletedRows: number
+  timestamp: number
+}
+
 // 大厅信息
 export interface Lobby {
   lobbyId: string

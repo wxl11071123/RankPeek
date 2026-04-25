@@ -2,7 +2,7 @@
 import { apiClient } from "@/api/httpClient";
 import { useThemeStore } from "@/stores/theme";
 import { useI18n } from "@/i18n";
-import type { GameModeOption } from "@/types/api";
+import type { CacheClearScope, CacheStatus, GameModeOption } from "@/types/api";
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from "@/utils/matchPreferences";
 import { computed, onMounted, ref } from "vue";
 import brandSymbolBlack from "@/assets/branding/rankpeek-symbol-black.png";
@@ -15,8 +15,17 @@ const { t } = useI18n();
 const appVersion = ref("1.0.0");
 const defaultMatchQueueMode = ref(0);
 const matchModeOptions = ref<GameModeOption[]>([]);
+const cacheStatus = ref<CacheStatus | null>(null);
+const cacheStatusLoading = ref(false);
+const cacheStatusError = ref("");
+const clearingCacheScope = ref<CacheClearScope | null>(null);
 const githubRepoUrl = "https://github.com/wxl11071123/rankpeek";
 const githubIssuesUrl = "https://github.com/wxl11071123/rankpeek/issues";
+const cacheClearLabels: Record<CacheClearScope, string> = {
+  memory: "内存缓存",
+  localDb: "本地数据库缓存",
+  all: "全部缓存",
+};
 
 const showcaseBackgroundLines = computed(() => [
   t("settings.showcaseLine1"),
@@ -31,6 +40,21 @@ const aboutLogoSrc = computed(() =>
 const aboutShowcaseSrc = computed(() =>
   themeStore.theme === "dark" ? brandEyeBlack : brandEyeWhite,
 );
+
+const cacheStats = computed(() => [
+  { label: "enabled", value: formatEnabled(cacheStatus.value?.enabled) },
+  { label: "databaseSizeBytes", value: formatBytes(cacheStatus.value?.databaseSizeBytes) },
+  { label: "summonerCount", value: formatNumber(cacheStatus.value?.summonerCount) },
+  { label: "rankCount", value: formatNumber(cacheStatus.value?.rankCount) },
+  { label: "matchCount", value: formatNumber(cacheStatus.value?.matchCount) },
+  { label: "gameDetailCount", value: formatNumber(cacheStatus.value?.gameDetailCount) },
+  { label: "participantCount", value: formatNumber(cacheStatus.value?.participantCount) },
+  { label: "trackedPlayerCount", value: formatNumber(cacheStatus.value?.trackedPlayerCount) },
+  {
+    label: "latestMatchCreation",
+    value: formatLatestMatchCreation(cacheStatus.value?.latestMatchCreation),
+  },
+]);
 
 if (window.electronAPI) {
   window.electronAPI.getVersion().then((version) => {
@@ -53,7 +77,69 @@ onMounted(async () => {
   } catch (error) {
     console.error("Failed to load settings", error);
   }
+
+  await loadCacheStatus();
 });
+
+function formatEnabled(enabled: boolean | undefined) {
+  if (enabled === undefined) {
+    return "-";
+  }
+
+  return enabled ? "true" : "false";
+}
+
+function formatNumber(value: number | undefined) {
+  return value === undefined ? "-" : value.toLocaleString();
+}
+
+function formatBytes(bytes: number | undefined) {
+  if (bytes === undefined) {
+    return "-";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]} (${bytes.toLocaleString()} B)`;
+}
+
+function formatLatestMatchCreation(timestamp: number | null | undefined) {
+  if (timestamp === null || timestamp === undefined) {
+    return "-";
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return String(timestamp);
+  }
+
+  return date.toLocaleString();
+}
+
+async function loadCacheStatus() {
+  cacheStatusLoading.value = true;
+  cacheStatusError.value = "";
+
+  try {
+    cacheStatus.value = await apiClient.getCacheStatus();
+  } catch (error) {
+    console.error("Failed to load cache status", error);
+    cacheStatusError.value = "缓存状态加载失败";
+  } finally {
+    cacheStatusLoading.value = false;
+  }
+}
 
 async function saveMatchSettings() {
   try {
@@ -67,7 +153,7 @@ async function saveMatchSettings() {
 }
 
 async function clearCache() {
-  if (!confirm(t("settings.confirmClearCache"))) {
+  if (!window.confirm(t("settings.confirmClearCache"))) {
     return;
   }
 
@@ -80,6 +166,25 @@ async function clearCache() {
   } catch (error) {
     console.error("Failed to clear cache", error);
     alert(t("settings.clearCacheFailed"));
+  }
+}
+
+async function clearLocalCache(scope: CacheClearScope) {
+  if (!window.confirm(`确定要清理${cacheClearLabels[scope]}吗？`)) {
+    return;
+  }
+
+  clearingCacheScope.value = scope;
+
+  try {
+    const result = await apiClient.clearCache(scope);
+    window.alert(result.message || "缓存已清理");
+    await loadCacheStatus();
+  } catch (error) {
+    console.error("Failed to clear local cache", error);
+    window.alert("清理缓存失败");
+  } finally {
+    clearingCacheScope.value = null;
   }
 }
 
@@ -249,6 +354,47 @@ async function openExternal(url: string) {
     </div>
 
     <div class="settings-section">
+      <div class="settings-section-header">
+        <h2>本地缓存</h2>
+        <button class="data-btn cache-refresh-btn" :disabled="cacheStatusLoading" @click="loadCacheStatus">
+          {{ cacheStatusLoading ? "刷新中..." : "刷新状态" }}
+        </button>
+      </div>
+      <div class="cache-panel">
+        <p v-if="cacheStatusError" class="cache-error">{{ cacheStatusError }}</p>
+        <div class="cache-grid">
+          <div v-for="stat in cacheStats" :key="stat.label" class="cache-stat">
+            <span class="cache-stat-label">{{ stat.label }}</span>
+            <span class="cache-stat-value">{{ stat.value }}</span>
+          </div>
+        </div>
+        <div class="cache-actions">
+          <button
+            class="data-btn"
+            :disabled="clearingCacheScope !== null"
+            @click="clearLocalCache('memory')"
+          >
+            清理内存缓存
+          </button>
+          <button
+            class="data-btn"
+            :disabled="clearingCacheScope !== null"
+            @click="clearLocalCache('localDb')"
+          >
+            清理本地数据库缓存
+          </button>
+          <button
+            class="data-btn danger"
+            :disabled="clearingCacheScope !== null"
+            @click="clearLocalCache('all')"
+          >
+            清理全部缓存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>{{ t("settings.shortcuts") }}</h2>
       <div class="shortcut-list">
         <div class="shortcut-item">
@@ -339,6 +485,18 @@ async function openExternal(url: string) {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.6px;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-section-header h2 {
+  margin: 0;
 }
 
 .about-card {
@@ -772,6 +930,54 @@ async function openExternal(url: string) {
   gap: 10px;
 }
 
+.cache-panel {
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.cache-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cache-stat {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.cache-stat-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.cache-stat-value {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.cache-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.cache-error {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: var(--danger-color, #dc2626);
+}
+
 .data-btn {
   padding: 10px 18px;
   background: var(--bg-secondary);
@@ -788,6 +994,20 @@ async function openExternal(url: string) {
   background: var(--bg-hover);
 }
 
+.cache-panel .data-btn,
+.cache-refresh-btn {
+  background: var(--bg-tertiary);
+}
+
+.data-btn.danger {
+  color: var(--danger-color, #dc2626);
+}
+
+.data-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 @media (max-width: 960px) {
   .about-card {
     grid-template-columns: 120px 1fr;
@@ -795,6 +1015,10 @@ async function openExternal(url: string) {
 
   .app-showcase {
     grid-column: 1 / -1;
+  }
+
+  .cache-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -3,6 +3,9 @@ import type {
   AppConfig,
   AramBalanceData,
   AssetDetails,
+  CacheClearResult,
+  CacheClearScope,
+  CacheStatus,
   ChampionOption,
   GameDetail,
   GameModeOption,
@@ -87,8 +90,8 @@ class ApiClient {
   /**
    * 发送 POST 请求并解包响应数据
    */
-  private async post<T>(url: string, data?: unknown): Promise<T> {
-    const { data: response } = await this.client.post<ApiResponse<T>>(url, data)
+  private async post<T>(url: string, data?: unknown, params?: Record<string, unknown>): Promise<T> {
+    const { data: response } = await this.client.post<ApiResponse<T>>(url, data, { params })
     if (response.code !== 200) {
       throw new ApiError(response.message, response.code, response.timestamp)
     }
@@ -355,6 +358,16 @@ class ApiClient {
    */
   async getFandomStatus(): Promise<{ hasData: boolean; message: string }> {
     return this.get<{ hasData: boolean; message: string }>('/fandom/status')
+  }
+
+  // ========== Cache API ==========
+
+  async getCacheStatus(): Promise<CacheStatus> {
+    return this.get<CacheStatus>('/cache/status')
+  }
+
+  async clearCache(scope: CacheClearScope, confirm = true): Promise<CacheClearResult> {
+    return this.post<CacheClearResult>('/cache/clear', undefined, { scope, confirm })
   }
 
   // ========== 资源 API ==========
