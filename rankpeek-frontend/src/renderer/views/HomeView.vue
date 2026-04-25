@@ -931,7 +931,6 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 .rank-orbit-dot.secondary {
   top: var(--rank-orbit-secondary-y);
   left: var(--rank-orbit-secondary-x);
-  animation-delay: -0.9s;
 }
 
 .rank-badge:hover {
