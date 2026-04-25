@@ -108,27 +108,52 @@ function readPngFile(path: string) {
   return readPng(readFileSync(new URL(path, import.meta.url)))
 }
 
-function assertSingleEyeRoundedSquare(image: ReturnType<typeof readPng>) {
+function assertRealIconRoundedSquare(image: ReturnType<typeof readPng>) {
   const size = image.width
   assert.equal(image.height, size)
 
   const corner = image.pixel(Math.round(size * 0.02), Math.round(size * 0.02))
   assert.ok(corner.a < 16, 'rounded outside corner should be transparent')
 
-  const frame = image.pixel(Math.round(size * 0.5), Math.round(size * 0.07))
-  assert.ok(frame.r >= 180 && frame.g >= 130 && frame.g <= 190 && frame.b <= 90 && frame.a > 220, 'top frame should be muted gold')
-
-  const field = image.pixel(Math.round(size * 0.5), Math.round(size * 0.18))
+  const field = image.pixel(Math.round(size * 0.5), Math.round(size * 0.1))
   assert.ok(field.r <= 12 && field.g <= 12 && field.b <= 18 && field.a > 240, 'inside field should be black')
 
-  const eyeWhite = image.pixel(Math.round(size * 0.36), Math.round(size * 0.5))
-  assert.ok(eyeWhite.r >= 225 && eyeWhite.g >= 225 && eyeWhite.b >= 215 && eyeWhite.a > 240, 'eye white should be visible')
+  const ray = image.pixel(Math.round(size * 0.5), Math.round(size * 0.22))
+  assert.ok(ray.r >= 225 && ray.g >= 225 && ray.b >= 225 && ray.a > 240, 'top ray should be visible')
 
-  const iris = image.pixel(Math.round(size * 0.56), Math.round(size * 0.5))
-  assert.ok(iris.r >= 170 && iris.g >= 120 && iris.b <= 85 && iris.a > 240, 'iris accent should be gold')
+  const eyeWhite = image.pixel(Math.round(size * 0.23), Math.round(size * 0.64))
+  assert.ok(eyeWhite.r >= 225 && eyeWhite.g >= 225 && eyeWhite.b >= 225 && eyeWhite.a > 240, 'eye white should be visible')
 
-  const pupil = image.pixel(Math.round(size * 0.5), Math.round(size * 0.5))
+  const pupil = image.pixel(Math.round(size * 0.5), Math.round(size * 0.56))
   assert.ok(pupil.r <= 12 && pupil.g <= 12 && pupil.b <= 16 && pupil.a > 240, 'single-eye pupil should be dark')
+
+  const sparkle = image.pixel(Math.round(size * 0.5), Math.round(size * 0.67))
+  assert.ok(sparkle.r >= 225 && sparkle.g >= 225 && sparkle.b >= 225 && sparkle.a > 240, 'center sparkle should be visible')
+}
+
+function assertSmallTrayIconIsLegible(image: ReturnType<typeof readPng>) {
+  assert.equal(image.width, 16)
+  assert.equal(image.height, 16)
+
+  let brightPixels = 0
+  let darkOpaquePixels = 0
+
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const pixel = image.pixel(x, y)
+
+      if (pixel.a > 180 && pixel.r >= 180 && pixel.g >= 180 && pixel.b >= 180) {
+        brightPixels += 1
+      }
+
+      if (pixel.a > 180 && pixel.r <= 30 && pixel.g <= 30 && pixel.b <= 40) {
+        darkOpaquePixels += 1
+      }
+    }
+  }
+
+  assert.ok(brightPixels >= 24, '16px tray icon should preserve enough white mark pixels')
+  assert.ok(darkOpaquePixels >= 80, '16px tray icon should keep a dark field for contrast')
 }
 
 function readIcoEntries(path: string) {
@@ -154,14 +179,14 @@ function readIcoEntries(path: string) {
   return entries
 }
 
-test('public app and tray pngs use the rounded-square single-eye artwork', () => {
+test('public app and tray pngs use the rounded-square real icon artwork', () => {
   const appIcon = readPngFile('../../public/icon.png')
   const trayIcon = readPngFile('../../public/tray-icon.png')
 
   assert.equal(appIcon.width, 1024)
   assert.equal(trayIcon.width, 256)
-  assertSingleEyeRoundedSquare(appIcon)
-  assertSingleEyeRoundedSquare(trayIcon)
+  assertRealIconRoundedSquare(appIcon)
+  assertRealIconRoundedSquare(trayIcon)
 })
 
 test('ico assets include png entries for common Windows sizes', () => {
@@ -176,6 +201,10 @@ test('ico assets include png entries for common Windows sizes', () => {
       const png = readPng(entry.payload)
       assert.equal(png.width, entry.width)
       assert.equal(png.height, entry.height)
+
+      if (entry.width === 16 && path.includes('tray-icon')) {
+        assertSmallTrayIconIsLegible(png)
+      }
     }
   }
 })
