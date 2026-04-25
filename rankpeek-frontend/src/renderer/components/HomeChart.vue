@@ -753,6 +753,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   --chart-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
   --chart-surface-glow: inset 0 -1px 0 rgba(212, 175, 55, 0.34), 0 10px 24px rgba(212, 175, 55, 0.1);
   --chart-glow-border: rgba(212, 175, 55, 0.42);
+  --theme-hover-glow: var(--chart-theme-glow);
   padding: 22px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -762,7 +763,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 
 .home-chart-card:hover {
   border-color: var(--chart-glow-border);
-  box-shadow: var(--chart-theme-glow);
+  box-shadow: var(--theme-hover-glow);
 }
 
 .chart-card-header {
@@ -972,6 +973,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   --chart-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
   --chart-surface-glow: inset 0 -1px 0 rgba(100, 116, 139, 0.22), 0 10px 22px rgba(100, 116, 139, 0.1);
   --chart-glow-border: rgba(100, 116, 139, 0.28);
+  --theme-hover-glow: var(--chart-theme-glow);
 }
 
 @media (max-width: 920px) {
