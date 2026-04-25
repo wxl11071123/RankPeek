@@ -64,6 +64,87 @@ const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined
 const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
 const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
 
+const RANK_TONE_MAP: Record<string, string> = {
+  iron: 'iron',
+  黑铁: 'iron',
+  bronze: 'bronze',
+  青铜: 'bronze',
+  silver: 'silver',
+  白银: 'silver',
+  gold: 'gold',
+  黄金: 'gold',
+  platinum: 'platinum',
+  铂金: 'platinum',
+  emerald: 'emerald',
+  翡翠: 'emerald',
+  diamond: 'diamond',
+  钻石: 'diamond',
+  master: 'master',
+  大师: 'master',
+  grandmaster: 'grandmaster',
+  宗师: 'grandmaster',
+  challenger: 'challenger',
+  王者: 'challenger'
+}
+
+const RANK_BADGE_STYLES: Record<string, Record<string, string>> = {
+  iron: {
+    '--rank-start': '#2f353c',
+    '--rank-end': '#7d8794',
+    '--rank-text': '#f3f5f8'
+  },
+  bronze: {
+    '--rank-start': '#5f412a',
+    '--rank-end': '#b88959',
+    '--rank-text': '#fff3e2'
+  },
+  silver: {
+    '--rank-start': '#7c8798',
+    '--rank-end': '#d4dce8',
+    '--rank-text': '#111827'
+  },
+  gold: {
+    '--rank-start': '#8c6815',
+    '--rank-end': '#d4af37',
+    '--rank-text': '#fff7d1'
+  },
+  platinum: {
+    '--rank-start': '#2f7f81',
+    '--rank-end': '#88d7d2',
+    '--rank-text': '#ecfffb'
+  },
+  emerald: {
+    '--rank-start': '#14784b',
+    '--rank-end': '#50c878',
+    '--rank-text': '#effff5'
+  },
+  diamond: {
+    '--rank-start': '#355fd2',
+    '--rank-end': '#8ac5ff',
+    '--rank-text': '#f2f7ff'
+  },
+  master: {
+    '--rank-start': '#6d3bd8',
+    '--rank-end': '#d4af37',
+    '--rank-text': '#fff7ef'
+  },
+  grandmaster: {
+    '--rank-start': '#9b253f',
+    '--rank-end': '#d4af37',
+    '--rank-text': '#fff4ef'
+  },
+  challenger: {
+    '--rank-start': '#176fc2',
+    '--rank-end': '#f2d572',
+    '--rank-text': '#ffffff'
+  },
+  unranked: {
+    '--rank-start': '#3f4652',
+    '--rank-end': '#7a8494',
+    '--rank-text': '#f6f7fb'
+  }
+}
+
 interface AutoAnalysisSettings {
   enabled: boolean
 }
@@ -247,6 +328,34 @@ function formatDivision(rank: QueueInfo): string {
   return ''
 }
 
+function rankTone(rank: QueueInfo | null): string {
+  if (!rank || isUnrankedTier(rank.tier)) {
+    return 'unranked'
+  }
+
+  const displayTier = rank.displayRank?.trim().split(/\s+/)[0]
+  const candidates = [rank.tier, rank.tierCn, displayTier]
+
+  for (const candidate of candidates) {
+    const key = candidate?.trim()
+    if (!key) {
+      continue
+    }
+    const normalizedKey = key.toLowerCase()
+    const mappedTier = TIER_CN_MAP[normalizedKey] || TIER_CN_MAP[key] || key
+    const tone = RANK_TONE_MAP[normalizedKey] || RANK_TONE_MAP[mappedTier]
+    if (tone) {
+      return tone
+    }
+  }
+
+  return 'unranked'
+}
+
+function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
+  return RANK_BADGE_STYLES[rankTone(rank)] || RANK_BADGE_STYLES.unranked
+}
+
 </script>
 
 <template>
@@ -260,8 +369,14 @@ function formatDivision(rank: QueueInfo): string {
             <span class="connection-pill connected">{{ t('home.clientConnected') }}</span>
           </div>
           <div class="rank-row">
-            <span>{{ t('home.soloQueue') }}：{{ formatRank(soloRank) }}</span>
-            <span>{{ t('home.flexQueue') }}：{{ formatRank(flexRank) }}</span>
+            <span class="rank-badge" :style="rankBadgeStyle(soloRank)">
+              <span class="rank-emblem" aria-hidden="true"></span>
+              <span class="rank-label">{{ t('home.soloQueue') }}：{{ formatRank(soloRank) }}</span>
+            </span>
+            <span class="rank-badge" :style="rankBadgeStyle(flexRank)">
+              <span class="rank-emblem" aria-hidden="true"></span>
+              <span class="rank-label">{{ t('home.flexQueue') }}：{{ formatRank(flexRank) }}</span>
+            </span>
           </div>
         </div>
       </div>
@@ -350,6 +465,9 @@ function formatDivision(rank: QueueInfo): string {
 
 <style scoped>
 .home-view {
+  --home-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
+  --home-theme-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.42), 0 0 24px rgba(212, 175, 55, 0.34);
+  --home-glow-border: rgba(212, 175, 55, 0.42);
   max-width: 1180px;
   margin: 0 auto;
   display: flex;
@@ -363,6 +481,14 @@ function formatDivision(rank: QueueInfo): string {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.account-panel:hover,
+.ai-analysis-card:hover,
+.fortune-card:hover {
+  border-color: var(--home-glow-border);
+  box-shadow: var(--home-theme-glow);
 }
 
 .account-main p,
@@ -482,15 +608,85 @@ function formatDivision(rank: QueueInfo): string {
 .rank-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
 }
 
-.rank-row span {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-weight: 700;
+.rank-badge {
+  --rank-start: #3f4652;
+  --rank-end: #7a8494;
+  --rank-text: #f6f7fb;
+  position: relative;
+  isolation: isolate;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 235, 159, 0.46);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--rank-start) 92%, #000 8%), var(--rank-end)),
+    var(--bg-tertiary);
+  color: var(--rank-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.18),
+    0 0 10px rgba(212, 175, 55, 0.7),
+    0 0 20px rgba(212, 175, 55, 0.3);
+  overflow: hidden;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.38);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.rank-badge::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, transparent, rgba(255, 232, 149, 0.78), transparent 36%, transparent);
+  opacity: 0.58;
+  animation: rank-ring-spin 8s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.rank-badge::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.2), transparent 30%, rgba(255, 255, 255, 0.08));
+  pointer-events: none;
+  z-index: 0;
+}
+
+.rank-emblem {
+  position: relative;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  transform: rotate(45deg);
+  border: 1px solid rgba(255, 244, 187, 0.84);
+  border-radius: 3px;
+  background: linear-gradient(135deg, rgba(255, 252, 211, 0.96), rgba(212, 175, 55, 0.72));
+  box-shadow: 0 0 10px rgba(255, 226, 128, 0.52);
+}
+
+.rank-emblem::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 2px;
+  background: var(--rank-start);
+}
+
+.rank-label {
+  position: relative;
+  z-index: 1;
+  white-space: nowrap;
 }
 
 .coach-report-grid {
@@ -551,6 +747,14 @@ function formatDivision(rank: QueueInfo): string {
   padding: 0 18px;
   background: var(--accent-color);
   color: #ffffff;
+  transition: box-shadow 0.3s ease, filter 0.3s ease;
+}
+
+.primary-btn:hover:not(:disabled),
+.fortune-button:hover:not(:disabled),
+.fortune-card:hover .fortune-button:not(:disabled) {
+  box-shadow: var(--home-theme-glow-strong);
+  filter: brightness(1.04);
 }
 
 .secondary-btn {
@@ -558,6 +762,12 @@ function formatDivision(rank: QueueInfo): string {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  border-color: var(--home-glow-border);
+  box-shadow: var(--home-theme-glow);
 }
 
 .secondary-btn.active {
@@ -577,6 +787,12 @@ function formatDivision(rank: QueueInfo): string {
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 800;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.auto-analysis-switch:hover:not(:disabled) {
+  border-color: var(--home-glow-border);
+  box-shadow: var(--home-theme-glow);
 }
 
 .switch-track {
@@ -642,11 +858,47 @@ function formatDivision(rank: QueueInfo): string {
   overflow: visible;
 }
 
+.coach-report-panel :deep(.coach-card-dots) {
+  left: 0;
+  right: 0;
+  justify-content: center;
+}
+
 .coach-report-panel :deep(.coach-stack-card),
 .coach-report-panel :deep(.coach-expanded-card) {
   font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, PMingLiU, 'Times New Roman', serif;
   letter-spacing: 0.5px;
   line-height: 1.7;
+}
+
+.coach-report-panel :deep(.coach-stack-card) {
+  transition:
+    transform 0.4s ease,
+    opacity 0.4s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.coach-report-panel :deep(.coach-stack-card:hover),
+.coach-report-panel :deep(.coach-stack-card:focus-visible) {
+  border-color: rgba(212, 175, 55, 0.62);
+  box-shadow: 0 0 34px rgba(212, 175, 55, 0.28);
+  transform: var(--card-transform);
+  animation: none;
+}
+
+.coach-report-panel :deep(.coach-stack-card::after),
+.coach-report-panel :deep(.coach-stack-card:hover::after),
+.coach-report-panel :deep(.coach-stack-card:focus-visible::after) {
+  animation: none;
+}
+
+.coach-report-panel :deep(.coach-stack-card:hover::after),
+.coach-report-panel :deep(.coach-stack-card:focus-visible::after) {
+  border-color: rgba(247, 217, 122, 0.62);
+  box-shadow: 0 0 34px rgba(212, 175, 55, 0.3);
+  opacity: 1;
 }
 
 .coach-report-panel :deep(.coach-card-title),
@@ -682,6 +934,12 @@ function formatDivision(rank: QueueInfo): string {
   --coach-title-color: #2f2918;
   --coach-body-color: #4b4638;
   --coach-placeholder-color: #6f5b19;
+}
+
+:global([data-theme="light"]) .home-view {
+  --home-theme-glow: 0 0 0 1px rgba(171, 125, 23, 0.24), 0 0 16px rgba(171, 125, 23, 0.18);
+  --home-theme-glow-strong: 0 0 0 1px rgba(171, 125, 23, 0.34), 0 0 22px rgba(171, 125, 23, 0.26);
+  --home-glow-border: rgba(171, 125, 23, 0.34);
 }
 
 .fortune-card {
@@ -754,6 +1012,12 @@ function formatDivision(rank: QueueInfo): string {
   }
   100% {
     transform: translateY(2px);
+  }
+}
+
+@keyframes rank-ring-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
