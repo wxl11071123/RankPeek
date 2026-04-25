@@ -63,8 +63,6 @@ const DIVISION_CN_MAP: Record<string, string> = {
 const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
 const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
 const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
-const RANK_BADGE_ORBIT_SPEED_PX_PER_SECOND = 3
-const RANK_BADGE_ORBIT_INTERVAL_MS = 33
 
 const RANK_TONE_MAP: Record<string, string> = {
   iron: 'iron',
@@ -184,6 +182,8 @@ interface AutoAnalysisSettings {
   enabled: boolean
 }
 
+type RankBadgeKey = 'solo' | 'flex'
+
 const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false })
 const coachNotice = ref('')
 
@@ -193,8 +193,15 @@ const fortuneRolling = ref(false)
 const rollingFortuneLabel = ref('？？？')
 let fortuneTimer: number | null = null
 let coachNoticeTimer: number | null = null
-let rankBadgeOrbitTimer: number | null = null
-let rankBadgeOrbitStartedAt = 0
+
+const defaultRankShineStyle = {
+  '--rank-shine-x': '48%',
+  '--rank-shine-y': '48%'
+}
+const rankBadgeShine = ref<Record<RankBadgeKey, Record<string, string>>>({
+  solo: { ...defaultRankShineStyle },
+  flex: { ...defaultRankShineStyle }
+})
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
 const accountKey = computed(() => currentSummoner.value?.puuid || 'local')
@@ -220,13 +227,11 @@ const fortuneButtonText = computed(() => {
 onMounted(() => {
   void gameStore.checkConnection()
   loadLocalHomeState()
-  startRankBadgeOrbit()
 })
 
 onBeforeUnmount(() => {
   clearFortuneTimer()
   clearCoachNoticeTimer()
-  stopRankBadgeOrbit()
 })
 
 watch(accountKey, () => {
@@ -417,183 +422,52 @@ function rankTone(rank: QueueInfo | null): string {
   return 'unranked'
 }
 
-function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
-  return RANK_BADGE_STYLES[rankTone(rank)] || RANK_BADGE_STYLES.unranked
-}
-
-function startRankBadgeOrbit() {
-  if (rankBadgeOrbitTimer !== null) {
-    return
-  }
-
-  rankBadgeOrbitStartedAt = window.performance.now()
-  updateRankBadgeOrbit(rankBadgeOrbitStartedAt)
-  rankBadgeOrbitTimer = window.setInterval(() => {
-    updateRankBadgeOrbit(window.performance.now())
-  }, RANK_BADGE_ORBIT_INTERVAL_MS)
-}
-
-function stopRankBadgeOrbit() {
-  if (rankBadgeOrbitTimer === null) {
-    return
-  }
-
-  window.clearInterval(rankBadgeOrbitTimer)
-  rankBadgeOrbitTimer = null
-}
-
-function updateRankBadgeOrbit(now: number) {
-  const badges = Array.from(document.querySelectorAll<HTMLElement>('.rank-badge'))
-  const badgeMetrics = badges.map((badge) => {
-    const rect = badge.getBoundingClientRect()
-    const radius = Math.min(
-      parseFloat(window.getComputedStyle(badge).borderTopLeftRadius) || 0,
-      rect.width / 2,
-      rect.height / 2
-    )
-    const perimeter = getRoundedRectPerimeter(rect.width, rect.height, radius)
-    return { badge, rect, radius, perimeter }
-  })
-  const maxPerimeter = Math.max(...badgeMetrics.map((metric) => metric.perimeter), 0)
-
-  if (!maxPerimeter) {
-    return
-  }
-
-  const traveledDistance = ((now - rankBadgeOrbitStartedAt) / 1000) * RANK_BADGE_ORBIT_SPEED_PX_PER_SECOND
-  const orbitProgress = (traveledDistance % maxPerimeter) / maxPerimeter
-
-  badgeMetrics.forEach(({ badge, rect, radius, perimeter }) => {
-    const badgeDistance = orbitProgress * perimeter
-    const point = getRoundedRectPoint(badgeDistance, rect.width, rect.height, radius)
-    const oppositePoint = getRoundedRectPoint(
-      badgeDistance + perimeter / 2,
-      rect.width,
-      rect.height,
-      radius
-    )
-
-    badge.style.setProperty('--rank-orbit-x', `${point.x}px`)
-    badge.style.setProperty('--rank-orbit-y', `${point.y}px`)
-    badge.style.setProperty('--rank-orbit-secondary-x', `${oppositePoint.x}px`)
-    badge.style.setProperty('--rank-orbit-secondary-y', `${oppositePoint.y}px`)
-  })
-}
-
-function getRoundedRectPerimeter(width: number, height: number, radius: number) {
-  const safeWidth = Math.max(0, width)
-  const safeHeight = Math.max(0, height)
-
-  if (!safeWidth || !safeHeight) {
-    return 0
-  }
-
-  if (radius <= 0) {
-    return getRectPerimeter(safeWidth, safeHeight)
-  }
-
-  const straightWidth = Math.max(0, safeWidth - radius * 2)
-  const straightHeight = Math.max(0, safeHeight - radius * 2)
-  const arcLength = (Math.PI * radius) / 2
-  return straightWidth * 2 + straightHeight * 2 + arcLength * 4
-}
-
-function getRoundedRectPoint(distance: number, width: number, height: number, radius: number) {
-  const safeWidth = Math.max(0, width)
-  const safeHeight = Math.max(0, height)
-
-  if (!safeWidth || !safeHeight) {
-    return { x: 0, y: 0 }
-  }
-
-  if (radius <= 0) {
-    return getRectPoint(distance, safeWidth, safeHeight)
-  }
-
-  const straightWidth = Math.max(0, safeWidth - radius * 2)
-  const straightHeight = Math.max(0, safeHeight - radius * 2)
-  const arcLength = (Math.PI * radius) / 2
-  const perimeter = straightWidth * 2 + straightHeight * 2 + arcLength * 4
-  let current = distance % perimeter
-
-  if (current <= straightWidth) {
-    return { x: radius + current, y: 0 }
-  }
-  current -= straightWidth
-
-  if (current <= arcLength) {
-    const angle = -Math.PI / 2 + current / radius
-    return {
-      x: safeWidth - radius + Math.cos(angle) * radius,
-      y: radius + Math.sin(angle) * radius
-    }
-  }
-  current -= arcLength
-
-  if (current <= straightHeight) {
-    return { x: safeWidth, y: radius + current }
-  }
-  current -= straightHeight
-
-  if (current <= arcLength) {
-    const angle = current / radius
-    return {
-      x: safeWidth - radius + Math.cos(angle) * radius,
-      y: safeHeight - radius + Math.sin(angle) * radius
-    }
-  }
-  current -= arcLength
-
-  if (current <= straightWidth) {
-    return { x: safeWidth - radius - current, y: safeHeight }
-  }
-  current -= straightWidth
-
-  if (current <= arcLength) {
-    const angle = Math.PI / 2 + current / radius
-    return {
-      x: radius + Math.cos(angle) * radius,
-      y: safeHeight - radius + Math.sin(angle) * radius
-    }
-  }
-  current -= arcLength
-
-  if (current <= straightHeight) {
-    return { x: 0, y: safeHeight - radius - current }
-  }
-  current -= straightHeight
-
-  const angle = Math.PI + current / radius
+function rankBadgeStyle(rank: QueueInfo | null, badgeKey: RankBadgeKey): Record<string, string> {
   return {
-    x: radius + Math.cos(angle) * radius,
-    y: radius + Math.sin(angle) * radius
+    ...(RANK_BADGE_STYLES[rankTone(rank)] || RANK_BADGE_STYLES.unranked),
+    ...rankBadgeShine.value[badgeKey]
   }
 }
 
-function getRectPoint(distance: number, width: number, height: number) {
-  const perimeter = getRectPerimeter(width, height)
-  let current = distance % perimeter
-
-  if (current <= width) {
-    return { x: current, y: 0 }
+function handleRankBadgeMouseMove(event: MouseEvent, badgeKey: RankBadgeKey) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) {
+    return
   }
-  current -= width
 
-  if (current <= height) {
-    return { x: width, y: current }
+  const rect = target.getBoundingClientRect()
+  if (!rect.width || !rect.height) {
+    return
   }
-  current -= height
 
-  if (current <= width) {
-    return { x: width - current, y: height }
+  const xRatio = clamp((event.clientX - rect.left) / rect.width, 0, 1)
+  const yRatio = clamp((event.clientY - rect.top) / rect.height, 0, 1)
+  const xOffset = ((xRatio - 0.5) * 30).toFixed(1)
+  const yOffset = ((yRatio - 0.5) * 30).toFixed(1)
+
+  rankBadgeShine.value = {
+    ...rankBadgeShine.value,
+    [badgeKey]: {
+      '--rank-shine-x': formatRankShineOffset(Number(xOffset)),
+      '--rank-shine-y': formatRankShineOffset(Number(yOffset))
+    }
   }
-  current -= width
-
-  return { x: 0, y: height - current }
 }
 
-function getRectPerimeter(width: number, height: number) {
-  return width * 2 + height * 2
+function resetRankBadgeShine(badgeKey: RankBadgeKey) {
+  rankBadgeShine.value = {
+    ...rankBadgeShine.value,
+    [badgeKey]: { ...defaultRankShineStyle }
+  }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function formatRankShineOffset(offset: number) {
+  const direction = offset >= 0 ? '+' : '-'
+  return `calc(48% ${direction} ${Math.abs(offset).toFixed(1)}px)`
 }
 
 function formatRankTierPart(rank: QueueInfo | null): string {
@@ -625,9 +499,12 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
             <span class="connection-pill connected">{{ t('home.clientConnected') }}</span>
           </div>
           <div class="rank-row">
-            <span class="rank-badge" :style="rankBadgeStyle(soloRank)">
-              <span class="rank-orbit-dot" aria-hidden="true"></span>
-              <span class="rank-orbit-dot secondary" aria-hidden="true"></span>
+            <span
+              class="rank-badge"
+              :style="rankBadgeStyle(soloRank, 'solo')"
+              @mousemove="handleRankBadgeMouseMove($event, 'solo')"
+              @mouseleave="resetRankBadgeShine('solo')"
+            >
               <span class="rank-emblem" aria-hidden="true"></span>
               <span class="rank-label">
                 <span class="rank-queue">{{ t('home.soloQueue') }}：</span>
@@ -635,9 +512,12 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
                 <span v-if="formatRankDivisionPart(soloRank)" class="rank-division">{{ formatRankDivisionPart(soloRank) }}</span>
               </span>
             </span>
-            <span class="rank-badge" :style="rankBadgeStyle(flexRank)">
-              <span class="rank-orbit-dot" aria-hidden="true"></span>
-              <span class="rank-orbit-dot secondary" aria-hidden="true"></span>
+            <span
+              class="rank-badge"
+              :style="rankBadgeStyle(flexRank, 'flex')"
+              @mousemove="handleRankBadgeMouseMove($event, 'flex')"
+              @mouseleave="resetRankBadgeShine('flex')"
+            >
               <span class="rank-emblem" aria-hidden="true"></span>
               <span class="rank-label">
                 <span class="rank-queue">{{ t('home.flexQueue') }}：</span>
@@ -893,12 +773,12 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --rank-hover-border: #a2acbb;
   --rank-hover-border-light: #7a8494;
   --rank-fill-rgb: 122, 132, 148;
+  --rank-fill-opacity: 0.12;
   --rank-inner-outline: 0 0 0 rgba(0, 0, 0, 0);
-  --rank-comet: var(--rank-border);
-  --rank-orbit-x: 0px;
-  --rank-orbit-y: 0px;
-  --rank-orbit-secondary-x: 0px;
-  --rank-orbit-secondary-y: 0px;
+  --rank-shine-x: 48%;
+  --rank-shine-y: 48%;
+  --rank-shine-soft: rgba(255, 255, 255, 0.06);
+  --rank-shine-core: rgba(255, 255, 255, 0.1);
   position: relative;
   isolation: isolate;
   min-height: 30px;
@@ -908,7 +788,18 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   padding: 6px 10px;
   border: 1px solid var(--rank-border);
   border-radius: 8px;
-  background: rgba(var(--rank-fill-rgb), 0.12);
+  background:
+    linear-gradient(
+      135deg,
+      transparent 30%,
+      var(--rank-shine-soft) 45%,
+      var(--rank-shine-core) 50%,
+      var(--rank-shine-soft) 55%,
+      transparent 70%
+    ),
+    rgba(var(--rank-fill-rgb), var(--rank-fill-opacity));
+  background-position: var(--rank-shine-x) var(--rank-shine-y), center;
+  background-size: 220% 220%, auto;
   color: var(--rank-text);
   box-shadow:
     inset -1px -1px 2px rgba(0, 0, 0, 0.15),
@@ -918,36 +809,18 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-}
-
-.rank-orbit-dot {
-  position: absolute;
-  top: var(--rank-orbit-y);
-  left: var(--rank-orbit-x);
-  z-index: 3;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0.92) 0 18%, var(--rank-comet) 36%, rgba(212, 175, 55, 0) 72%);
-  box-shadow:
-    0 0 6px var(--rank-comet),
-    0 0 12px rgba(var(--rank-fill-rgb), 0.38);
-  opacity: 0.74;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  animation: rank-orbit-breathe 1.8s ease-in-out infinite;
-}
-
-.rank-orbit-dot.secondary {
-  top: var(--rank-orbit-secondary-y);
-  left: var(--rank-orbit-secondary-x);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease,
+    background-position 0.25s ease-out;
 }
 
 .rank-badge:hover {
+  --rank-fill-opacity: 0.16;
+  --rank-shine-soft: rgba(255, 255, 255, 0.08);
+  --rank-shine-core: rgba(255, 255, 255, 0.14);
   border-color: var(--rank-hover-border);
-  background: rgba(var(--rank-fill-rgb), 0.16);
   box-shadow:
     inset -1px -1px 2px rgba(0, 0, 0, 0.15),
     var(--rank-inner-outline),
@@ -1420,7 +1293,8 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 }
 
 :global([data-theme="light"] .rank-badge) {
-  --rank-comet: var(--rank-border-light);
+  --rank-shine-soft: rgba(255, 255, 255, 0.16);
+  --rank-shine-core: rgba(255, 255, 255, 0.25);
   border-color: var(--rank-border-light);
   color: var(--rank-text);
 }
@@ -1436,6 +1310,8 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 }
 
 :global([data-theme="light"] .rank-badge:hover) {
+  --rank-shine-soft: rgba(255, 255, 255, 0.2);
+  --rank-shine-core: rgba(255, 255, 255, 0.32);
   border-color: var(--rank-hover-border-light);
 }
 
@@ -1581,25 +1457,6 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   }
   100% {
     transform: translateY(2px);
-  }
-}
-
-@keyframes rank-orbit-breathe {
-  0%,
-  100% {
-    opacity: 0.58;
-    filter: brightness(0.96);
-    box-shadow:
-      0 0 5px var(--rank-comet),
-      0 0 10px rgba(var(--rank-fill-rgb), 0.3);
-  }
-
-  50% {
-    opacity: 0.92;
-    filter: brightness(1.18);
-    box-shadow:
-      0 0 8px var(--rank-comet),
-      0 0 16px rgba(var(--rank-fill-rgb), 0.5);
   }
 }
 
