@@ -37,6 +37,9 @@ public class MatchHistoryService {
     private static final int SUMMONER_SPELL_HEAL = 7;
     private static final int SUMMONER_SPELL_BARRIER = 21;
     private static final int SUMMONERS_RIFT_MAP_ID = 11;
+    private static final int VISIBLE_MATCH_HISTORY_LIMIT = 50;
+    private static final int RAW_MATCH_HISTORY_LOOKBACK_LIMIT = 100;
+    private static final int REMAKE_DURATION_THRESHOLD_SECONDS = 300;
     private static final String POSITION_TOP = "TOP";
     private static final String POSITION_JUNGLE = "JUNGLE";
     private static final String POSITION_MIDDLE = "MIDDLE";
@@ -88,17 +91,36 @@ public class MatchHistoryService {
     }
 
     private MatchHistoryFetchResult fetchMatchHistoryResult(String puuid) {
-        String uri = String.format("lol-match-history/v1/products/lol/%s/matches?begIndex=%d&endIndex=%d",
-                puuid, 0, 49);
-
-        JsonNode response = lcuHttpClient.get(uri, JsonNode.class);
-        JsonNode gamesNode = extractGamesNode(response);
         List<MatchHistory> matches = new ArrayList<>();
+        int begIndex = 0;
 
-        if (gamesNode != null && gamesNode.isArray()) {
+        while (begIndex < RAW_MATCH_HISTORY_LOOKBACK_LIMIT && matches.size() < VISIBLE_MATCH_HISTORY_LIMIT) {
+            int endIndex = Math.min(begIndex + VISIBLE_MATCH_HISTORY_LIMIT - 1, RAW_MATCH_HISTORY_LOOKBACK_LIMIT - 1);
+            String uri = String.format("lol-match-history/v1/products/lol/%s/matches?begIndex=%d&endIndex=%d",
+                    puuid, begIndex, endIndex);
+
+            JsonNode response = lcuHttpClient.get(uri, JsonNode.class);
+            JsonNode gamesNode = extractGamesNode(response);
+            if (gamesNode == null || !gamesNode.isArray() || gamesNode.isEmpty()) {
+                break;
+            }
+
             for (JsonNode game : gamesNode) {
+                if (isRemakeGame(game)) {
+                    continue;
+                }
                 matches.add(lcuHttpClient.getObjectMapper().convertValue(game, MatchHistory.class));
             }
+
+            if (gamesNode.size() < endIndex - begIndex + 1) {
+                break;
+            }
+            begIndex = endIndex + 1;
+        }
+
+        matches.sort(Comparator.comparingLong(this::gameCreationOrMin).reversed());
+        if (matches.size() > VISIBLE_MATCH_HISTORY_LIMIT) {
+            matches = new ArrayList<>(matches.subList(0, VISIBLE_MATCH_HISTORY_LIMIT));
         }
 
         return MatchHistoryFetchResult.builder()
@@ -119,6 +141,52 @@ public class MatchHistoryService {
             return gamesWrapper;
         }
         return gamesWrapper.get("games");
+    }
+
+    private boolean isRemakeGame(JsonNode game) {
+        if (game == null || game.isNull()) {
+            return false;
+        }
+        if (readBoolean(game, "isRemake") || readBoolean(game, "remake")) {
+            return true;
+        }
+
+        Integer duration = readInt(game, "gameDuration");
+        // LCU does not consistently expose a remake flag, so very short finished games are treated as remakes.
+        return duration != null && duration < REMAKE_DURATION_THRESHOLD_SECONDS;
+    }
+
+    private boolean readBoolean(JsonNode node, String fieldName) {
+        JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return false;
+        }
+        if (value.isBoolean()) {
+            return value.asBoolean();
+        }
+        return value.isTextual() && Boolean.parseBoolean(value.asText());
+    }
+
+    private Integer readInt(JsonNode node, String fieldName) {
+        JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isInt() || value.isLong()) {
+            return value.asInt();
+        }
+        if (value.isTextual() && !value.asText().isBlank()) {
+            try {
+                return Integer.parseInt(value.asText());
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed optional fields; the match should not be dropped on uncertain data.
+            }
+        }
+        return null;
+    }
+
+    private long gameCreationOrMin(MatchHistory match) {
+        return match.getGameCreation() == null ? Long.MIN_VALUE : match.getGameCreation();
     }
 
     private List<MatchHistory> sliceMatches(List<MatchHistory> matches, int begIndex, int endIndex) {
