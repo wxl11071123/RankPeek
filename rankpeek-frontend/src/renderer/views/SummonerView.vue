@@ -236,6 +236,7 @@ const filterQueueId = ref(0)
 const defaultMatchQueueMode = ref(0)
 const currentPage = ref(1)
 const loading = ref(false)
+const reachedEnd = ref(false)
 const showDetailModal = ref(false)
 const selectedGameDetail = ref<GameDetail | null>(null)
 const selectedMatchHistory = ref<MatchHistory | null>(null)
@@ -252,7 +253,7 @@ const searchFlexRank = computed<QueueInfo | null>(() => searchRank.value?.queueM
 const hasFilters = computed(() => filterChampionId.value > 0 || filterQueueId.value > 0)
 const hasNextPage = computed(() =>
   !loading.value &&
-  searchMatchHistory.value.length === pageSize &&
+  !reachedEnd.value &&
   currentPage.value < totalPages.value
 )
 
@@ -318,6 +319,7 @@ function applyDefaultFilters() {
   filterChampionId.value = -1
   filterQueueId.value = defaultMatchQueueMode.value
   currentPage.value = 1
+  reachedEnd.value = false
 }
 
 async function searchSummoner(nameOverride?: string) {
@@ -396,7 +398,7 @@ async function refreshCurrentSummoner() {
   }
 }
 
-async function loadMatchHistory(options?: { forceRefresh?: boolean }) {
+async function loadMatchHistory(options?: { forceRefresh?: boolean; throwOnError?: boolean }) {
   if (!searchResult.value) {
     return
   }
@@ -419,6 +421,7 @@ async function loadMatchHistory(options?: { forceRefresh?: boolean }) {
         })
 
     searchMatchHistory.value = matches
+    reachedEnd.value = matches.length < pageSize || currentPage.value >= totalPages.value
     await loadVisibleUserTagSummaries(matches)
   } catch (err) {
     console.error('Failed to load match history', err)
@@ -426,6 +429,9 @@ async function loadMatchHistory(options?: { forceRefresh?: boolean }) {
     userTagSummaries.value = {}
     if (!error.value) {
       error.value = t('summoner.historyLoadFailed')
+    }
+    if (options?.throwOnError === true) {
+      throw err
     }
   } finally {
     loading.value = false
@@ -565,6 +571,7 @@ function formatSummonerName(summoner: Summoner | null): string {
 }
 
 async function handleFilterChange() {
+  reachedEnd.value = false
   currentPage.value = 1
   await loadMatchHistory()
 }
@@ -582,6 +589,7 @@ async function prevPage() {
     return
   }
   currentPage.value -= 1
+  reachedEnd.value = false
   await loadMatchHistory()
 }
 
@@ -589,8 +597,14 @@ async function nextPage() {
   if (!hasNextPage.value) {
     return
   }
+  const previousPage = currentPage.value
   currentPage.value += 1
-  await loadMatchHistory()
+  try {
+    await loadMatchHistory({ throwOnError: true })
+  } catch (err) {
+    currentPage.value = previousPage
+    reachedEnd.value = false
+  }
 }
 
 async function showMatchDetail(match: MatchHistory) {

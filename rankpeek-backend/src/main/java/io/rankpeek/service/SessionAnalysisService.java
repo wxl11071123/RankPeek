@@ -37,7 +37,7 @@ public class SessionAnalysisService {
 
     // ========== 可配置常量 ==========
     /** 近期战绩查询数量 */
-    private static final int RECENT_MATCHES_COUNT = 10;
+    private static final int SESSION_ANALYSIS_MATCHES_COUNT = 50;
     /** 预组队判定阈值：同队场次 */
     private static final int PRE_GROUP_FRIEND_THRESHOLD = 3;
     /** 预组队最小人数 */
@@ -677,7 +677,7 @@ public class SessionAnalysisService {
 
     private List<MatchHistory> safeGetMatchHistory(String puuid) {
         try {
-            return matchHistoryService.getMatchHistory(puuid, 0, RECENT_MATCHES_COUNT);
+            return matchHistoryService.getMatchHistory(puuid, 0, SESSION_ANALYSIS_MATCHES_COUNT - 1);
         } catch (Exception e) {
             log.warn("获取战绩信息失败：puuid={}, error={}", puuid, e.getMessage());
             return null;
