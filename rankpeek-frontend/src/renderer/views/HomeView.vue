@@ -443,10 +443,8 @@ function stopRankBadgeOrbit() {
 }
 
 function updateRankBadgeOrbit(now: number) {
-  const badges = document.querySelectorAll<HTMLElement>('.rank-badge')
-  const traveledDistance = ((now - rankBadgeOrbitStartedAt) / 1000) * RANK_BADGE_ORBIT_SPEED_PX_PER_SECOND
-
-  badges.forEach((badge) => {
+  const badges = Array.from(document.querySelectorAll<HTMLElement>('.rank-badge'))
+  const badgeMetrics = badges.map((badge) => {
     const rect = badge.getBoundingClientRect()
     const radius = Math.min(
       parseFloat(window.getComputedStyle(badge).borderTopLeftRadius) || 0,
@@ -454,9 +452,22 @@ function updateRankBadgeOrbit(now: number) {
       rect.height / 2
     )
     const perimeter = getRoundedRectPerimeter(rect.width, rect.height, radius)
-    const point = getRoundedRectPoint(traveledDistance, rect.width, rect.height, radius)
+    return { badge, rect, radius, perimeter }
+  })
+  const maxPerimeter = Math.max(...badgeMetrics.map((metric) => metric.perimeter), 0)
+
+  if (!maxPerimeter) {
+    return
+  }
+
+  const traveledDistance = ((now - rankBadgeOrbitStartedAt) / 1000) * RANK_BADGE_ORBIT_SPEED_PX_PER_SECOND
+  const orbitProgress = (traveledDistance % maxPerimeter) / maxPerimeter
+
+  badgeMetrics.forEach(({ badge, rect, radius, perimeter }) => {
+    const badgeDistance = orbitProgress * perimeter
+    const point = getRoundedRectPoint(badgeDistance, rect.width, rect.height, radius)
     const oppositePoint = getRoundedRectPoint(
-      traveledDistance + perimeter / 2,
+      badgeDistance + perimeter / 2,
       rect.width,
       rect.height,
       radius
