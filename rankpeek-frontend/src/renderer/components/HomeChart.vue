@@ -751,9 +751,10 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 <style scoped>
 .home-chart-card {
   --chart-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
+  --chart-card-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 26px rgba(212, 175, 55, 0.34), 0 10px 28px rgba(212, 175, 55, 0.14);
   --chart-surface-glow: inset 0 -1px 0 rgba(212, 175, 55, 0.34), 0 10px 24px rgba(212, 175, 55, 0.1);
   --chart-glow-border: rgba(212, 175, 55, 0.42);
-  --theme-hover-glow: var(--chart-theme-glow);
+  --theme-hover-glow: var(--chart-card-hover-glow);
   padding: 22px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -971,9 +972,10 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 
 :global([data-theme="light"] .home-chart-card) {
   --chart-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
+  --chart-card-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26), 0 10px 26px rgba(100, 116, 139, 0.14);
   --chart-surface-glow: inset 0 -1px 0 rgba(100, 116, 139, 0.22), 0 10px 22px rgba(100, 116, 139, 0.1);
   --chart-glow-border: rgba(100, 116, 139, 0.28);
-  --theme-hover-glow: var(--chart-theme-glow);
+  --theme-hover-glow: var(--chart-card-hover-glow);
 }
 
 @media (max-width: 920px) {

@@ -616,6 +616,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --home-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
   --home-theme-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.42), 0 0 24px rgba(212, 175, 55, 0.34);
   --theme-hover-glow: var(--home-theme-glow);
+  --fortune-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 26px rgba(212, 175, 55, 0.34), 0 10px 28px rgba(212, 175, 55, 0.14);
   --home-glow-border: rgba(212, 175, 55, 0.42);
   --rank-text: #e0e0e0;
   --switch-track-off: rgba(255, 255, 255, 0.14);
@@ -913,7 +914,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 
 .coach-report-grid .fortune-card:hover {
   border-color: var(--home-glow-border);
-  box-shadow: var(--theme-hover-glow);
+  box-shadow: var(--fortune-hover-glow);
 }
 
 .card-copy h2 {
@@ -950,6 +951,10 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 .fortune-card:hover .fortune-button:not(:disabled) {
   box-shadow: var(--home-theme-glow-strong);
   filter: brightness(1.04);
+}
+
+.fortune-card:hover .fortune-button:disabled {
+  box-shadow: var(--theme-hover-glow);
 }
 
 .secondary-btn {
@@ -1376,6 +1381,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --home-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
   --home-theme-glow-strong: 0 0 0 1px rgba(100, 116, 139, 0.24), 0 0 20px rgba(100, 116, 139, 0.25);
   --theme-hover-glow: var(--home-theme-glow);
+  --fortune-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26), 0 10px 26px rgba(100, 116, 139, 0.14);
   --home-glow-border: rgba(100, 116, 139, 0.28);
   --rank-text: #2c2c2c;
   --switch-track-off: #d0d0d6;
