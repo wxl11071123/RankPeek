@@ -9,6 +9,7 @@ import matchRecordIcon from '@/assets/icons/nav-record-bars.svg'
 import userTagIcon from '@/assets/icons/nav-tag.svg'
 import tagConfigIcon from '@/assets/icons/nav-clipboard.svg'
 import settingsGearIcon from '@/assets/icons/nav-gear-five.svg'
+import sidebarLogo from '@/assets/branding/sidebar-logo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,21 +34,7 @@ function navigateTo(path: string) {
 <template>
   <aside class="sidebar">
     <div class="sidebar-brand" aria-label="RankPeek">
-      <svg
-        class="sidebar-logo"
-        viewBox="0 0 36 36"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <rect x="4.5" y="4.5" width="27" height="27" rx="7.2" />
-        <path d="M9.5 18c2.3-4.2 5.1-6.3 8.5-6.3s6.2 2.1 8.5 6.3c-2.3 4.2-5.1 6.3-8.5 6.3s-6.2-2.1-8.5-6.3Z" />
-        <circle cx="18" cy="18" r="3.2" />
-      </svg>
+      <img class="sidebar-logo" :src="sidebarLogo" alt="" aria-hidden="true" />
       <span class="brand-name">RankPeek</span>
     </div>
 
@@ -100,6 +87,8 @@ function navigateTo(path: string) {
   width: 36px;
   height: 36px;
   flex: 0 0 36px;
+  display: block;
+  object-fit: contain;
 }
 
 .brand-name {
@@ -134,8 +123,16 @@ function navigateTo(path: string) {
   transition: background 0.15s, color 0.15s;
   color: var(--text-secondary);
   font-size: 17px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0;
+}
+
+.nav-item,
+.nav-item:hover,
+.nav-item.active,
+.nav-item:focus-visible {
+  font-size: 17px;
+  font-weight: 700;
 }
 
 .nav-item:hover {
@@ -146,7 +143,6 @@ function navigateTo(path: string) {
 .nav-item.active {
   background: var(--accent-color);
   color: #ffffff;
-  font-weight: 500;
 }
 
 .nav-icon {
@@ -156,6 +152,17 @@ function navigateTo(path: string) {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: var(--color-nav-icon);
+  transition: color var(--transition-fast);
+}
+
+.nav-item:hover .nav-icon,
+.nav-item:focus-visible .nav-icon {
+  color: var(--color-nav-icon-hover);
+}
+
+.nav-item.active .nav-icon {
+  color: var(--color-nav-icon-active);
 }
 
 .nav-icon-svg {
@@ -167,7 +174,8 @@ function navigateTo(path: string) {
 }
 
 .nav-label {
-  font-size: 17px;
+  font-size: inherit;
+  font-weight: inherit;
   line-height: 1.25;
 }
 

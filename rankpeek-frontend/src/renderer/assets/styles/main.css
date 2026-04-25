@@ -27,6 +27,10 @@
   --accent-active: #0071e3;
   --accent-rgb: 41, 151, 255;
 
+  --color-nav-icon: #d8b978;
+  --color-nav-icon-hover: #8bd7e8;
+  --color-nav-icon-active: #102a3d;
+
   --gold-color: #d4a72c;
   --gold-hover: #e8c04a;
 
@@ -87,6 +91,10 @@
   --accent-hover: #2997ff;
   --accent-active: #0066cc;
   --accent-rgb: 0, 113, 227;
+
+  --color-nav-icon: #315f7f;
+  --color-nav-icon-hover: #9a6b1f;
+  --color-nav-icon-active: #092238;
 
   --gold-color: #a68520;
   --gold-hover: #8a6d1a;

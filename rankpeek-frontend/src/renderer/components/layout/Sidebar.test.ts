@@ -11,7 +11,16 @@ function readRendererFile(path: string) {
   return readFileSync(resolve(rendererRoot, path), 'utf8')
 }
 
-test('sidebar uses current-color svg branding and line icons', () => {
+function extractRule(source: string, selector: string) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[\\s\\S]*?)\\}`))
+
+  assert.ok(match?.groups?.body, `${selector} rule should exist`)
+
+  return match.groups.body
+}
+
+test('sidebar uses standalone branding artwork and line icons', () => {
   const source = readRendererFile('components/layout/Sidebar.vue')
 
   assert.match(source, /const menuItems: Array<\{ path: string; icon: string; labelKey: MessageKey \}>/)
@@ -20,12 +29,18 @@ test('sidebar uses current-color svg branding and line icons', () => {
   assert.match(source, /import summonerIcon from '@\/assets\/icons\/nav-user-search\.svg'/)
   assert.match(source, /import matchRecordIcon from '@\/assets\/icons\/nav-record-bars\.svg'/)
   assert.match(source, /import settingsGearIcon from '@\/assets\/icons\/nav-gear-five\.svg'/)
+  assert.match(source, /import sidebarLogo from '@\/assets\/branding\/sidebar-logo\.png'/)
   assert.match(source, /\{ path: '\/match-history', icon: matchRecordIcon, labelKey: 'nav.matchHistory' \}/)
   assert.match(source, /\{ path: '\/settings', icon: settingsGearIcon, labelKey: 'nav.settings' \}/)
   assert.match(source, /class="sidebar-brand"/)
   assert.match(source, /class="sidebar-logo"/)
-  assert.match(source, /stroke="currentColor"/)
+  assert.doesNotMatch(source, /<svg[\s\S]*class="sidebar-logo"/)
+  assert.doesNotMatch(source, /src="\/icon\.png"/)
+  assert.match(source, /<img class="sidebar-logo" :src="sidebarLogo" alt="" aria-hidden="true" \/>/)
   assert.match(source, /\.sidebar-logo\s*{[\s\S]*width:\s*36px;[\s\S]*height:\s*36px;/)
+  assert.match(source, /\.sidebar-logo\s*{[\s\S]*object-fit:\s*contain;/)
+  assert.doesNotMatch(source, /\.sidebar-logo\s*{[\s\S]*mix-blend-mode:/)
+  assert.doesNotMatch(source, /:global\(\[data-theme="(?:dark|light)"\]\s+\.sidebar-logo\)/)
   assert.match(source, /\.nav-icon-svg\s*{[\s\S]*background:\s*currentColor;[\s\S]*mask:\s*var\(--nav-icon-url\) center \/ contain no-repeat;/)
   assert.doesNotMatch(source, /🏠|🎮|👤|📊|🏷️|📝|🔧/)
 })
@@ -38,6 +53,42 @@ test('match-history nav label is renamed to my matches', () => {
   assert.doesNotMatch(zhCN, /'nav.matchHistory': '召唤师信息'/)
   assert.match(enUS, /'nav.matchHistory': 'My Matches'/)
   assert.doesNotMatch(enUS, /'nav.matchHistory': 'Summoner Info'/)
+})
+
+test('sidebar nav labels keep bold weight and size across states', () => {
+  const source = readRendererFile('components/layout/Sidebar.vue')
+  const activeRule = extractRule(source, '.nav-item.active')
+
+  assert.match(source, /\.nav-item\s*{[\s\S]*font-size:\s*17px;[\s\S]*font-weight:\s*700;/)
+  assert.match(source, /\.nav-item,\s*[\r\n\s]*\.nav-item:hover,\s*[\r\n\s]*\.nav-item\.active,\s*[\r\n\s]*\.nav-item:focus-visible\s*{[\s\S]*font-size:\s*17px;[\s\S]*font-weight:\s*700;/)
+  assert.match(source, /\.nav-label\s*{[\s\S]*font-size:\s*inherit;[\s\S]*font-weight:\s*inherit;/)
+  assert.doesNotMatch(activeRule, /font-weight:\s*(400|500|normal);/)
+  assert.doesNotMatch(source, /transition:[^;]*(font|font-size|font-weight)/)
+})
+
+test('sidebar nav icons use independent theme colors across states', () => {
+  const source = readRendererFile('components/layout/Sidebar.vue')
+  const tokens = readRendererFile('assets/styles/main.css')
+  const darkTheme = extractRule(tokens, '[data-theme="dark"]')
+  const lightTheme = extractRule(tokens, '[data-theme="light"]')
+  const navIconRule = extractRule(source, '.nav-icon')
+  const activeIconRule = extractRule(source, '.nav-item.active .nav-icon')
+
+  assert.match(darkTheme, /--color-nav-icon:\s*#d8b978;/)
+  assert.match(darkTheme, /--color-nav-icon-hover:\s*#8bd7e8;/)
+  assert.match(darkTheme, /--color-nav-icon-active:\s*#102a3d;/)
+  assert.match(lightTheme, /--color-nav-icon:\s*#315f7f;/)
+  assert.match(lightTheme, /--color-nav-icon-hover:\s*#9a6b1f;/)
+  assert.match(lightTheme, /--color-nav-icon-active:\s*#092238;/)
+
+  assert.match(navIconRule, /color:\s*var\(--color-nav-icon\);/)
+  assert.match(navIconRule, /transition:\s*color var\(--transition-fast\);/)
+  assert.match(
+    source,
+    /\.nav-item:hover\s+\.nav-icon,\s*[\r\n\s]*\.nav-item:focus-visible\s+\.nav-icon\s*{[\s\S]*color:\s*var\(--color-nav-icon-hover\);/
+  )
+  assert.match(activeIconRule, /color:\s*var\(--color-nav-icon-active\);/)
+  assert.doesNotMatch(activeIconRule, /color:\s*(currentColor|var\(--text-primary\)|var\(--text-secondary\)|#ffffff);/)
 })
 
 test('new requested sidebar icons are current-color linear svg files', () => {
@@ -56,5 +107,8 @@ test('new requested sidebar icons are current-color linear svg files', () => {
   }
 
   const gear = readFileSync(resolve(iconRoot, 'nav-gear-five.svg'), 'utf8')
-  assert.match(gear, /data-icon-name="five-tooth-gear"/)
+  assert.match(gear, /data-icon-name="round-gear"/)
+  assert.match(gear, /<circle cx="12" cy="12" r="5\.7" \/>/)
+  assert.match(gear, /<circle cx="12" cy="12" r="2\.35" \/>/)
+  assert.match(gear, /M12 3v3M12 18v3M3 12h3M18 12h3/)
 })
