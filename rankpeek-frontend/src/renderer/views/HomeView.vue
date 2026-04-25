@@ -616,6 +616,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --home-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
   --home-theme-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.42), 0 0 24px rgba(212, 175, 55, 0.34);
   --theme-hover-glow: var(--home-theme-glow);
+  --control-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 24px rgba(212, 175, 55, 0.34);
   --fortune-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 26px rgba(212, 175, 55, 0.34), 0 10px 28px rgba(212, 175, 55, 0.14);
   --home-glow-border: rgba(212, 175, 55, 0.42);
   --rank-text: #e0e0e0;
@@ -943,18 +944,23 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   padding: 0 18px;
   background: var(--accent-color);
   color: #ffffff;
-  transition: box-shadow 0.3s ease, filter 0.3s ease;
+  transition: box-shadow 0.3s ease, filter 0.3s ease, opacity 0.3s ease;
 }
 
 .primary-btn:hover:not(:disabled),
 .fortune-button:hover:not(:disabled),
 .fortune-card:hover .fortune-button:not(:disabled) {
-  box-shadow: var(--home-theme-glow-strong);
+  box-shadow: var(--control-hover-glow);
   filter: brightness(1.04);
 }
 
+.fortune-button:focus-visible,
 .fortune-card:hover .fortune-button:disabled {
-  box-shadow: var(--theme-hover-glow);
+  box-shadow: var(--control-hover-glow);
+}
+
+.fortune-card:hover .fortune-button:disabled {
+  opacity: 0.72;
 }
 
 .secondary-btn {
@@ -1381,6 +1387,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --home-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
   --home-theme-glow-strong: 0 0 0 1px rgba(100, 116, 139, 0.24), 0 0 20px rgba(100, 116, 139, 0.25);
   --theme-hover-glow: var(--home-theme-glow);
+  --control-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26);
   --fortune-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26), 0 10px 26px rgba(100, 116, 139, 0.14);
   --home-glow-border: rgba(100, 116, 139, 0.28);
   --rank-text: #2c2c2c;

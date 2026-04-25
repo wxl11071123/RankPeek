@@ -752,6 +752,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 .home-chart-card {
   --chart-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
   --chart-card-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 26px rgba(212, 175, 55, 0.34), 0 10px 28px rgba(212, 175, 55, 0.14);
+  --chart-control-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 22px rgba(212, 175, 55, 0.3);
   --chart-surface-glow: inset 0 -1px 0 rgba(212, 175, 55, 0.34), 0 10px 24px rgba(212, 175, 55, 0.1);
   --chart-glow-border: rgba(212, 175, 55, 0.42);
   --theme-hover-glow: var(--chart-card-hover-glow);
@@ -795,6 +796,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background: var(--bg-tertiary);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .queue-tabs button {
@@ -804,11 +806,29 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 800;
+  transition: background 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
+}
+
+.queue-tabs:hover {
+  border-color: var(--chart-glow-border);
+}
+
+.queue-tabs button:hover,
+.queue-tabs button:focus-visible {
+  color: var(--text-primary);
+  background: rgba(var(--accent-rgb), 0.14);
+  box-shadow: var(--chart-control-glow);
+  outline: none;
 }
 
 .queue-tabs button.active {
   background: var(--accent-color);
   color: #ffffff;
+}
+
+.queue-tabs button.active:hover,
+.queue-tabs button.active:focus-visible {
+  box-shadow: var(--chart-control-glow);
 }
 
 .chart-select {
@@ -820,6 +840,14 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 800;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.chart-select:hover,
+.chart-select:focus {
+  border-color: var(--chart-glow-border);
+  box-shadow: var(--chart-control-glow);
+  outline: none;
 }
 
 .chart-surface {
@@ -973,6 +1001,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 :global([data-theme="light"] .home-chart-card) {
   --chart-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
   --chart-card-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26), 0 10px 26px rgba(100, 116, 139, 0.14);
+  --chart-control-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 22px rgba(100, 116, 139, 0.24);
   --chart-surface-glow: inset 0 -1px 0 rgba(100, 116, 139, 0.22), 0 10px 22px rgba(100, 116, 139, 0.1);
   --chart-glow-border: rgba(100, 116, 139, 0.28);
   --theme-hover-glow: var(--chart-card-hover-glow);
