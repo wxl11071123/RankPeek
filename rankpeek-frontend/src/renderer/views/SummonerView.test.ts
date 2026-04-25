@@ -32,3 +32,18 @@ test('refresh button force-refreshes only the visible summoner match history', (
   assert.match(source, /forceRefresh: options\?\.forceRefresh === true/)
   assert.match(source, /await loadMatchHistory\(\)/)
 })
+
+test('manual refresh loads fresh matches before recalculating tags and win rates', () => {
+  const source = readFileSync(new URL('./SummonerView.vue', import.meta.url), 'utf8')
+  const refreshFunction = source.match(/async function refreshCurrentSummoner\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  const forceRefreshIndex = refreshFunction.indexOf('await loadMatchHistory({ forceRefresh: true })')
+  const rankIndex = refreshFunction.indexOf('apiClient.getRank(searchResult.value.puuid)')
+  const tagIndex = refreshFunction.indexOf('apiClient.getUserTagByPuuid')
+  const winRateIndex = refreshFunction.indexOf('apiClient.getRankedWinRates')
+
+  assert.ok(forceRefreshIndex >= 0)
+  assert.ok(rankIndex > forceRefreshIndex)
+  assert.ok(tagIndex > forceRefreshIndex)
+  assert.ok(winRateIndex > forceRefreshIndex)
+})

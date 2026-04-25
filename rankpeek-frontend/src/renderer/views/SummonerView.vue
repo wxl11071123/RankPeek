@@ -372,6 +372,8 @@ async function refreshCurrentSummoner() {
   error.value = ''
 
   try {
+    await loadMatchHistory({ forceRefresh: true })
+
     const [rank, userTag, winRates] = await Promise.all([
       apiClient.getRank(searchResult.value.puuid),
       apiClient.getUserTagByPuuid(searchResult.value.puuid, DEFAULT_ANALYSIS_QUEUE_MODE),
@@ -381,8 +383,6 @@ async function refreshCurrentSummoner() {
     searchRank.value = rank
     searchUserTag.value = userTag
     searchRankedWinRates.value = winRates
-
-    await loadMatchHistory({ forceRefresh: true })
   } catch (err) {
     console.error('Failed to refresh summoner', err)
     error.value = t('summoner.searchFailed')

@@ -1,5 +1,6 @@
 package io.rankpeek.service;
 
+import io.rankpeek.cache.MatchHistoryCacheRepository;
 import io.rankpeek.model.GameDetail;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
@@ -10,8 +11,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -21,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -29,7 +32,6 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class MatchHistoryService {
 
     private static final int SUMMONER_SPELL_SMITE = 11;
@@ -47,15 +49,35 @@ public class MatchHistoryService {
     private static final String POSITION_SUPPORT = "SUPPORT";
 
     private final LcuHttpClient lcuHttpClient;
+    private final MatchHistoryCacheRepository cacheRepository;
 
-    // TODO phase 2: replace or augment Caffeine with a persistent local cache for recent matches and raw details.
     private Cache<String, MatchHistoryFetchResult> matchHistoryCache;
+    private Cache<Long, GameDetail> gameDetailCache;
+
+    @Autowired
+    public MatchHistoryService(LcuHttpClient lcuHttpClient,
+                               ObjectProvider<MatchHistoryCacheRepository> cacheRepositoryProvider) {
+        this(lcuHttpClient, cacheRepositoryProvider.getIfAvailable());
+    }
+
+    public MatchHistoryService(LcuHttpClient lcuHttpClient) {
+        this(lcuHttpClient, (MatchHistoryCacheRepository) null);
+    }
+
+    public MatchHistoryService(LcuHttpClient lcuHttpClient, MatchHistoryCacheRepository cacheRepository) {
+        this.lcuHttpClient = lcuHttpClient;
+        this.cacheRepository = cacheRepository;
+    }
 
     @PostConstruct
     public void init() {
         this.matchHistoryCache = Caffeine.newBuilder()
                 .maximumSize(200)
                 .expireAfterWrite(10, TimeUnit.MINUTES)
+                .build();
+        this.gameDetailCache = Caffeine.newBuilder()
+                .maximumSize(500)
+                .expireAfterWrite(30, TimeUnit.MINUTES)
                 .build();
         log.info("战绩服务初始化完成");
     }
@@ -74,8 +96,21 @@ public class MatchHistoryService {
         if (forceRefresh) {
             log.info("Force refreshing match history fetch result: puuid={}", puuidPrefix(puuid));
             matchHistoryCache.invalidate(puuid);
+            return fetchLcuMatchHistoryWithDatabaseFallback(puuid);
         }
-        return matchHistoryCache.get(puuid, this::fetchMatchHistoryResult);
+
+        MatchHistoryFetchResult memoryResult = matchHistoryCache.getIfPresent(puuid);
+        if (memoryResult != null) {
+            return memoryResult;
+        }
+
+        Optional<MatchHistoryFetchResult> databaseResult = findCachedMatchHistory(puuid);
+        if (databaseResult.isPresent()) {
+            matchHistoryCache.put(puuid, databaseResult.get());
+            return databaseResult.get();
+        }
+
+        return fetchLcuMatchHistoryWithDatabaseFallback(puuid);
     }
 
     /**
@@ -150,6 +185,40 @@ public class MatchHistoryService {
                 .matches(matches)
                 .rawEmpty(matches.isEmpty())
                 .build();
+    }
+
+    private MatchHistoryFetchResult fetchLcuMatchHistoryWithDatabaseFallback(String puuid) {
+        try {
+            MatchHistoryFetchResult result = fetchMatchHistoryResult(puuid);
+            saveMatchHistoryToLocalCache(puuid, result.getMatches());
+            matchHistoryCache.put(puuid, result);
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to fetch match history from LCU, puuid={}, error={}", puuidPrefix(puuid), e.getMessage());
+            log.debug("LCU match-history failure details", e);
+            if (cacheRepository != null) {
+                cacheRepository.updatePlayerFetchState(puuid, List.of(), "ERROR", e.getMessage());
+            }
+            Optional<MatchHistoryFetchResult> fallback = findCachedMatchHistory(puuid);
+            if (fallback.isPresent()) {
+                matchHistoryCache.put(puuid, fallback.get());
+                return fallback.get();
+            }
+            throw e;
+        }
+    }
+
+    private Optional<MatchHistoryFetchResult> findCachedMatchHistory(String puuid) {
+        if (cacheRepository == null) {
+            return Optional.empty();
+        }
+        return cacheRepository.findRecentMatchHistory(puuid, VISIBLE_MATCH_HISTORY_LIMIT);
+    }
+
+    private void saveMatchHistoryToLocalCache(String puuid, List<MatchHistory> matches) {
+        if (cacheRepository != null) {
+            cacheRepository.saveMatchHistory(puuid, matches);
+        }
     }
 
     private JsonNode extractGamesNode(JsonNode response) {
@@ -250,10 +319,46 @@ public class MatchHistoryService {
      * Fetch one game detail.
      */
     public GameDetail getGameDetailById(Long gameId) {
+        GameDetail memoryDetail = gameDetailCache.getIfPresent(gameId);
+        if (memoryDetail != null) {
+            return memoryDetail;
+        }
+
+        Optional<GameDetail> databaseDetail = findCachedGameDetail(gameId);
+        if (databaseDetail.isPresent()) {
+            GameDetail detail = databaseDetail.get();
+            enrichParticipantStats(detail);
+            gameDetailCache.put(gameId, detail);
+            return detail;
+        }
+
         String uri = String.format("lol-match-history/v1/games/%d", gameId);
-        GameDetail detail = lcuHttpClient.get(uri, GameDetail.class);
-        enrichParticipantStats(detail);
-        return detail;
+        try {
+            GameDetail detail = lcuHttpClient.get(uri, GameDetail.class);
+            enrichParticipantStats(detail);
+            if (cacheRepository != null) {
+                cacheRepository.saveGameDetail(detail);
+            }
+            gameDetailCache.put(gameId, detail);
+            return detail;
+        } catch (Exception e) {
+            log.warn("Failed to fetch game detail from LCU, gameId={}", gameId, e);
+            Optional<GameDetail> fallback = findCachedGameDetail(gameId);
+            if (fallback.isPresent()) {
+                GameDetail detail = fallback.get();
+                enrichParticipantStats(detail);
+                gameDetailCache.put(gameId, detail);
+                return detail;
+            }
+            throw e;
+        }
+    }
+
+    private Optional<GameDetail> findCachedGameDetail(Long gameId) {
+        if (cacheRepository == null) {
+            return Optional.empty();
+        }
+        return cacheRepository.findGameDetail(gameId);
     }
 
     /**
@@ -844,6 +949,7 @@ public class MatchHistoryService {
 
     public void refreshAllCache() {
         matchHistoryCache.invalidateAll();
+        gameDetailCache.invalidateAll();
     }
 
     private String puuidPrefix(String puuid) {

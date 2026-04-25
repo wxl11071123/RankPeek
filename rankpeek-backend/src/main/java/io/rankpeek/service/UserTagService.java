@@ -15,8 +15,6 @@ import io.rankpeek.model.RecordStatus;
 import io.rankpeek.model.Summoner;
 import io.rankpeek.model.UserTag;
 import io.rankpeek.model.UserTagSummary;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,7 +23,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Builds full and lightweight user-tag views.
@@ -40,11 +37,6 @@ public class UserTagService {
     private final MatchHistoryService matchHistoryService;
     private final TagConfigService tagConfigService;
     private final RankService rankService;
-
-    private final Cache<Long, GameDetail> gameDetailCache = Caffeine.newBuilder()
-            .maximumSize(500)
-            .expireAfterWrite(30, TimeUnit.MINUTES)
-            .build();
 
     public UserTag getUserTagByName(String name, Integer mode) {
         try {
@@ -281,8 +273,7 @@ public class UserTagService {
     private List<MatchHistory> enrichMatchHistory(List<MatchHistory> matchHistory) {
         for (MatchHistory game : matchHistory) {
             try {
-                GameDetail detail = gameDetailCache.get(game.getGameId(),
-                        id -> lcuHttpClient.get("lol-match-history/v1/games/" + id, GameDetail.class));
+                GameDetail detail = matchHistoryService.getGameDetailById(game.getGameId());
 
                 if (detail == null || detail.getParticipants() == null) {
                     continue;
