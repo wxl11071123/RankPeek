@@ -21,3 +21,14 @@ test('uses the tuned match-history roster layout for lookup results', () => {
   assert.doesNotMatch(source, /class="match-metrics"/)
   assert.doesNotMatch(source, /class="team-player-chip"/)
 })
+
+test('refresh button force-refreshes only the visible summoner match history', () => {
+  const source = readFileSync(new URL('./SummonerView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /@click="refreshCurrentSummoner"/)
+  assert.match(source, /async function refreshCurrentSummoner\(\)/)
+  assert.match(source, /await loadMatchHistory\(\{ forceRefresh: true \}\)/)
+  assert.match(source, /async function loadMatchHistory\(options\?: \{ forceRefresh\?: boolean \}\)/)
+  assert.match(source, /forceRefresh: options\?\.forceRefresh === true/)
+  assert.match(source, /await loadMatchHistory\(\)/)
+})

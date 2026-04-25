@@ -151,8 +151,17 @@ class ApiClient {
    * @param begIndex 起始索引（inclusive）
    * @param endIndex 结束索引（inclusive）
    */
-  async getMatchHistory(puuid: string, begIndex = 0, endIndex = 9): Promise<MatchHistory[]> {
-    return this.get<MatchHistory[]>(`/summoner/matches/${puuid}`, { begIndex, endIndex })
+  async getMatchHistory(
+    puuid: string,
+    begIndex = 0,
+    endIndex = 9,
+    options: { forceRefresh?: boolean } = {}
+  ): Promise<MatchHistory[]> {
+    return this.get<MatchHistory[]>(`/summoner/matches/${puuid}`, {
+      begIndex,
+      endIndex,
+      forceRefresh: options.forceRefresh === true
+    })
   }
 
   /**
@@ -166,9 +175,17 @@ class ApiClient {
       queueId?: number
       championId?: number
       maxResults?: number
+      forceRefresh?: boolean
     } = {}
   ): Promise<MatchHistory[]> {
-    return this.get<MatchHistory[]>(`/summoner/matches-filtered/${puuid}`, options)
+    return this.get<MatchHistory[]>(`/summoner/matches-filtered/${puuid}`, {
+      begIndex: options.begIndex,
+      endIndex: options.endIndex,
+      queueId: options.queueId,
+      championId: options.championId,
+      maxResults: options.maxResults,
+      forceRefresh: options.forceRefresh === true
+    })
   }
 
   /**

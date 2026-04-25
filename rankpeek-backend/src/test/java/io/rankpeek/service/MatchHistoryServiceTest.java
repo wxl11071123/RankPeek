@@ -57,6 +57,27 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getMatchHistoryFetchResult_forceRefreshInvalidatesCachedEntry() {
+        when(lcuHttpClient.getObjectMapper()).thenReturn(objectMapper);
+        when(lcuHttpClient.get(
+                eq("lol-match-history/v1/products/lol/puuid-1/matches?begIndex=0&endIndex=49"),
+                eq(JsonNode.class)
+        )).thenReturn(createHistoryResponse(1L), createHistoryResponse(2L));
+
+        MatchHistoryFetchResult cached = matchHistoryService.getMatchHistoryFetchResult("puuid-1");
+        MatchHistoryFetchResult stillCached = matchHistoryService.getMatchHistoryFetchResult("puuid-1");
+        MatchHistoryFetchResult refreshed = matchHistoryService.getMatchHistoryFetchResult("puuid-1", true);
+
+        assertThat(cached.getMatches()).extracting(MatchHistory::getGameId).containsExactly(1L);
+        assertThat(stillCached.getMatches()).extracting(MatchHistory::getGameId).containsExactly(1L);
+        assertThat(refreshed.getMatches()).extracting(MatchHistory::getGameId).containsExactly(2L);
+        verify(lcuHttpClient, times(2)).get(
+                "lol-match-history/v1/products/lol/puuid-1/matches?begIndex=0&endIndex=49",
+                JsonNode.class
+        );
+    }
+
+    @Test
     void resolveRecordStatus_distinguishesNormalPrivateEmptyAndError() {
         MatchHistory normalMatch = new MatchHistory();
         normalMatch.setGameId(99L);

@@ -48,6 +48,7 @@ public class MatchHistoryService {
 
     private final LcuHttpClient lcuHttpClient;
 
+    // TODO phase 2: replace or augment Caffeine with a persistent local cache for recent matches and raw details.
     private Cache<String, MatchHistoryFetchResult> matchHistoryCache;
 
     @PostConstruct
@@ -63,6 +64,17 @@ public class MatchHistoryService {
      * Returns the cached raw fetch result for a player.
      */
     public MatchHistoryFetchResult getMatchHistoryFetchResult(String puuid) {
+        return getMatchHistoryFetchResult(puuid, false);
+    }
+
+    /**
+     * Returns the raw fetch result for a player, optionally bypassing the in-memory cache.
+     */
+    public MatchHistoryFetchResult getMatchHistoryFetchResult(String puuid, boolean forceRefresh) {
+        if (forceRefresh) {
+            log.info("Force refreshing match history fetch result: puuid={}", puuidPrefix(puuid));
+            matchHistoryCache.invalidate(puuid);
+        }
         return matchHistoryCache.get(puuid, this::fetchMatchHistoryResult);
     }
 
@@ -70,7 +82,18 @@ public class MatchHistoryService {
      * Fetch visible match history.
      */
     public List<MatchHistory> getMatchHistory(String puuid, int begIndex, int endIndex) {
-        List<MatchHistory> matches = getMatchHistoryFetchResult(puuid).getMatches();
+        return getMatchHistory(puuid, begIndex, endIndex, false);
+    }
+
+    /**
+     * Fetch visible match history, optionally bypassing the in-memory cache.
+     */
+    public List<MatchHistory> getMatchHistory(String puuid, int begIndex, int endIndex, boolean forceRefresh) {
+        if (forceRefresh) {
+            log.info("Force refreshing match history request: puuid={}, begIndex={}, endIndex={}",
+                    puuidPrefix(puuid), begIndex, endIndex);
+        }
+        List<MatchHistory> matches = getMatchHistoryFetchResult(puuid, forceRefresh).getMatches();
         return sliceMatches(matches, begIndex, endIndex);
     }
 
@@ -238,7 +261,20 @@ public class MatchHistoryService {
      */
     public List<MatchHistory> getFilteredMatchHistory(String puuid, int begIndex, int endIndex,
                                                       Integer queueId, Integer championId, int maxResults) {
-        List<MatchHistory> allMatches = getMatchHistoryFetchResult(puuid).getMatches();
+        return getFilteredMatchHistory(puuid, begIndex, endIndex, queueId, championId, maxResults, false);
+    }
+
+    /**
+     * Fetch filtered match history, optionally bypassing the in-memory cache.
+     */
+    public List<MatchHistory> getFilteredMatchHistory(String puuid, int begIndex, int endIndex,
+                                                      Integer queueId, Integer championId, int maxResults,
+                                                      boolean forceRefresh) {
+        if (forceRefresh) {
+            log.info("Force refreshing filtered match history request: puuid={}, begIndex={}, endIndex={}",
+                    puuidPrefix(puuid), begIndex, endIndex);
+        }
+        List<MatchHistory> allMatches = getMatchHistoryFetchResult(puuid, forceRefresh).getMatches();
         if (allMatches.isEmpty()) {
             return List.of();
         }
@@ -808,5 +844,12 @@ public class MatchHistoryService {
 
     public void refreshAllCache() {
         matchHistoryCache.invalidateAll();
+    }
+
+    private String puuidPrefix(String puuid) {
+        if (puuid == null || puuid.isBlank()) {
+            return "null";
+        }
+        return puuid.substring(0, Math.min(8, puuid.length()));
     }
 }

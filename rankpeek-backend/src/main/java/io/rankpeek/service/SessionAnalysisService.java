@@ -26,6 +26,7 @@ public class SessionAnalysisService {
     private final SummonerService summonerService;
     private final RankService rankService;
     private final MatchHistoryService matchHistoryService;
+    private final MatchHistoryRefreshService matchHistoryRefreshService;
     private final GameFlowService gameFlowService;
     private final ChampionSelectService championSelectService;
     private final UserTagService userTagService;
@@ -105,6 +106,7 @@ public class SessionAnalysisService {
 
         addPreGroupMarkers(teamOne, teamTwo);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
+        rememberSessionPuuids(teamOne, teamTwo);
 
         return SessionData.builder()
                 .phase("ChampSelect")
@@ -248,6 +250,7 @@ public class SessionAnalysisService {
 
         addPreGroupMarkers(teamOne, teamTwo);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
+        rememberSessionPuuids(teamOne, teamTwo);
 
         return SessionData.builder()
                 .phase(phase)
@@ -696,6 +699,13 @@ public class SessionAnalysisService {
         team.stream()
                 .filter(s -> s != null && s.getSummoner() != null && s.getSummoner().getPuuid() != null)
                 .forEach(s -> puuids.add(s.getSummoner().getPuuid()));
+    }
+
+    private void rememberSessionPuuids(List<SessionSummoner> teamOne, List<SessionSummoner> teamTwo) {
+        Set<String> puuids = new HashSet<>();
+        addValidPuuids(puuids, teamOne);
+        addValidPuuids(puuids, teamTwo);
+        matchHistoryRefreshService.rememberSessionPuuids(puuids);
     }
 
     /**

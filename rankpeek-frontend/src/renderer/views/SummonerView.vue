@@ -54,7 +54,7 @@
               <span>{{ t('summoner.currentPage') }}</span>
               <strong>{{ currentPage }} / {{ totalPages }}</strong>
             </div>
-            <button class="ghost-btn" type="button" :disabled="loading" @click="searchSummoner(selectedSummonerName)">
+            <button class="ghost-btn" type="button" :disabled="loading" @click="refreshCurrentSummoner">
               {{ loading ? t('common.refreshing') : t('common.refresh') }}
             </button>
           </div>
@@ -363,7 +363,35 @@ async function searchSummoner(nameOverride?: string) {
   }
 }
 
-async function loadMatchHistory() {
+async function refreshCurrentSummoner() {
+  if (!searchResult.value) {
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+
+  try {
+    const [rank, userTag, winRates] = await Promise.all([
+      apiClient.getRank(searchResult.value.puuid),
+      apiClient.getUserTagByPuuid(searchResult.value.puuid, DEFAULT_ANALYSIS_QUEUE_MODE),
+      apiClient.getRankedWinRates(searchResult.value.puuid)
+    ])
+
+    searchRank.value = rank
+    searchUserTag.value = userTag
+    searchRankedWinRates.value = winRates
+
+    await loadMatchHistory({ forceRefresh: true })
+  } catch (err) {
+    console.error('Failed to refresh summoner', err)
+    error.value = t('summoner.searchFailed')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadMatchHistory(options?: { forceRefresh?: boolean }) {
   if (!searchResult.value) {
     return
   }
@@ -378,9 +406,12 @@ async function loadMatchHistory() {
           begIndex,
           endIndex,
           championId: filterChampionId.value > 0 ? filterChampionId.value : undefined,
-          queueId: filterQueueId.value > 0 ? filterQueueId.value : undefined
+          queueId: filterQueueId.value > 0 ? filterQueueId.value : undefined,
+          forceRefresh: options?.forceRefresh === true
         })
-      : await apiClient.getMatchHistory(searchResult.value.puuid, begIndex, endIndex)
+      : await apiClient.getMatchHistory(searchResult.value.puuid, begIndex, endIndex, {
+          forceRefresh: options?.forceRefresh === true
+        })
 
     searchMatchHistory.value = matches
     await loadVisibleUserTagSummaries(matches)

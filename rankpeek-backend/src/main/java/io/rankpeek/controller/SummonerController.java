@@ -65,8 +65,9 @@ public class SummonerController {
     public ApiResponse<List<MatchHistory>> getMatchHistory(
             @PathVariable String puuid,
             @RequestParam(defaultValue = "0") int begIndex,
-            @RequestParam(defaultValue = "9") int endIndex) {
-        List<MatchHistory> matches = matchHistoryService.getMatchHistory(puuid, begIndex, endIndex);
+            @RequestParam(defaultValue = "9") int endIndex,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        List<MatchHistory> matches = matchHistoryService.getMatchHistory(puuid, begIndex, endIndex, forceRefresh);
         // 填充中文游戏模式名称
         for (MatchHistory match : matches) {
             if (match.getQueueId() != null) {
@@ -92,8 +93,17 @@ public class SummonerController {
             @RequestParam(defaultValue = "49") int endIndex,
             @RequestParam(required = false) Integer queueId,
             @RequestParam(required = false) Integer championId,
-            @RequestParam(defaultValue = "10") int maxResults) {
-        List<MatchHistory> matches = matchHistoryService.getFilteredMatchHistory(puuid, begIndex, endIndex, queueId, championId, maxResults);
+            @RequestParam(defaultValue = "10") int maxResults,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        List<MatchHistory> matches = matchHistoryService.getFilteredMatchHistory(
+                puuid,
+                begIndex,
+                endIndex,
+                queueId,
+                championId,
+                maxResults,
+                forceRefresh
+        );
         // 填充中文游戏模式名称
         for (MatchHistory match : matches) {
             if (match.getQueueId() != null) {
