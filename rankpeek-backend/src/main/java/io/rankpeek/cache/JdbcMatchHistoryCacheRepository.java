@@ -15,9 +15,11 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Repository
@@ -80,6 +82,8 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         }
 
         long now = System.currentTimeMillis();
+        Set<String> indexedPuuids = new HashSet<>();
+        indexedPuuids.add(puuid);
         try {
             for (MatchHistory match : matches) {
                 if (match == null || match.getGameId() == null) {
@@ -87,10 +91,12 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 }
                 saveMatch(match, now);
                 saveParticipants(match, now);
-                savePlayerMatchIndex(puuid, match, now);
+                indexedPuuids.addAll(savePlayerMatchIndexesForAllParticipants(match, now));
             }
             updatePlayerFetchState(puuid, matches, "OK", null);
-            trimPlayerMatchIndex(puuid, DEFAULT_MATCH_INDEX_KEEP_COUNT);
+            for (String indexedPuuid : indexedPuuids) {
+                trimPlayerMatchIndex(indexedPuuid, DEFAULT_MATCH_INDEX_KEEP_COUNT);
+            }
         } catch (Exception e) {
             log.warn("Failed to save match history to local cache, puuid={}", puuidPrefix(puuid), e);
             updatePlayerFetchState(puuid, matches, "ERROR", e.getMessage());
@@ -457,6 +463,50 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         );
     }
 
+    private Set<String> savePlayerMatchIndexesForAllParticipants(MatchHistory match, long now) {
+        Set<String> indexedPuuids = new HashSet<>();
+        if (match.getParticipantIdentities() == null || match.getParticipantIdentities().isEmpty()) {
+            return indexedPuuids;
+        }
+
+        Map<Integer, MatchHistory.Participant> participantByParticipantId = participantsByParticipantId(match);
+        for (MatchHistory.ParticipantIdentity identity : match.getParticipantIdentities()) {
+            if (identity == null || identity.getParticipantId() == null || identity.getPlayer() == null) {
+                continue;
+            }
+
+            String participantPuuid = identity.getPlayer().getPuuid();
+            if (participantPuuid == null || participantPuuid.isBlank()) {
+                continue;
+            }
+
+            MatchHistory.Participant participant = participantByParticipantId.get(identity.getParticipantId());
+            MatchHistory.Stats stats = participant == null ? null : participant.getStats();
+            try {
+                jdbcTemplate.update(
+                        """
+                                MERGE INTO player_match_index (
+                                    puuid, game_id, game_creation, queue_id, champion_id, win, updated_at
+                                )
+                                KEY(puuid, game_id) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                        participantPuuid,
+                        match.getGameId(),
+                        match.getGameCreation(),
+                        match.getQueueId(),
+                        participant == null ? null : participant.getChampionId(),
+                        stats == null ? null : stats.getWin(),
+                        now
+                );
+                indexedPuuids.add(participantPuuid);
+            } catch (Exception e) {
+                log.warn("Failed to save local match index row, puuid={}, gameId={}",
+                        puuidPrefix(participantPuuid), match.getGameId(), e);
+            }
+        }
+        return indexedPuuids;
+    }
+
     private void mergeFetchStateTimestamp(String puuid, String columnName, long timestamp) {
         jdbcTemplate.update(
                 "MERGE INTO player_fetch_state (puuid, " + columnName + ", updated_at) KEY(puuid) VALUES (?, ?, ?)",
@@ -505,6 +555,20 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             }
         }
         return players;
+    }
+
+    private Map<Integer, MatchHistory.Participant> participantsByParticipantId(MatchHistory match) {
+        Map<Integer, MatchHistory.Participant> participants = new HashMap<>();
+        if (match.getParticipants() == null) {
+            return participants;
+        }
+
+        for (MatchHistory.Participant participant : match.getParticipants()) {
+            if (participant != null && participant.getParticipantId() != null) {
+                participants.put(participant.getParticipantId(), participant);
+            }
+        }
+        return participants;
     }
 
     private MatchHistory latestMatch(List<MatchHistory> matches) {

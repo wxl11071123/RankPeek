@@ -46,11 +46,42 @@ class JdbcMatchHistoryCacheRepositoryTest {
                 "SELECT COUNT(*) FROM match_participant_cache WHERE game_id = 1001",
                 Integer.class
         )).isEqualTo(10);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM player_match_index WHERE game_id = ?",
+                Integer.class,
+                1001L
+        )).isEqualTo(10);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT puuid FROM player_match_index WHERE game_id = ?",
+                String.class,
+                1001L
+        )).containsExactlyInAnyOrder(
+                "target-puuid",
+                "player-2",
+                "player-3",
+                "player-4",
+                "player-5",
+                "player-6",
+                "player-7",
+                "player-8",
+                "player-9",
+                "player-10"
+        );
         assertThat(repository.getMatchUpdatedAt("target-puuid")).isPresent();
     }
 
     @Test
-    void trimPlayerMatchIndex_keepsOnlyNewestFiftyRowsForTargetPlayer() {
+    void findRecentMatchHistory_returnsCachedMatchForNonTargetParticipant() {
+        repository.saveMatchHistory("target-puuid", List.of(createMatch(1002L, "target-puuid", 10)));
+
+        Optional<MatchHistoryFetchResult> result = repository.findRecentMatchHistory("player-2", 50);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getMatches()).extracting(MatchHistory::getGameId).containsExactly(1002L);
+    }
+
+    @Test
+    void trimPlayerMatchIndex_keepsOnlyNewestFiftyRowsForEveryInvolvedPlayer() {
         List<MatchHistory> matches = new ArrayList<>();
         for (long i = 1; i <= 55; i++) {
             matches.add(createMatch(i, "target-puuid", 2));
@@ -67,6 +98,16 @@ class JdbcMatchHistoryCacheRepositoryTest {
                 "SELECT MIN(game_id) FROM player_match_index WHERE puuid = ?",
                 Long.class,
                 "target-puuid"
+        )).isEqualTo(6L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM player_match_index WHERE puuid = ?",
+                Integer.class,
+                "player-2"
+        )).isEqualTo(50);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT MIN(game_id) FROM player_match_index WHERE puuid = ?",
+                Long.class,
+                "player-2"
         )).isEqualTo(6L);
     }
 
