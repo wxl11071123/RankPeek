@@ -50,6 +50,13 @@ interface GridLine {
   y: number
 }
 
+interface HoverValueBadge {
+  label: string
+  x: number
+  y: number
+  width: number
+}
+
 const props = defineProps<{
   puuid?: string
   connected: boolean
@@ -162,6 +169,23 @@ const chartPoints = computed<ChartPoint[]>(() => {
 })
 
 const chartPolyline = computed(() => chartPoints.value.map(point => `${point.x},${point.y}`).join(' '))
+
+const hoverValueBadge = computed<HoverValueBadge | null>(() => {
+  const point = activePoint.value
+  if (!point) {
+    return null
+  }
+
+  const label = formatMetricValue(point.value, selectedMetric.value)
+  const width = Math.min(128, Math.max(54, label.length * 8 + 22))
+  const halfWidth = width / 2
+  return {
+    label,
+    x: Math.min(CHART_WIDTH - CHART_RIGHT - halfWidth, Math.max(CHART_LEFT + halfWidth, point.x)),
+    y: Math.max(CHART_TOP + 30, point.y - 10),
+    width
+  }
+})
 
 const metricLabel = computed(() =>
   METRIC_OPTIONS.find(option => option.value === selectedMetric.value)?.label || ''
@@ -699,6 +723,14 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
         >
           {{ point.label }}
         </text>
+        <g
+          v-if="hoverValueBadge"
+          class="metric-hover-badge"
+          :transform="`translate(${hoverValueBadge.x} ${hoverValueBadge.y})`"
+        >
+          <rect :x="-hoverValueBadge.width / 2" y="-28" :width="hoverValueBadge.width" height="24" rx="8" />
+          <text y="-11" text-anchor="middle">{{ hoverValueBadge.label }}</text>
+        </g>
       </svg>
       <div v-if="activePoint" class="chart-hover-panel">
         <img
@@ -824,6 +856,24 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 
 .trend-point {
   outline: none;
+}
+
+.metric-hover-badge {
+  position: relative;
+  z-index: 999;
+  pointer-events: none;
+}
+
+.metric-hover-badge rect {
+  fill: rgba(14, 15, 19, 0.86);
+  stroke: var(--accent-color);
+  stroke-width: 1;
+}
+
+.metric-hover-badge text {
+  fill: var(--accent-color);
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .trend-hit {

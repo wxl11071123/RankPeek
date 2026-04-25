@@ -1,37 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { apiClient } from '@/api/httpClient'
+import AICoachCards from '@/components/AICoachCards.vue'
 import HomeChart from '@/components/HomeChart.vue'
 import { useGameStore } from '@/stores/game'
-import { isRanked } from '@/utils/constants'
 import {
-  AUTO_ANALYSIS_INTERVALS,
   FORTUNE_POOL,
-  MAX_ANALYSIS_MATCHES,
-  MIN_ANALYSIS_MATCHES,
-  createGrowthAnalysis,
   drawDailyFortune,
-  filterGrowthPoints,
   getCurrentFortune,
-  getMetricValue,
-  loadAnalysisSnapshot,
-  loadAutoAnalysisSettings,
   loadFortuneRecord,
-  saveAnalysisSnapshot,
-  saveAutoAnalysisSettings,
   saveFortuneRecord
 } from '@/utils/homeInsights'
 import { t } from '@/i18n'
-import type { MatchHistory, QueueInfo } from '@/types/api'
-import type {
-  AnalysisSnapshot,
-  AutoAnalysisSettings,
-  Fortune,
-  FortuneRecord,
-  GrowthMetric,
-  GrowthPoint,
-  GrowthRole
-} from '@/utils/homeInsights'
+import type { QueueInfo } from '@/types/api'
+import type { Fortune, FortuneRecord } from '@/utils/homeInsights'
 
 const gameStore = useGameStore()
 
@@ -80,21 +61,22 @@ const DIVISION_CN_MAP: Record<string, string> = {
 }
 
 const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
+const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
+const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
 
-const analysis = ref<AnalysisSnapshot | null>(null)
-const analysisExpanded = ref(true)
-const analysisLoading = ref(false)
-const analysisError = ref('')
-const selectedRole = ref<GrowthRole>('all')
-const selectedMetric = ref<GrowthMetric>('score')
-const hoveredPoint = ref<GrowthPoint | null>(null)
-const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false, interval: 10 })
+interface AutoAnalysisSettings {
+  enabled: boolean
+}
+
+const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false })
+const coachNotice = ref('')
 
 const fortuneRecord = ref<FortuneRecord>({ history: [] })
 const currentFortune = ref<Fortune | null>(null)
 const fortuneRolling = ref(false)
 const rollingFortuneLabel = ref('？？？')
 let fortuneTimer: number | null = null
+let coachNoticeTimer: number | null = null
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
 const accountKey = computed(() => currentSummoner.value?.puuid || 'local')
@@ -108,63 +90,6 @@ const profileIconUrl = computed(() =>
     : ''
 )
 
-const roleOptions = computed<Array<{ value: GrowthRole; label: string }>>(() => [
-  { value: 'all', label: t('home.role.all') },
-  { value: 'top', label: t('home.role.top') },
-  { value: 'jungle', label: t('home.role.jungle') },
-  { value: 'mid', label: t('home.role.mid') },
-  { value: 'bottom', label: t('home.role.bottom') },
-  { value: 'support', label: t('home.role.support') }
-])
-
-const metricOptions = computed<Array<{ value: GrowthMetric; label: string }>>(() => [
-  { value: 'score', label: t('home.metric.score') },
-  { value: 'kda', label: t('home.metric.kda') },
-  { value: 'winRate', label: t('home.metric.winRate') },
-  { value: 'damage', label: t('home.metric.damage') },
-  { value: 'gold', label: t('home.metric.gold') }
-])
-
-const visiblePoints = computed(() =>
-  analysis.value ? filterGrowthPoints(analysis.value.points, selectedRole.value) : []
-)
-
-const chartModel = computed(() => {
-  const points = visiblePoints.value
-  if (!points.length) {
-    return []
-  }
-
-  const width = 640
-  const height = 240
-  const left = 46
-  const right = 22
-  const top = 24
-  const bottom = 42
-  const values = points.map(point => getMetricValue(point, selectedMetric.value))
-  const minValue = selectedMetric.value === 'score' || selectedMetric.value === 'winRate'
-    ? 0
-    : Math.min(...values)
-  const maxValue = selectedMetric.value === 'score' || selectedMetric.value === 'winRate'
-    ? 100
-    : Math.max(...values)
-  const range = Math.max(1, maxValue - minValue)
-
-  return points.map((point, index) => {
-    const x = points.length === 1
-      ? width / 2
-      : left + (index / (points.length - 1)) * (width - left - right)
-    const value = getMetricValue(point, selectedMetric.value)
-    const y = top + (1 - (value - minValue) / range) * (height - top - bottom)
-
-    return { point, value, x, y }
-  })
-})
-
-const chartPolyline = computed(() =>
-  chartModel.value.map(item => `${item.x},${item.y}`).join(' ')
-)
-
 const fortuneLabel = computed(() => currentFortune.value?.label || '？？？')
 const fortuneTone = computed(() => currentFortune.value?.tone || 'neutral')
 const fortuneButtonText = computed(() => {
@@ -174,8 +99,6 @@ const fortuneButtonText = computed(() => {
   return currentFortune.value ? t('home.fortuneComeTomorrow') : t('home.drawFortune')
 })
 
-const canAnalyze = computed(() => accountConnected.value && !analysisLoading.value)
-
 onMounted(() => {
   void gameStore.checkConnection()
   loadLocalHomeState()
@@ -183,6 +106,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearFortuneTimer()
+  clearCoachNoticeTimer()
 })
 
 watch(accountKey, () => {
@@ -191,82 +115,22 @@ watch(accountKey, () => {
 
 function loadLocalHomeState() {
   const key = accountKey.value
-  analysis.value = currentSummoner.value?.puuid
-    ? loadAnalysisSnapshot(currentSummoner.value.puuid)
-    : null
   autoAnalysis.value = loadAutoAnalysisSettings(key)
   fortuneRecord.value = loadFortuneRecord(key)
   currentFortune.value = getCurrentFortune(fortuneRecord.value)
-  analysisError.value = ''
+  coachNotice.value = ''
 }
 
-async function runAnalysis() {
-  const puuid = currentSummoner.value?.puuid
-  if (!puuid || analysisLoading.value) {
-    return
-  }
-
-  analysisLoading.value = true
-  analysisError.value = ''
-
-  try {
-    const matches = await apiClient.getFilteredMatchHistory(puuid, {
-      begIndex: 0,
-      endIndex: 49,
-      maxResults: 50
-    })
-    const rankedMatches = matches
-      .filter(match => isRanked(match.queueId))
-      .sort((a, b) => (b.gameCreation || 0) - (a.gameCreation || 0))
-      .slice(0, MAX_ANALYSIS_MATCHES)
-
-    if (rankedMatches.length < MIN_ANALYSIS_MATCHES) {
-      analysisError.value = t('home.analysisTooFew', {
-        min: MIN_ANALYSIS_MATCHES,
-        count: rankedMatches.length
-      })
-      return
-    }
-
-    const detailResults = await Promise.allSettled(
-      rankedMatches.map(match => apiClient.getGameDetail(match.gameId))
-    )
-    const detailsByGameId = new Map<number, Awaited<ReturnType<typeof apiClient.getGameDetail>>>()
-
-    detailResults.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        detailsByGameId.set(rankedMatches[index].gameId, result.value)
-      }
-    })
-
-    const snapshot = createGrowthAnalysis(puuid, rankedMatches as MatchHistory[], detailsByGameId)
-    saveAnalysisSnapshot(snapshot)
-    analysis.value = snapshot
-    analysisExpanded.value = true
-    selectedRole.value = 'all'
-  } catch (error) {
-    console.error('Failed to run home analysis', error)
-    analysisError.value = t('home.analysisFailed')
-  } finally {
-    analysisLoading.value = false
-  }
+function runAnalysis() {
+  showCoachNotice()
 }
 
 function toggleAutoAnalysis() {
   autoAnalysis.value = {
-    ...autoAnalysis.value,
     enabled: !autoAnalysis.value.enabled
   }
   saveAutoAnalysisSettings(accountKey.value, autoAnalysis.value)
-}
-
-function changeAutoInterval(event: Event) {
-  const interval = Number((event.target as HTMLSelectElement).value)
-  autoAnalysis.value = {
-    ...autoAnalysis.value,
-    interval: interval === 20 ? 20 : 10
-  }
-  saveAutoAnalysisSettings(accountKey.value, autoAnalysis.value)
+  showCoachNotice()
 }
 
 function drawFortune() {
@@ -297,6 +161,39 @@ function clearFortuneTimer() {
     window.clearInterval(fortuneTimer)
     fortuneTimer = null
   }
+}
+
+function showCoachNotice() {
+  coachNotice.value = AI_COACH_NOTICE
+  clearCoachNoticeTimer()
+  coachNoticeTimer = window.setTimeout(() => {
+    coachNotice.value = ''
+    coachNoticeTimer = null
+  }, 2600)
+}
+
+function clearCoachNoticeTimer() {
+  if (coachNoticeTimer) {
+    window.clearTimeout(coachNoticeTimer)
+    coachNoticeTimer = null
+  }
+}
+
+function loadAutoAnalysisSettings(key: string): AutoAnalysisSettings {
+  try {
+    const rawValue = localStorage.getItem(`${AUTO_ANALYSIS_STORAGE_PREFIX}.${key}`)
+    if (!rawValue) {
+      return { enabled: false }
+    }
+    const parsedValue = JSON.parse(rawValue) as Partial<AutoAnalysisSettings>
+    return { enabled: Boolean(parsedValue.enabled) }
+  } catch {
+    return { enabled: false }
+  }
+}
+
+function saveAutoAnalysisSettings(key: string, settings: AutoAnalysisSettings) {
+  localStorage.setItem(`${AUTO_ANALYSIS_STORAGE_PREFIX}.${key}`, JSON.stringify(settings))
 }
 
 function formatRank(rank: QueueInfo | null): string {
@@ -350,48 +247,6 @@ function formatDivision(rank: QueueInfo): string {
   return ''
 }
 
-function formatDateTime(timestamp?: number): string {
-  if (!timestamp) {
-    return '--'
-  }
-  const date = new Date(timestamp)
-  const month = date.getMonth() + 1
-  const day = date.getDate()
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  return `${month}${t('home.month')}${day}${t('home.day')} ${hour}:${minute}`
-}
-
-function formatDateRange(snapshot: AnalysisSnapshot): string {
-  return `${formatShortDate(snapshot.matchStartAt)} ${t('home.to')} ${formatShortDate(snapshot.matchEndAt)}`
-}
-
-function formatShortDate(timestamp?: number): string {
-  if (!timestamp) {
-    return '--'
-  }
-  const date = new Date(timestamp)
-  return `${date.getMonth() + 1}${t('home.month')}${date.getDate()}${t('home.day')}`
-}
-
-function roleLabel(role: GrowthRole): string {
-  return roleOptions.value.find(item => item.value === role)?.label || t('home.role.unknown')
-}
-
-function formatPointTooltip(point: GrowthPoint): string {
-  const result = point.win ? t('common.win') : t('common.loss')
-  return `${formatDateTime(point.gameCreation)} · ${roleLabel(point.role)} · ${point.kdaText} · ${result}`
-}
-
-function formatMetricValue(value: number): string {
-  if (selectedMetric.value === 'winRate') {
-    return `${Math.round(value)}%`
-  }
-  if (selectedMetric.value === 'kda') {
-    return value.toFixed(1)
-  }
-  return Math.round(value).toLocaleString()
-}
 </script>
 
 <template>
@@ -431,49 +286,39 @@ function formatMetricValue(value: number): string {
       </button>
     </section>
 
-    <section class="feature-grid">
-      <article class="ai-analysis-card">
-        <div class="card-copy">
-          <h2>电子教练</h2>
-          <p>{{ t('home.aiAnalysisBody') }}</p>
-        </div>
+    <section class="ai-analysis-card">
+      <div class="card-copy">
+        <h2>电子教练</h2>
+        <p>{{ t('home.aiAnalysisBody') }}</p>
+      </div>
 
-        <div class="action-row">
-          <button class="primary-btn" type="button" :disabled="!canAnalyze" @click="runAnalysis">
-            {{ analysisLoading ? t('home.analyzing') : t('home.analyzeNow') }}
-          </button>
-          <button
-            class="auto-analysis-switch"
-            type="button"
-            role="switch"
-            :aria-checked="autoAnalysis.enabled"
-            :class="{ active: autoAnalysis.enabled }"
-            :disabled="!accountConnected"
-            @click="toggleAutoAnalysis"
-          >
-            <span class="switch-track">
-              <span class="switch-thumb"></span>
-            </span>
-            <span class="switch-label">自动分析</span>
-          </button>
-          <select
-            class="interval-select"
-            :value="autoAnalysis.interval"
-            :disabled="!accountConnected"
-            @change="changeAutoInterval"
-          >
-            <option v-for="interval in AUTO_ANALYSIS_INTERVALS" :key="interval" :value="interval">
-              {{ t('home.everyGames', { count: interval }) }}
-            </option>
-          </select>
-        </div>
+      <div class="action-row">
+        <button class="primary-btn" type="button" @click="runAnalysis">
+          {{ t('home.analyzeNow') }}
+        </button>
+        <button
+          class="auto-analysis-switch"
+          type="button"
+          role="switch"
+          :aria-checked="autoAnalysis.enabled"
+          :class="{ active: autoAnalysis.enabled }"
+          :disabled="!accountConnected"
+          @click="toggleAutoAnalysis"
+        >
+          <span class="switch-track">
+            <span class="switch-thumb"></span>
+          </span>
+          <span class="switch-label">自动分析</span>
+        </button>
+      </div>
 
-        <p class="hint-line">
-          {{ t('home.autoAnalysisHint', { count: autoAnalysis.interval }) }}
-        </p>
-        <p v-if="analysisError" class="error-line">{{ analysisError }}</p>
-      </article>
+      <p v-if="coachNotice" class="coach-notice">{{ coachNotice }}</p>
+    </section>
 
+    <section class="coach-report-grid">
+      <div class="coach-report-panel">
+        <AICoachCards />
+      </div>
       <article class="fortune-card" :class="fortuneTone">
         <div class="panel-eyebrow fortune-eyebrow">抽个签</div>
         <div class="fortune-layout">
@@ -499,81 +344,6 @@ function formatMetricValue(value: number): string {
       </article>
     </section>
 
-    <section v-if="analysis" class="analysis-result">
-      <div class="analysis-meta">
-        <span>{{ t('home.analysisTime') }}：{{ formatDateTime(analysis.analyzedAt) }}</span>
-        <span>{{ t('home.matchPeriod') }}：{{ formatDateRange(analysis) }}</span>
-        <span>{{ t('home.analyzedMatches', { count: analysis.matchCount }) }}</span>
-      </div>
-      <p class="analysis-rule">
-        {{ t('home.analysisRule', { min: MIN_ANALYSIS_MATCHES, max: MAX_ANALYSIS_MATCHES }) }}
-      </p>
-      <button class="summary-banner" type="button" @click="analysisExpanded = !analysisExpanded">
-        <strong>{{ t('home.oneLineSummary') }}：{{ analysis.summary }}</strong>
-        <span>{{ analysisExpanded ? t('home.collapseAnalysis') : t('home.expandAnalysis') }}</span>
-      </button>
-
-      <div v-if="analysisExpanded" class="growth-section">
-        <div class="chart-header">
-          <div>
-            <h2>{{ t('home.chartTitle') }}</h2>
-            <p>{{ hoveredPoint ? formatPointTooltip(hoveredPoint) : t('home.chartHoverHint') }}</p>
-          </div>
-          <div class="chart-controls">
-            <select v-model="selectedRole" class="analysis-role-select">
-              <option v-for="role in roleOptions" :key="role.value" :value="role.value">
-                {{ role.label }}
-              </option>
-            </select>
-            <select v-model="selectedMetric" class="analysis-metric-select">
-              <option v-for="metric in metricOptions" :key="metric.value" :value="metric.value">
-                {{ metric.label }}
-              </option>
-            </select>
-          </div>
-        </div>
-
-        <div class="growth-chart">
-          <svg v-if="chartModel.length" viewBox="0 0 640 240" role="img" :aria-label="t('home.chartTitle')">
-            <line x1="46" y1="24" x2="46" y2="198" class="chart-axis" />
-            <line x1="46" y1="198" x2="618" y2="198" class="chart-axis" />
-            <line x1="46" y1="82" x2="618" y2="82" class="chart-guide" />
-            <line x1="46" y1="140" x2="618" y2="140" class="chart-guide" />
-            <polyline class="chart-line" :points="chartPolyline" />
-            <g
-              v-for="item in chartModel"
-              :key="item.point.gameId"
-              @mouseenter="hoveredPoint = item.point"
-              @mouseleave="hoveredPoint = null"
-            >
-              <circle class="chart-dot-hit" :cx="item.x" :cy="item.y" r="15" />
-              <circle class="chart-dot" :cx="item.x" :cy="item.y" r="5" />
-              <text class="chart-dot-value" :x="item.x" :y="item.y - 12">
-                {{ formatMetricValue(item.value) }}
-              </text>
-            </g>
-            <text class="axis-label" x="10" y="30">{{ t('home.chartHigh') }}</text>
-            <text class="axis-label" x="10" y="202">{{ t('home.chartLow') }}</text>
-            <text
-              v-for="item in chartModel.filter((_item, index) => index === 0 || index === chartModel.length - 1)"
-              :key="`label-${item.point.gameId}`"
-              class="x-label"
-              :x="item.x"
-              y="224"
-            >
-              {{ t('home.matchIndex', { count: item.point.matchIndex }) }}
-            </text>
-          </svg>
-          <div v-else class="chart-empty">{{ t('home.chartEmpty') }}</div>
-        </div>
-
-        <div class="analysis-detail">
-          <h3>{{ t('home.analysisDetail') }}</h3>
-          <p>{{ analysis.detail }}</p>
-        </div>
-      </div>
-    </section>
-
     <HomeChart :puuid="currentSummoner?.puuid" :connected="accountConnected" />
   </div>
 </template>
@@ -589,8 +359,7 @@ function formatMetricValue(value: number): string {
 
 .account-panel,
 .ai-analysis-card,
-.fortune-card,
-.analysis-result {
+.fortune-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -598,10 +367,7 @@ function formatMetricValue(value: number): string {
 
 .account-main p,
 .card-copy p,
-.hint-line,
-.analysis-rule,
-.chart-header p,
-.analysis-detail p,
+.coach-notice,
 .fortune-text,
 .fortune-disclaimer {
   color: var(--text-secondary);
@@ -696,8 +462,7 @@ function formatMetricValue(value: number): string {
 
 .account-main h2,
 .card-copy h2,
-.fortune-card h2,
-.chart-header h2 {
+.fortune-card h2 {
   color: var(--text-primary);
   margin: 0;
 }
@@ -728,16 +493,36 @@ function formatMetricValue(value: number): string {
   font-weight: 700;
 }
 
-.feature-grid {
+.coach-report-grid {
+  --fortune-column-width: 286px;
+  --coach-grid-gap: 16px;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) var(--fortune-column-width);
+  gap: var(--coach-grid-gap);
+  overflow: visible;
+}
+
+.coach-report-panel {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
 }
 
 .ai-analysis-card,
 .fortune-card {
-  min-height: 250px;
   padding: 22px;
+}
+
+.ai-analysis-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow: visible;
+}
+
+.fortune-card {
+  min-height: 250px;
 }
 
 .card-copy h2 {
@@ -750,15 +535,11 @@ function formatMetricValue(value: number): string {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-top: 18px;
 }
 
 .primary-btn,
 .secondary-btn,
-.fortune-button,
-.interval-select,
-.analysis-role-select,
-.analysis-metric-select {
+.fortune-button {
   min-height: 46px;
   border-radius: 8px;
   font-size: 16px;
@@ -772,10 +553,7 @@ function formatMetricValue(value: number): string {
   color: #ffffff;
 }
 
-.secondary-btn,
-.interval-select,
-.analysis-role-select,
-.analysis-metric-select {
+.secondary-btn {
   padding: 0 14px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -840,21 +618,68 @@ function formatMetricValue(value: number): string {
 
 .primary-btn:disabled,
 .secondary-btn:disabled,
-.fortune-button:disabled,
-.interval-select:disabled {
+.fortune-button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
 }
 
-.hint-line {
-  margin: 14px 0 0;
+.coach-notice {
+  min-height: 20px;
+  margin: 0;
+  color: rgba(212, 175, 55, 0.96);
   font-size: 14px;
+  font-weight: 800;
 }
 
-.error-line {
-  margin-top: 10px;
-  color: var(--error-color);
-  font-weight: 700;
+.coach-report-panel {
+  --coach-title-color: rgba(238, 205, 112, 0.96);
+  --coach-body-color: var(--text-secondary);
+}
+
+.coach-report-panel :deep(.ai-coach-cards) {
+  min-height: 298px;
+  overflow: visible;
+}
+
+.coach-report-panel :deep(.coach-stack-card),
+.coach-report-panel :deep(.coach-expanded-card) {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, PMingLiU, 'Times New Roman', serif;
+  letter-spacing: 0.5px;
+  line-height: 1.7;
+}
+
+.coach-report-panel :deep(.coach-card-title),
+.coach-report-panel :deep(.coach-expanded-card h3) {
+  color: var(--coach-title-color);
+  font-size: 1.25rem;
+  line-height: 1.7;
+}
+
+.coach-report-panel :deep(.coach-card-body),
+.coach-report-panel :deep(.coach-expanded-card p) {
+  color: var(--coach-body-color);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.coach-report-panel :deep(.coach-expanded-layer) {
+  width: calc(100% + var(--fortune-column-width) + var(--coach-grid-gap));
+  right: auto;
+  z-index: 999;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.coach-report-panel :deep(.coach-expanded-card) {
+  min-height: 270px;
+  transition:
+    width 0.3s ease-in-out,
+    transform 0.3s ease-in-out,
+    opacity 0.3s ease-in-out;
+}
+
+:global([data-theme="light"]) .coach-report-panel {
+  --coach-title-color: #2f2918;
+  --coach-body-color: #4b4638;
 }
 
 .fortune-card {
@@ -862,7 +687,7 @@ function formatMetricValue(value: number): string {
 }
 
 .fortune-eyebrow {
-  color: white;
+  color: var(--text-primary);
   font-size: 26px;
   font-weight: bold;
 }
@@ -921,156 +746,6 @@ function formatMetricValue(value: number): string {
   font-size: 13px;
 }
 
-.analysis-result {
-  padding: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.analysis-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.analysis-rule {
-  margin: 0;
-  font-size: 14px;
-}
-
-.summary-banner {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border-radius: 10px;
-  background: var(--accent-color);
-  color: #ffffff;
-  text-align: left;
-}
-
-.summary-banner strong {
-  font-size: 18px;
-  line-height: 1.5;
-}
-
-.summary-banner span {
-  flex-shrink: 0;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.growth-section {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.chart-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.chart-header h2 {
-  font-size: 22px;
-  margin-bottom: 6px;
-}
-
-.chart-controls {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.growth-chart {
-  min-height: 280px;
-  padding: 16px;
-  border-radius: 10px;
-  background: var(--bg-tertiary);
-  overflow: hidden;
-}
-
-.growth-chart svg {
-  width: 100%;
-  height: 100%;
-  min-height: 248px;
-}
-
-.chart-axis {
-  stroke: rgba(var(--accent-rgb), 0.75);
-  stroke-width: 2;
-}
-
-.chart-guide {
-  stroke: var(--border-color);
-  stroke-width: 1;
-}
-
-.chart-line {
-  fill: none;
-  stroke: var(--accent-color);
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.chart-dot-hit {
-  fill: transparent;
-  cursor: pointer;
-}
-
-.chart-dot {
-  fill: var(--accent-color);
-  stroke: var(--bg-tertiary);
-  stroke-width: 3;
-}
-
-.chart-dot-value,
-.axis-label,
-.x-label {
-  fill: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.chart-dot-value {
-  text-anchor: middle;
-  opacity: 0;
-}
-
-g:hover .chart-dot-value {
-  opacity: 1;
-}
-
-.x-label {
-  text-anchor: middle;
-}
-
-.chart-empty {
-  min-height: 240px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-}
-
-.analysis-detail {
-  padding-top: 4px;
-}
-
-.analysis-detail h3 {
-  margin: 0 0 8px;
-  color: var(--text-primary);
-  font-size: 18px;
-}
-
 @keyframes slot-pop {
   0% {
     transform: translateY(-2px);
@@ -1081,9 +756,13 @@ g:hover .chart-dot-value {
 }
 
 @media (max-width: 920px) {
-  .feature-grid,
+  .coach-report-grid,
   .account-panel {
     grid-template-columns: 1fr;
+  }
+
+  .coach-report-grid {
+    --fortune-column-width: 0px;
   }
 
   .account-panel {
@@ -1100,15 +779,12 @@ g:hover .chart-dot-value {
     height: 76px;
   }
 
-  .chart-header,
-  .summary-banner {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .chart-controls,
   .action-row {
     justify-content: flex-start;
+  }
+
+  .coach-report-panel :deep(.coach-expanded-layer) {
+    width: 100%;
   }
 }
 </style>
