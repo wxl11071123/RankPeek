@@ -78,11 +78,11 @@
 
       .water-scene {
         position: fixed;
-        top: 38vh;
+        top: 50vh;
         left: 50%;
         width: 340px;
-        height: 320px;
-        transform: translateX(-50%);
+        height: 340px;
+        transform: translate(-50%, -50%);
         isolation: isolate;
       }
 
@@ -98,14 +98,14 @@
       }
 
       .logo-reveal {
-        bottom: 0;
+        top: calc(50% - 180px);
         z-index: 3;
         clip-path: inset(100% 0 0 0);
         animation: logoRise 2.5s cubic-bezier(0.33, 0.1, 0.36, 1) forwards;
       }
 
       .reflection-reveal {
-        top: 4px;
+        top: calc(50% + 4px);
         z-index: 1;
         clip-path: inset(100% 0 0 0);
         opacity: 0.2;
@@ -145,7 +145,7 @@
 
       #appName {
         position: absolute;
-        top: 92px;
+        top: calc(50% + 20px);
         left: 50%;
         z-index: 4;
         width: max-content;
@@ -242,13 +242,13 @@
         65% {
           clip-path: inset(0 0 100% 0);
           opacity: 0;
-          transform: translateX(-50%) translateY(-8px);
+          transform: translateX(-50%) translateY(-18px);
         }
 
         75% {
           clip-path: inset(0 0 0 0);
           opacity: 0.8;
-          transform: translateX(-50%) translateY(3px);
+          transform: translateX(-50%) translateY(4px);
         }
 
         100% {
