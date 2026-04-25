@@ -11,162 +11,285 @@
 
       html,
       body {
-        width: 100%;
-        height: 100%;
+        width: 100vw;
+        height: 100vh;
         margin: 0;
         overflow: hidden;
-        background: #181820;
-        color: #d4af37;
-        font-family: "Noto Serif SC", "Source Han Serif SC", "Times New Roman", serif;
+        background: #0e0e10;
       }
 
       body {
-        display: grid;
-        place-items: center;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+        transition: opacity 0.5s ease;
         -webkit-app-region: drag;
       }
 
-      .ambient {
-        position: fixed;
-        inset: 0;
-        background:
-          radial-gradient(circle at 50% 34%, rgba(212, 175, 55, 0.11), transparent 34%),
-          radial-gradient(circle at 22% 82%, rgba(255, 255, 255, 0.05), transparent 28%);
-        pointer-events: none;
-      }
-
-      .glass-card {
-        width: 320px;
-        height: auto;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 18px;
-        padding: 40px;
-        border: 1px solid rgba(212, 175, 55, 0.15);
-        border-radius: 24px;
-        background: rgba(24, 24, 32, 0.6);
-        text-align: center;
-        box-shadow: 0 0 60px rgba(212, 175, 55, 0.1);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
+      .logo-scene {
+        position: relative;
+        width: 300px;
+        height: 300px;
+        isolation: isolate;
       }
 
       .logo {
-        width: 180px;
-        height: 180px;
-        object-fit: contain;
-        border-radius: 28px;
-        animation:
-          logoBreathe 3s ease-in-out infinite,
-          glowBreathe 3s ease-in-out infinite;
-      }
-
-      .app-name {
-        color: #d4af37;
-        font-size: 28px;
-        font-weight: 700;
-        letter-spacing: 0.25em;
-        line-height: 1.2;
-        text-indent: 0.25em;
-      }
-
-      .sub-text {
-        color: rgba(212, 175, 55, 0.5);
-        font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: 0;
-      }
-
-      .loader-bar {
-        position: fixed;
-        bottom: 40px;
+        position: absolute;
         left: 50%;
-        width: 260px;
-        height: 2px;
-        overflow: hidden;
-        border-radius: 1px;
-        background: rgba(255, 255, 255, 0.08);
+        width: 200px;
+        height: 200px;
+        object-fit: contain;
+        pointer-events: none;
+        user-select: none;
+      }
+
+      .main-logo {
+        top: 50%;
+        z-index: 2;
+        opacity: 0.85;
+        filter: brightness(0.9) blur(0.3px);
+        transform: translate(-50%, -58%);
+        animation: logoWaterPulse 4s ease-in-out infinite;
+      }
+
+      .reflection-logo {
+        top: calc(50% + 46px);
+        z-index: 1;
+        opacity: 0.25;
+        filter: brightness(0.9) blur(0.7px);
+        transform: translateX(-50%) scaleY(-1);
+        transform-origin: center top;
+        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.4) 0%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.4) 0%, transparent 100%);
+        animation: reflectionWaterPulse 4s ease-in-out infinite;
+      }
+
+      .caustics-layer {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        z-index: 3;
+        width: 300px;
+        height: 300px;
+        pointer-events: none;
+        mix-blend-mode: screen;
+        transform: translate(-50%, -50%);
+      }
+
+      .caustic {
+        position: absolute;
+        border-radius: 50%;
+        opacity: 0.72;
+        filter: blur(10px);
+        background: radial-gradient(
+          ellipse at center,
+          rgba(212, 175, 55, 0.08) 0%,
+          rgba(212, 175, 55, 0.04) 36%,
+          transparent 72%
+        );
+        transition:
+          opacity 1.5s ease-out,
+          transform 1.5s ease-out,
+          filter 1.5s ease-out;
+      }
+
+      .caustic.one {
+        top: 40px;
+        left: 42px;
+        width: 150px;
+        height: 94px;
+        animation: causticOne 4s ease-in-out infinite;
+      }
+
+      .caustic.two {
+        right: 36px;
+        bottom: 78px;
+        width: 172px;
+        height: 104px;
+        animation: causticTwo 5.5s ease-in-out infinite;
+      }
+
+      .caustic.three {
+        top: 104px;
+        left: 72px;
+        width: 190px;
+        height: 126px;
+        opacity: 0.54;
+        animation: causticThree 7s ease-in-out infinite;
+      }
+
+      .brand {
+        position: fixed;
+        left: 50%;
+        bottom: 36px;
+        color: rgba(212, 175, 55, 0.3);
+        font-family: "Noto Serif SC", "Source Han Serif SC", "Times New Roman", serif;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.3em;
+        line-height: 1;
+        text-indent: 0.3em;
         transform: translateX(-50%);
+        animation: brandPulse 4s ease-in-out infinite;
       }
 
-      .loader-bar-inner {
-        width: 0%;
-        height: 100%;
-        border-radius: 1px;
-        background: #d4af37;
-        box-shadow: 0 0 16px rgba(212, 175, 55, 0.42);
-        animation: loadProgress 2.5s ease-out forwards;
+      body.smooth-exit .main-logo {
+        animation: none;
+        opacity: 1;
+        filter: brightness(1) blur(0);
+        transition:
+          opacity 1.5s ease-out,
+          filter 1.5s ease-out;
       }
 
-      @keyframes logoBreathe {
+      body.smooth-exit .reflection-logo {
+        animation: none;
+        opacity: 0.4;
+        filter: brightness(1) blur(0.3px);
+        transition:
+          opacity 1.5s ease-out,
+          filter 1.5s ease-out;
+      }
+
+      body.smooth-exit .caustic {
+        animation: none;
+        opacity: 0.24;
+        filter: blur(14px);
+        transform: translate(0, 0) scale(0.92);
+      }
+
+      body.quick-exit .main-logo,
+      body.quick-exit .reflection-logo,
+      body.quick-exit .caustic,
+      body.quick-exit .brand {
+        animation: none;
+      }
+
+      body.fade-out {
+        opacity: 0;
+      }
+
+      body.quick-fade-out {
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      @keyframes logoWaterPulse {
         0%,
         100% {
-          opacity: 0.9;
-          transform: scale(1);
+          filter: brightness(0.9) blur(0.3px);
         }
 
         50% {
-          opacity: 1;
-          transform: scale(1.01);
+          filter: brightness(1.05) blur(0.1px);
         }
       }
 
-      @keyframes glowBreathe {
+      @keyframes reflectionWaterPulse {
         0%,
         100% {
-          box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+          opacity: 0.2;
+          filter: brightness(0.88) blur(0.8px);
         }
 
         50% {
-          box-shadow: 0 0 40px rgba(212, 175, 55, 0.3);
+          opacity: 0.3;
+          filter: brightness(1.04) blur(0.45px);
         }
       }
 
-      @keyframes loadProgress {
-        0% {
-          width: 0%;
+      @keyframes causticOne {
+        0%,
+        100% {
+          transform: translate(-9px, 5px) rotate(2deg);
         }
 
+        50% {
+          transform: translate(13px, -12px) rotate(-3deg);
+        }
+      }
+
+      @keyframes causticTwo {
+        0%,
         100% {
-          width: 90%;
+          transform: translate(14px, -8px) rotate(-5deg);
+        }
+
+        50% {
+          transform: translate(-13px, 12px) rotate(4deg);
+        }
+      }
+
+      @keyframes causticThree {
+        0%,
+        100% {
+          transform: translate(-18px, -10px) rotate(4deg);
+        }
+
+        50% {
+          transform: translate(22px, 16px) rotate(-4deg);
+        }
+      }
+
+      @keyframes brandPulse {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+
+        50% {
+          opacity: 0.35;
         }
       }
     </style>
   </head>
   <body>
-    <div class="ambient"></div>
-    <main class="glass-card">
-      <img src="splash-logo.png" class="logo" alt="RankPeek" />
-      <div class="app-name">RankPeek</div>
-      <div class="sub-text">正在读取召唤师峡谷数据...</div>
+    <main class="logo-scene" aria-label="RankPeek">
+      <img src="splash-logo.png" class="logo main-logo" alt="" />
+      <img src="splash-logo.png" class="logo reflection-logo" alt="" />
+      <div class="caustics-layer" aria-hidden="true">
+        <span class="caustic one"></span>
+        <span class="caustic two"></span>
+        <span class="caustic three"></span>
+      </div>
     </main>
-    <div class="loader-bar" aria-hidden="true">
-      <div class="loader-bar-inner"></div>
-    </div>
+    <div class="brand">RankPeek</div>
 
     <script>
-      window.finishLoading = () => {
-        const loader = document.querySelector('.loader-bar-inner');
-        const card = document.querySelector('.glass-card');
+      let exiting = false;
 
-        if (loader) {
-          loader.style.transition = 'width 0.3s ease-out';
-          loader.style.width = '100%';
+      window.smoothExit = () => {
+        if (exiting) {
+          return;
         }
 
-        setTimeout(() => {
-          if (card) {
-            card.style.opacity = '0';
-            card.style.transform = 'scale(1.02)';
-            card.style.transition = '0.4s';
-          }
+        exiting = true;
+        document.body.classList.add('smooth-exit');
 
+        setTimeout(() => {
+          document.body.classList.add('fade-out');
           setTimeout(() => {
             document.body.style.display = 'none';
-          }, 400);
-        }, 300);
+          }, 500);
+        }, 1800);
+      };
+
+      window.quickExit = () => {
+        if (exiting) {
+          return;
+        }
+
+        exiting = true;
+        document.body.classList.add('quick-exit');
+
+        requestAnimationFrame(() => {
+          document.body.classList.add('quick-fade-out');
+          setTimeout(() => {
+            document.body.style.display = 'none';
+          }, 300);
+        });
       };
     </script>
   </body>

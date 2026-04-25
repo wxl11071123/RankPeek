@@ -10,8 +10,19 @@ let backendProcess: ChildProcess | null = null
 let appTray: Tray | null = null
 let isQuitting = false
 let startupFallbackTimer: ReturnType<typeof setTimeout> | null = null
+let startupCheckInterval: ReturnType<typeof setInterval> | null = null
+let noLcuTimeout: ReturnType<typeof setTimeout> | null = null
+let mainWindowReady = false
+let startupExitStarted = false
+let pendingStartupExitMode: StartupExitMode | null = null
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
+const STARTUP_CHECK_INTERVAL_MS = 1500
+const NO_LCU_TIMEOUT_MS = 2500
+const STARTUP_FORCE_TIMEOUT_MS = 10000
+
+type StartupExitMode = 'smooth' | 'quick'
 
 const logDir = app.getPath('logs')
 const logFile = join(logDir, 'rankpeek.log')
@@ -192,7 +203,7 @@ function createSplashWindow() {
     height: 520,
     frame: false,
     transparent: false,
-    backgroundColor: '#181820',
+    backgroundColor: '#0E0E10',
     alwaysOnTop: true,
     resizable: false,
     show: false,
@@ -233,40 +244,193 @@ function closeSplashWindow() {
   splashWindow = null
 }
 
-function clearStartupFallbackTimer() {
+function clearStartupTimers() {
   if (!startupFallbackTimer) {
-    return
+    // Continue clearing the other startup timers below.
+  } else {
+    clearTimeout(startupFallbackTimer)
+    startupFallbackTimer = null
   }
 
-  clearTimeout(startupFallbackTimer)
-  startupFallbackTimer = null
+  if (startupCheckInterval) {
+    clearInterval(startupCheckInterval)
+    startupCheckInterval = null
+  }
+
+  if (noLcuTimeout) {
+    clearTimeout(noLcuTimeout)
+    noLcuTimeout = null
+  }
 }
 
-function revealMainWindow(fadeSplash: boolean) {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) {
+function requestStartupExit(mode: StartupExitMode) {
+  if (startupExitStarted) {
     return
   }
 
-  clearStartupFallbackTimer()
-
-  const showMain = () => {
-    closeSplashWindow()
-    mainWindow?.show()
-    mainWindow?.focus()
+  pendingStartupExitMode = mode
+  if (!mainWindowReady) {
+    return
   }
 
-  if (fadeSplash && splashWindow && !splashWindow.isDestroyed()) {
+  runStartupExit(mode)
+}
+
+function runStartupExit(mode: StartupExitMode) {
+  if (startupExitStarted || !mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  startupExitStarted = true
+  pendingStartupExitMode = null
+  clearStartupTimers()
+
+  const showMainWindowAfterSplash = () => {
+    closeSplashWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return
+    }
+
+    mainWindow.show()
+    mainWindow.focus()
+  }
+
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    const exitScript = mode === 'smooth'
+      ? 'typeof window.smoothExit === "function" && window.smoothExit()'
+      : 'typeof window.quickExit === "function" && window.quickExit()'
+
     void splashWindow.webContents
-      .executeJavaScript('typeof window.finishLoading === "function" && window.finishLoading()')
+      .executeJavaScript(exitScript)
       .catch((error) => {
         log('WARN', `Failed to finish splash animation: ${String(error)}`)
       })
 
-    setTimeout(showMain, 800)
+    setTimeout(showMainWindowAfterSplash, mode === 'smooth' ? 2500 : 500)
     return
   }
 
-  showMain()
+  showMainWindowAfterSplash()
+}
+
+function startStartupReadinessChecks() {
+  clearStartupTimers()
+
+  let lcuReady = false
+  let homeDataReady = false
+
+  const checkReadiness = async () => {
+    if (startupExitStarted || homeDataReady) {
+      return
+    }
+
+    lcuReady = await checkLcuReady()
+    if (!lcuReady) {
+      return
+    }
+
+    homeDataReady = await checkHomeDataReady()
+    if (homeDataReady) {
+      requestStartupExit('smooth')
+    }
+  }
+
+  startupCheckInterval = setInterval(() => {
+    void checkReadiness()
+  }, STARTUP_CHECK_INTERVAL_MS)
+
+  void checkReadiness()
+
+  noLcuTimeout = setTimeout(() => {
+    if (!homeDataReady && !lcuReady) {
+      requestStartupExit('quick')
+    }
+  }, NO_LCU_TIMEOUT_MS)
+
+  startupFallbackTimer = setTimeout(() => {
+    requestStartupExit('quick')
+  }, STARTUP_FORCE_TIMEOUT_MS)
+}
+
+async function checkLcuReady() {
+  const gameStatePayload = await fetchStartupJson(`${API_BASE_URL}/session/game-state`)
+  const gameState = unwrapApiResponse(gameStatePayload)
+  if (isConnectedPayload(gameState)) {
+    return true
+  }
+
+  const connectedPayload = await fetchStartupJson(`${API_BASE_URL}/session/connected`)
+  const connected = unwrapApiResponse(connectedPayload)
+  if (connected === true || isConnectedPayload(connected)) {
+    return true
+  }
+
+  return false
+}
+
+async function checkHomeDataReady() {
+  const gameStatePayload = await fetchStartupJson(`${API_BASE_URL}/session/game-state`)
+  const gameState = unwrapApiResponse(gameStatePayload)
+  if (hasSummonerPuuid(gameState)) {
+    return true
+  }
+
+  const summonerPayload = await fetchStartupJson(`${API_BASE_URL}/summoner/me`)
+  const summoner = unwrapApiResponse(summonerPayload)
+  if (hasSummonerPuuid(summoner)) {
+    return true
+  }
+
+  return false
+}
+
+async function fetchStartupJson(url: string): Promise<unknown> {
+  try {
+    const response = await fetch(url)
+    if (!response.ok) {
+      return null
+    }
+
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
+function unwrapApiResponse(payload: unknown): unknown {
+  if (!isRecord(payload) || !('data' in payload)) {
+    return payload
+  }
+
+  return payload.data
+}
+
+function isConnectedPayload(payload: unknown): boolean {
+  if (payload === true) {
+    return true
+  }
+
+  if (!isRecord(payload)) {
+    return false
+  }
+
+  return payload.connected === true
+}
+
+function hasSummonerPuuid(payload: unknown): boolean {
+  if (!isRecord(payload)) {
+    return false
+  }
+
+  if (typeof payload.puuid === 'string' && payload.puuid.length > 0) {
+    return true
+  }
+
+  return hasSummonerPuuid(payload.summoner)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function createWindow() {
@@ -322,7 +486,10 @@ function createWindow() {
   })
 
   mainWindow.on('closed', () => {
-    clearStartupFallbackTimer()
+    clearStartupTimers()
+    mainWindowReady = false
+    startupExitStarted = false
+    pendingStartupExitMode = null
     mainWindow = null
   })
 
@@ -335,12 +502,13 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
-    revealMainWindow(true)
+    mainWindowReady = true
+    if (pendingStartupExitMode) {
+      runStartupExit(pendingStartupExitMode)
+    }
   })
 
-  startupFallbackTimer = setTimeout(() => {
-    revealMainWindow(false)
-  }, 10000)
+  startStartupReadinessChecks()
 
   if (isDev) {
     void mainWindow.loadURL('http://localhost:5173')
@@ -481,6 +649,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  clearStartupTimers()
   closeSplashWindow()
   appTray?.destroy()
   appTray = null
