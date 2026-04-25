@@ -1,10 +1,14 @@
 package io.rankpeek.model;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 对局详情模型
@@ -109,6 +113,12 @@ public class GameDetail {
         @JsonProperty("spell2Id")
         private Integer spell2Id;
 
+        @JsonProperty("teamPosition")
+        private String teamPosition;
+
+        @JsonProperty("individualPosition")
+        private String individualPosition;
+
         @JsonProperty("stats")
         private Stats stats;
 
@@ -148,6 +158,12 @@ public class GameDetail {
 
         @JsonProperty("visionWardsBoughtInGame")
         private Integer visionWardsBoughtInGame;
+
+        @JsonProperty("visionScore")
+        private Integer visionScore;
+
+        @JsonProperty("earlyGoldDiff")
+        private Integer earlyGoldDiff;
 
         @JsonProperty("wardsPlaced")
         private Integer wardsPlaced;
@@ -252,6 +268,17 @@ public class GameDetail {
 
         @JsonProperty("playerAugment4")
         private Integer playerAugment4;
+
+        @JsonProperty("challenges")
+        private Map<String, Object> challenges;
+
+        @JsonIgnore
+        private Map<String, Object> extraFields = new HashMap<>();
+
+        @JsonAnySetter
+        public void putExtraField(String key, Object value) {
+            extraFields.put(key, value);
+        }
     }
 
     /**
@@ -265,5 +292,17 @@ public class GameDetail {
 
         @JsonProperty("role")
         private String role;
+
+        @JsonProperty("teamPosition")
+        private String teamPosition;
+
+        @JsonProperty("positionCn")
+        private String positionCn;
+
+        @JsonProperty("rawLane")
+        private String rawLane;
+
+        @JsonProperty("rawRole")
+        private String rawRole;
     }
 }
