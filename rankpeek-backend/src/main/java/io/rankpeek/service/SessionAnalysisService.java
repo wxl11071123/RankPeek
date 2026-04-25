@@ -27,6 +27,7 @@ public class SessionAnalysisService {
     private final RankService rankService;
     private final MatchHistoryService matchHistoryService;
     private final MatchHistoryRefreshService matchHistoryRefreshService;
+    private final MatchHistoryPrewarmService matchHistoryPrewarmService;
     private final GameFlowService gameFlowService;
     private final ChampionSelectService championSelectService;
     private final UserTagService userTagService;
@@ -86,6 +87,8 @@ public class SessionAnalysisService {
 
         List<ChampionSelectSession.Player> myTeam = selectSession.getMyTeam();
         List<ChampionSelectSession.Player> theirTeam = selectSession.getTheirTeam();
+        matchHistoryPrewarmService.prewarmPlayers(collectChampSelectPuuids(myTeam, theirTeam),
+                "ChampSelect-knownPlayers");
 
         log.info("ChampSelect 直接模式: myTeam={}, theirTeam={}",
                 myTeam != null ? myTeam.size() : 0,
@@ -225,6 +228,9 @@ public class SessionAnalysisService {
 
         ensureMyTeamIsTeamOne(session, mySummoner);
         fillMissingPlayers(session);
+        if (isLiveGamePrewarmPhase(phase)) {
+            matchHistoryPrewarmService.prewarmPlayers(collectGameSessionPuuids(session), phase);
+        }
 
         log.info("处理后: teamOne={}, teamTwo={}",
                 session.getGameData().getTeamOne() != null ? session.getGameData().getTeamOne().size() : 0,
@@ -279,6 +285,8 @@ public class SessionAnalysisService {
                     .build();
             }
 
+            matchHistoryPrewarmService.prewarmPlayers(collectLobbyPuuids(lobby.getMembers()), "Lobby");
+
             // 获取队列 ID
             Integer queueId = lobby.getQueueId();
             if (queueId == null && lobby.getGameConfig() != null) {
@@ -312,6 +320,72 @@ public class SessionAnalysisService {
                 .teamTwo(List.of())
                 .build();
         }
+    }
+
+    private Set<String> collectLobbyPuuids(List<Lobby.Member> members) {
+        if (members == null || members.isEmpty()) {
+            return Set.of();
+        }
+
+        return members.stream()
+                .filter(Objects::nonNull)
+                .map(Lobby.Member::getPuuid)
+                .filter(this::hasText)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Set<String> collectChampSelectPuuids(List<ChampionSelectSession.Player> myTeam,
+                                                 List<ChampionSelectSession.Player> theirTeam) {
+        Set<String> puuids = new LinkedHashSet<>();
+        addChampSelectPuuids(puuids, myTeam);
+        addChampSelectPuuids(puuids, theirTeam);
+        return puuids;
+    }
+
+    private void addChampSelectPuuids(Set<String> puuids, List<ChampionSelectSession.Player> players) {
+        if (players == null || players.isEmpty()) {
+            return;
+        }
+
+        players.stream()
+                .filter(Objects::nonNull)
+                .map(ChampionSelectSession.Player::getPuuid)
+                .filter(this::hasText)
+                .forEach(puuids::add);
+    }
+
+    private Set<String> collectGameSessionPuuids(GameSession session) {
+        if (session == null || session.getGameData() == null) {
+            return Set.of();
+        }
+
+        Set<String> puuids = new LinkedHashSet<>();
+        addGameSessionPuuids(puuids, session.getGameData().getTeamOne());
+        addGameSessionPuuids(puuids, session.getGameData().getTeamTwo());
+        return puuids;
+    }
+
+    private void addGameSessionPuuids(Set<String> puuids, List<GameSession.OnePlayer> players) {
+        if (players == null || players.isEmpty()) {
+            return;
+        }
+
+        for (GameSession.OnePlayer player : players) {
+            if (puuids.size() >= 10) {
+                return;
+            }
+            if (player != null && hasText(player.getPuuid())) {
+                puuids.add(player.getPuuid());
+            }
+        }
+    }
+
+    private boolean isLiveGamePrewarmPhase(String phase) {
+        return "GameStart".equals(phase) || "InProgress".equals(phase) || "PreEndOfGame".equals(phase);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**
