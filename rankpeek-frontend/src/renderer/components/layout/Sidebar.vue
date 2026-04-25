@@ -2,25 +2,25 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { t, type MessageKey } from '@/i18n'
-import homeIcon from '@/assets/icons/home.svg'
-import scoutIcon from '@/assets/icons/scout.svg'
-import historyIcon from '@/assets/icons/history.svg'
-import summonerIcon from '@/assets/icons/summoner.svg'
-import tagsIcon from '@/assets/icons/tags.svg'
-import tagConfigIcon from '@/assets/icons/tag-config.svg'
-import settingsIcon from '@/assets/icons/settings.svg'
+import homeIcon from '@/assets/icons/nav-home.svg'
+import gamingIcon from '@/assets/icons/nav-gamepad.svg'
+import summonerIcon from '@/assets/icons/nav-user-search.svg'
+import matchRecordIcon from '@/assets/icons/nav-record-bars.svg'
+import userTagIcon from '@/assets/icons/nav-tag.svg'
+import tagConfigIcon from '@/assets/icons/nav-clipboard.svg'
+import settingsGearIcon from '@/assets/icons/nav-gear-five.svg'
 
 const route = useRoute()
 const router = useRouter()
 
 const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
   { path: '/', icon: homeIcon, labelKey: 'nav.home' },
-  { path: '/gaming', icon: scoutIcon, labelKey: 'nav.gaming' },
+  { path: '/gaming', icon: gamingIcon, labelKey: 'nav.gaming' },
   { path: '/summoner', icon: summonerIcon, labelKey: 'nav.summoner' },
-  { path: '/match-history', icon: historyIcon, labelKey: 'nav.matchHistory' },
-  { path: '/user-tag', icon: tagsIcon, labelKey: 'nav.userTag' },
+  { path: '/match-history', icon: matchRecordIcon, labelKey: 'nav.matchHistory' },
+  { path: '/user-tag', icon: userTagIcon, labelKey: 'nav.userTag' },
   { path: '/tag-config', icon: tagConfigIcon, labelKey: 'nav.tagConfig' },
-  { path: '/settings', icon: settingsIcon, labelKey: 'nav.settings' }
+  { path: '/settings', icon: settingsGearIcon, labelKey: 'nav.settings' }
 ]
 
 const currentPath = computed(() => route.path)
@@ -32,6 +32,25 @@ function navigateTo(path: string) {
 
 <template>
   <aside class="sidebar">
+    <div class="sidebar-brand" aria-label="RankPeek">
+      <svg
+        class="sidebar-logo"
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.5" y="4.5" width="27" height="27" rx="7.2" />
+        <path d="M9.5 18c2.3-4.2 5.1-6.3 8.5-6.3s6.2 2.1 8.5 6.3c-2.3 4.2-5.1 6.3-8.5 6.3s-6.2-2.1-8.5-6.3Z" />
+        <circle cx="18" cy="18" r="3.2" />
+      </svg>
+      <span class="brand-name">RankPeek</span>
+    </div>
+
     <nav class="sidebar-nav">
       <ul class="nav-list">
         <li
@@ -43,11 +62,9 @@ function navigateTo(path: string) {
           :aria-label="t(item.labelKey)"
           @click="navigateTo(item.path)"
         >
-          <span
-            class="nav-icon"
-            :style="{ '--nav-icon': `url(${item.icon})` }"
-            aria-hidden="true"
-          ></span>
+          <span class="nav-icon" aria-hidden="true">
+            <span class="nav-icon-svg" :style="{ '--nav-icon-url': `url(${item.icon})` }"></span>
+          </span>
           <span class="nav-label">{{ t(item.labelKey) }}</span>
         </li>
       </ul>
@@ -70,9 +87,32 @@ function navigateTo(path: string) {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 20px 22px 14px;
+  color: var(--text-primary);
+}
+
+.sidebar-logo {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+}
+
+.brand-name {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
 .sidebar-nav {
   flex: 1;
-  padding: 20px 14px 12px;
+  padding: 6px 14px 12px;
   overflow-y: auto;
 }
 
@@ -110,23 +150,20 @@ function navigateTo(path: string) {
 }
 
 .nav-icon {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  display: inline-block;
-  color: #d4af37;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-icon-svg {
+  width: 25px;
+  height: 25px;
   background: currentColor;
-  mask: var(--nav-icon) center / contain no-repeat;
-  -webkit-mask: var(--nav-icon) center / contain no-repeat;
-  transition: color 0.15s;
-}
-
-.nav-item:hover .nav-icon {
-  color: #e6dfcd;
-}
-
-.nav-item.active .nav-icon {
-  color: #f1d36a;
+  mask: var(--nav-icon-url) center / contain no-repeat;
+  -webkit-mask: var(--nav-icon-url) center / contain no-repeat;
 }
 
 .nav-label {
@@ -153,8 +190,18 @@ function navigateTo(path: string) {
     width: 96px;
   }
 
+  .sidebar-brand {
+    justify-content: center;
+    min-height: 72px;
+    padding: 18px 10px 12px;
+  }
+
+  .brand-name {
+    display: none;
+  }
+
   .sidebar-nav {
-    padding: 16px 10px;
+    padding: 8px 10px 16px;
   }
 
   .nav-item {
@@ -164,9 +211,13 @@ function navigateTo(path: string) {
   }
 
   .nav-icon {
-    width: 22px;
-    height: 22px;
-    flex-basis: 22px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .nav-icon-svg {
+    width: 28px;
+    height: 28px;
   }
 
   .nav-label {

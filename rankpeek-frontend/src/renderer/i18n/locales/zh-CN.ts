@@ -2,7 +2,7 @@ const zhCN = {
   'nav.home': '首页',
   'nav.gaming': '对战信息',
   'nav.summoner': '战绩查询',
-  'nav.matchHistory': '召唤师信息',
+  'nav.matchHistory': '我的战绩',
   'nav.userTag': '标签分析',
   'nav.tagConfig': '标签配置',
   'nav.settings': '设置',

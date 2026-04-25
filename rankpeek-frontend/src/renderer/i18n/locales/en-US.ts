@@ -4,7 +4,7 @@ const enUS: Record<MessageKey, string> = {
   'nav.home': 'Home',
   'nav.gaming': 'Live Scout',
   'nav.summoner': 'Match Lookup',
-  'nav.matchHistory': 'Summoner Info',
+  'nav.matchHistory': 'My Matches',
   'nav.userTag': 'Tag Analysis',
   'nav.tagConfig': 'Tag Config',
   'nav.settings': 'Settings',

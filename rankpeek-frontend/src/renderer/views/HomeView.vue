@@ -1336,32 +1336,30 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 
 :global([data-theme="light"] .coach-report-panel .coach-stack-card),
 :global([data-theme="light"] .coach-report-panel .coach-expanded-card) {
-  border-color: rgba(180, 180, 190, 0.5);
+  border-color: rgba(212, 175, 55, 0.24);
   background: linear-gradient(135deg, rgba(238, 240, 246, 0.82), rgba(244, 241, 232, 0.74));
   color: #2c2c2c;
   backdrop-filter: blur(12px);
   box-shadow:
     inset -1px -1px 2px rgba(0, 0, 0, 0.08),
-    0 0 14px rgba(212, 175, 55, 0.08);
+    0 0 12px rgba(212, 175, 55, 0.2);
 }
 
 :global([data-theme="light"] .coach-report-panel .coach-stack-card::after) {
-  border-color: rgba(212, 175, 55, 0.18);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.08);
+  border-color: rgba(212, 175, 55, 0.24);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
 }
 
 :global([data-theme="light"] .coach-report-panel .coach-stack-card:hover),
 :global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible) {
-  border-color: rgba(100, 116, 139, 0.38);
-  box-shadow:
-    inset -1px -1px 2px rgba(0, 0, 0, 0.08),
-    0 2px 8px rgba(100, 116, 139, 0.16);
+  border-color: rgba(212, 175, 55, 0.38);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
 }
 
 :global([data-theme="light"] .coach-report-panel .coach-stack-card:hover::after),
 :global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible::after) {
-  border-color: rgba(212, 175, 55, 0.24);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.1);
+  border-color: rgba(212, 175, 55, 0.34);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
 }
 
 :global([data-theme="light"] .coach-report-panel .coach-expanded-layer) {
@@ -1372,8 +1370,8 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   background: var(--coach-slide-bg);
   backdrop-filter: blur(20px);
   box-shadow:
-    0 0 0 1px rgba(180, 180, 190, 0.24),
-    0 10px 34px rgba(100, 116, 139, 0.18);
+    0 0 0 1px rgba(212, 175, 55, 0.18),
+    0 0 12px rgba(212, 175, 55, 0.2);
 }
 
 :global([data-theme="light"] .coach-report-panel .coach-expanded-card p),
