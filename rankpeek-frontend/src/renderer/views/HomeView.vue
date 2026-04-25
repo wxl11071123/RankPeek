@@ -63,7 +63,8 @@ const DIVISION_CN_MAP: Record<string, string> = {
 const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
 const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
 const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
-const RANK_BADGE_ORBIT_SPEED_PX_PER_SECOND = 1
+const RANK_BADGE_ORBIT_SPEED_PX_PER_SECOND = 3
+const RANK_BADGE_ORBIT_INTERVAL_MS = 33
 
 const RANK_TONE_MAP: Record<string, string> = {
   iron: 'iron',
@@ -192,7 +193,7 @@ const fortuneRolling = ref(false)
 const rollingFortuneLabel = ref('？？？')
 let fortuneTimer: number | null = null
 let coachNoticeTimer: number | null = null
-let rankBadgeOrbitFrame: number | null = null
+let rankBadgeOrbitTimer: number | null = null
 let rankBadgeOrbitStartedAt = 0
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
@@ -421,27 +422,24 @@ function rankBadgeStyle(rank: QueueInfo | null): Record<string, string> {
 }
 
 function startRankBadgeOrbit() {
-  if (rankBadgeOrbitFrame !== null) {
+  if (rankBadgeOrbitTimer !== null) {
     return
   }
 
   rankBadgeOrbitStartedAt = window.performance.now()
-
-  const tick = (now: number) => {
-    updateRankBadgeOrbit(now)
-    rankBadgeOrbitFrame = window.requestAnimationFrame(tick)
-  }
-
-  rankBadgeOrbitFrame = window.requestAnimationFrame(tick)
+  updateRankBadgeOrbit(rankBadgeOrbitStartedAt)
+  rankBadgeOrbitTimer = window.setInterval(() => {
+    updateRankBadgeOrbit(window.performance.now())
+  }, RANK_BADGE_ORBIT_INTERVAL_MS)
 }
 
 function stopRankBadgeOrbit() {
-  if (rankBadgeOrbitFrame === null) {
+  if (rankBadgeOrbitTimer === null) {
     return
   }
 
-  window.cancelAnimationFrame(rankBadgeOrbitFrame)
-  rankBadgeOrbitFrame = null
+  window.clearInterval(rankBadgeOrbitTimer)
+  rankBadgeOrbitTimer = null
 }
 
 function updateRankBadgeOrbit(now: number) {
@@ -455,11 +453,38 @@ function updateRankBadgeOrbit(now: number) {
       rect.width / 2,
       rect.height / 2
     )
+    const perimeter = getRoundedRectPerimeter(rect.width, rect.height, radius)
     const point = getRoundedRectPoint(traveledDistance, rect.width, rect.height, radius)
+    const oppositePoint = getRoundedRectPoint(
+      traveledDistance + perimeter / 2,
+      rect.width,
+      rect.height,
+      radius
+    )
 
     badge.style.setProperty('--rank-orbit-x', `${point.x}px`)
     badge.style.setProperty('--rank-orbit-y', `${point.y}px`)
+    badge.style.setProperty('--rank-orbit-secondary-x', `${oppositePoint.x}px`)
+    badge.style.setProperty('--rank-orbit-secondary-y', `${oppositePoint.y}px`)
   })
+}
+
+function getRoundedRectPerimeter(width: number, height: number, radius: number) {
+  const safeWidth = Math.max(0, width)
+  const safeHeight = Math.max(0, height)
+
+  if (!safeWidth || !safeHeight) {
+    return 0
+  }
+
+  if (radius <= 0) {
+    return getRectPerimeter(safeWidth, safeHeight)
+  }
+
+  const straightWidth = Math.max(0, safeWidth - radius * 2)
+  const straightHeight = Math.max(0, safeHeight - radius * 2)
+  const arcLength = (Math.PI * radius) / 2
+  return straightWidth * 2 + straightHeight * 2 + arcLength * 4
 }
 
 function getRoundedRectPoint(distance: number, width: number, height: number, radius: number) {
@@ -535,7 +560,7 @@ function getRoundedRectPoint(distance: number, width: number, height: number, ra
 }
 
 function getRectPoint(distance: number, width: number, height: number) {
-  const perimeter = width * 2 + height * 2
+  const perimeter = getRectPerimeter(width, height)
   let current = distance % perimeter
 
   if (current <= width) {
@@ -554,6 +579,10 @@ function getRectPoint(distance: number, width: number, height: number) {
   current -= width
 
   return { x: 0, y: height - current }
+}
+
+function getRectPerimeter(width: number, height: number) {
+  return width * 2 + height * 2
 }
 
 function formatRankTierPart(rank: QueueInfo | null): string {
@@ -587,6 +616,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
           <div class="rank-row">
             <span class="rank-badge" :style="rankBadgeStyle(soloRank)">
               <span class="rank-orbit-dot" aria-hidden="true"></span>
+              <span class="rank-orbit-dot secondary" aria-hidden="true"></span>
               <span class="rank-emblem" aria-hidden="true"></span>
               <span class="rank-label">
                 <span class="rank-queue">{{ t('home.soloQueue') }}：</span>
@@ -596,6 +626,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
             </span>
             <span class="rank-badge" :style="rankBadgeStyle(flexRank)">
               <span class="rank-orbit-dot" aria-hidden="true"></span>
+              <span class="rank-orbit-dot secondary" aria-hidden="true"></span>
               <span class="rank-emblem" aria-hidden="true"></span>
               <span class="rank-label">
                 <span class="rank-queue">{{ t('home.flexQueue') }}：</span>
@@ -854,6 +885,8 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --rank-comet: var(--rank-border);
   --rank-orbit-x: 0px;
   --rank-orbit-y: 0px;
+  --rank-orbit-secondary-x: 0px;
+  --rank-orbit-secondary-y: 0px;
   position: relative;
   isolation: isolate;
   min-height: 30px;
@@ -892,6 +925,13 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   opacity: 0.74;
   pointer-events: none;
   transform: translate(-50%, -50%);
+  animation: rank-orbit-breathe 1.8s ease-in-out infinite;
+}
+
+.rank-orbit-dot.secondary {
+  top: var(--rank-orbit-secondary-y);
+  left: var(--rank-orbit-secondary-x);
+  animation-delay: -0.9s;
 }
 
 .rank-badge:hover {
@@ -1119,6 +1159,10 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   --coach-title-color: rgba(238, 205, 112, 0.96);
   --coach-body-color: var(--text-secondary);
   --coach-placeholder-color: rgba(238, 205, 112, 0.9);
+  --coach-slide-bg: linear-gradient(135deg, rgba(20, 22, 28, 0.88), rgba(12, 14, 18, 0.78));
+  --coach-slide-tile-bg: rgba(255, 255, 255, 0.055);
+  --coach-slide-tile-border: rgba(212, 175, 55, 0.24);
+  --coach-slide-muted: rgba(232, 221, 186, 0.68);
 }
 
 .coach-report-panel :deep(.ai-coach-cards) {
@@ -1187,25 +1231,175 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 }
 
 .coach-report-panel :deep(.coach-expanded-layer) {
-  width: calc(100% + var(--fortune-column-width) + var(--coach-grid-gap));
-  right: auto;
-  z-index: 999;
-  padding-top: 0;
-  transition: opacity 0.3s ease-in-out;
+  position: fixed;
+  inset: 62px 24px 24px 276px;
+  z-index: 9999;
+  width: auto;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+  background: rgba(6, 7, 10, 0.34);
+  backdrop-filter: blur(10px);
+  transition: opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .coach-report-panel :deep(.coach-expanded-card) {
-  min-height: 270px;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(280px, 0.92fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(128px, auto);
+  align-content: stretch;
+  gap: 22px;
+  padding: 40px 48px;
+  border: 1px solid rgba(212, 175, 55, 0.38);
+  border-radius: 24px;
+  background: var(--coach-slide-bg);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 1px rgba(212, 175, 55, 0.12),
+    0 0 44px rgba(212, 175, 55, 0.2);
+  overflow: hidden;
+  transform-origin: center;
   transition:
-    width 0.3s ease-in-out,
-    transform 0.3s ease-in-out,
-    opacity 0.3s ease-in-out;
+    transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.coach-report-panel :deep(.coach-expanded-card h3) {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.4);
+  color: var(--coach-title-color);
+  font-size: 0;
+  line-height: 1.35;
+}
+
+.coach-report-panel :deep(.coach-expanded-card h3)::before {
+  content: 'AI 电子教练 · 综合报告';
+  display: block;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, PMingLiU, 'Times New Roman', serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.coach-report-panel :deep(.coach-expanded-card p),
+.coach-report-panel :deep(.coach-expanded-card strong),
+.coach-report-panel :deep(.coach-expanded-card)::after {
+  min-height: 0;
+  margin: 0;
+  border: 1px solid var(--coach-slide-tile-border);
+  border-radius: 18px;
+  background: var(--coach-slide-tile-bg);
+  color: var(--coach-body-color);
+  box-shadow: inset -1px -1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.coach-report-panel :deep(.coach-expanded-card p) {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  font-size: 0;
+}
+
+.coach-report-panel :deep(.coach-expanded-card p)::before {
+  content: '数据总览';
+  color: var(--coach-title-color);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.coach-report-panel :deep(.coach-expanded-card p)::after {
+  content: '近期KDA趋势\A 英雄池分布\A 高光时刻';
+  flex: 1;
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(212, 175, 55, 0.12), transparent),
+    rgba(255, 255, 255, 0.045);
+  color: var(--coach-slide-muted);
+  font-size: 1rem;
+  line-height: 2.6;
+  white-space: pre-line;
+}
+
+.coach-report-panel :deep(.coach-expanded-card strong) {
+  grid-column: 2 / 3;
+  grid-row: 2 / 3;
+  display: flex;
+  align-items: stretch;
+  padding: 24px;
+  font-size: 0;
+}
+
+.coach-report-panel :deep(.coach-expanded-card strong)::before {
+  content: '智能建议\A\A 对线策略建议\A 团战定位建议\A 资源交换建议';
+  width: 100%;
+  color: var(--coach-body-color);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 2.05;
+  white-space: pre-line;
+}
+
+.coach-report-panel :deep(.coach-expanded-card)::after {
+  content: '赛后复盘\A 详细复盘报告即将上线';
+  grid-column: 1 / -1;
+  grid-row: 3 / 4;
+  display: flex;
+  align-items: center;
+  padding: 24px 28px;
+  color: var(--coach-slide-muted);
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.8;
+  white-space: pre-line;
+}
+
+.coach-report-panel :deep(.coach-close) {
+  top: 22px;
+  right: 24px;
+  z-index: 2;
+  border-color: rgba(212, 175, 55, 0.46);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(238, 205, 112, 0.96);
+}
+
+.coach-report-panel :deep(.coach-expand-enter-active),
+.coach-report-panel :deep(.coach-expand-leave-active) {
+  transition: opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.coach-report-panel :deep(.coach-expand-enter-active .coach-expanded-card),
+.coach-report-panel :deep(.coach-expand-leave-active .coach-expanded-card) {
+  transition:
+    transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.coach-report-panel :deep(.coach-expand-enter-from .coach-expanded-card),
+.coach-report-panel :deep(.coach-expand-leave-to .coach-expanded-card) {
+  opacity: 0;
+  transform: scale(0.95);
 }
 
 :global([data-theme="light"] .coach-report-panel) {
   --coach-title-color: #2f2918;
   --coach-body-color: #4b4638;
   --coach-placeholder-color: #6f5b19;
+  --coach-slide-bg: linear-gradient(135deg, rgba(245, 245, 250, 0.9), rgba(242, 236, 222, 0.82));
+  --coach-slide-tile-bg: rgba(255, 255, 255, 0.52);
+  --coach-slide-tile-border: rgba(180, 180, 190, 0.5);
+  --coach-slide-muted: #62583e;
 }
 
 :global([data-theme="light"] .rank-badge) {
@@ -1264,6 +1458,25 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 :global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible::after) {
   border-color: rgba(212, 175, 55, 0.24);
   box-shadow: 0 0 12px rgba(212, 175, 55, 0.1);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-expanded-layer) {
+  background: rgba(248, 248, 250, 0.38);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-expanded-card) {
+  background: var(--coach-slide-bg);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 1px rgba(180, 180, 190, 0.24),
+    0 10px 34px rgba(100, 116, 139, 0.18);
+}
+
+:global([data-theme="light"] .coach-report-panel .coach-expanded-card p),
+:global([data-theme="light"] .coach-report-panel .coach-expanded-card strong),
+:global([data-theme="light"] .coach-report-panel .coach-expanded-card::after) {
+  background: var(--coach-slide-tile-bg);
+  border-color: var(--coach-slide-tile-border);
 }
 
 :global([data-theme="light"] .home-view) {
@@ -1353,6 +1566,25 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   }
 }
 
+@keyframes rank-orbit-breathe {
+  0%,
+  100% {
+    opacity: 0.58;
+    filter: brightness(0.96);
+    box-shadow:
+      0 0 5px var(--rank-comet),
+      0 0 10px rgba(var(--rank-fill-rgb), 0.3);
+  }
+
+  50% {
+    opacity: 0.92;
+    filter: brightness(1.18);
+    box-shadow:
+      0 0 8px var(--rank-comet),
+      0 0 16px rgba(var(--rank-fill-rgb), 0.5);
+  }
+}
+
 @media (max-width: 920px) {
   .coach-report-grid,
   .account-panel {
@@ -1382,7 +1614,28 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   }
 
   .coach-report-panel :deep(.coach-expanded-layer) {
-    width: 100%;
+    width: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .coach-report-panel :deep(.coach-expanded-layer) {
+    inset: 52px 14px 14px 110px;
+  }
+
+  .coach-report-panel :deep(.coach-expanded-card) {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(160px, 1fr) minmax(160px, 1fr) auto;
+    padding: 30px 28px;
+  }
+
+  .coach-report-panel :deep(.coach-expanded-card strong) {
+    grid-column: 1 / -1;
+    grid-row: 3 / 4;
+  }
+
+  .coach-report-panel :deep(.coach-expanded-card)::after {
+    grid-row: 4 / 5;
   }
 }
 </style>
