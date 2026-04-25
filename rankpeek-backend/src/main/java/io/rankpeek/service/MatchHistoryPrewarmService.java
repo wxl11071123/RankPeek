@@ -47,12 +47,7 @@ public class MatchHistoryPrewarmService {
             return;
         }
 
-        long now = System.currentTimeMillis();
         for (String puuid : normalizedPuuids) {
-            if (!markSubmittedIfNeeded(puuid, now)) {
-                log.debug("Skipping duplicate match-history prewarm: puuid={}, reason={}", puuidPrefix(puuid), reason);
-                continue;
-            }
             try {
                 dataLoaderExecutor.execute(() -> prewarmPlayer(puuid, reason));
             } catch (Exception e) {
@@ -70,15 +65,44 @@ public class MatchHistoryPrewarmService {
         }
 
         try {
-            summonerService.getSummonerByPuuid(puuid);
-            rankService.getRankByPuuid(puuid);
-            matchHistoryService.getMatchHistoryFetchResult(puuid, false);
-            log.debug("Prewarmed visible session player caches: puuid={}, reason={}", puuidPrefix(puuid), reason);
-        } catch (Exception e) {
-            log.debug("Failed to prewarm visible session player caches: puuid={}, reason={}, error={}",
-                    puuidPrefix(puuid), reason, e.getMessage());
+            if (!markSubmittedIfNeeded(puuid, System.currentTimeMillis())) {
+                log.debug("Skipping duplicate match-history prewarm: puuid={}, reason={}", puuidPrefix(puuid), reason);
+                return;
+            }
+
+            prewarmSummoner(puuid, reason);
+            prewarmRank(puuid, reason);
+            prewarmMatchHistory(puuid, reason);
+            log.debug("Finished visible session player cache prewarm: puuid={}, reason={}", puuidPrefix(puuid), reason);
         } finally {
             prewarmSemaphore.release();
+        }
+    }
+
+    private void prewarmSummoner(String puuid, String reason) {
+        try {
+            summonerService.getSummonerByPuuid(puuid);
+        } catch (Exception e) {
+            log.debug("Failed to prewarm summoner cache: puuid={}, reason={}, error={}",
+                    puuidPrefix(puuid), reason, e.getMessage());
+        }
+    }
+
+    private void prewarmRank(String puuid, String reason) {
+        try {
+            rankService.getRankByPuuid(puuid);
+        } catch (Exception e) {
+            log.debug("Failed to prewarm rank cache: puuid={}, reason={}, error={}",
+                    puuidPrefix(puuid), reason, e.getMessage());
+        }
+    }
+
+    private void prewarmMatchHistory(String puuid, String reason) {
+        try {
+            matchHistoryService.getMatchHistoryFetchResult(puuid, false);
+        } catch (Exception e) {
+            log.debug("Failed to prewarm match history cache: puuid={}, reason={}, error={}",
+                    puuidPrefix(puuid), reason, e.getMessage());
         }
     }
 

@@ -8,6 +8,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Semaphore;
 
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -74,10 +75,43 @@ class MatchHistoryPrewarmServiceTest {
     }
 
     @Test
+    void prewarmPlayers_semaphoreSkipDoesNotEnterDedupeWindow() throws Exception {
+        Semaphore semaphore = prewarmSemaphore();
+        semaphore.drainPermits();
+
+        service.prewarmPlayers(List.of("player-a"), "busy");
+        semaphore.release();
+        service.prewarmPlayers(List.of("player-a"), "retry");
+
+        verify(summonerService, times(1)).getSummonerByPuuid("player-a");
+        verify(rankService, times(1)).getRankByPuuid("player-a");
+        verify(matchHistoryService, times(1)).getMatchHistoryFetchResult("player-a", false);
+    }
+
+    @Test
+    void prewarmPlayers_summonerFailureStillPrewarmsRankAndMatchHistory() {
+        doThrow(new RuntimeException("summoner failed"))
+                .when(summonerService)
+                .getSummonerByPuuid("player-a");
+
+        service.prewarmPlayers(List.of("player-a"), "test");
+
+        verify(summonerService).getSummonerByPuuid("player-a");
+        verify(rankService).getRankByPuuid("player-a");
+        verify(matchHistoryService).getMatchHistoryFetchResult("player-a", false);
+    }
+
+    @Test
     void prewarmPlayers_doesNotForceRefreshMatchHistory() {
         service.prewarmPlayers(List.of("player-a"), "test");
 
         verify(matchHistoryService).getMatchHistoryFetchResult("player-a", false);
         verify(matchHistoryService, never()).getMatchHistoryFetchResult("player-a", true);
+    }
+
+    private Semaphore prewarmSemaphore() throws Exception {
+        var field = MatchHistoryPrewarmService.class.getDeclaredField("prewarmSemaphore");
+        field.setAccessible(true);
+        return (Semaphore) field.get(service);
     }
 }
