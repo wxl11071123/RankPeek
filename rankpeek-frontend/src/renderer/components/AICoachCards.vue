@@ -4,6 +4,14 @@ import { computed, ref } from 'vue'
 interface CoachCard {
   title: string
   body: string
+  detail: string
+  isPlaceholder?: boolean
+}
+
+interface CoachReport {
+  title: string
+  body: string
+  detail?: string
 }
 
 interface PositionedCoachCard {
@@ -12,40 +20,78 @@ interface PositionedCoachCard {
   order: number
 }
 
-const cards: CoachCard[] = [
-  { title: '赛前分析', body: '选人阶段实时建议即将开放' },
-  { title: '队友成分', body: '队伍风格识别即将开放' },
-  { title: '综合建议', body: 'AI 教练报告即将上线' }
-]
+const MIN_STACK_CARDS = 3
+const MAX_STACK_CARDS = 7
+const EMPTY_REPORT_TEXT = '使用电子教练创建第一份个人报告。'
+const WAITING_REPORT_TEXT = '等待更多数据。'
+
+const props = withDefaults(defineProps<{ reports?: CoachReport[] }>(), {
+  reports: () => []
+})
 
 const activeIndex = ref(0)
 const expandedIndex = ref<number | null>(null)
 const touchStartY = ref<number | null>(null)
 let lastWheelAt = 0
 
+const cards = computed<CoachCard[]>(() => {
+  const reportCards: CoachCard[] = props.reports.slice(0, MAX_STACK_CARDS).map((report, index) => ({
+    title: report.title || `第 ${index + 1} 份报告`,
+    body: report.body || 'AI 教练报告即将上线',
+    detail: report.detail || '详细报告即将上线'
+  }))
+
+  if (reportCards.length === 0) {
+    return Array.from({ length: MIN_STACK_CARDS }, (_, index) => ({
+      title: index === 0 ? '个人报告' : '待生成报告',
+      body: EMPTY_REPORT_TEXT,
+      detail: EMPTY_REPORT_TEXT,
+      isPlaceholder: true
+    }))
+  }
+
+  while (reportCards.length < MIN_STACK_CARDS) {
+    reportCards.push({
+      title: '待生成报告',
+      body: WAITING_REPORT_TEXT,
+      detail: WAITING_REPORT_TEXT,
+      isPlaceholder: true
+    })
+  }
+
+  return reportCards
+})
+
+const stackStyle = computed<Record<string, string>>(() => {
+  const depth = Math.min(cards.value.length, MAX_STACK_CARDS)
+  return {
+    '--coach-stack-height': `${178 + (depth - 1) * 32 + 76}px`
+  }
+})
+
 const positionedCards = computed<PositionedCoachCard[]>(() =>
-  cards.map((card, index) => ({
+  cards.value.map((card, index) => ({
     card,
     index,
-    order: (index - activeIndex.value + cards.length) % cards.length
+    order: (index - activeIndex.value + cards.value.length) % cards.value.length
   }))
 )
 
 const expandedCard = computed(() =>
-  expandedIndex.value == null ? null : cards[expandedIndex.value]
+  expandedIndex.value == null ? null : cards.value[expandedIndex.value]
 )
 
 function cardStyle(item: PositionedCoachCard): Record<string, string> {
-  const scale = 1 - item.order * 0.045
+  const scale = Math.max(0.74, 1 - item.order * 0.035)
   return {
-    '--card-transform': `translateY(${item.order * 36 - 3}px) scale(${scale})`,
-    zIndex: String(cards.length - item.order),
-    opacity: String(1 - item.order * 0.16)
+    '--card-transform': `translateY(${item.order * 32 - 3}px) scale(${scale})`,
+    zIndex: String(cards.value.length - item.order),
+    opacity: String(Math.max(0.3, 1 - item.order * 0.1))
   }
 }
 
 function moveStack(direction: 1 | -1) {
-  activeIndex.value = (activeIndex.value + direction + cards.length) % cards.length
+  activeIndex.value = (activeIndex.value + direction + cards.value.length) % cards.value.length
 }
 
 function handleWheel(event: WheelEvent) {
@@ -95,16 +141,17 @@ function closeCard() {
 <template>
   <div
     class="ai-coach-cards"
+    :style="stackStyle"
     @wheel.prevent="handleWheel"
     @touchstart.passive="handleTouchStart"
     @touchend.passive="handleTouchEnd"
   >
     <button
       v-for="item in positionedCards"
-      :key="item.card.title"
+      :key="`${item.card.title}-${item.index}`"
       class="coach-stack-card"
       type="button"
-      :class="{ active: item.order === 0 }"
+      :class="{ active: item.order === 0, placeholder: item.card.isPlaceholder }"
       :style="cardStyle(item)"
       @click="openCard(item.index)"
     >
@@ -129,7 +176,7 @@ function closeCard() {
           </button>
           <h3>{{ expandedCard.title }}</h3>
           <p>{{ expandedCard.body }}</p>
-          <strong>详细报告即将上线</strong>
+          <strong>{{ expandedCard.detail }}</strong>
         </article>
       </div>
     </Transition>
@@ -139,8 +186,8 @@ function closeCard() {
 <style scoped>
 .ai-coach-cards {
   position: relative;
-  min-height: 286px;
-  overflow: hidden;
+  min-height: var(--coach-stack-height, 286px);
+  overflow: visible;
   padding: 10px 14px 56px 0;
   touch-action: pan-y;
 }
@@ -172,7 +219,25 @@ function closeCard() {
     box-shadow 0.22s ease,
     border-color 0.22s ease,
     background 0.22s ease;
+  overflow: hidden;
+  isolation: isolate;
   will-change: transform;
+}
+
+.coach-stack-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid rgba(212, 175, 55, 0.26);
+  border-radius: inherit;
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.15);
+  opacity: 0.82;
+  pointer-events: none;
+  transition:
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    opacity 0.22s ease;
+  z-index: 0;
 }
 
 .coach-stack-card:hover,
@@ -180,8 +245,11 @@ function closeCard() {
   border-color: rgba(212, 175, 55, 0.58);
   background: rgba(255, 255, 255, 0.1);
   box-shadow: 0 0 32px rgba(212, 175, 55, 0.28);
-  transform: var(--card-transform) scale(1.02);
-  animation: coach-breathe 1.5s ease-in-out infinite;
+}
+
+.coach-stack-card:hover::after,
+.coach-stack-card:focus-visible::after {
+  animation: coach-border-breathe 1.5s ease-in-out infinite;
 }
 
 .coach-stack-card:focus-visible {
@@ -196,12 +264,13 @@ function closeCard() {
   background: linear-gradient(118deg, rgba(212, 175, 55, 0.18), transparent 42%, rgba(255, 255, 255, 0.04));
   opacity: 0.62;
   pointer-events: none;
+  z-index: 0;
 }
 
 .coach-card-title,
 .coach-card-body {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .coach-card-title {
@@ -214,6 +283,10 @@ function closeCard() {
   color: var(--text-secondary);
   font-size: 15px;
   font-weight: 700;
+}
+
+.coach-stack-card.placeholder .coach-card-body {
+  color: var(--coach-placeholder-color, rgba(238, 205, 112, 0.9));
 }
 
 .coach-card-dots {
@@ -335,14 +408,18 @@ function closeCard() {
   background: rgba(255, 255, 255, 0.72);
 }
 
-@keyframes coach-breathe {
+@keyframes coach-border-breathe {
   0%,
   100% {
+    border-color: rgba(212, 175, 55, 0.34);
     box-shadow: 0 0 28px rgba(212, 175, 55, 0.22);
+    opacity: 0.84;
   }
 
   50% {
+    border-color: rgba(247, 217, 122, 0.7);
     box-shadow: 0 0 40px rgba(212, 175, 55, 0.34);
+    opacity: 1;
   }
 }
 

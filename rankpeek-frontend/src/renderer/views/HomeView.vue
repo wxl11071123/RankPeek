@@ -634,10 +634,11 @@ function formatDivision(rank: QueueInfo): string {
 .coach-report-panel {
   --coach-title-color: rgba(238, 205, 112, 0.96);
   --coach-body-color: var(--text-secondary);
+  --coach-placeholder-color: rgba(238, 205, 112, 0.9);
 }
 
 .coach-report-panel :deep(.ai-coach-cards) {
-  min-height: 298px;
+  min-height: max(298px, var(--coach-stack-height, 298px));
   overflow: visible;
 }
 
@@ -680,6 +681,7 @@ function formatDivision(rank: QueueInfo): string {
 :global([data-theme="light"]) .coach-report-panel {
   --coach-title-color: #2f2918;
   --coach-body-color: #4b4638;
+  --coach-placeholder-color: #6f5b19;
 }
 
 .fortune-card {
