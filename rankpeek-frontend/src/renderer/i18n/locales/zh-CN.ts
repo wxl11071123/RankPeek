@@ -194,6 +194,13 @@ const zhCN = {
   'summoner.notFound': '没有找到这个 Riot ID 对应的召唤师。',
   'summoner.searchFailed': '查询失败，请稍后再试。',
   'summoner.historyLoadFailed': '战绩加载失败。',
+  'summoner.lookupAccount': '查询账号',
+  'summoner.soloRank': '单双排',
+  'summoner.flexRank': '灵活组排',
+  'summoner.matchSamples': '样本',
+  'summoner.currentPage': '页码',
+  'summoner.damageTaken': '承伤',
+  'summoner.heal': '治疗',
 
   'matchDetail.title': '对局详情',
 

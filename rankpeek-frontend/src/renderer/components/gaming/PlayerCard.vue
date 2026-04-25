@@ -18,29 +18,64 @@
         </div>
 
         <div class="player-copy">
-          <div class="name-row">
-            <button class="player-name" type="button" @click="onNameClick">
-              {{ sessionSummoner.summoner.gameName }}
-            </button>
-
-            <div v-if="!recordStatusMeta && userTags.length" class="name-tags">
-              <span
-                v-for="tag in userTags"
-                :key="tag.tagName"
-                class="tag-chip"
-                :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
-                :title="tag.tagDesc"
-              >
-                {{ tag.tagName }}
-              </span>
-            </div>
-          </div>
+          <button class="player-id" type="button" @click="onNameClick">
+            {{ sessionSummoner.summoner.gameName }}#{{ sessionSummoner.summoner.tagLine }}
+          </button>
 
           <div class="meta-row">
-            <span class="player-tag">#{{ sessionSummoner.summoner.tagLine }}</span>
             <div class="tier-row">
               <img :src="tierImgUrl" class="tier-icon" alt="" />
               <span>{{ tierText }}</span>
+            </div>
+
+            <div
+              v-if="!recordStatusMeta && userTags.length"
+              ref="tagContainerRef"
+              class="name-tags"
+            >
+              <div ref="tagMeasureRef" class="tag-measure" aria-hidden="true">
+                <span
+                  v-for="(tag, index) in userTags"
+                  :key="`${tag.tagName}-measure-${index}`"
+                  class="tag-chip"
+                  :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
+                  :title="tag.tagDesc"
+                  data-tag-measure
+                >
+                  {{ tag.tagName }}
+                </span>
+                <button class="more-chip" type="button" tabindex="-1" data-overflow-measure>
+                  +{{ overflowMeasureCount }}
+                </button>
+              </div>
+
+              <div class="visible-tags">
+                <span
+                  v-for="(tag, index) in visibleUserTags"
+                  :key="`${tag.tagName}-${index}`"
+                  class="tag-chip"
+                  :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
+                  :title="tag.tagDesc"
+                >
+                  {{ tag.tagName }}
+                </span>
+              </div>
+              <div v-if="hiddenUserTagCount" class="tag-overflow">
+                <button class="more-chip" type="button" :aria-label="`还有 ${hiddenUserTagCount} 个标签`">
+                  +{{ hiddenUserTagCount }}
+                </button>
+                <div class="hidden-tags-popover">
+                  <span
+                    v-for="(tag, index) in hiddenUserTags"
+                    :key="`${tag.tagName}-hidden-${index}`"
+                    class="tag-chip"
+                    :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
+                    :title="tag.tagDesc"
+                  >
+                    {{ tag.tagName }}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -78,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { QueueInfo, RecordStatus, SessionSummoner } from '@/types/api'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
@@ -142,6 +177,135 @@ const recordStatusMeta = computed(() => {
 })
 
 const userTags = computed(() => props.sessionSummoner.userTag?.tag || [])
+const measuredVisibleTagCount = ref<number | null>(null)
+const tagContainerRef = ref<HTMLElement | null>(null)
+const tagMeasureRef = ref<HTMLElement | null>(null)
+
+const visibleTagLimit = computed(() => measuredVisibleTagCount.value ?? userTags.value.length)
+const visibleUserTags = computed(() => userTags.value.slice(0, visibleTagLimit.value))
+const hiddenUserTags = computed(() => userTags.value.slice(visibleTagLimit.value))
+const hiddenUserTagCount = computed(() => hiddenUserTags.value.length)
+const overflowMeasureCount = computed(() => Math.max(userTags.value.length, 1))
+
+const TAG_GAP = 6
+const MIN_VISIBLE_TAGS_WHEN_COLLAPSED = 1
+
+let tagResizeObserver: ResizeObserver | null = null
+let tagMeasureFrame = 0
+
+function getPackedTagWidth(widths: number[], count: number): number {
+  if (count <= 0) {
+    return 0
+  }
+  return widths.slice(0, count).reduce((total, width) => total + width, 0) + TAG_GAP * (count - 1)
+}
+
+function updateVisibleTagCount() {
+  const tags = userTags.value
+  if (!tags.length) {
+    measuredVisibleTagCount.value = 0
+    return
+  }
+
+  const container = tagContainerRef.value
+  const measure = tagMeasureRef.value
+  if (tags.length === 1) {
+    measuredVisibleTagCount.value = 1
+    return
+  }
+
+  if (!container || !measure) {
+    measuredVisibleTagCount.value = tags.length
+    return
+  }
+
+  const availableWidth = Math.floor(container.clientWidth)
+  if (availableWidth <= 0) {
+    measuredVisibleTagCount.value = tags.length
+    return
+  }
+
+  const tagWidths = Array.from(measure.querySelectorAll<HTMLElement>('.tag-chip')).map((node) =>
+    Math.ceil(node.offsetWidth)
+  )
+  const moreChipWidth = Math.ceil(measure.querySelector<HTMLElement>('.more-chip')?.offsetWidth || 38)
+
+  if (!tagWidths.length || getPackedTagWidth(tagWidths, tags.length) <= availableWidth) {
+    measuredVisibleTagCount.value = tags.length
+    return
+  }
+
+  let visibleCount = Math.max(
+    0,
+    Math.min(tags.length - 1, tagWidths.findIndex((_, index) => getPackedTagWidth(tagWidths, index + 1) > availableWidth))
+  )
+
+  if (visibleCount < 0) {
+    visibleCount = tags.length - 1
+  }
+
+  while (visibleCount > MIN_VISIBLE_TAGS_WHEN_COLLAPSED) {
+    const packedWidth = getPackedTagWidth(tagWidths, visibleCount) + TAG_GAP + moreChipWidth
+    if (packedWidth <= availableWidth) {
+      break
+    }
+    visibleCount -= 1
+  }
+
+  if (
+    visibleCount === MIN_VISIBLE_TAGS_WHEN_COLLAPSED &&
+    getPackedTagWidth(tagWidths, visibleCount) + TAG_GAP + moreChipWidth > availableWidth &&
+    moreChipWidth <= availableWidth
+  ) {
+    visibleCount = 0
+  }
+
+  measuredVisibleTagCount.value = visibleCount
+}
+
+function scheduleVisibleTagUpdate() {
+  if (tagMeasureFrame) {
+    window.cancelAnimationFrame(tagMeasureFrame)
+  }
+  tagMeasureFrame = window.requestAnimationFrame(() => {
+    tagMeasureFrame = 0
+    updateVisibleTagCount()
+  })
+}
+
+function observeTagContainer() {
+  tagResizeObserver?.disconnect()
+  if (tagContainerRef.value) {
+    tagResizeObserver?.observe(tagContainerRef.value)
+  }
+}
+
+onMounted(() => {
+  tagResizeObserver = new ResizeObserver(scheduleVisibleTagUpdate)
+  observeTagContainer()
+  window.addEventListener('resize', scheduleVisibleTagUpdate)
+  nextTick(scheduleVisibleTagUpdate)
+})
+
+onBeforeUnmount(() => {
+  tagResizeObserver?.disconnect()
+  window.removeEventListener('resize', scheduleVisibleTagUpdate)
+  if (tagMeasureFrame) {
+    window.cancelAnimationFrame(tagMeasureFrame)
+  }
+})
+
+watch(
+  () => userTags.value.map((tag) => tag.tagName).join('|'),
+  () => {
+    measuredVisibleTagCount.value = null
+    nextTick(() => {
+      observeTagContainer()
+      scheduleVisibleTagUpdate()
+    })
+  },
+  { flush: 'post' }
+)
 
 const tierLabelMap: Record<string, string> = {
   UNRANKED: '未定级',
@@ -300,8 +464,8 @@ function onNameClick() {
 .player-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px;
   border-radius: 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -327,7 +491,7 @@ function onNameClick() {
 .player-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -336,8 +500,8 @@ function onNameClick() {
 }
 
 .avatar {
-  width: 48px;
-  height: 48px;
+  width: 58px;
+  height: 58px;
   border-radius: 12px;
   object-fit: cover;
   background: var(--bg-tertiary);
@@ -359,72 +523,131 @@ function onNameClick() {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 7px;
 }
 
-.name-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  row-gap: 4px;
+.player-id {
   min-width: 0;
-  flex-wrap: wrap;
-}
-
-.player-name {
-  min-width: 0;
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: none;
   color: var(--text-primary);
   text-align: left;
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.2;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.player-id:hover {
+  color: var(--accent-color);
+}
+
 .name-tags {
+  position: relative;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 42px;
+}
+
+.visible-tags {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 6px;
+  max-width: 100%;
   min-width: 0;
+  overflow: hidden;
+}
+
+.tag-measure {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.tag-overflow {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.more-chip {
+  min-width: 34px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-hover);
+  font-size: 12px;
+  line-height: 1.1;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.hidden-tags-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 4;
+  width: max-content;
+  max-width: min(260px, 70vw);
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.tag-overflow:hover .hidden-tags-popover,
+.tag-overflow:focus-within .hidden-tags-popover {
+  display: flex;
 }
 
 .meta-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
-.player-tag,
 .tier-row span,
 .status-banner span,
 .empty-state span {
   color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.player-tag {
-  white-space: nowrap;
+  font-size: 13px;
 }
 
 .tier-row {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 5px;
   min-width: 0;
 }
 
 .tier-icon {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
 }
 
@@ -446,10 +669,16 @@ function onNameClick() {
 }
 
 .tag-chip {
-  padding: 2px 7px;
+  flex: 0 0 auto;
+  max-width: 116px;
+  padding: 4px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.15;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag-chip.good {
@@ -476,14 +705,14 @@ function onNameClick() {
 .stat-item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 10px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
 }
 
 .stat-label {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -491,7 +720,7 @@ function onNameClick() {
 
 .stat-item strong {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 18px;
   line-height: 1.2;
 }
 
@@ -549,13 +778,39 @@ function onNameClick() {
 }
 
 @media (max-width: 720px) {
+  .player-card {
+    padding: 12px;
+  }
+
   .player-head {
     grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
   }
 
+  .avatar {
+    width: 52px;
+    height: 52px;
+  }
+
+  .player-id {
+    font-size: 16px;
+  }
+
   .stats-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .stat-item {
+    padding: 8px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+  }
+
+  .stat-item strong {
+    font-size: 16px;
   }
 }
 </style>

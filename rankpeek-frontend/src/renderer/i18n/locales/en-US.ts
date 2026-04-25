@@ -196,6 +196,13 @@ const enUS: Record<MessageKey, string> = {
   'summoner.notFound': 'No summoner was found for this Riot ID.',
   'summoner.searchFailed': 'Search failed. Please try again later.',
   'summoner.historyLoadFailed': 'Failed to load match history.',
+  'summoner.lookupAccount': 'Lookup Account',
+  'summoner.soloRank': 'Solo/Duo',
+  'summoner.flexRank': 'Flex',
+  'summoner.matchSamples': 'Samples',
+  'summoner.currentPage': 'Page',
+  'summoner.damageTaken': 'Taken',
+  'summoner.heal': 'Heal',
 
   'matchDetail.title': 'Match Details',
 

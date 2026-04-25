@@ -41,3 +41,14 @@ test('styles top kills green and top deaths red in recent match roster', () => {
   assert.match(componentSource, /\.kda-number\.leader-kill\s*\{\s*color:\s*#55d187;/)
   assert.match(componentSource, /\.kda-number\.leader-death\s*\{\s*color:\s*#ff6b6b;/)
 })
+
+test('shows item build in the match list before opening details', () => {
+  const componentSource = readFileSync(new URL('./MatchRosterCompact.vue', import.meta.url), 'utf8')
+
+  assert.match(componentSource, /function getItemIds/)
+  assert.match(componentSource, /function getItemUrl/)
+  assert.match(componentSource, /class="player-build"/)
+  assert.match(componentSource, /class="build-icon"/)
+  assert.match(componentSource, /stats\?\.item0/)
+  assert.match(componentSource, /stats\?\.item6/)
+})

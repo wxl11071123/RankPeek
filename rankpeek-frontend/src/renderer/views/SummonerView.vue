@@ -32,19 +32,36 @@
 
     <section v-else-if="searchResult" class="content-stack">
       <div class="history-shell">
-        <SummonerOverviewPanel
-          class="overview-embed"
-          :summoner="searchResult"
-          :user-tag="searchUserTag"
-          :solo-rank="searchSoloRank"
-          :flex-rank="searchFlexRank"
-          :ranked-win-rates="searchRankedWinRates"
-          embedded
-          @copy-name="handleCopyName"
-        />
+        <section class="lookup-account-strip">
+          <div class="lookup-account-profile">
+            <img class="lookup-avatar" :src="getProfileIconUrl(searchResult.profileIconId)" alt="" />
+            <div class="lookup-account-copy">
+              <span class="section-eyebrow">{{ t('summoner.lookupAccount') }}</span>
+              <h2>{{ selectedSummonerName }}</h2>
+              <div class="rank-pills">
+                <span>{{ t('summoner.soloRank') }} {{ formatRankText(searchSoloRank) }}</span>
+                <span>{{ t('summoner.flexRank') }} {{ formatRankText(searchFlexRank) }}</span>
+              </div>
+            </div>
+          </div>
 
-        <div class="history-toolbar">
-          <div>
+          <div class="lookup-account-stats">
+            <div class="lookup-stat">
+              <span>{{ t('summoner.matchSamples') }}</span>
+              <strong>{{ searchMatchHistory.length }}</strong>
+            </div>
+            <div class="lookup-stat">
+              <span>{{ t('summoner.currentPage') }}</span>
+              <strong>{{ currentPage }} / {{ totalPages }}</strong>
+            </div>
+            <button class="ghost-btn" type="button" :disabled="loading" @click="searchSummoner(selectedSummonerName)">
+              {{ loading ? t('common.refreshing') : t('common.refresh') }}
+            </button>
+          </div>
+        </section>
+
+        <div class="lookup-filter-bar">
+          <div class="lookup-filter-copy">
             <h2>{{ t('matchHistory.recentTitle') }}</h2>
             <p>{{ t('summoner.recentBody', { name: selectedSummonerName }) }}</p>
           </div>
@@ -111,13 +128,6 @@
                     <span>{{ formatDuration(match.gameDuration) }} · {{ getCurrentPlayerName(match) }}</span>
                   </div>
                 </div>
-
-                <div class="stat-strip">
-                  <span :style="{ color: getKdaColor(getKdaValue(match)) }">{{ getKdaText(match) }}</span>
-                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.goldEarned) }} {{ t('common.gold') }}</span>
-                  <span>{{ totalCs(getCurrentPlayer(match)?.stats) }} {{ t('common.cs') }}</span>
-                  <span>{{ formatNumber(getCurrentPlayer(match)?.stats?.totalDamageDealtToChampions) }} {{ t('common.damage') }}</span>
-                </div>
               </div>
             </div>
 
@@ -176,7 +186,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/api/httpClient'
 import MatchDetailModal from '@/components/summoner/MatchDetailModal.vue'
 import MatchRosterCompact from '@/components/summoner/MatchRosterCompact.vue'
-import SummonerOverviewPanel from '@/components/summoner/SummonerOverviewPanel.vue'
 import { useGameStore } from '@/stores/game'
 import { useI18n } from '@/i18n'
 import { DEFAULT_ANALYSIS_QUEUE_MODE, getDefaultMatchQueueMode } from '@/utils/matchPreferences'
@@ -475,44 +484,26 @@ function isMatchWin(match: MatchHistory): boolean {
   return Boolean(getCurrentPlayer(match)?.stats?.win)
 }
 
-function getKdaValue(match: MatchHistory): number {
-  const stats = getCurrentPlayer(match)?.stats
-  return calculateKda(stats?.kills || 0, stats?.deaths || 0, stats?.assists || 0)
-}
-
-function getKdaText(match: MatchHistory): string {
-  const stats = getCurrentPlayer(match)?.stats
-  if (!stats) {
-    return '0.0 KDA'
-  }
-  return `${stats.kills}/${stats.deaths}/${stats.assists} · ${getKdaValue(match).toFixed(1)} KDA`
-}
-
-function calculateKda(kills: number, deaths: number, assists: number): number {
-  if (deaths <= 0) {
-    return kills + assists
-  }
-  return (kills + assists) / deaths
-}
-
-function getKdaColor(kda: number): string {
-  if (kda >= 4) {
-    return '#3d9b7a'
-  }
-  if (kda <= 1.5) {
-    return '#c45c5c'
-  }
-  return 'var(--text-primary)'
-}
-
-function totalCs(stats?: Participant['stats']): number {
-  return (stats?.totalMinionsKilled || 0) + (stats?.neutralMinionsKilled || 0)
-}
-
 function getChampionUrl(championId?: number): string {
   return championId && championId > 0
     ? `http://127.0.0.1:8080/api/v1/asset/champion/${championId}`
     : ''
+}
+
+function getProfileIconUrl(profileIconId?: number): string {
+  return profileIconId ? `http://127.0.0.1:8080/api/v1/asset/profile/${profileIconId}` : ''
+}
+
+function formatRankText(queueInfo: QueueInfo | null): string {
+  if (!queueInfo || !queueInfo.tier || queueInfo.tier === 'UNRANKED') {
+    return t('tier.UNRANKED')
+  }
+  if (queueInfo.displayRank) {
+    return queueInfo.displayRank
+  }
+  const tier = queueInfo.tierCn || queueInfo.tier
+  const division = queueInfo.division ? ` ${queueInfo.division}` : ''
+  return `${tier}${division} ${queueInfo.leaguePoints || 0} LP`
 }
 
 function formatDuration(seconds?: number): string {
@@ -528,19 +519,6 @@ function formatShortDate(timestamp?: number): string {
   }
   const date = new Date(timestamp)
   return `${date.getMonth() + 1}/${date.getDate()}`
-}
-
-function formatNumber(value?: number): string {
-  if (value == null) {
-    return '0'
-  }
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(1)}m`
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)}`.replace(/\.0$/, '') + 'k'
-  }
-  return String(value)
 }
 
 function formatSummonerName(summoner: Summoner | null): string {
@@ -609,12 +587,6 @@ function handleNavigateToPlayer(gameName: string, tagLine: string) {
   })
 }
 
-function handleCopyName() {
-  if (selectedSummonerName.value) {
-    console.info('Copied summoner name', selectedSummonerName.value)
-  }
-}
-
 async function applyRouteQueryName(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) {
     return
@@ -661,13 +633,13 @@ watch(
 }
 
 .search-copy h1,
-.history-toolbar h2 {
+.lookup-filter-copy h2 {
   margin: 0;
   color: var(--text-primary);
 }
 
 .search-copy p,
-.history-toolbar p,
+.lookup-filter-copy p,
 .state-card span {
   margin: 6px 0 0;
   color: var(--text-secondary);
@@ -870,16 +842,8 @@ watch(
   color: var(--text-primary);
 }
 
-.champion-copy span,
-.stat-strip {
+.champion-copy span {
   color: var(--text-secondary);
-}
-
-.stat-strip {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  font-size: 13px;
 }
 
 .roster-grid {
@@ -908,6 +872,115 @@ watch(
   color: #de6f6f;
 }
 
+.lookup-account-strip,
+.lookup-filter-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.018));
+}
+
+.lookup-account-strip {
+  align-items: center;
+  padding: 16px;
+}
+
+.lookup-account-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.lookup-avatar {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+  border-radius: 16px;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.lookup-account-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.section-eyebrow {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.lookup-account-copy h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 26px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rank-pills span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(92, 163, 234, 0.12);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.lookup-account-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.lookup-stat {
+  min-width: 96px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.lookup-stat span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.lookup-stat strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.lookup-filter-bar {
+  align-items: flex-end;
+  padding: 14px 16px;
+}
+
+.lookup-filter-copy {
+  min-width: 0;
+}
+
+.lookup-filter-copy h2 {
+  font-size: 20px;
+}
+
 .pagination {
   display: flex;
   justify-content: space-between;
@@ -922,7 +995,8 @@ watch(
 
 @media (max-width: 720px) {
   .search-shell,
-  .history-toolbar,
+  .lookup-account-strip,
+  .lookup-filter-bar,
   .pagination {
     flex-direction: column;
     align-items: stretch;
@@ -933,6 +1007,20 @@ watch(
     min-width: 0;
   }
 
+  .lookup-account-stats,
+  .filters {
+    justify-content: flex-start;
+  }
+
+  .lookup-account-copy h2 {
+    font-size: 22px;
+  }
+
+  .filter-select,
+  .filters .ghost-btn {
+    flex: 1 1 150px;
+  }
+
   .match-card-main,
   .roster-grid {
     grid-template-columns: 1fr;
@@ -941,5 +1029,29 @@ watch(
   .pagination {
     gap: 10px;
   }
+}
+
+@media (max-width: 430px) {
+  .search-shell,
+  .history-shell {
+    padding: 14px;
+  }
+
+  .search-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lookup-account-profile {
+    align-items: flex-start;
+  }
+
+  .lookup-avatar {
+    width: 56px;
+    height: 56px;
+    flex-basis: 56px;
+    border-radius: 14px;
+  }
+
 }
 </style>
