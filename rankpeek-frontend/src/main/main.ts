@@ -12,13 +12,16 @@ let isQuitting = false
 let startupFallbackTimer: ReturnType<typeof setTimeout> | null = null
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null
 let noLcuTimeout: ReturnType<typeof setTimeout> | null = null
+let minimumSplashTimer: ReturnType<typeof setTimeout> | null = null
 let startupExitStarted = false
+let startupStartedAt = 0
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
 const STARTUP_CHECK_INTERVAL_MS = 500
 const NO_LCU_TIMEOUT_MS = 6000
 const STARTUP_FORCE_TIMEOUT_MS = 10000
+const MIN_SPLASH_VISIBLE_MS = 3600
 
 type StartupExitMode = 'smooth' | 'quick'
 
@@ -259,11 +262,29 @@ function clearStartupTimers() {
     clearTimeout(noLcuTimeout)
     noLcuTimeout = null
   }
+
+  if (minimumSplashTimer) {
+    clearTimeout(minimumSplashTimer)
+    minimumSplashTimer = null
+  }
 }
 
 function requestStartupExit(mode: StartupExitMode) {
   if (startupExitStarted) {
     return
+  }
+
+  if (mode === 'smooth') {
+    const remainingVisibleTime = MIN_SPLASH_VISIBLE_MS - (Date.now() - startupStartedAt)
+    if (remainingVisibleTime > 0) {
+      if (!minimumSplashTimer) {
+        minimumSplashTimer = setTimeout(() => {
+          minimumSplashTimer = null
+          requestStartupExit(mode)
+        }, remainingVisibleTime)
+      }
+      return
+    }
   }
 
   runStartupExit(mode)
@@ -307,6 +328,7 @@ function runStartupExit(mode: StartupExitMode) {
 
 function startStartupReadinessChecks() {
   clearStartupTimers()
+  startupStartedAt = Date.now()
 
   let lcuReady = false
   let dataReady = false
@@ -375,12 +397,24 @@ async function checkHomeDataReady() {
   const summoner = unwrapApiResponse(summonerPayload)
   const puuid = getSummonerPuuid(summoner) ?? gameStatePuuid
 
-  return puuid ? hasRecentMatch(puuid) : false
+  if (!puuid) {
+    return false
+  }
+
+  const [rankPayload, rankedWinRatesPayload, matchesReady] = await Promise.all([
+    fetchStartupJson(`${API_BASE_URL}/summoner/rank/${encodeURIComponent(puuid)}`),
+    fetchStartupJson(`${API_BASE_URL}/summoner/ranked-win-rates/${encodeURIComponent(puuid)}`),
+    hasAnalyzableMatches(puuid)
+  ])
+  const rank = unwrapApiResponse(rankPayload)
+  const rankedWinRates = unwrapApiResponse(rankedWinRatesPayload)
+
+  return rank !== null && rankedWinRates !== null && matchesReady
 }
 
-async function hasRecentMatch(puuid: string) {
+async function hasAnalyzableMatches(puuid: string) {
   const matchesPayload = await fetchStartupJson(
-    `${API_BASE_URL}/summoner/matches/${encodeURIComponent(puuid)}?begIndex=0&endIndex=0`
+    `${API_BASE_URL}/summoner/matches/${encodeURIComponent(puuid)}?begIndex=0&endIndex=9`
   )
   const matches = unwrapApiResponse(matchesPayload)
 
