@@ -26,14 +26,17 @@ public class MatchHistoryRefreshService {
 
     private final MatchHistoryService matchHistoryService;
     private final RankService rankService;
+    private final CacheUpdateNotificationService cacheUpdateNotificationService;
     private final ScheduledExecutorService scheduler;
 
     private final Set<String> recentSessionPuuids = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> refreshTaskSubmittedAt = new ConcurrentHashMap<>();
 
     @Autowired
-    public MatchHistoryRefreshService(MatchHistoryService matchHistoryService, RankService rankService) {
-        this(matchHistoryService, rankService, Executors.newScheduledThreadPool(2, runnable -> {
+    public MatchHistoryRefreshService(MatchHistoryService matchHistoryService,
+                                      RankService rankService,
+                                      CacheUpdateNotificationService cacheUpdateNotificationService) {
+        this(matchHistoryService, rankService, cacheUpdateNotificationService, Executors.newScheduledThreadPool(2, runnable -> {
             Thread thread = new Thread(runnable, "match-history-refresh");
             thread.setDaemon(true);
             return thread;
@@ -43,9 +46,11 @@ public class MatchHistoryRefreshService {
     MatchHistoryRefreshService(
             MatchHistoryService matchHistoryService,
             RankService rankService,
+            CacheUpdateNotificationService cacheUpdateNotificationService,
             ScheduledExecutorService scheduler) {
         this.matchHistoryService = matchHistoryService;
         this.rankService = rankService;
+        this.cacheUpdateNotificationService = cacheUpdateNotificationService;
         this.scheduler = scheduler;
     }
 
@@ -137,6 +142,11 @@ public class MatchHistoryRefreshService {
             matchHistoryService.refreshCache(puuid);
             rankService.refreshCache(puuid);
             matchHistoryService.getMatchHistoryFetchResult(puuid, true);
+            cacheUpdateNotificationService.publishPlayerCacheUpdated(
+                    puuid,
+                    "GameEndDelayedRefresh",
+                    List.of("matchHistory")
+            );
         } catch (Exception e) {
             log.warn("Delayed match history refresh failed: puuid={}, error={}", puuidPrefix(puuid), e.getMessage());
         }

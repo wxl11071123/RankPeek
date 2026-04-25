@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -24,6 +26,8 @@ class MatchHistoryPrewarmServiceTest {
     private RankService rankService;
     @Mock
     private MatchHistoryService matchHistoryService;
+    @Mock
+    private CacheUpdateNotificationService cacheUpdateNotificationService;
 
     private MatchHistoryPrewarmService service;
 
@@ -34,6 +38,7 @@ class MatchHistoryPrewarmServiceTest {
                 summonerService,
                 rankService,
                 matchHistoryService,
+                cacheUpdateNotificationService,
                 directExecutor
         );
     }
@@ -99,6 +104,49 @@ class MatchHistoryPrewarmServiceTest {
         verify(summonerService).getSummonerByPuuid("player-a");
         verify(rankService).getRankByPuuid("player-a");
         verify(matchHistoryService).getMatchHistoryFetchResult("player-a", false);
+    }
+
+    @Test
+    void prewarmPlayers_publishesCacheUpdateWhenPrewarmSucceeds() {
+        service.prewarmPlayers(List.of("player-a"), "Lobby");
+
+        verify(cacheUpdateNotificationService).publishPlayerCacheUpdated(
+                "player-a",
+                "Lobby",
+                List.of("summoner", "rank", "matchHistory")
+        );
+    }
+
+    @Test
+    void prewarmPlayers_publishesOnlySuccessfulScopes() {
+        doThrow(new RuntimeException("summoner failed"))
+                .when(summonerService)
+                .getSummonerByPuuid("player-a");
+
+        service.prewarmPlayers(List.of("player-a"), "Lobby");
+
+        verify(cacheUpdateNotificationService).publishPlayerCacheUpdated(
+                "player-a",
+                "Lobby",
+                List.of("rank", "matchHistory")
+        );
+    }
+
+    @Test
+    void prewarmPlayers_doesNotPublishWhenAllScopesFail() {
+        doThrow(new RuntimeException("summoner failed"))
+                .when(summonerService)
+                .getSummonerByPuuid("player-a");
+        doThrow(new RuntimeException("rank failed"))
+                .when(rankService)
+                .getRankByPuuid("player-a");
+        doThrow(new RuntimeException("history failed"))
+                .when(matchHistoryService)
+                .getMatchHistoryFetchResult("player-a", false);
+
+        service.prewarmPlayers(List.of("player-a"), "Lobby");
+
+        verify(cacheUpdateNotificationService, never()).publishPlayerCacheUpdated(anyString(), anyString(), any());
     }
 
     @Test

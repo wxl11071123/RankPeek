@@ -28,6 +28,8 @@ class MatchHistoryRefreshServiceTest {
     @Mock
     private RankService rankService;
     @Mock
+    private CacheUpdateNotificationService cacheUpdateNotificationService;
+    @Mock
     private ScheduledExecutorService scheduler;
 
     private MatchHistoryRefreshService refreshService;
@@ -36,7 +38,12 @@ class MatchHistoryRefreshServiceTest {
     void setUp() {
         when(scheduler.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS)))
                 .thenReturn(mock(ScheduledFuture.class));
-        refreshService = new MatchHistoryRefreshService(matchHistoryService, rankService, scheduler);
+        refreshService = new MatchHistoryRefreshService(
+                matchHistoryService,
+                rankService,
+                cacheUpdateNotificationService,
+                scheduler
+        );
     }
 
     @Test
@@ -76,5 +83,23 @@ class MatchHistoryRefreshServiceTest {
         refreshService.refreshAfterGameEnd("current-1");
 
         verify(scheduler, times(3)).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void refreshAfterGameEnd_publishesMatchHistoryCacheUpdateAfterDelayedRefreshSucceeds() {
+        refreshService.rememberSessionPuuids(List.of("recent-1"));
+
+        refreshService.refreshAfterGameEnd(null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(scheduler, times(3)).schedule(runnableCaptor.capture(), anyLong(), eq(TimeUnit.SECONDS));
+
+        runnableCaptor.getAllValues().getFirst().run();
+
+        verify(cacheUpdateNotificationService).publishPlayerCacheUpdated(
+                "recent-1",
+                "GameEndDelayedRefresh",
+                List.of("matchHistory")
+        );
     }
 }

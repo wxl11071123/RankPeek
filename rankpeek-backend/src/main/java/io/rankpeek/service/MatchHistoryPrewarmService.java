@@ -5,8 +5,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -26,6 +28,7 @@ public class MatchHistoryPrewarmService {
     private final SummonerService summonerService;
     private final RankService rankService;
     private final MatchHistoryService matchHistoryService;
+    private final CacheUpdateNotificationService cacheUpdateNotificationService;
     private final Executor dataLoaderExecutor;
     private final Map<String, Long> prewarmSubmittedAt = new ConcurrentHashMap<>();
     private final Semaphore prewarmSemaphore = new Semaphore(MAX_CONCURRENT_PREWARMS);
@@ -34,10 +37,12 @@ public class MatchHistoryPrewarmService {
     MatchHistoryPrewarmService(SummonerService summonerService,
                                RankService rankService,
                                MatchHistoryService matchHistoryService,
+                               CacheUpdateNotificationService cacheUpdateNotificationService,
                                @Qualifier("dataLoaderExecutor") Executor dataLoaderExecutor) {
         this.summonerService = summonerService;
         this.rankService = rankService;
         this.matchHistoryService = matchHistoryService;
+        this.cacheUpdateNotificationService = cacheUpdateNotificationService;
         this.dataLoaderExecutor = dataLoaderExecutor;
     }
 
@@ -70,38 +75,63 @@ public class MatchHistoryPrewarmService {
                 return;
             }
 
-            prewarmSummoner(puuid, reason);
-            prewarmRank(puuid, reason);
-            prewarmMatchHistory(puuid, reason);
+            List<String> updatedScopes = new ArrayList<>();
+            if (prewarmSummoner(puuid, reason)) {
+                updatedScopes.add("summoner");
+            }
+            if (prewarmRank(puuid, reason)) {
+                updatedScopes.add("rank");
+            }
+            if (prewarmMatchHistory(puuid, reason)) {
+                updatedScopes.add("matchHistory");
+            }
+            if (!updatedScopes.isEmpty()) {
+                publishCacheUpdate(puuid, reason, updatedScopes);
+            }
             log.debug("Finished visible session player cache prewarm: puuid={}, reason={}", puuidPrefix(puuid), reason);
         } finally {
             prewarmSemaphore.release();
         }
     }
 
-    private void prewarmSummoner(String puuid, String reason) {
+    private boolean prewarmSummoner(String puuid, String reason) {
         try {
             summonerService.getSummonerByPuuid(puuid);
+            return true;
         } catch (Exception e) {
             log.debug("Failed to prewarm summoner cache: puuid={}, reason={}, error={}",
                     puuidPrefix(puuid), reason, e.getMessage());
+            return false;
         }
     }
 
-    private void prewarmRank(String puuid, String reason) {
+    private boolean prewarmRank(String puuid, String reason) {
         try {
             rankService.getRankByPuuid(puuid);
+            return true;
         } catch (Exception e) {
             log.debug("Failed to prewarm rank cache: puuid={}, reason={}, error={}",
                     puuidPrefix(puuid), reason, e.getMessage());
+            return false;
         }
     }
 
-    private void prewarmMatchHistory(String puuid, String reason) {
+    private boolean prewarmMatchHistory(String puuid, String reason) {
         try {
             matchHistoryService.getMatchHistoryFetchResult(puuid, false);
+            return true;
         } catch (Exception e) {
             log.debug("Failed to prewarm match history cache: puuid={}, reason={}, error={}",
+                    puuidPrefix(puuid), reason, e.getMessage());
+            return false;
+        }
+    }
+
+    private void publishCacheUpdate(String puuid, String reason, List<String> updatedScopes) {
+        try {
+            cacheUpdateNotificationService.publishPlayerCacheUpdated(puuid, reason, updatedScopes);
+        } catch (Exception e) {
+            log.debug("Failed to publish prewarm cache update: puuid={}, reason={}, error={}",
                     puuidPrefix(puuid), reason, e.getMessage());
         }
     }
