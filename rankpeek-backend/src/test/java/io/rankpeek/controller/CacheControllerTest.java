@@ -1,6 +1,8 @@
 package io.rankpeek.controller;
 
+import io.rankpeek.model.CacheClearResult;
 import io.rankpeek.model.CacheStatus;
+import io.rankpeek.service.CacheMaintenanceService;
 import io.rankpeek.service.CacheStatusService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,18 +12,21 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CacheControllerTest {
 
     private CacheStatusService cacheStatusService;
+    private CacheMaintenanceService cacheMaintenanceService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         cacheStatusService = mock(CacheStatusService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new CacheController(cacheStatusService)).build();
+        cacheMaintenanceService = mock(CacheMaintenanceService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new CacheController(cacheStatusService, cacheMaintenanceService)).build();
     }
 
     @Test
@@ -56,5 +61,48 @@ class CacheControllerTest {
                 .andExpect(jsonPath("$.data.playerMatchIndexCount").value(80))
                 .andExpect(jsonPath("$.data.trackedPlayerCount").value(8))
                 .andExpect(jsonPath("$.data.latestMatchCreation").value(1710000000000L));
+    }
+
+    @Test
+    void clearCache_returnsSuccessfulApiResponseForConfirmedPost() throws Exception {
+        CacheClearResult result = CacheClearResult.builder()
+                .cleared(true)
+                .scope("all")
+                .message("cache cleared")
+                .deletedRows(12L)
+                .timestamp(1710000000000L)
+                .build();
+        when(cacheMaintenanceService.clearCache("all", true)).thenReturn(result);
+
+        mockMvc.perform(post("/api/v1/cache/clear")
+                        .param("scope", "all")
+                        .param("confirm", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.message").value("success"))
+                .andExpect(jsonPath("$.data.cleared").value(true))
+                .andExpect(jsonPath("$.data.scope").value("all"))
+                .andExpect(jsonPath("$.data.deletedRows").value(12))
+                .andExpect(jsonPath("$.data.timestamp").value(1710000000000L));
+    }
+
+    @Test
+    void clearCache_withoutConfirmReturnsNotClearedResult() throws Exception {
+        CacheClearResult result = CacheClearResult.builder()
+                .cleared(false)
+                .scope("all")
+                .message("confirm=true is required")
+                .deletedRows(0L)
+                .timestamp(1710000000000L)
+                .build();
+        when(cacheMaintenanceService.clearCache("all", false)).thenReturn(result);
+
+        mockMvc.perform(post("/api/v1/cache/clear"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.cleared").value(false))
+                .andExpect(jsonPath("$.data.scope").value("all"))
+                .andExpect(jsonPath("$.data.message").value("confirm=true is required"))
+                .andExpect(jsonPath("$.data.deletedRows").value(0));
     }
 }
