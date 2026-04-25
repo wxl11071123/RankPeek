@@ -1,16 +1,15 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell, Tray, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell, Tray, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import * as fs from 'fs'
-import { pathToFileURL } from 'url'
 import { getTrayMenuEntries, getWindowCloseAction, getWindowMinimizeAction, type TrayMenuAction } from './trayBehavior'
-import { buildSplashHtml, getSplashPalette } from './splashScreen'
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 let appTray: Tray | null = null
 let isQuitting = false
+let startupFallbackTimer: ReturnType<typeof setTimeout> | null = null
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -32,21 +31,17 @@ function log(level: string, message: string) {
 }
 
 function getMainIconPath() {
-  return isDev
-    ? join(__dirname, '../../public/icon.ico')
-    : join(process.resourcesPath, 'public/icon.ico')
+  return getPublicAssetPath('icon.ico')
 }
 
 function getTrayIconPath() {
-  return isDev
-    ? join(__dirname, '../../public/tray-icon.ico')
-    : join(process.resourcesPath, 'public/tray-icon.ico')
+  return getPublicAssetPath('tray-icon.ico')
 }
 
-function getBrandingAssetPath(fileName: string) {
+function getPublicAssetPath(fileName: string) {
   return isDev
-    ? join(__dirname, '../../public/branding', fileName)
-    : join(process.resourcesPath, 'public/branding', fileName)
+    ? join(__dirname, '../../public', fileName)
+    : join(process.resourcesPath, 'public', fileName)
 }
 
 function loadWindowBounds(): { width: number; height: number; x: number; y: number } | null {
@@ -192,22 +187,18 @@ function createSplashWindow() {
     return
   }
 
-  const palette = getSplashPalette(nativeTheme.shouldUseDarkColors)
-  const logoUrl = pathToFileURL(getBrandingAssetPath(palette.logoFile)).toString()
-
   splashWindow = new BrowserWindow({
-    width: 420,
-    height: 420,
-    show: true,
+    width: 480,
+    height: 520,
     frame: false,
     transparent: false,
-    backgroundColor: palette.surfaceColor,
+    backgroundColor: '#181820',
+    alwaysOnTop: true,
     resizable: false,
-    movable: false,
+    show: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    alwaysOnTop: true,
     center: true,
     skipTaskbar: true,
     webPreferences: {
@@ -218,16 +209,13 @@ function createSplashWindow() {
   })
 
   splashWindow.removeMenu()
-  void splashWindow.loadURL(
-    `data:text/html;charset=UTF-8,${encodeURIComponent(
-      buildSplashHtml({
-        logoUrl,
-        surfaceColor: palette.surfaceColor,
-        glowColor: palette.glowColor,
-        labelColor: palette.labelColor
-      })
-    )}`
-  )
+  void splashWindow.loadFile(getPublicAssetPath('loading.html')).catch((error) => {
+    log('WARN', `Failed to load splash screen: ${String(error)}`)
+  })
+
+  splashWindow.once('ready-to-show', () => {
+    splashWindow?.show()
+  })
 
   splashWindow.on('closed', () => {
     splashWindow = null
@@ -239,8 +227,46 @@ function closeSplashWindow() {
     return
   }
 
-  splashWindow.close()
+  if (!splashWindow.isDestroyed()) {
+    splashWindow.close()
+  }
   splashWindow = null
+}
+
+function clearStartupFallbackTimer() {
+  if (!startupFallbackTimer) {
+    return
+  }
+
+  clearTimeout(startupFallbackTimer)
+  startupFallbackTimer = null
+}
+
+function revealMainWindow(fadeSplash: boolean) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) {
+    return
+  }
+
+  clearStartupFallbackTimer()
+
+  const showMain = () => {
+    closeSplashWindow()
+    mainWindow?.show()
+    mainWindow?.focus()
+  }
+
+  if (fadeSplash && splashWindow && !splashWindow.isDestroyed()) {
+    void splashWindow.webContents
+      .executeJavaScript('typeof window.finishLoading === "function" && window.finishLoading()')
+      .catch((error) => {
+        log('WARN', `Failed to finish splash animation: ${String(error)}`)
+      })
+
+    setTimeout(showMain, 800)
+    return
+  }
+
+  showMain()
 }
 
 function createWindow() {
@@ -296,6 +322,7 @@ function createWindow() {
   })
 
   mainWindow.on('closed', () => {
+    clearStartupFallbackTimer()
     mainWindow = null
   })
 
@@ -308,10 +335,12 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
-    closeSplashWindow()
-    mainWindow?.show()
-    mainWindow?.focus()
+    revealMainWindow(true)
   })
+
+  startupFallbackTimer = setTimeout(() => {
+    revealMainWindow(false)
+  }, 10000)
 
   if (isDev) {
     void mainWindow.loadURL('http://localhost:5173')
