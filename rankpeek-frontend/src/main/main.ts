@@ -204,7 +204,7 @@ function createSplashWindow() {
     height: 520,
     frame: false,
     transparent: false,
-    backgroundColor: '#0E0E10',
+    backgroundColor: '#000000',
     alwaysOnTop: true,
     resizable: false,
     show: false,

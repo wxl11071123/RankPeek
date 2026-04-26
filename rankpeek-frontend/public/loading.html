@@ -3,16 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="icon.ico" />
     <title>RankPeek Loading</title>
     <style>
       :root {
-        --abyss-center: #08121a;
-        --abyss-edge: #030508;
-        --platinum: #e6dfcd;
+        --black: #000000;
+        --deep-black: #050505;
+        --silver: #f2f2f2;
+        --silver-muted: rgba(242, 242, 242, 0.8);
         --champagne: #d4af37;
-        --champagne-soft: rgba(212, 175, 55, 0.18);
-        --ease-mass: cubic-bezier(0.1, 0.9, 0.2, 1);
-        --ease-awaken: cubic-bezier(0.22, 0.61, 0.36, 1);
+        --champagne-soft: rgba(212, 175, 55, 0.34);
+        --ease-rack-focus: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-snap: cubic-bezier(0.22, 1, 0.36, 1);
+        --ease-exit: cubic-bezier(0.4, 0, 0.2, 1);
       }
 
       * {
@@ -29,577 +32,274 @@
 
       body {
         position: relative;
-        background:
-          radial-gradient(circle at 50% 40%, var(--abyss-center) 0%, var(--abyss-edge) 80%),
-          #030508;
-        color: var(--platinum);
+        display: grid;
+        place-items: center;
+        background: #000000;
+        color: var(--silver);
         opacity: 1;
         -webkit-app-region: drag;
+        font-family:
+          Inter,
+          "SF Pro Display",
+          "Segoe UI",
+          "Microsoft YaHei",
+          sans-serif;
+        transition: opacity 0.5s ease;
       }
 
-      .environment {
+      .ambient-glow {
         position: fixed;
-        inset: 0;
-        overflow: hidden;
-        pointer-events: none;
-        isolation: isolate;
-      }
-
-      .environment::before {
-        content: "";
-        position: absolute;
-        inset: -18%;
-        opacity: 0.22;
-        background:
-          radial-gradient(circle at 44% 35%, rgba(230, 223, 205, 0.05), transparent 24%),
-          radial-gradient(circle at 54% 46%, rgba(212, 175, 55, 0.045), transparent 18%),
-          linear-gradient(115deg, transparent 0%, rgba(230, 223, 205, 0.035) 48%, transparent 58%);
-        filter: blur(22px);
-        animation: depthDrift 12s ease-in-out infinite alternate;
-      }
-
-      .environment::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        opacity: 0.34;
-        background:
-          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
-        background-size: 42px 42px;
-        mask-image: radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0.5), transparent 70%);
-        -webkit-mask-image: radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0.5), transparent 70%);
-      }
-
-      .caustic {
-        position: absolute;
+        top: 44%;
+        left: 50%;
+        z-index: 0;
+        width: 520px;
+        height: 520px;
         border-radius: 999px;
+        pointer-events: none;
         opacity: 0.52;
-        filter: blur(18px);
-        mix-blend-mode: screen;
         background: radial-gradient(
-          ellipse at center,
-          rgba(230, 223, 205, 0.075) 0%,
-          rgba(212, 175, 55, 0.035) 42%,
-          transparent 74%
+          circle at 50% 50%,
+          rgba(212, 175, 55, 0.72) 0%,
+          rgba(212, 175, 55, 0.34) 30%,
+          rgba(212, 175, 55, 0.12) 58%,
+          transparent 78%
         );
-        transition:
-          opacity 1.2s ease,
-          transform 1.2s ease,
-          filter 1.2s ease;
+        filter: blur(210px);
+        transform: translate3d(-50%, -50%, 0) scale(1);
+        animation: ambientMorph 7s ease-in-out infinite alternate;
+        will-change: opacity, transform, filter;
       }
 
-      .caustic.one {
-        top: 30%;
-        left: calc(50% - 156px);
-        width: 220px;
-        height: 120px;
-        animation: causticOne 6.5s ease-in-out infinite;
-      }
-
-      .caustic.two {
-        top: 40%;
-        left: calc(50% - 12px);
-        width: 240px;
-        height: 136px;
-        opacity: 0.38;
-        animation: causticTwo 8s ease-in-out infinite;
-      }
-
-      .caustic.three {
-        top: 21%;
-        left: calc(50% - 44px);
-        width: 260px;
-        height: 150px;
-        opacity: 0.3;
-        animation: causticThree 10s ease-in-out infinite;
-      }
-
-      .stage {
+      .focus-glass {
         position: fixed;
-        top: 42%;
+        top: 44%;
         left: 50%;
-        width: 340px;
-        height: 360px;
-        transform: translate(-50%, -50%);
-        opacity: 0;
-        filter: none;
-        animation: stageRise 1.8s var(--ease-mass) 0.12s forwards;
-        transition:
-          opacity 1.5s ease-in,
-          filter 1.5s ease-in,
-          transform 1.5s ease-in;
-      }
-
-      .mark-shell {
-        position: absolute;
-        top: 38px;
-        left: 50%;
-        width: 180px;
-        height: 180px;
-        transform: translateX(-50%);
-        isolation: isolate;
-      }
-
-      .logo,
-      .logo-rim,
-      .specular,
-      .ripple,
-      .eye-core {
-        position: absolute;
-        inset: 0;
-        width: 180px;
-        height: 180px;
-        border-radius: 28px;
+        z-index: 1;
+        width: 278px;
+        height: 278px;
+        border: 1px solid rgba(242, 242, 242, 0.026);
+        border-radius: 999px;
         pointer-events: none;
-        user-select: none;
-      }
-
-      #logo {
-        z-index: 2;
-        object-fit: contain;
-        opacity: 0.92;
-        filter: blur(0.5px) brightness(0.85);
-        animation: logoSleep 5s ease-in-out infinite;
-        transition:
-          opacity 0.6s ease,
-          filter 0.6s ease,
-          transform 0.6s var(--ease-awaken);
-      }
-
-      .logo-rim {
-        z-index: 3;
-        opacity: 0.42;
+        opacity: 0;
         background:
-          linear-gradient(
-            110deg,
-            transparent 0%,
-            transparent 38%,
-            rgba(230, 223, 205, 0.04) 44%,
-            rgba(230, 223, 205, 0.46) 50%,
-            rgba(212, 175, 55, 0.18) 56%,
-            transparent 64%,
-            transparent 100%
-          );
-        background-size: 280% 280%;
-        mix-blend-mode: screen;
-        mask-image: url("splash-logo.png");
-        mask-repeat: no-repeat;
-        mask-position: center;
-        mask-size: contain;
-        -webkit-mask-image: url("splash-logo.png");
-        -webkit-mask-repeat: no-repeat;
-        -webkit-mask-position: center;
-        -webkit-mask-size: contain;
-        animation: rimSweep 4s ease-in-out infinite;
-      }
-
-      .eye-core {
-        z-index: 4;
-        inset: 50% auto auto 50%;
-        width: 58px;
-        height: 58px;
-        border-radius: 999px;
-        opacity: 0.18;
-        background: radial-gradient(circle, rgba(230, 223, 205, 0.32), rgba(212, 175, 55, 0.08) 45%, transparent 68%);
-        filter: blur(7px);
-        mix-blend-mode: screen;
-        transform: translate(-50%, -50%);
-        animation: eyeBreath 5s ease-in-out infinite;
-      }
-
-      .specular {
-        z-index: 6;
-        inset: -16px;
-        width: 212px;
-        height: 212px;
-        opacity: 0;
-        overflow: hidden;
-        border-radius: 34px;
-      }
-
-      .specular::before {
-        content: "";
-        position: absolute;
-        top: -28%;
-        left: -68%;
-        width: 42px;
-        height: 158%;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.72),
-          rgba(230, 223, 205, 0.42),
-          transparent
-        );
-        filter: blur(0.3px);
-        transform: rotate(45deg);
-      }
-
-      .ripple {
-        z-index: 1;
-        inset: 50% auto auto 50%;
-        width: 42px;
-        height: 42px;
-        border-radius: 999px;
-        opacity: 0;
-        border: 1px solid rgba(230, 223, 205, 0.22);
-        box-shadow:
-          0 0 0 1px rgba(212, 175, 55, 0.1),
-          0 0 26px rgba(230, 223, 205, 0.12);
-        transform: translate(-50%, -50%) scale(0.65);
-      }
-
-      .reflection-wrap {
-        position: absolute;
-        top: 222px;
-        left: 50%;
-        z-index: 1;
-        width: 180px;
-        height: 112px;
-        overflow: hidden;
-        opacity: 0.22;
-        transform: translateX(-50%);
-        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, transparent 60%);
-        -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, transparent 60%);
-        animation: reflectionDrift 5s ease-in-out infinite;
+          radial-gradient(circle at 50% 42%, rgba(242, 242, 242, 0.02), transparent 58%),
+          rgba(255, 255, 255, 0.008);
+        backdrop-filter: blur(18px) saturate(120%);
+        -webkit-backdrop-filter: blur(18px) saturate(120%);
+        transform: translate3d(-50%, -50%, 0) scale(1.03);
+        animation: lensResolve 1s var(--ease-rack-focus) 0.04s forwards;
         transition:
-          opacity 0.42s ease,
-          filter 0.42s ease,
-          transform 0.42s ease;
-      }
-
-      #logoReflection {
-        position: absolute;
-        top: -44px;
-        left: 0;
-        width: 180px;
-        height: 180px;
-        object-fit: contain;
-        opacity: 1;
-        filter: blur(0.9px) brightness(0.76);
-        transform: scaleY(-1);
-        transform-origin: center top;
-      }
-
-      #appName {
-        position: absolute;
-        top: 236px;
-        left: 50%;
-        z-index: 5;
-        width: max-content;
-        color: rgba(230, 223, 205, 0.72);
-        font-family: "Noto Serif SC", "Source Han Serif SC", "Times New Roman", serif;
-        font-size: 24px;
-        font-weight: 600;
-        letter-spacing: 0.28em;
-        line-height: 1;
-        text-indent: 0.28em;
-        opacity: 0;
-        filter: blur(4px);
-        text-shadow:
-          0 0 10px rgba(212, 175, 55, 0.18),
-          0 1px 0 rgba(0, 0, 0, 0.72);
-        -webkit-text-stroke: 0.45px rgba(212, 175, 55, 0.16);
-        transform: translateX(-50%) translateY(-10px);
-        animation: textBloom 1.2s var(--ease-mass) 1.08s forwards;
-        transition:
-          color 0.6s ease,
           opacity 0.6s ease,
-          filter 0.6s ease,
-          transform 0.6s var(--ease-awaken);
+          transform 0.6s var(--ease-snap),
+          filter 0.6s ease;
       }
 
-      #appName::after {
-        content: attr(data-text);
-        position: absolute;
-        inset: 0;
-        color: transparent;
-        opacity: 0.36;
-        background: linear-gradient(105deg, transparent 28%, rgba(230, 223, 205, 0.82) 50%, transparent 72%);
-        background-size: 260% 100%;
-        background-position: 120% 50%;
-        -webkit-background-clip: text;
-        background-clip: text;
-        animation: textRimSweep 4s ease-in-out infinite;
-      }
-
-      body.is-loaded .mark-shell {
-        animation: surfaceBreak 0.72s var(--ease-awaken) forwards;
-      }
-
-      body.is-loaded #logo {
-        animation: none;
-        opacity: 1;
-        filter: blur(0) brightness(1.08);
-      }
-
-      body.is-loaded .logo-rim,
-      body.is-loaded .eye-core {
-        opacity: 0;
-        transition: opacity 0.32s ease;
-      }
-
-      body.is-loaded .reflection-wrap {
-        opacity: 0;
-        filter: blur(4px);
-        transform: translateX(-50%) translateY(28px) scaleY(0.72);
-      }
-
-      body.is-loaded #appName {
-        color: var(--platinum);
-        opacity: 1;
-        filter: blur(0);
-        text-shadow:
-          0 0 12px rgba(230, 223, 205, 0.2),
-          0 1px 0 rgba(0, 0, 0, 0.7);
-      }
-
-      body.is-loaded .specular {
-        animation: specularFlash 0.72s ease-out 0.34s forwards;
-      }
-
-      body.is-loaded .ripple {
-        animation: breakRipple 0.62s ease-out 0.14s forwards;
-      }
-
-      body.is-loaded .caustic,
-      body.is-missing .caustic {
-        animation-play-state: paused;
+      .splash-content {
+        position: relative;
+        z-index: 2;
+        width: 260px;
+        min-height: 246px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        text-align: center;
         opacity: 0;
         filter: blur(24px);
+        transform: scale(1.05);
+        animation: rackFocusIn 1s var(--ease-rack-focus) forwards;
+        will-change: opacity, filter, transform;
+      }
+
+      .splash-logo {
+        width: 150px;
+        height: 150px;
+        object-fit: contain;
+        user-select: none;
+        pointer-events: none;
+      }
+
+      .splash-wordmark {
+        color: var(--silver);
+        font-size: 30px;
+        font-weight: 650;
+        letter-spacing: 0.02em;
+        line-height: 1;
+        text-shadow: 0 0 28px rgba(242, 242, 242, 0.16);
+      }
+
+      body.is-loaded .splash-content {
+        animation: focusSnap 0.3s ease-out forwards;
+        opacity: 1;
+        filter: blur(0);
+        transform: scale(0.98);
+      }
+
+      body.is-loaded .splash-logo {
+        filter: drop-shadow(0 0 18px rgba(242, 242, 242, 0.18));
+      }
+
+      body.is-loaded .splash-wordmark {
+        color: #ffffff;
+        text-shadow:
+          0 0 18px rgba(242, 242, 242, 0.2),
+          0 0 32px rgba(212, 175, 55, 0.08);
+      }
+
+      body.is-loaded .focus-glass {
+        opacity: 0;
+        transform: translate3d(-50%, -50%, 0) scale(0.98);
+        transition:
+          opacity 0.3s ease-out,
+          transform 0.3s ease-out;
+      }
+
+      body.is-loaded .ambient-glow {
+        animation: auraBurst 0.6s ease-out forwards;
       }
 
       body.is-loaded.fade-out {
         opacity: 0;
-        transition: opacity 0.5s ease;
       }
 
-      body.is-missing .stage {
+      body.is-missing .ambient-glow {
+        animation: none;
         opacity: 0;
-        filter: blur(2px) brightness(0.5);
-        transform: translate(-50%, calc(-50% + 30px)) scale(0.98);
+        transition: opacity 0.8s var(--ease-exit);
       }
 
-      body.is-missing .logo-rim,
-      body.is-missing .eye-core,
-      body.is-missing #appName::after {
+      body.is-missing .focus-glass {
         opacity: 0;
+        transform: translate3d(-50%, -50%, 0) scale(0.94);
+        transition:
+          opacity 0.8s var(--ease-exit),
+          transform 0.8s var(--ease-exit);
       }
 
-      @keyframes stageRise {
+      body.is-missing .splash-content {
+        animation: focusOut 0.8s var(--ease-exit) forwards;
+        opacity: 0;
+        filter: blur(10px);
+        transform: scale(0.95);
+      }
+
+      @keyframes rackFocusIn {
         0% {
           opacity: 0;
-          transform: translate(-50%, calc(-50% + 40px)) scale(0.95);
+          filter: blur(24px);
+          transform: scale(1.05);
+        }
+
+        78% {
+          opacity: 1;
+          filter: blur(1.4px);
+          transform: scale(1.002);
+        }
+
+        100% {
+          opacity: 0.8;
+          filter: blur(1px);
+          transform: scale(1);
+        }
+      }
+
+      @keyframes lensResolve {
+        0% {
+          opacity: 0;
+          filter: blur(18px);
+          transform: translate3d(-50%, -50%, 0) scale(1.06);
+        }
+
+        100% {
+          opacity: 0.22;
+          filter: blur(0);
+          transform: translate3d(-50%, -50%, 0) scale(1);
+        }
+      }
+
+      @keyframes ambientMorph {
+        0% {
+          opacity: 0.3;
+          transform: translate3d(calc(-50% - 10px), calc(-50% + 6px), 0) scale(0.96, 1.04);
+        }
+
+        45% {
+          opacity: 0.56;
+          transform: translate3d(calc(-50% + 8px), calc(-50% - 9px), 0) scale(1.08, 0.94);
+        }
+
+        100% {
+          opacity: 0.38;
+          transform: translate3d(calc(-50% + 13px), calc(-50% + 8px), 0) scale(1.02, 1.08);
+        }
+      }
+
+      @keyframes focusSnap {
+        0% {
+          opacity: 0.8;
+          filter: blur(1px);
+          transform: scale(1);
         }
 
         100% {
           opacity: 1;
-          transform: translate(-50%, -50%) scale(1);
+          filter: blur(0);
+          transform: scale(0.98);
         }
       }
 
-      @keyframes textBloom {
+      @keyframes auraBurst {
         0% {
-          opacity: 0;
-          filter: blur(4px);
-          transform: translateX(-50%) translateY(-10px);
-        }
-
-        100% {
-          opacity: 0.82;
-          filter: blur(0.5px);
-          transform: translateX(-50%) translateY(0);
-        }
-      }
-
-      @keyframes logoSleep {
-        0%,
-        100% {
-          filter: blur(0.5px) brightness(0.84);
-        }
-
-        50% {
-          filter: blur(0.45px) brightness(0.9);
-        }
-      }
-
-      @keyframes rimSweep {
-        0%,
-        100% {
-          background-position: 140% 50%;
-          opacity: 0.32;
-        }
-
-        52% {
-          background-position: -34% 50%;
-          opacity: 0.58;
-        }
-      }
-
-      @keyframes textRimSweep {
-        0%,
-        100% {
-          background-position: 130% 50%;
-          opacity: 0.18;
-        }
-
-        52% {
-          background-position: -30% 50%;
-          opacity: 0.38;
-        }
-      }
-
-      @keyframes eyeBreath {
-        0%,
-        100% {
-          opacity: 0.12;
-          transform: translate(-50%, -50%) scale(0.88);
-        }
-
-        48% {
-          opacity: 0.25;
-          transform: translate(-50%, -50%) scale(1.08);
-        }
-      }
-
-      @keyframes reflectionDrift {
-        0%,
-        100% {
-          opacity: 0.18;
-          transform: translateX(-50%) translateY(0) skewX(-1deg);
-        }
-
-        50% {
-          opacity: 0.25;
-          transform: translateX(-50%) translateY(3px) skewX(1.5deg);
-        }
-      }
-
-      @keyframes surfaceBreak {
-        0% {
-          transform: translateX(-50%) scale(1);
-          filter: blur(0.5px);
-        }
-
-        24% {
-          transform: translateX(-50%) scale(0.98);
-          filter: blur(1px) brightness(0.9);
-        }
-
-        100% {
-          transform: translateX(-50%) scale(1);
-          filter: blur(0) brightness(1.04);
-        }
-      }
-
-      @keyframes breakRipple {
-        0% {
-          opacity: 0;
-          transform: translate(-50%, -50%) scale(0.65);
-        }
-
-        16% {
-          opacity: 0.45;
+          opacity: 0.56;
+          filter: blur(220px);
+          transform: translate3d(-50%, -50%, 0) scale(1);
         }
 
         100% {
           opacity: 0;
-          transform: translate(-50%, -50%) scale(4.8);
+          filter: blur(260px);
+          transform: translate3d(-50%, -50%, 0) scale(2);
         }
       }
 
-      @keyframes specularFlash {
+      @keyframes focusOut {
         0% {
+          opacity: 0.8;
+          filter: blur(1px);
+          transform: scale(1);
+        }
+
+        100% {
           opacity: 0;
-        }
-
-        12% {
-          opacity: 0.86;
-        }
-
-        100% {
-          opacity: 0;
+          filter: blur(10px);
+          transform: scale(0.95);
         }
       }
 
-      body.is-loaded .specular::before {
-        animation: specularSweep 0.72s ease-out 0.34s forwards;
-      }
-
-      @keyframes specularSweep {
-        0% {
-          transform: translateX(0) rotate(45deg);
+      @media (prefers-reduced-motion: reduce) {
+        .ambient-glow,
+        .focus-glass,
+        .splash-content {
+          animation-duration: 1ms;
+          animation-iteration-count: 1;
         }
 
-        100% {
-          transform: translateX(360px) rotate(45deg);
-        }
-      }
-
-      @keyframes depthDrift {
-        0% {
-          transform: translate3d(-10px, -8px, 0) scale(1);
-        }
-
-        100% {
-          transform: translate3d(12px, 10px, 0) scale(1.04);
-        }
-      }
-
-      @keyframes causticOne {
-        0%,
-        100% {
-          transform: translate(-12px, 8px) rotate(2deg);
-        }
-
-        50% {
-          transform: translate(16px, -13px) rotate(-3deg);
-        }
-      }
-
-      @keyframes causticTwo {
-        0%,
-        100% {
-          transform: translate(14px, -10px) rotate(-4deg);
-        }
-
-        50% {
-          transform: translate(-15px, 14px) rotate(4deg);
-        }
-      }
-
-      @keyframes causticThree {
-        0%,
-        100% {
-          transform: translate(-18px, -12px) rotate(4deg);
-        }
-
-        50% {
-          transform: translate(24px, 18px) rotate(-4deg);
+        body.is-loaded .ambient-glow,
+        body.is-loaded .splash-content,
+        body.is-missing .splash-content {
+          animation-duration: 1ms;
         }
       }
     </style>
   </head>
   <body>
-    <div class="environment" aria-hidden="true">
-      <span class="caustic one"></span>
-      <span class="caustic two"></span>
-      <span class="caustic three"></span>
-    </div>
+    <div class="ambient-glow" aria-hidden="true"></div>
+    <div class="focus-glass" aria-hidden="true"></div>
 
-    <main class="stage" aria-label="RankPeek">
-      <div class="mark-shell">
-        <img id="logo" class="logo" src="splash-logo.png" alt="" />
-        <div class="logo-rim"></div>
-        <div class="eye-core"></div>
-        <div class="ripple"></div>
-        <div class="specular"></div>
-      </div>
-      <div class="reflection-wrap">
-        <img id="logoReflection" src="splash-logo.png" alt="" />
-      </div>
-      <div id="appName" data-text="RankPeek">RankPeek</div>
+    <main class="splash-content" aria-label="RankPeek">
+      <img class="splash-logo" src="branding/rankpeek-eye-white.png" alt="" />
+      <div class="splash-wordmark">RankPeek</div>
     </main>
 
     <script>
@@ -618,7 +318,7 @@
           setTimeout(() => {
             document.body.style.display = 'none';
           }, 500);
-        }, 1600);
+        }, 1100);
       };
 
       window.finishWithoutLCU = () => {
@@ -631,7 +331,7 @@
 
         setTimeout(() => {
           document.body.style.display = 'none';
-        }, 1500);
+        }, 900);
       };
 
       window.smoothExit = window.finishWithLCU;
