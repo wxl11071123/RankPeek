@@ -10,6 +10,31 @@ test('pagination next button is driven by reachedEnd state instead of visible pa
   assert.match(source, /:disabled="!hasNextPage"/)
 })
 
+test('summary tag loading is tracked separately from match history pagination loading', () => {
+  const source = readFileSync(new URL('./MatchHistoryView.vue', import.meta.url), 'utf8')
+  const loadFunction = source.match(/async function loadMatchHistory\(options\?: \{ throwOnError\?: boolean \}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const summaryFunction = source.match(/async function loadVisibleUserTagSummaries\(matches: MatchHistory\[], requestId = matchHistoryRequestId\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /const summariesLoading = ref\(false\)/)
+  assert.match(loadFunction, /void loadVisibleUserTagSummaries\(matches, requestId\)/)
+  assert.doesNotMatch(loadFunction, /await loadVisibleUserTagSummaries/)
+  assert.match(summaryFunction, /summariesLoading\.value = true/)
+  assert.match(summaryFunction, /summariesLoading\.value = false/)
+})
+
+test('match history and summary requests ignore stale responses', () => {
+  const source = readFileSync(new URL('./MatchHistoryView.vue', import.meta.url), 'utf8')
+  const loadFunction = source.match(/async function loadMatchHistory\(options\?: \{ throwOnError\?: boolean \}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const summaryFunction = source.match(/async function loadVisibleUserTagSummaries\(matches: MatchHistory\[], requestId = matchHistoryRequestId\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /let matchHistoryRequestId = 0/)
+  assert.match(loadFunction, /const requestId = \+\+matchHistoryRequestId/)
+  assert.match(loadFunction, /if \(requestId !== matchHistoryRequestId\) \{[\s\S]*return[\s\S]*\}/)
+  assert.match(loadFunction, /if \(requestId === matchHistoryRequestId\) \{[\s\S]*loading\.value = false[\s\S]*\}/)
+  assert.match(summaryFunction, /if \(requestId === matchHistoryRequestId\) \{[\s\S]*userTagSummaries\.value = summaries[\s\S]*\}/)
+  assert.match(summaryFunction, /if \(requestId === matchHistoryRequestId\) \{[\s\S]*userTagSummaries\.value = \{\}[\s\S]*\}/)
+})
+
 test('nextPage rolls back the page when loading the next slice fails', () => {
   const source = readFileSync(new URL('./MatchHistoryView.vue', import.meta.url), 'utf8')
   const nextPageFunction = source.match(/async function nextPage\(\) \{[\s\S]*?\n\}/)?.[0] || ''

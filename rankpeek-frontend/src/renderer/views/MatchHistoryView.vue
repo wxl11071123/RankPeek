@@ -74,7 +74,7 @@
           <span>{{ matchStateMeta.hint }}</span>
         </div>
 
-        <div v-else class="match-list">
+        <div v-else class="match-list" :aria-busy="summariesLoading">
           <article
             v-for="match in matchHistory"
             :key="match.gameId"
@@ -203,11 +203,13 @@ const filterQueueId = ref(0)
 const defaultMatchQueueMode = ref(0)
 const currentPage = ref(1)
 const loading = ref(false)
+const summariesLoading = ref(false)
 const reachedEnd = ref(false)
 const showDetailModal = ref(false)
 const selectedGameDetail = ref<GameDetail | null>(null)
 const selectedMatchHistory = ref<MatchHistory | null>(null)
 let settingsLoadPromise: Promise<void> | null = null
+let matchHistoryRequestId = 0
 
 const pageSize = 10
 const maxTotalRecords = 50
@@ -294,6 +296,7 @@ async function loadData() {
     return
   }
 
+  matchHistoryRequestId += 1
   loading.value = true
   try {
     await gameStore.fetchRank(currentSummoner.value.puuid)
@@ -310,6 +313,7 @@ async function loadData() {
     rankedWinRates.value = null
     matchHistory.value = []
     userTagSummaries.value = {}
+    summariesLoading.value = false
   } finally {
     loading.value = false
   }
@@ -320,6 +324,7 @@ async function loadMatchHistory(options?: { throwOnError?: boolean }) {
     return
   }
 
+  const requestId = ++matchHistoryRequestId
   loading.value = true
   try {
     const begIndex = (currentPage.value - 1) * pageSize
@@ -334,33 +339,61 @@ async function loadMatchHistory(options?: { throwOnError?: boolean }) {
         })
       : await apiClient.getMatchHistory(currentSummoner.value.puuid, begIndex, endIndex)
 
+    if (requestId !== matchHistoryRequestId) {
+      return
+    }
+
     matchHistory.value = matches
     reachedEnd.value = matches.length < pageSize || currentPage.value >= totalPages.value
-    await loadVisibleUserTagSummaries(matches)
+    userTagSummaries.value = {}
+    void loadVisibleUserTagSummaries(matches, requestId)
   } catch (err) {
+    if (requestId !== matchHistoryRequestId) {
+      return
+    }
+
     console.error('Failed to load match history', err)
     matchHistory.value = []
     userTagSummaries.value = {}
+    summariesLoading.value = false
     if (options?.throwOnError === true) {
       throw err
     }
   } finally {
-    loading.value = false
+    if (requestId === matchHistoryRequestId) {
+      loading.value = false
+    }
   }
 }
 
-async function loadVisibleUserTagSummaries(matches: MatchHistory[]) {
+async function loadVisibleUserTagSummaries(matches: MatchHistory[], requestId = matchHistoryRequestId) {
   const puuids = collectVisiblePuuids(matches)
   if (!puuids.length) {
-    userTagSummaries.value = {}
+    if (requestId === matchHistoryRequestId) {
+      userTagSummaries.value = {}
+      summariesLoading.value = false
+    }
     return
   }
 
+  if (requestId === matchHistoryRequestId) {
+    summariesLoading.value = true
+  }
+
   try {
-    userTagSummaries.value = await apiClient.getUserTagSummaryBatch(puuids, DEFAULT_ANALYSIS_QUEUE_MODE)
+    const summaries = await apiClient.getUserTagSummaryBatch(puuids, DEFAULT_ANALYSIS_QUEUE_MODE)
+    if (requestId === matchHistoryRequestId) {
+      userTagSummaries.value = summaries
+    }
   } catch (err) {
     console.warn('Failed to load summary tags', err)
-    userTagSummaries.value = {}
+    if (requestId === matchHistoryRequestId) {
+      userTagSummaries.value = {}
+    }
+  } finally {
+    if (requestId === matchHistoryRequestId) {
+      summariesLoading.value = false
+    }
   }
 }
 
