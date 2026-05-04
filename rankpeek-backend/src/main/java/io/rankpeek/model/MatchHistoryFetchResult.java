@@ -6,7 +6,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Cached match-history fetch result.
@@ -21,4 +23,7 @@ public class MatchHistoryFetchResult {
     private List<MatchHistory> matches = new ArrayList<>();
 
     private boolean rawEmpty;
+
+    @Builder.Default
+    private Map<Long, String> rawSummaryJsonByGameId = new LinkedHashMap<>();
 }

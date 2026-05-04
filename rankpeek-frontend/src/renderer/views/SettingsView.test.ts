@@ -2,56 +2,65 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-test('renders the showcase as centered logo over animated background copy', () => {
-  const source = readFileSync(new URL('./SettingsView.vue', import.meta.url), 'utf8')
+const source = readFileSync(new URL('./SettingsView.vue', import.meta.url), 'utf8')
+const zh = readFileSync(new URL('../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
+const en = readFileSync(new URL('../i18n/locales/en-US.ts', import.meta.url), 'utf8')
 
-  assert.match(source, /import brandSymbolBlack from "@\/assets\/branding\/rankpeek-symbol-black\.png"/)
-  assert.match(source, /import brandSymbolWhite from "@\/assets\/branding\/rankpeek-symbol-white\.png"/)
-  assert.match(source, /import brandEyeBlack from "@\/assets\/branding\/rankpeek-eye-black\.png"/)
-  assert.match(source, /import brandEyeWhite from "@\/assets\/branding\/rankpeek-eye-white\.png"/)
-  assert.match(
-    source,
-    /const aboutLogoSrc = computed\(\(\) =>\s*themeStore\.theme === "dark" \? brandSymbolBlack : brandSymbolWhite,\s*\)/
-  )
-  assert.match(
-    source,
-    /const aboutShowcaseSrc = computed\(\(\) =>\s*themeStore\.theme === "dark" \? brandEyeBlack : brandEyeWhite,\s*\)/
-  )
-  assert.match(source, /const showcaseBackgroundLines = computed\(\(\) => \[/)
-  assert.match(source, /class="showcase-backdrop"/)
-  assert.match(source, /class="showcase-track"/)
-  assert.match(source, /class="showcase-center-mark"/)
-  assert.match(source, /@keyframes showcase-scroll-left/)
-  assert.match(source, /@keyframes showcase-scroll-right/)
-  assert.doesNotMatch(source, /showcase-copy/)
-  assert.doesNotMatch(source, /showcase-pill/)
-  assert.doesNotMatch(source, /brandGlow/)
+test('settings page is organized for users instead of diagnostics', () => {
+  const accountIndex = source.indexOf('class="account-card"')
+  const essentialsIndex = source.indexOf('class="settings-section essentials-section"')
+  const aboutIndex = source.indexOf('class="settings-section about-section"')
+
+  assert.ok(accountIndex > -1, 'account card should render first')
+  assert.ok(essentialsIndex > accountIndex, 'common settings should follow account card')
+  assert.ok(aboutIndex > essentialsIndex, 'about section should move below common settings')
+
+  assert.match(source, /settings\.accountTitle/)
+  assert.match(source, /settings\.accountDescription/)
+  assert.match(source, /@click="handleAccountAction\('login'\)"/)
+  assert.match(source, /@click="handleAccountAction\('register'\)"/)
+  assert.doesNotMatch(source, /apiClient\.(login|register|auth)/)
 })
 
-test('renders local cache diagnostics and guarded clear actions', () => {
-  const source = readFileSync(new URL('./SettingsView.vue', import.meta.url), 'utf8')
+test('settings page keeps only the three common user settings', () => {
+  assert.match(source, /defaultMatchQueueMode/)
+  assert.match(source, /matchModeOptions/)
+  assert.match(source, /async function saveMatchSettings\(\)/)
+  assert.match(source, /apiClient\.setConfig\(['"]settings\.match\.defaultQueueMode['"], defaultMatchQueueMode\.value\)/)
+  assert.match(source, /setCachedDefaultMatchQueueMode\(defaultMatchQueueMode\.value\)/)
+  assert.match(source, /settings\.defaultMatchModeUser/)
+  assert.match(source, /settings\.defaultMatchModeUserDescription/)
+  assert.match(source, /settings\.saveDefaultMode/)
 
-  assert.match(source, /CacheClearScope/)
-  assert.match(source, /CacheStatus/)
-  assert.match(source, /const cacheStatus = ref<CacheStatus \| null>\(null\)/)
-  assert.match(source, /const cacheStats = computed\(\(\) => \[/)
-  assert.match(source, /apiClient\.getCacheStatus\(\)/)
-  assert.match(source, /async function loadCacheStatus\(\)/)
-  assert.match(source, /async function clearLocalCache\(scope: CacheClearScope\)/)
-  assert.match(source, /window\.confirm\(/)
-  assert.match(source, /apiClient\.clearCache\(scope\)/)
-  assert.match(source, /await loadCacheStatus\(\)/)
-  assert.match(source, /@click="loadCacheStatus"/)
-  assert.match(source, /@click="clearLocalCache\('memory'\)"/)
-  assert.match(source, /@click="clearLocalCache\('localDb'\)"/)
-  assert.match(source, /@click="clearLocalCache\('all'\)"/)
+  assert.match(source, /async function clearUserCache\(\)/)
+  assert.match(source, /clearFrontendTransientCache\(\)/)
+  assert.match(source, /apiClient\.clearCache\(['"]all['"]\)/)
+  assert.match(source, /settings\.clearCacheUser/)
+  assert.match(source, /settings\.clearCacheUserDescription/)
+  assert.doesNotMatch(source, /@click="clearLocalCache\('memory'\)"/)
+  assert.doesNotMatch(source, /@click="clearLocalCache\('localDb'\)"/)
 
-  for (const label of [
-    '本地缓存',
-    '刷新状态',
-    '清理内存缓存',
-    '清理本地数据库缓存',
-    '清理全部缓存',
+  assert.match(source, /themeStore\.setTheme\('light'\)/)
+  assert.match(source, /themeStore\.setTheme\('dark'\)/)
+  assert.match(source, /settings\.appearanceTheme/)
+  assert.match(source, /settings\.appearanceThemeDescription/)
+})
+
+test('settings page no longer exposes developer panels or raw cache fields', () => {
+  for (const forbidden of [
+    'settings.shortcuts',
+    'shortcutDevTools',
+    'F12',
+    'settings.exportConfig',
+    'settings.importConfig',
+    'exportConfig',
+    'importConfig',
+    'cacheStats',
+    'userStoreStats',
+    'loadCacheStatus',
+    'loadUserStoreStatus',
+    'getCacheStatus',
+    'getUserStoreStatus',
     'enabled',
     'databaseSizeBytes',
     'summonerCount',
@@ -62,6 +71,29 @@ test('renders local cache diagnostics and guarded clear actions', () => {
     'trackedPlayerCount',
     'latestMatchCreation'
   ]) {
-    assert.ok(source.includes(label), `missing ${label}`)
+    assert.ok(!source.includes(forbidden), `developer content should be hidden: ${forbidden}`)
   }
+})
+
+test('settings copy is user-facing in both locales', () => {
+  for (const key of [
+    'settings.accountTitle',
+    'settings.accountDescription',
+    'settings.login',
+    'settings.register',
+    'settings.commonSettings',
+    'settings.defaultMatchModeUser',
+    'settings.defaultMatchModeUserDescription',
+    'settings.clearCacheUser',
+    'settings.clearCacheUserDescription',
+    'settings.appearanceTheme',
+    'settings.appearanceThemeDescription',
+    'settings.aboutRankPeek'
+  ]) {
+    assert.ok(zh.includes(`'${key}'`), `zh-CN should include ${key}`)
+    assert.ok(en.includes(`'${key}'`), `en-US should include ${key}`)
+  }
+
+  assert.match(zh, /'settings\.accountTitle': 'RankPeek 账号'/)
+  assert.match(en, /'settings\.accountTitle': 'RankPeek Account'/)
 })

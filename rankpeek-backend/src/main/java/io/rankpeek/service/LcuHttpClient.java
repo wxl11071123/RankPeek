@@ -27,35 +27,50 @@ import java.util.concurrent.locks.ReentrantLock;
 @Slf4j
 public class LcuHttpClient {
 
+    private static final String CONNECTION_CHECK_URI = "lol-gameflow/v1/gameflow-phase";
+
     private final OkHttpClient httpClient;
+    private final OkHttpClient connectionCheckClient;
 
     @Getter
     private final ObjectMapper objectMapper;
 
     @Getter
     private volatile AuthInfo authInfo;
+    @Getter
+    private volatile String lastConnectionFailureReason;
     private final ReentrantLock authLock = new ReentrantLock();
 
     public LcuHttpClient() {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-        this.httpClient = new OkHttpClient.Builder()
-                .sslSocketFactory(createTrustAllSslSocketFactory(), createTrustAllTrustManager())
-                .hostnameVerifier((hostname, session) -> true)
+        this.httpClient = trustedClientBuilder()
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .build();
+        this.connectionCheckClient = trustedClientBuilder()
+                .connectTimeout(2, TimeUnit.SECONDS)
+                .readTimeout(2, TimeUnit.SECONDS)
+                .writeTimeout(2, TimeUnit.SECONDS)
+                .build();
+    }
+
+    private OkHttpClient.Builder trustedClientBuilder() {
+        X509TrustManager trustManager = createTrustAllTrustManager();
+        return new OkHttpClient.Builder()
+                .sslSocketFactory(createTrustAllSslSocketFactory(trustManager), trustManager)
+                .hostnameVerifier((hostname, session) -> true);
     }
 
     /**
      * 创建信任所有证书的 SSLSocketFactory
      */
-    private SSLSocketFactory createTrustAllSslSocketFactory() {
+    private SSLSocketFactory createTrustAllSslSocketFactory(X509TrustManager trustManager) {
         try {
             SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, new TrustManager[]{createTrustAllTrustManager()}, new java.security.SecureRandom());
+            sslContext.init(null, new TrustManager[]{trustManager}, new java.security.SecureRandom());
             return sslContext.getSocketFactory();
         } catch (Exception e) {
             throw new RuntimeException("创建 SSL 上下文失败", e);
@@ -116,9 +131,52 @@ public class LcuHttpClient {
      */
     public boolean isConnected() {
         try {
-            getOrRefreshAuth();
-            return authInfo != null && authInfo.isValid();
+            AuthInfo auth = getOrRefreshAuth();
+            if (auth == null || !auth.isValid()) {
+                lastConnectionFailureReason = "LCU auth not found";
+                return false;
+            }
+
+            if (probeLcuConnection(auth)) {
+                lastConnectionFailureReason = null;
+                return true;
+            }
+
+            refreshAuth();
+            auth = authInfo;
+            if (auth == null || !auth.isValid()) {
+                lastConnectionFailureReason = "LCU auth refresh failed";
+                return false;
+            }
+
+            boolean connected = probeLcuConnection(auth);
+            if (connected) {
+                lastConnectionFailureReason = null;
+            }
+            return connected;
         } catch (Exception e) {
+            lastConnectionFailureReason = "LCU connection check exception: " + e.getMessage();
+            log.debug("LCU connection check failed: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean probeLcuConnection(AuthInfo auth) {
+        Request request = new LcuRequestBuilder(auth)
+                .uri(CONNECTION_CHECK_URI)
+                .get()
+                .build(null);
+
+        try (Response response = connectionCheckClient.newCall(request).execute()) {
+            if (response.isSuccessful()) {
+                return true;
+            }
+            lastConnectionFailureReason = "LCU probe failed: status=" + response.code() + ", port=" + auth.getPort();
+            log.debug("LCU connection probe failed: status={}, port={}", response.code(), auth.getPort());
+            return false;
+        } catch (IOException e) {
+            lastConnectionFailureReason = "LCU probe IO failed: port=" + auth.getPort() + ", error=" + e.getMessage();
+            log.debug("LCU connection probe IO failed: port={}, error={}", auth.getPort(), e.getMessage());
             return false;
         }
     }

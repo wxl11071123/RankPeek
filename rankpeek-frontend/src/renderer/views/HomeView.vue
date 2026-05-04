@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AICoachCards from '@/components/AICoachCards.vue'
 import HomeChart from '@/components/HomeChart.vue'
+import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import { useGameStore } from '@/stores/game'
 import {
   FORTUNE_POOL,
@@ -10,11 +11,116 @@ import {
   loadFortuneRecord,
   saveFortuneRecord
 } from '@/utils/homeInsights'
+import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { t } from '@/i18n'
 import type { QueueInfo } from '@/types/api'
 import type { Fortune, FortuneRecord } from '@/utils/homeInsights'
+import type { RankLoadStatus } from '@/utils/rankDisplay'
 
 const gameStore = useGameStore()
+
+const CONTROL_GLOW_RANGE = 96
+const SURFACE_GLOW_RANGE = 220
+const EDGE_GLOW_MIN = 0.03
+const GLOW_CHILD_SELECTOR = '.control-glow, .edge-glow'
+const PAGE_GLOW_SELECTOR = '.surface-glow, .control-glow, .edge-glow'
+
+const homeViewRef = ref<HTMLElement | null>(null)
+
+function isDisabledControl(target: HTMLElement) {
+  return target instanceof HTMLButtonElement && target.disabled
+}
+
+function resetEdgeGlow(target: HTMLElement) {
+  target.style.setProperty('--edge-top-alpha', '0')
+  target.style.setProperty('--edge-right-alpha', '0')
+  target.style.setProperty('--edge-bottom-alpha', '0')
+  target.style.setProperty('--edge-left-alpha', '0')
+  delete target.dataset.nearGlow
+}
+
+function resetGlowElement(target: HTMLElement) {
+  target.style.setProperty('--control-glow-x', '50%')
+  target.style.setProperty('--control-glow-y', '50%')
+  resetEdgeGlow(target)
+}
+
+function applyGlowElement(target: HTMLElement, clientX: number, clientY: number) {
+  if (isDisabledControl(target)) {
+    resetGlowElement(target)
+    return
+  }
+
+  const rect = target.getBoundingClientRect()
+  const range = target.classList.contains('surface-glow') ? SURFACE_GLOW_RANGE : CONTROL_GLOW_RANGE
+  const x = clientX - rect.left
+  const y = clientY - rect.top
+  const clampedX = Math.min(Math.max(x, 0), rect.width)
+  const clampedY = Math.min(Math.max(y, 0), rect.height)
+  const inRange = x >= -range && x <= rect.width + range && y >= -range && y <= rect.height + range
+
+  target.style.setProperty('--control-glow-x', `${clampedX}px`)
+  target.style.setProperty('--control-glow-y', `${clampedY}px`)
+
+  if (!inRange) {
+    resetEdgeGlow(target)
+    return
+  }
+
+  const strength = (distance: number) => {
+    const raw = Math.max(0, 1 - Math.min(Math.abs(distance), range) / range)
+    return Math.pow(raw, 1.18)
+  }
+
+  const top = strength(y)
+  const right = strength(rect.width - x)
+  const bottom = strength(rect.height - y)
+  const left = strength(x)
+  const maxStrength = Math.max(top, right, bottom, left)
+
+  target.style.setProperty('--edge-top-alpha', top.toFixed(3))
+  target.style.setProperty('--edge-right-alpha', right.toFixed(3))
+  target.style.setProperty('--edge-bottom-alpha', bottom.toFixed(3))
+  target.style.setProperty('--edge-left-alpha', left.toFixed(3))
+
+  if (maxStrength > EDGE_GLOW_MIN) {
+    target.dataset.nearGlow = 'true'
+  } else {
+    delete target.dataset.nearGlow
+  }
+}
+
+function updateControlGlow(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) {
+    return
+  }
+
+  applyGlowElement(target, event.clientX, event.clientY)
+  target.querySelectorAll<HTMLElement>(GLOW_CHILD_SELECTOR).forEach(element => {
+    applyGlowElement(element, event.clientX, event.clientY)
+  })
+}
+
+function resetControlGlow(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) {
+    return
+  }
+
+  resetGlowElement(target)
+  target.querySelectorAll<HTMLElement>(GLOW_CHILD_SELECTOR).forEach(resetGlowElement)
+}
+
+function updatePageGlow(event: PointerEvent) {
+  homeViewRef.value?.querySelectorAll<HTMLElement>(PAGE_GLOW_SELECTOR).forEach(element => {
+    applyGlowElement(element, event.clientX, event.clientY)
+  })
+}
+
+function resetPageGlow() {
+  homeViewRef.value?.querySelectorAll<HTMLElement>(PAGE_GLOW_SELECTOR).forEach(resetGlowElement)
+}
 
 const TIER_CN_MAP: Record<string, string> = {
   iron: '黑铁',
@@ -186,6 +292,7 @@ type RankBadgeKey = 'solo' | 'flex'
 
 const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false })
 const coachNotice = ref('')
+const accountRefreshBusy = ref(false)
 
 const fortuneRecord = ref<FortuneRecord>({ history: [] })
 const currentFortune = ref<Fortune | null>(null)
@@ -208,28 +315,50 @@ const accountKey = computed(() => currentSummoner.value?.puuid || 'local')
 const accountConnected = computed(() => gameStore.connected && Boolean(currentSummoner.value))
 const soloRank = computed(() => gameStore.soloRank)
 const flexRank = computed(() => gameStore.flexRank)
+const accountRankStatus = computed<RankLoadStatus>(() => {
+  if (gameStore.rankLoading) {
+    return 'loading'
+  }
+  return gameStore.rankError ? 'error' : 'loaded'
+})
 const displayName = computed(() => gameStore.summonerName || t('common.summoner'))
 const profileIconUrl = computed(() =>
   currentSummoner.value?.profileIconId
-    ? `http://127.0.0.1:8080/api/v1/asset/profile/${currentSummoner.value.profileIconId}`
+    ? getProfileIconUrl(currentSummoner.value.profileIconId)
     : ''
 )
 
-const fortuneLabel = computed(() => currentFortune.value?.label || '？？？')
 const fortuneTone = computed(() => currentFortune.value?.tone || 'neutral')
 const fortuneButtonText = computed(() => {
   if (fortuneRolling.value) {
     return t('home.fortuneDrawing')
   }
-  return currentFortune.value ? t('home.fortuneComeTomorrow') : t('home.drawFortune')
+  return '抽取今日运势'
+})
+const slotDisplayLabel = computed(() => {
+  if (fortuneRolling.value) {
+    return rollingFortuneLabel.value
+  }
+  return currentFortune.value?.label || '✦'
+})
+const slotReelItems = computed(() => {
+  const poolLabels = FORTUNE_POOL.map(fortune => fortune.label)
+    .filter(label => label && label !== slotDisplayLabel.value)
+  return [slotDisplayLabel.value, ...poolLabels.slice(0, 7)]
 })
 
 onMounted(() => {
   void gameStore.checkConnection()
   loadLocalHomeState()
+  window.addEventListener('pointermove', updatePageGlow)
+  window.addEventListener('blur', resetPageGlow)
+  document.addEventListener('mouseleave', resetPageGlow)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', updatePageGlow)
+  window.removeEventListener('blur', resetPageGlow)
+  document.removeEventListener('mouseleave', resetPageGlow)
   clearFortuneTimer()
   clearCoachNoticeTimer()
 })
@@ -258,8 +387,21 @@ function toggleAutoAnalysis() {
   showCoachNotice()
 }
 
+async function handleRefreshAccount() {
+  if (accountRefreshBusy.value) {
+    return
+  }
+
+  accountRefreshBusy.value = true
+  try {
+    await gameStore.refreshSummoner()
+  } finally {
+    accountRefreshBusy.value = false
+  }
+}
+
 function drawFortune() {
-  if (currentFortune.value || fortuneRolling.value) {
+  if (fortuneRolling.value) {
     return
   }
 
@@ -272,7 +414,9 @@ function drawFortune() {
 
   window.setTimeout(() => {
     clearFortuneTimer()
-    const result = drawDailyFortune(fortuneRecord.value)
+    // TEMP: disable daily fortune limit for UI iteration
+    const iterationKey = `${new Date().toISOString()}-${Math.random().toString(36).slice(2)}`
+    const result = drawDailyFortune(fortuneRecord.value, iterationKey)
     fortuneRecord.value = result.record
     currentFortune.value = result.fortune
     rollingFortuneLabel.value = result.fortune.label
@@ -319,16 +463,6 @@ function loadAutoAnalysisSettings(key: string): AutoAnalysisSettings {
 
 function saveAutoAnalysisSettings(key: string, settings: AutoAnalysisSettings) {
   localStorage.setItem(`${AUTO_ANALYSIS_STORAGE_PREFIX}.${key}`, JSON.stringify(settings))
-}
-
-function formatRank(rank: QueueInfo | null): string {
-  if (!rank || isUnrankedTier(rank.tier)) {
-    return '未定级'
-  }
-
-  const tier = formatTierCn(rank)
-  const division = formatDivision(rank)
-  return division ? `${tier} ${division}` : tier
 }
 
 function isUnrankedTier(tier?: string): boolean {
@@ -470,16 +604,22 @@ function formatRankShineOffset(offset: number) {
   return `calc(48% ${direction} ${Math.abs(offset).toFixed(1)}px)`
 }
 
-function formatRankTierPart(rank: QueueInfo | null): string {
+function formatRankTierPart(rank: QueueInfo | null, status: RankLoadStatus = 'loaded'): string {
+  if (status === 'loading') {
+    return t('overview.rankLoading')
+  }
+  if (status === 'error') {
+    return t('overview.rankFailed')
+  }
   if (!rank || isUnrankedTier(rank.tier)) {
-    return '未定级'
+    return t('tier.UNRANKED')
   }
 
   return formatTierCn(rank)
 }
 
-function formatRankDivisionPart(rank: QueueInfo | null): string {
-  if (!rank || isUnrankedTier(rank.tier)) {
+function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus = 'loaded'): string {
+  if (status !== 'loaded' || !rank || isUnrankedTier(rank.tier)) {
     return ''
   }
 
@@ -489,10 +629,22 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 </script>
 
 <template>
-  <div class="home-view">
-    <section v-if="accountConnected && currentSummoner" class="account-panel">
+  <div ref="homeViewRef" class="home-view">
+    <section
+      v-if="accountConnected && currentSummoner"
+      class="account-panel surface-glow"
+      @pointermove="updateControlGlow"
+      @pointerleave="resetControlGlow"
+    >
       <div class="account-identity">
-        <img class="account-avatar" :src="profileIconUrl" alt="" />
+        <img
+          v-if="profileIconUrl"
+          class="account-avatar"
+          :src="profileIconUrl"
+          alt=""
+          @error="markAssetLoadFailed"
+        />
+        <span v-else class="account-avatar account-avatar-fallback"></span>
         <div class="account-main">
           <div class="summoner-heading">
             <h2>{{ displayName }}</h2>
@@ -508,8 +660,8 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
               <span class="rank-emblem" aria-hidden="true"></span>
               <span class="rank-label">
                 <span class="rank-queue">{{ t('home.soloQueue') }}：</span>
-                <span class="rank-tier">{{ formatRankTierPart(soloRank) }}</span>
-                <span v-if="formatRankDivisionPart(soloRank)" class="rank-division">{{ formatRankDivisionPart(soloRank) }}</span>
+                <span class="rank-tier">{{ formatRankTierPart(soloRank, accountRankStatus) }}</span>
+                <span v-if="formatRankDivisionPart(soloRank, accountRankStatus)" class="rank-division">{{ formatRankDivisionPart(soloRank, accountRankStatus) }}</span>
               </span>
             </span>
             <span
@@ -521,19 +673,26 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
               <span class="rank-emblem" aria-hidden="true"></span>
               <span class="rank-label">
                 <span class="rank-queue">{{ t('home.flexQueue') }}：</span>
-                <span class="rank-tier">{{ formatRankTierPart(flexRank) }}</span>
-                <span v-if="formatRankDivisionPart(flexRank)" class="rank-division">{{ formatRankDivisionPart(flexRank) }}</span>
+                <span class="rank-tier">{{ formatRankTierPart(flexRank, accountRankStatus) }}</span>
+                <span v-if="formatRankDivisionPart(flexRank, accountRankStatus)" class="rank-division">{{ formatRankDivisionPart(flexRank, accountRankStatus) }}</span>
               </span>
             </span>
           </div>
         </div>
       </div>
-      <button class="secondary-btn" type="button" @click="gameStore.refreshSummoner">
-        {{ t('home.refreshAccount') }}
-      </button>
+      <RefreshIconButton
+        :aria-label="accountRefreshBusy ? t('common.refreshing') : t('home.refreshAccount')"
+        :loading="accountRefreshBusy"
+        @click="handleRefreshAccount"
+      />
     </section>
 
-    <section v-else class="account-panel disconnected-panel">
+    <section
+      v-else
+      class="account-panel disconnected-panel surface-glow"
+      @pointermove="updateControlGlow"
+      @pointerleave="resetControlGlow"
+    >
       <div class="account-identity">
         <div class="disconnected-mark">!</div>
         <div class="account-main">
@@ -544,88 +703,183 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
           <p>{{ t('home.noClientBody') }}</p>
         </div>
       </div>
-      <button class="primary-btn" type="button" @click="gameStore.checkConnection">
+      <button
+        class="primary-btn control-glow"
+        type="button"
+        @pointermove="updateControlGlow"
+        @pointerleave="resetControlGlow"
+        @click="gameStore.checkConnection"
+      >
         {{ t('common.refreshConnection') }}
       </button>
     </section>
 
-    <section class="ai-analysis-card">
-      <div class="card-copy">
+    <section
+      class="ai-analysis-card surface-glow"
+      @pointermove="updateControlGlow"
+      @pointerleave="resetControlGlow"
+    >
+      <div class="ai-analysis-main">
         <h2>电子教练</h2>
-        <p>{{ t('home.aiAnalysisBody') }}</p>
-      </div>
-
-      <div class="action-row">
-        <button class="primary-btn" type="button" @click="runAnalysis">
-          {{ t('home.analyzeNow') }}
-        </button>
-        <button
-          class="auto-analysis-switch"
-          type="button"
-          role="switch"
-          :aria-checked="autoAnalysis.enabled"
-          :class="{ active: autoAnalysis.enabled }"
-          :disabled="!accountConnected"
-          @click="toggleAutoAnalysis"
-        >
-          <span class="switch-track">
-            <span class="switch-thumb"></span>
-          </span>
-          <span class="switch-label">自动分析</span>
-        </button>
+        <div class="action-row">
+          <button
+            class="primary-btn control-glow"
+            type="button"
+            @pointermove="updateControlGlow"
+            @pointerleave="resetControlGlow"
+            @click="runAnalysis"
+          >
+            {{ t('home.analyzeNow') }}
+          </button>
+          <button
+            class="auto-analysis-switch control-glow"
+            type="button"
+            role="switch"
+            :aria-checked="autoAnalysis.enabled"
+            :class="{ active: autoAnalysis.enabled }"
+            :disabled="!accountConnected"
+            @pointermove="updateControlGlow"
+            @pointerleave="resetControlGlow"
+            @click="toggleAutoAnalysis"
+          >
+            <span class="switch-track">
+              <span class="switch-thumb"></span>
+            </span>
+            <span class="switch-label">自动分析</span>
+          </button>
+        </div>
       </div>
 
       <p v-if="coachNotice" class="coach-notice">{{ coachNotice }}</p>
     </section>
 
     <section class="coach-report-grid">
-      <div class="coach-report-panel">
+      <div
+        class="coach-report-panel surface-glow"
+        @pointermove="updateControlGlow"
+        @pointerleave="resetControlGlow"
+      >
         <AICoachCards />
       </div>
-      <article class="fortune-card" :class="fortuneTone">
+      <article
+        class="fortune-card surface-glow"
+        :class="fortuneTone"
+        @pointermove="updateControlGlow"
+        @pointerleave="resetControlGlow"
+      >
         <div class="panel-eyebrow fortune-eyebrow">抽个签</div>
         <div class="fortune-layout">
-          <div class="slot-reel" :class="{ rolling: fortuneRolling }">
-            {{ fortuneRolling ? rollingFortuneLabel : fortuneLabel }}
+          <div
+            class="slot-window edge-glow"
+            :class="{ settled: currentFortune && !fortuneRolling }"
+            aria-live="polite"
+          >
+            <span class="slot-edge-light" aria-hidden="true"></span>
+            <div class="slot-reel-list" :class="{ rolling: fortuneRolling }">
+              <span
+                v-for="(label, index) in slotReelItems"
+                :key="`${label}-${index}`"
+                class="slot-reel-item"
+              >
+                {{ label }}
+              </span>
+            </div>
           </div>
-          <p class="fortune-text">
-            {{ currentFortune?.text || t('home.fortuneIdle') }}
-          </p>
           <button
-            class="fortune-button"
+            class="fortune-button control-glow"
             type="button"
-            :disabled="Boolean(currentFortune) || fortuneRolling"
+            :disabled="fortuneRolling"
+            @pointermove="updateControlGlow"
+            @pointerleave="resetControlGlow"
             @click="drawFortune"
           >
             {{ fortuneButtonText }}
           </button>
-          <p class="fortune-disclaimer">
-            <span v-if="currentFortune">{{ t('home.fortuneOnceDaily') }}</span>
+          <p v-if="currentFortune" class="fortune-disclaimer">
             {{ t('home.fortuneDisclaimer') }}
           </p>
         </div>
       </article>
     </section>
 
-    <HomeChart :puuid="currentSummoner?.puuid" :connected="accountConnected" />
+    <HomeChart :summoner="currentSummoner" :puuid="currentSummoner?.puuid" :connected="accountConnected" />
   </div>
 </template>
 
 <style scoped>
 .home-view {
-  --home-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
-  --home-theme-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.42), 0 0 24px rgba(212, 175, 55, 0.34);
-  --theme-hover-glow: var(--home-theme-glow);
-  --control-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 24px rgba(212, 175, 55, 0.34);
-  --fortune-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 26px rgba(212, 175, 55, 0.34), 0 10px 28px rgba(212, 175, 55, 0.14);
-  --home-glow-border: rgba(212, 175, 55, 0.42);
+  --module-edge-color: rgba(232, 221, 186, 0.46);
+  --module-edge-soft: rgba(212, 175, 55, 0.14);
+  --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
+  --module-edge-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.16), 0 12px 28px rgba(212, 175, 55, 0.11);
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 82px;
+  --home-control-local-glow: transparent;
+  --home-control-local-glow-fade: transparent;
+  --home-control-border-local-glow: rgba(148, 211, 255, 0.98);
+  --home-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
+  --home-control-edge-rgb: 148, 211, 255;
+  --home-control-edge-shadow:
+    inset 0 1px 0 rgba(var(--home-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
+    inset -1px 0 0 rgba(var(--home-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
+    inset 0 -1px 0 rgba(var(--home-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.82)),
+    inset 1px 0 0 rgba(var(--home-control-edge-rgb), calc(var(--edge-left-alpha) * 0.82)),
+    0 -3px 11px -6px rgba(var(--home-control-edge-rgb), calc(var(--edge-top-alpha) * 0.48)),
+    3px 0 11px -6px rgba(var(--home-control-edge-rgb), calc(var(--edge-right-alpha) * 0.48)),
+    0 3px 11px -6px rgba(var(--home-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.48)),
+    -3px 0 11px -6px rgba(var(--home-control-edge-rgb), calc(var(--edge-left-alpha) * 0.48));
+  --home-control-radius: 10px;
+  --home-control-bg: var(--bg-secondary);
+  --home-control-bg-hover: rgba(28, 36, 48, 0.96);
+  --home-control-bg-hover-local: linear-gradient(var(--home-control-bg-hover), var(--home-control-bg-hover)) padding-box,
+    radial-gradient(
+      circle at var(--control-glow-x) var(--control-glow-y),
+      var(--home-control-border-local-glow) 0%,
+      var(--home-control-border-local-glow-fade) 36%,
+      var(--home-control-border) 72%
+    ) border-box;
+  --home-control-bg-active: rgba(13, 17, 24, 0.98);
+  --home-control-border: var(--border-color);
+  --home-control-border-hover: rgba(96, 176, 255, 0.58);
+  --home-control-text: var(--text-primary);
+  --home-control-shadow: none;
+  --home-control-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 0 16px rgba(41, 151, 255, 0.22);
+  --home-control-active-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(41, 151, 255, 0.14);
+  --home-panel-hover-bg: #2a2a2d;
+  --home-panel-hover-border: var(--module-edge-color);
+  --home-panel-hover-shadow: var(--module-edge-glow);
+  --home-ai-hover-bg: rgba(42, 42, 45, 0.86);
+  --home-ai-hover-border: var(--module-edge-color);
+  --home-ai-hover-shadow: var(--module-edge-glow);
+  --control-hover-shadow: var(--home-control-hover-shadow);
+  --coach-gold: rgba(238, 205, 112, 0.96);
+  --coach-gold-muted: rgba(232, 221, 186, 0.72);
+  --slot-window-bg: rgba(12, 13, 17, 0.72);
+  --slot-window-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 34%, rgba(0, 0, 0, 0.14));
+  --slot-window-border: rgba(232, 221, 186, 0.16);
+  --slot-window-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 -1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px rgba(232, 221, 186, 0.1), 0 10px 20px rgba(0, 0, 0, 0.16);
+  --slot-window-top-fade: linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent);
+  --slot-window-bottom-fade: linear-gradient(0deg, rgba(0, 0, 0, 0.36), transparent);
+  --slot-window-active-border: rgba(232, 221, 186, 0.28);
+  --slot-edge-rgb: var(--home-control-edge-rgb);
+  --slot-edge-core: var(--home-control-border-local-glow);
+  --slot-edge-fade: var(--home-control-border-local-glow-fade);
+  --slot-edge-size: 104px;
+  --slot-edge-width: 3px;
+  --slot-edge-inset-width: 2px;
+  --slot-edge-inset-alpha: 0.46;
+  --slot-edge-outer-alpha: 0.14;
+  --slot-item-height: 72px;
   --rank-text: #e0e0e0;
-  --switch-track-off: rgba(255, 255, 255, 0.14);
-  --switch-track-on: var(--accent-color);
-  --switch-track-border: rgba(255, 255, 255, 0.06);
-  --switch-thumb-color: #d7d9de;
-  --switch-thumb-active: #ffffff;
-  --switch-thumb-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --switch-track-off: rgba(23, 23, 25, 0.98);
+  --switch-track-on: rgba(33, 196, 255, 0.78);
+  --switch-track-border: var(--border-color);
+  --switch-thumb-color: #9eabb8;
+  --switch-thumb-active: #dbeeff;
+  --switch-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
   max-width: 1180px;
   margin: 0 auto;
   display: flex;
@@ -635,24 +889,31 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 
 .account-panel,
 .ai-analysis-card,
-.fortune-card {
+.fortune-card,
+.coach-report-panel {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.account-panel:hover,
+.account-panel:hover {
+  background: var(--home-panel-hover-bg);
+  border-color: var(--home-panel-hover-border);
+  box-shadow: var(--home-panel-hover-shadow);
+}
+
 .ai-analysis-card:hover,
-.fortune-card:hover {
-  border-color: var(--home-glow-border);
-  box-shadow: var(--theme-hover-glow);
+.fortune-card:hover,
+.coach-report-panel:hover {
+  background: var(--home-ai-hover-bg);
+  border-color: var(--home-ai-hover-border);
+  box-shadow: var(--home-ai-hover-shadow);
+  animation: home-ai-breathe 2.6s ease-in-out infinite;
 }
 
 .account-main p,
-.card-copy p,
 .coach-notice,
-.fortune-text,
 .fortune-disclaimer {
   color: var(--text-secondary);
 }
@@ -675,7 +936,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 .account-panel {
   min-height: 122px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 18px;
   padding: 22px;
@@ -687,6 +948,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   align-items: center;
   flex-wrap: nowrap;
   gap: 18px;
+  overflow: hidden;
 }
 
 .account-avatar,
@@ -698,7 +960,12 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 }
 
 .account-avatar {
+  display: block;
   object-fit: cover;
+}
+
+.account-avatar[data-asset-failed='true'] {
+  display: none;
 }
 
 .disconnected-mark {
@@ -720,10 +987,12 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 
 .account-main {
   min-width: 0;
+  overflow: hidden;
 }
 
 .summoner-heading {
   min-width: 0;
+  width: 100%;
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -745,7 +1014,7 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 }
 
 .account-main h2,
-.card-copy h2,
+.ai-analysis-main h2,
 .fortune-card h2 {
   color: var(--text-primary);
   margin: 0;
@@ -761,12 +1030,15 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 
 .summoner-heading h2 {
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .rank-row {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .rank-badge {
@@ -891,36 +1163,51 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   height: var(--coach-report-height);
   position: relative;
   z-index: 1;
+  border-radius: 12px;
   overflow: visible;
 }
 
 .ai-analysis-card,
 .fortune-card {
-  padding: 22px;
+  padding: 18px 20px;
 }
 
 .ai-analysis-card {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 8px;
   overflow: visible;
 }
 
+.ai-analysis-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
 .fortune-card {
+  --home-control-border-local-glow: rgba(255, 218, 76, 0.92);
+  --home-control-border-local-glow-fade: rgba(244, 183, 24, 0.42);
+  --home-control-edge-rgb: 255, 210, 62;
+  --home-ai-hover-border: rgba(232, 221, 186, 0.46);
+  --home-ai-hover-shadow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
+  --slot-window-border: rgba(232, 221, 186, 0.16);
+  --slot-window-active-border: rgba(232, 221, 186, 0.3);
+  --slot-edge-rgb: 255, 210, 62;
+  --slot-edge-core: rgba(255, 218, 76, 0.96);
+  --slot-edge-fade: rgba(244, 183, 24, 0.5);
   min-height: var(--coach-report-height);
   height: var(--coach-report-height);
   box-sizing: border-box;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.coach-report-grid .fortune-card:hover {
-  border-color: var(--home-glow-border);
-  box-shadow: var(--fortune-hover-glow);
-}
-
-.card-copy h2 {
-  font-size: 26px;
-  margin-bottom: 8px;
+.ai-analysis-main h2 {
+  font-size: 22px;
+  line-height: 1.25;
+  margin: 0;
 }
 
 .action-row {
@@ -933,72 +1220,168 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 .primary-btn,
 .secondary-btn,
 .fortune-button {
-  min-height: 46px;
-  border-radius: 8px;
-  font-size: 16px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--home-control-border);
+  border-radius: var(--home-control-radius);
+  background: var(--home-control-bg);
+  color: var(--home-control-text);
+  box-shadow: var(--home-control-shadow);
+  text-shadow: none;
+  font-size: 15px;
   font-weight: 800;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.24s ease,
+    color 0.18s ease,
+    opacity 0.24s ease;
 }
 
-.primary-btn,
-.fortune-button {
-  padding: 0 18px;
-  background: var(--accent-color);
-  color: #ffffff;
-  transition: box-shadow 0.3s ease, filter 0.3s ease, opacity 0.3s ease;
+.control-glow {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 82px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.surface-glow {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 220px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.control-glow::before,
+.surface-glow::before {
+  content: '';
+  position: absolute;
+  inset: var(--control-edge-offset);
+  border-radius: inherit;
+  background: radial-gradient(
+    circle var(--edge-glow-size) at calc(var(--control-glow-x) + 1px) calc(var(--control-glow-y) + 1px),
+    var(--home-control-border-local-glow) 0%,
+    var(--home-control-border-local-glow-fade) 42%,
+    transparent 78%
+  );
+  padding: var(--control-edge-width);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+
+.control-glow:hover:not(:disabled)::before,
+.control-glow:focus-visible::before,
+.control-glow[data-near-glow='true']:not(:disabled)::before,
+.surface-glow:hover::before,
+.surface-glow:focus-visible::before,
+.surface-glow[data-near-glow='true']::before {
+  opacity: 1;
+}
+
+.control-glow:active:not(:disabled)::before,
+.surface-glow:active::before {
+  opacity: 0.55;
 }
 
 .primary-btn:hover:not(:disabled),
-.fortune-button:hover:not(:disabled),
-.fortune-card:hover .fortune-button:not(:disabled) {
-  box-shadow: var(--control-hover-glow);
-  filter: brightness(1.04);
+.secondary-btn:hover:not(:disabled),
+.fortune-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--home-control-bg-hover-local);
+  box-shadow: var(--home-control-hover-shadow), var(--home-control-edge-shadow);
 }
 
-.fortune-button:focus-visible,
-.fortune-card:hover .fortune-button:disabled {
-  box-shadow: var(--control-hover-glow);
+.primary-btn:active:not(:disabled),
+.secondary-btn:active:not(:disabled),
+.fortune-button:active:not(:disabled) {
+  border-color: var(--home-control-border);
+  background: var(--home-control-bg-active);
+  box-shadow: var(--home-control-active-shadow), var(--home-control-edge-shadow);
 }
 
-.fortune-card:hover .fortune-button:disabled {
-  opacity: 0.72;
+.primary-btn:focus-visible,
+.secondary-btn:focus-visible,
+.fortune-button:focus-visible {
+  border-color: transparent;
+  background: var(--home-control-bg-hover-local);
+  box-shadow: var(--home-control-hover-shadow), var(--home-control-edge-shadow);
+  outline: none;
+}
+
+.primary-btn.control-glow[data-near-glow='true']:not(:disabled):not(:hover):not(:focus-visible),
+.secondary-btn.control-glow[data-near-glow='true']:not(:disabled):not(:hover):not(:focus-visible),
+.fortune-button.control-glow[data-near-glow='true']:not(:disabled):not(:hover):not(:focus-visible) {
+  box-shadow: var(--home-control-edge-shadow);
 }
 
 .secondary-btn {
-  padding: 0 14px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.secondary-btn:hover:not(:disabled) {
-  border-color: var(--home-glow-border);
-  box-shadow: var(--home-theme-glow);
+  min-width: 112px;
 }
 
 .secondary-btn.active {
-  border-color: rgba(var(--accent-rgb), 0.7);
-  color: var(--accent-hover);
+  border-color: transparent;
+  background: var(--home-control-bg-hover-local);
 }
 
 .auto-analysis-switch {
-  min-height: 46px;
+  min-height: 42px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--home-control-border);
   border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: var(--home-control-bg);
+  color: var(--home-control-text);
+  box-shadow: var(--home-control-shadow);
   font-size: 14px;
   font-weight: 800;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.24s ease, opacity 0.24s ease;
 }
 
 .auto-analysis-switch:hover:not(:disabled) {
-  border-color: var(--home-glow-border);
-  box-shadow: var(--home-theme-glow);
+  border-color: transparent;
+  background: var(--home-control-bg-hover-local);
+  box-shadow: var(--control-hover-shadow), var(--home-control-edge-shadow);
+}
+
+.auto-analysis-switch:active:not(:disabled) {
+  border-color: var(--home-control-border);
+  background: var(--home-control-bg-active);
+  box-shadow: var(--home-control-active-shadow), var(--home-control-edge-shadow);
+}
+
+.auto-analysis-switch:focus-visible {
+  border-color: transparent;
+  background: var(--home-control-bg-hover-local);
+  box-shadow: var(--control-hover-shadow), var(--home-control-edge-shadow);
+  outline: none;
+}
+
+.auto-analysis-switch.control-glow[data-near-glow='true']:not(:disabled):not(:hover):not(:focus-visible) {
+  box-shadow: var(--home-control-edge-shadow);
 }
 
 .switch-track {
@@ -1006,29 +1389,41 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   height: 30px;
   display: inline-flex;
   align-items: center;
-  padding: 3px;
+  box-sizing: border-box;
+  padding: 2px;
   border: 1px solid var(--switch-track-border);
   border-radius: 999px;
   background: var(--switch-track-off);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
   transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .switch-thumb {
   width: 24px;
   height: 24px;
+  flex: 0 0 24px;
   border-radius: 999px;
   background: var(--switch-thumb-color);
   box-shadow: var(--switch-thumb-shadow);
+  transform: translateX(0);
   transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
+.auto-analysis-switch:hover:not(:disabled) .switch-track,
+.auto-analysis-switch:focus-visible .switch-track {
+  border-color: var(--home-control-border-hover);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    var(--home-control-hover-shadow);
+}
+
 .auto-analysis-switch.active {
-  border-color: rgba(var(--accent-rgb), 0.72);
+  border-color: var(--home-control-border);
 }
 
 .auto-analysis-switch.active .switch-track {
   background: var(--switch-track-on);
+  border-color: var(--switch-track-border);
 }
 
 .auto-analysis-switch.active .switch-thumb {
@@ -1046,261 +1441,47 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 .fortune-button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
+  transform: none;
 }
 
 .coach-notice {
-  min-height: 20px;
   margin: 0;
-  color: rgba(212, 175, 55, 0.96);
-  font-size: 14px;
-  font-weight: 800;
+  color: var(--coach-gold-muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .coach-report-panel {
-  --coach-title-color: rgba(238, 205, 112, 0.96);
-  --coach-body-color: var(--text-secondary);
-  --coach-placeholder-color: rgba(238, 205, 112, 0.9);
-  --coach-slide-bg: linear-gradient(135deg, rgba(20, 22, 28, 0.88), rgba(12, 14, 18, 0.78));
-  --coach-slide-tile-bg: rgba(255, 255, 255, 0.055);
-  --coach-slide-tile-border: rgba(212, 175, 55, 0.24);
-  --coach-slide-muted: rgba(232, 221, 186, 0.68);
+  --module-edge-color: rgba(120, 190, 255, 0.46);
+  --module-edge-soft: rgba(41, 151, 255, 0.14);
+  --module-edge-glow: 0 0 0 1px rgba(41, 151, 255, 0.14), 0 10px 24px rgba(41, 151, 255, 0.1);
+  --module-edge-glow-strong: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 12px 28px rgba(41, 151, 255, 0.11);
+  --home-ai-hover-border: var(--module-edge-color);
+  --home-ai-hover-shadow: var(--module-edge-glow);
+  --home-control-border-local-glow: rgba(120, 190, 255, 0.78);
+  --home-control-border-local-glow-fade: rgba(77, 143, 204, 0.3);
+  --home-control-edge-rgb: 120, 190, 255;
+  --edge-glow-size: 188px;
+}
+
+.coach-report-panel.surface-glow::before {
+  z-index: 2;
 }
 
 .coach-report-panel :deep(.ai-coach-cards) {
+  position: relative;
+  z-index: 1;
   min-height: var(--coach-report-height);
   height: var(--coach-report-height);
-  padding-top: 0;
   overflow: visible;
 }
 
-.coach-report-panel :deep(.coach-card-dots) {
-  left: 0;
-  right: 0;
-  justify-content: center;
-}
-
-.coach-report-panel :deep(.coach-stack-card),
-.coach-report-panel :deep(.coach-expanded-card) {
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, PMingLiU, 'Times New Roman', serif;
-  letter-spacing: 0.5px;
-  line-height: 1.7;
-}
-
-.coach-report-panel :deep(.coach-stack-card) {
-  top: 0;
-  transition:
-    transform 0.4s ease,
-    opacity 0.4s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    background 0.2s ease;
-}
-
-.coach-report-panel :deep(.coach-stack-card:hover),
-.coach-report-panel :deep(.coach-stack-card:focus-visible) {
-  border-color: rgba(212, 175, 55, 0.62);
-  box-shadow: 0 0 34px rgba(212, 175, 55, 0.28);
-  transform: var(--card-transform);
-  animation: none;
-}
-
-.coach-report-panel :deep(.coach-stack-card::after),
-.coach-report-panel :deep(.coach-stack-card:hover::after),
-.coach-report-panel :deep(.coach-stack-card:focus-visible::after) {
-  animation: none;
-}
-
-.coach-report-panel :deep(.coach-stack-card:hover::after),
-.coach-report-panel :deep(.coach-stack-card:focus-visible::after) {
-  border-color: rgba(247, 217, 122, 0.62);
-  box-shadow: 0 0 34px rgba(212, 175, 55, 0.3);
-  opacity: 1;
-}
-
-.coach-report-panel :deep(.coach-card-title),
-.coach-report-panel :deep(.coach-expanded-card h3) {
-  color: var(--coach-title-color);
-  font-size: 1.25rem;
-  line-height: 1.7;
-}
-
-.coach-report-panel :deep(.coach-card-body),
-.coach-report-panel :deep(.coach-expanded-card p) {
-  color: var(--coach-body-color);
-  font-size: 0.95rem;
-  line-height: 1.7;
-}
-
-.coach-report-panel :deep(.coach-expanded-layer) {
-  position: fixed;
-  inset: 62px 24px 24px 276px;
-  z-index: 9999;
-  width: auto;
-  padding: 0;
-  display: flex;
-  align-items: stretch;
-  background: rgba(6, 7, 10, 0.34);
-  backdrop-filter: blur(10px);
-  transition: opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.coach-report-panel :deep(.coach-expanded-card) {
-  width: 100%;
-  min-height: 0;
-  height: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(280px, 0.92fr);
-  grid-template-rows: auto minmax(0, 1fr) minmax(128px, auto);
-  align-content: stretch;
-  gap: 22px;
-  padding: 40px 48px;
-  border: 1px solid rgba(212, 175, 55, 0.38);
-  border-radius: 24px;
-  background: var(--coach-slide-bg);
-  backdrop-filter: blur(20px);
-  box-shadow:
-    0 0 0 1px rgba(212, 175, 55, 0.12),
-    0 0 44px rgba(212, 175, 55, 0.2);
-  overflow: hidden;
-  transform-origin: center;
-  transition:
-    transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
-    opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.coach-report-panel :deep(.coach-expanded-card h3) {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgba(212, 175, 55, 0.4);
-  color: var(--coach-title-color);
-  font-size: 0;
-  line-height: 1.35;
-}
-
-.coach-report-panel :deep(.coach-expanded-card h3)::before {
-  content: 'AI 电子教练 · 综合报告';
-  display: block;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, PMingLiU, 'Times New Roman', serif;
-  font-size: 2rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-.coach-report-panel :deep(.coach-expanded-card p),
-.coach-report-panel :deep(.coach-expanded-card strong),
-.coach-report-panel :deep(.coach-expanded-card)::after {
-  min-height: 0;
-  margin: 0;
-  border: 1px solid var(--coach-slide-tile-border);
-  border-radius: 18px;
-  background: var(--coach-slide-tile-bg);
-  color: var(--coach-body-color);
-  box-shadow: inset -1px -1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.coach-report-panel :deep(.coach-expanded-card p) {
-  grid-column: 1 / 2;
-  grid-row: 2 / 3;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 24px;
-  font-size: 0;
-}
-
-.coach-report-panel :deep(.coach-expanded-card p)::before {
-  content: '数据总览';
-  color: var(--coach-title-color);
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.coach-report-panel :deep(.coach-expanded-card p)::after {
-  content: '近期KDA趋势\A 英雄池分布\A 高光时刻';
-  flex: 1;
-  display: grid;
-  align-content: center;
-  gap: 14px;
-  padding: 22px;
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, rgba(212, 175, 55, 0.12), transparent),
-    rgba(255, 255, 255, 0.045);
-  color: var(--coach-slide-muted);
-  font-size: 1rem;
-  line-height: 2.6;
-  white-space: pre-line;
-}
-
-.coach-report-panel :deep(.coach-expanded-card strong) {
-  grid-column: 2 / 3;
-  grid-row: 2 / 3;
-  display: flex;
-  align-items: stretch;
-  padding: 24px;
-  font-size: 0;
-}
-
-.coach-report-panel :deep(.coach-expanded-card strong)::before {
-  content: '智能建议\A\A 对线策略建议\A 团战定位建议\A 资源交换建议';
-  width: 100%;
-  color: var(--coach-body-color);
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 2.05;
-  white-space: pre-line;
-}
-
-.coach-report-panel :deep(.coach-expanded-card)::after {
-  content: '赛后复盘\A 详细复盘报告即将上线';
-  grid-column: 1 / -1;
-  grid-row: 3 / 4;
-  display: flex;
-  align-items: center;
-  padding: 24px 28px;
-  color: var(--coach-slide-muted);
-  font-size: 1.02rem;
-  font-weight: 600;
-  line-height: 1.8;
-  white-space: pre-line;
-}
-
-.coach-report-panel :deep(.coach-close) {
-  top: 22px;
-  right: 24px;
-  z-index: 2;
-  border-color: rgba(212, 175, 55, 0.46);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(238, 205, 112, 0.96);
-}
-
-.coach-report-panel :deep(.coach-expand-enter-active),
-.coach-report-panel :deep(.coach-expand-leave-active) {
-  transition: opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.coach-report-panel :deep(.coach-expand-enter-active .coach-expanded-card),
-.coach-report-panel :deep(.coach-expand-leave-active .coach-expanded-card) {
-  transition:
-    transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
-    opacity 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.coach-report-panel :deep(.coach-expand-enter-from .coach-expanded-card),
-.coach-report-panel :deep(.coach-expand-leave-to .coach-expanded-card) {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
 :global([data-theme="light"] .coach-report-panel) {
-  --coach-title-color: #2f2918;
-  --coach-body-color: #4b4638;
-  --coach-placeholder-color: #6f5b19;
-  --coach-slide-bg: linear-gradient(135deg, rgba(245, 245, 250, 0.9), rgba(242, 236, 222, 0.82));
-  --coach-slide-tile-bg: rgba(255, 255, 255, 0.52);
-  --coach-slide-tile-border: rgba(180, 180, 190, 0.5);
-  --coach-slide-muted: #62583e;
+  --module-edge-color: rgba(41, 151, 255, 0.5);
+  --module-edge-soft: rgba(41, 151, 255, 0.12);
+  --module-edge-glow: 0 0 0 1px rgba(41, 151, 255, 0.14), 0 10px 24px rgba(41, 151, 255, 0.1);
+  --module-edge-glow-strong: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 12px 28px rgba(41, 151, 255, 0.11);
 }
 
 :global([data-theme="light"] .rank-badge) {
@@ -1334,146 +1515,349 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   background: var(--rank-border-light);
 }
 
-:global([data-theme="light"] .coach-report-panel .coach-stack-card),
-:global([data-theme="light"] .coach-report-panel .coach-expanded-card) {
-  border-color: rgba(212, 175, 55, 0.24);
-  background: linear-gradient(135deg, rgba(238, 240, 246, 0.82), rgba(244, 241, 232, 0.74));
-  color: #2c2c2c;
-  backdrop-filter: blur(12px);
-  box-shadow:
-    inset -1px -1px 2px rgba(0, 0, 0, 0.08),
-    0 0 12px rgba(212, 175, 55, 0.2);
-}
-
-:global([data-theme="light"] .coach-report-panel .coach-stack-card::after) {
-  border-color: rgba(212, 175, 55, 0.24);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
-}
-
-:global([data-theme="light"] .coach-report-panel .coach-stack-card:hover),
-:global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible) {
-  border-color: rgba(212, 175, 55, 0.38);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
-}
-
-:global([data-theme="light"] .coach-report-panel .coach-stack-card:hover::after),
-:global([data-theme="light"] .coach-report-panel .coach-stack-card:focus-visible::after) {
-  border-color: rgba(212, 175, 55, 0.34);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
-}
-
-:global([data-theme="light"] .coach-report-panel .coach-expanded-layer) {
-  background: rgba(248, 248, 250, 0.38);
-}
-
-:global([data-theme="light"] .coach-report-panel .coach-expanded-card) {
-  background: var(--coach-slide-bg);
-  backdrop-filter: blur(20px);
-  box-shadow:
-    0 0 0 1px rgba(212, 175, 55, 0.18),
-    0 0 12px rgba(212, 175, 55, 0.2);
-}
-
-:global([data-theme="light"] .coach-report-panel .coach-expanded-card p),
-:global([data-theme="light"] .coach-report-panel .coach-expanded-card strong),
-:global([data-theme="light"] .coach-report-panel .coach-expanded-card::after) {
-  background: var(--coach-slide-tile-bg);
-  border-color: var(--coach-slide-tile-border);
-}
-
 :global([data-theme="light"] .home-view) {
-  --home-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
-  --home-theme-glow-strong: 0 0 0 1px rgba(100, 116, 139, 0.24), 0 0 20px rgba(100, 116, 139, 0.25);
-  --theme-hover-glow: var(--home-theme-glow);
-  --control-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26);
-  --fortune-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26), 0 10px 26px rgba(100, 116, 139, 0.14);
-  --home-glow-border: rgba(100, 116, 139, 0.28);
+  --rp-light-gold-border: var(--border-color);
+  --rp-light-gold-border-hover: var(--border-color);
+  --rp-light-gold-edge-core: rgba(255, 218, 76, 0.94);
+  --rp-light-gold-edge-fade: rgba(244, 183, 24, 0.52);
+  --rp-light-gold-glow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
+  --rp-light-gold-glow-active: inset 0 1px 2px rgba(90, 70, 20, 0.18), 0 0 0 2px rgba(170, 126, 12, 0.08), 0 0 4px rgba(170, 126, 12, 0.12);
+  --rp-light-global-glow: var(--rp-light-gold-glow);
+  --rp-fortune-blue-border: rgba(41, 151, 255, 0.2);
+  --rp-fortune-blue-border-strong: rgba(33, 196, 255, 0.42);
+  --rp-fortune-blue-edge-core: rgba(78, 215, 255, 0.98);
+  --rp-fortune-blue-edge-fade: rgba(41, 151, 255, 0.48);
+  --rp-fortune-blue-glow: 0 0 0 2px rgba(41, 151, 255, 0.14), 0 0 14px rgba(33, 196, 255, 0.24);
+  --rp-fortune-blue-glow-active: inset 0 1px 2px rgba(17, 77, 116, 0.18), 0 0 0 2px rgba(41, 151, 255, 0.08), 0 0 7px rgba(33, 196, 255, 0.18);
+  --rp-gold-border: var(--rp-light-gold-border);
+  --rp-gold-border-hover: var(--rp-light-gold-border-hover);
+  --rp-gold-glow-soft: none;
+  --rp-gold-glow-hover: var(--rp-light-gold-glow);
+  --rp-gold-glow-active: var(--rp-light-gold-glow-active);
+  --rp-blue-glow-hover: 0 0 0 2px rgba(41, 151, 255, 0.12), 0 0 6px rgba(41, 151, 255, 0.22);
+  --module-edge-color: rgba(226, 179, 34, 0.36);
+  --module-edge-soft: rgba(226, 179, 34, 0.1);
+  --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
+  --module-edge-glow-strong: 0 0 0 1px rgba(226, 179, 34, 0.13), 0 12px 26px rgba(226, 179, 34, 0.1);
+  --home-control-bg: var(--bg-secondary);
+  --home-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --home-control-local-glow: transparent;
+  --home-control-local-glow-fade: transparent;
+  --control-edge-width: 2px;
+  --control-edge-offset: -2px;
+  --home-control-border-local-glow: var(--rp-light-gold-edge-core);
+  --home-control-border-local-glow-fade: var(--rp-light-gold-edge-fade);
+  --home-control-edge-rgb: 255, 210, 62;
+  --home-control-bg-active: rgba(232, 216, 174, 0.98);
+  --home-control-border: var(--rp-gold-border);
+  --home-control-border-hover: var(--rp-gold-border-hover);
+  --home-control-text: #4f421e;
+  --home-control-shadow: var(--rp-gold-glow-soft);
+  --home-control-hover-shadow: var(--rp-gold-glow-hover);
+  --home-control-active-shadow: var(--rp-gold-glow-active);
+  --home-panel-hover-bg: #ededf2;
+  --home-panel-hover-border: var(--module-edge-color);
+  --home-panel-hover-shadow: var(--module-edge-glow);
+  --home-ai-hover-bg: rgba(237, 237, 242, 0.88);
+  --home-ai-hover-border: var(--module-edge-color);
+  --home-ai-hover-shadow: var(--module-edge-glow);
+  --control-hover-shadow: var(--home-control-hover-shadow);
+  --coach-gold: #6f5b19;
+  --coach-gold-muted: rgba(111, 91, 25, 0.64);
+  --slot-window-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9));
+  --slot-window-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 46%, rgba(41, 151, 255, 0.035));
+  --slot-window-border: rgba(41, 151, 255, 0.16);
+  --slot-window-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.82), inset 0 -1px 2px rgba(15, 23, 42, 0.04), 0 8px 18px rgba(15, 23, 42, 0.06);
+  --slot-window-top-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent);
+  --slot-window-bottom-fade: linear-gradient(0deg, rgba(220, 229, 245, 0.34), transparent);
+  --slot-window-active-border: rgba(41, 151, 255, 0.22);
+  --slot-edge-rgb: 255, 210, 62;
+  --slot-edge-core: rgba(255, 218, 76, 1);
+  --slot-edge-fade: rgba(244, 183, 24, 0.58);
+  --slot-edge-size: 124px;
+  --slot-edge-width: 4px;
+  --slot-edge-inset-width: 3px;
+  --slot-edge-inset-alpha: 0.68;
+  --slot-edge-outer-alpha: 0.26;
   --rank-text: #2c2c2c;
-  --switch-track-off: #d0d0d6;
-  --switch-track-on: #a3c9a3;
-  --switch-track-border: rgba(100, 116, 139, 0.28);
-  --switch-thumb-color: #f8f8fa;
+  --switch-track-off: rgba(245, 245, 247, 0.98);
+  --switch-track-on: rgba(226, 179, 34, 0.46);
+  --switch-track-border: var(--border-color);
+  --switch-thumb-color: #fffaf0;
   --switch-thumb-active: #ffffff;
-  --switch-thumb-shadow: 0 1px 3px rgba(15, 23, 42, 0.24);
+  --switch-thumb-shadow: 0 1px 2px rgba(90, 70, 20, 0.2);
+}
+
+:global([data-theme="light"] .home-view .coach-report-panel) {
+  --module-edge-color: var(--rp-fortune-blue-border-strong);
+  --module-edge-soft: rgba(41, 151, 255, 0.12);
+  --module-edge-glow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 10px 24px rgba(33, 196, 255, 0.12);
+  --home-ai-hover-border: var(--rp-fortune-blue-border-strong);
+  --home-ai-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 10px 24px rgba(33, 196, 255, 0.12);
+  --home-control-border-local-glow: var(--rp-fortune-blue-edge-core);
+  --home-control-border-local-glow-fade: var(--rp-fortune-blue-edge-fade);
+  --home-control-edge-rgb: 33, 196, 255;
+}
+
+:global([data-theme="light"] .home-view .coach-report-panel .ai-coach-cards) {
+  --record-panel-border-hover: rgba(41, 151, 255, 0.32);
+  --record-panel-glow: rgba(41, 151, 255, 0.2);
+  --record-panel-glow-soft: rgba(41, 151, 255, 0.065);
+  --record-panel-hover-shadow:
+    0 0 0 1px rgba(41, 151, 255, 0.08),
+    0 10px 22px rgba(41, 151, 255, 0.08);
+  --record-card-border-hover: rgba(41, 151, 255, 0.42);
+  --record-card-local-glow: rgba(41, 151, 255, 0.12);
+  --record-stack-border-hover: rgba(41, 151, 255, 0.18);
+}
+
+:global([data-theme="light"] .home-view .fortune-card) {
+  --home-control-bg-hover: rgba(224, 246, 255, 0.96);
+  --home-control-bg-active: rgba(200, 235, 250, 0.94);
+  --home-control-border: var(--rp-fortune-blue-border);
+  --home-control-border-hover: var(--rp-fortune-blue-border);
+  --home-control-border-local-glow: var(--rp-fortune-blue-edge-core);
+  --home-control-border-local-glow-fade: var(--rp-fortune-blue-edge-fade);
+  --home-control-edge-rgb: 33, 196, 255;
+  --home-control-hover-shadow: var(--rp-fortune-blue-glow);
+  --home-control-active-shadow: var(--rp-fortune-blue-glow-active);
+  --control-hover-shadow: var(--rp-fortune-blue-glow);
+  --home-ai-hover-bg: rgba(229, 247, 255, 0.82);
+  --home-ai-hover-border: var(--rp-fortune-blue-border-strong);
+  --home-ai-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 10px 24px rgba(33, 196, 255, 0.12);
+  --coach-gold: #147fbf;
+  --coach-gold-muted: rgba(20, 127, 191, 0.66);
+  --slot-window-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(232, 248, 255, 0.92));
+  --slot-window-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.82), transparent 44%, rgba(33, 196, 255, 0.06));
+  --slot-window-border: var(--rp-fortune-blue-border);
+  --slot-window-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.86), inset 0 -1px 2px rgba(15, 66, 100, 0.04), 0 8px 18px rgba(15, 66, 100, 0.06);
+  --slot-window-top-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.64), transparent);
+  --slot-window-bottom-fade: linear-gradient(0deg, rgba(203, 238, 255, 0.34), transparent);
+  --slot-window-active-border: var(--rp-fortune-blue-border-strong);
+  --slot-edge-rgb: 33, 196, 255;
+  --slot-edge-core: var(--rp-fortune-blue-edge-core);
+  --slot-edge-fade: var(--rp-fortune-blue-edge-fade);
+  --slot-edge-inset-alpha: 0.56;
+  --slot-edge-outer-alpha: 0.22;
+  --slot-reel-shadow: 0 0 12px rgba(33, 196, 255, 0.16);
 }
 
 .fortune-card {
-  text-align: left;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  text-align: center;
 }
 
 .fortune-eyebrow {
   color: var(--text-primary);
-  font-size: 26px;
-  font-weight: bold;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0;
+  text-shadow: none;
 }
 
 .fortune-layout {
   display: flex;
   min-height: 0;
   height: calc(100% - 34px);
+  width: 100%;
   flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 14px;
-}
-
-.slot-reel {
-  min-width: 142px;
-  min-height: 70px;
-  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 18px;
-  border-radius: 16px;
-  background: rgba(196, 220, 255, 0.94);
-  color: #0b64d8;
-  font-size: 34px;
-  line-height: 1;
-  font-weight: 900;
-  letter-spacing: 0;
+  gap: 16px;
 }
 
-.slot-reel.rolling {
-  animation: slot-pop 0.16s linear infinite;
+.slot-window {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --edge-glow-size: 82px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
+  position: relative;
+  width: min(204px, 100%);
+  height: var(--slot-item-height);
+  border: 1px solid var(--slot-window-border);
+  border-radius: 14px;
+  background:
+    var(--slot-window-sheen),
+    var(--slot-window-bg);
+  box-shadow: var(--slot-window-shadow);
+  overflow: hidden;
+  isolation: isolate;
+  transition: border-color 0.18s ease, box-shadow 0.24s ease;
 }
 
-.fortune-card.bad .slot-reel {
-  color: #8a1f17;
-  background: rgba(255, 214, 204, 0.96);
+.slot-window.edge-glow[data-near-glow='true'],
+.slot-window.edge-glow:hover {
+  box-shadow:
+    var(--slot-window-shadow),
+    inset 0 0 0 var(--slot-edge-inset-width) rgba(var(--slot-edge-rgb), var(--slot-edge-inset-alpha)),
+    0 0 18px rgba(var(--slot-edge-rgb), var(--slot-edge-outer-alpha));
 }
 
-.fortune-card.good .slot-reel {
-  color: #085f2d;
-  background: rgba(199, 245, 212, 0.96);
+.slot-edge-light {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  padding: var(--slot-edge-width);
+  background: radial-gradient(
+    circle var(--slot-edge-size) at var(--control-glow-x) var(--control-glow-y),
+    var(--slot-edge-core) 0%,
+    var(--slot-edge-fade) 44%,
+    transparent 78%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
 }
 
-.fortune-text {
-  margin: 0;
-  min-height: 42px;
-  font-size: 15px;
+.slot-window.edge-glow[data-near-glow='true'] .slot-edge-light,
+.slot-window.edge-glow:hover .slot-edge-light {
+  opacity: 1;
+}
+
+.slot-window::before,
+.slot-window::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.slot-window::before {
+  top: 0;
+  background: var(--slot-window-top-fade);
+}
+
+.slot-window::after {
+  bottom: 0;
+  background: var(--slot-window-bottom-fade);
+}
+
+.slot-window.settled {
+  border-color: var(--slot-window-active-border);
+}
+
+.slot-reel-list {
+  display: flex;
+  flex-direction: column;
+  transform: translateY(0);
+  will-change: transform;
+}
+
+.slot-reel-list.rolling {
+  animation: slot-spin 1.18s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.slot-reel-item {
+  height: var(--slot-item-height);
+  min-height: var(--slot-item-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  color: var(--coach-gold);
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, PMingLiU, 'Times New Roman', serif;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  text-shadow: var(--slot-reel-shadow, 0 0 12px rgba(212, 175, 55, 0.16));
+  overflow-wrap: anywhere;
+}
+
+.fortune-card.bad .slot-reel-item:first-child {
+  color: #d88a72;
+}
+
+.fortune-card.good .slot-window {
+  border-color: var(--slot-window-active-border);
+}
+
+.fortune-card.good .slot-reel-item:first-child {
+  color: var(--coach-gold);
 }
 
 .fortune-button {
-  min-width: 172px;
+  min-width: 160px;
 }
 
 .fortune-disclaimer {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  left: 20px;
+  box-sizing: border-box;
   margin: 0;
-  font-size: 13px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
-@keyframes slot-pop {
+@keyframes home-ai-breathe {
   0% {
-    transform: translateY(-2px);
+    box-shadow: var(--home-ai-hover-shadow);
   }
+
+  50% {
+    box-shadow: var(--module-edge-glow-strong);
+  }
+
   100% {
-    transform: translateY(2px);
+    box-shadow: var(--home-ai-hover-shadow);
+  }
+}
+
+@keyframes slot-spin {
+  0% {
+    transform: translateY(0);
+  }
+
+  42% {
+    transform: translateY(calc(var(--slot-item-height) * -4));
+  }
+
+  70% {
+    transform: translateY(calc(var(--slot-item-height) * -7));
+  }
+
+  88% {
+    transform: translateY(calc(var(--slot-item-height) * -0.28));
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-analysis-card:hover,
+  .fortune-card:hover,
+  .slot-reel-list.rolling {
+    animation: none;
+  }
+
+  .slot-reel-list.rolling {
+    transition: opacity 0.18s ease;
   }
 }
 
 @media (max-width: 920px) {
-  .coach-report-grid,
-  .account-panel {
+  .coach-report-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1482,11 +1866,29 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
   }
 
   .account-panel {
-    align-items: flex-start;
+    align-items: center;
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .account-identity {
+    gap: 14px;
+  }
+
+  .summoner-heading {
+    display: flex;
+    min-height: auto;
+    overflow: visible;
   }
 
   .summoner-heading h2 {
     font-size: 24px;
+    max-width: none;
+  }
+
+  .summoner-heading .connection-pill.connected {
+    position: static;
+    transform: none;
   }
 
   .account-avatar,
@@ -1497,31 +1899,6 @@ function formatRankDivisionPart(rank: QueueInfo | null): string {
 
   .action-row {
     justify-content: flex-start;
-  }
-
-  .coach-report-panel :deep(.coach-expanded-layer) {
-    width: auto;
-  }
-}
-
-@media (max-width: 760px) {
-  .coach-report-panel :deep(.coach-expanded-layer) {
-    inset: 52px 14px 14px 110px;
-  }
-
-  .coach-report-panel :deep(.coach-expanded-card) {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(160px, 1fr) minmax(160px, 1fr) auto;
-    padding: 30px 28px;
-  }
-
-  .coach-report-panel :deep(.coach-expanded-card strong) {
-    grid-column: 1 / -1;
-    grid-row: 3 / 4;
-  }
-
-  .coach-report-panel :deep(.coach-expanded-card)::after {
-    grid-row: 4 / 5;
   }
 }
 </style>

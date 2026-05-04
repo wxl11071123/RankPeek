@@ -15,6 +15,8 @@ import java.util.Locale;
 @Service
 public class LocalDataPathService {
 
+    private static final String USER_STORE_FILE_NAME = "rankpeek-user-store.json";
+
     public Path getCacheDatabasePath() {
         Path cacheDirectory = getCacheDirectory();
         try {
@@ -25,6 +27,20 @@ public class LocalDataPathService {
         return cacheDirectory.resolve("rankpeek-cache");
     }
 
+    public Path getUserDataDirectory() {
+        Path userDataDirectory = resolveUserDataDirectory();
+        try {
+            Files.createDirectories(userDataDirectory);
+        } catch (IOException e) {
+            log.warn("Failed to create RankPeek user store directory: {}", userDataDirectory, e);
+        }
+        return userDataDirectory;
+    }
+
+    public Path getUserStorePath() {
+        return getUserDataDirectory().resolve(USER_STORE_FILE_NAME);
+    }
+
     private Path getCacheDirectory() {
         if (isWindows()) {
             String appData = System.getenv("APPDATA");
@@ -33,6 +49,16 @@ public class LocalDataPathService {
             }
         }
         return Path.of(System.getProperty("user.home", "."), ".rankpeek", "cache");
+    }
+
+    private Path resolveUserDataDirectory() {
+        if (isWindows()) {
+            String appData = System.getenv("APPDATA");
+            if (appData != null && !appData.isBlank()) {
+                return Path.of(appData, "RankPeek", "user-store");
+            }
+        }
+        return Path.of(System.getProperty("user.home", "."), ".rankpeek", "user-store");
     }
 
     private boolean isWindows() {

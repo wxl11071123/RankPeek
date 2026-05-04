@@ -11,7 +11,8 @@
     <template v-else-if="sessionSummoner.summoner">
       <div class="player-head">
         <div class="avatar-wrap">
-          <img :src="avatarUrl" class="avatar" alt="" />
+          <img v-if="avatarUrl" :src="avatarUrl" class="avatar" alt="" @error="markAssetLoadFailed" />
+          <span v-else class="avatar avatar-fallback"></span>
           <span v-if="sessionSummoner.preGroupMarkers?.name" class="pregroup-badge">
             {{ sessionSummoner.preGroupMarkers.name }}
           </span>
@@ -39,7 +40,7 @@
                   :key="`${tag.tagName}-measure-${index}`"
                   class="tag-chip"
                   :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
-                  :title="tag.tagDesc"
+                  :title="tag.tagDesc || tag.tagName"
                   data-tag-measure
                 >
                   {{ tag.tagName }}
@@ -55,7 +56,7 @@
                   :key="`${tag.tagName}-${index}`"
                   class="tag-chip"
                   :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
-                  :title="tag.tagDesc"
+                  :title="tag.tagDesc || tag.tagName"
                 >
                   {{ tag.tagName }}
                 </span>
@@ -70,7 +71,7 @@
                     :key="`${tag.tagName}-hidden-${index}`"
                     class="tag-chip"
                     :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
-                    :title="tag.tagDesc"
+                    :title="tag.tagDesc || tag.tagName"
                   >
                     {{ tag.tagName }}
                   </span>
@@ -88,19 +89,26 @@
       </div>
 
       <template v-else>
-        <div class="stats-grid">
-          <div class="stat-item">
-            <span class="stat-label">KDA</span>
-            <strong>{{ kdaText }}</strong>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">胜率</span>
-            <strong>{{ winRate }}%</strong>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">场次</span>
-            <strong>{{ totalGames }}</strong>
-          </div>
+        <div class="scout-metrics" aria-label="侦察指标">
+          <span class="metric-item">
+            <span>KDA</span>
+            <strong :class="kdaTone">{{ kdaText }}</strong>
+          </span>
+          <span class="metric-separator" aria-hidden="true"></span>
+          <span class="metric-item">
+            <span>伤转率</span>
+            <strong :class="damageRateTone">{{ damageRateText }}</strong>
+          </span>
+          <span class="metric-separator" aria-hidden="true"></span>
+          <span class="metric-item">
+            <span>胜率</span>
+            <strong :class="winRateTone">{{ winRateText }}</strong>
+          </span>
+          <span class="metric-separator" aria-hidden="true"></span>
+          <span class="metric-item">
+            <span>样本</span>
+            <strong>{{ totalGames }}场</strong>
+          </span>
         </div>
       </template>
     </template>
@@ -114,7 +122,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { QueueInfo, RecordStatus, SessionSummoner } from '@/types/api'
+import type { QueueInfo, RankTag, RecordStatus, SessionSummoner } from '@/types/api'
+import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
 import iron from '@/assets/imgs/tier/iron.png'
@@ -176,7 +185,9 @@ const recordStatusMeta = computed(() => {
   }
 })
 
-const userTags = computed(() => props.sessionSummoner.userTag?.tag || [])
+const userTags = computed<RankTag[]>(() =>
+  (props.sessionSummoner.userTag?.tag || []).filter((tag): tag is RankTag => Boolean(tag?.tagName?.trim()))
+)
 const measuredVisibleTagCount = ref<number | null>(null)
 const tagContainerRef = ref<HTMLElement | null>(null)
 const tagMeasureRef = ref<HTMLElement | null>(null)
@@ -343,19 +354,12 @@ const statusClass = computed(() => {
 
 const avatarUrl = computed(() => {
   if (props.sessionSummoner.championId > 0) {
-    return `http://127.0.0.1:8080/api/v1/asset/champion/${props.sessionSummoner.championId}`
+    return getChampionIconUrl(props.sessionSummoner.championId)
   }
   if (props.sessionSummoner.summoner?.profileIconId) {
-    return `http://127.0.0.1:8080/api/v1/asset/profile/${props.sessionSummoner.summoner.profileIconId}`
+    return getProfileIconUrl(props.sessionSummoner.summoner.profileIconId)
   }
   return ''
-})
-
-const winRate = computed(() => {
-  const wins = props.sessionSummoner.userTag?.recentData?.selectWins || 0
-  const losses = props.sessionSummoner.userTag?.recentData?.selectLosses || 0
-  const total = wins + losses
-  return total > 0 ? Math.round((wins / total) * 100) : 0
 })
 
 const totalGames = computed(() => {
@@ -364,10 +368,58 @@ const totalGames = computed(() => {
   return wins + losses
 })
 
-const kdaText = computed(() => {
-  const kda = props.sessionSummoner.userTag?.recentData?.kda
-  return kda != null ? kda.toFixed(1) : '--'
+const winRateValue = computed(() => {
+  const wins = props.sessionSummoner.userTag?.recentData?.selectWins || 0
+  const total = totalGames.value
+  return total > 0 ? (wins / total) * 100 : null
 })
+
+const winRateText = computed(() => {
+  return winRateValue.value != null ? `${winRateValue.value.toFixed(1)}%` : '--'
+})
+
+const kdaValue = computed(() => {
+  const kda = props.sessionSummoner.userTag?.recentData?.kda
+  return typeof kda === 'number' && Number.isFinite(kda) ? kda : null
+})
+
+const kdaText = computed(() => {
+  return kdaValue.value != null ? kdaValue.value.toFixed(1) : '--'
+})
+
+const damageConversionRate = computed(() => {
+  const recentData = props.sessionSummoner.userTag?.recentData
+  const damage = recentData?.averageDamageDealtToChampions
+  const gold = recentData?.averageGold
+  if (
+    typeof damage !== 'number' ||
+    typeof gold !== 'number' ||
+    !Number.isFinite(damage) ||
+    !Number.isFinite(gold) ||
+    damage <= 0 ||
+    gold <= 0
+  ) {
+    return null
+  }
+  return (damage / gold) * 100
+})
+
+const damageRateText = computed(() => {
+  return damageConversionRate.value != null ? `${damageConversionRate.value.toFixed(1)}%` : '--'
+})
+
+type MetricTone = 'metric-high' | 'metric-neutral' | 'metric-low'
+
+function getMetricTone(value: number | null, low: number, high: number): MetricTone {
+  if (value == null) return 'metric-neutral'
+  if (value >= high) return 'metric-high'
+  if (value <= low) return 'metric-low'
+  return 'metric-neutral'
+}
+
+const kdaTone = computed(() => getMetricTone(kdaValue.value, 1.8, 3))
+const damageRateTone = computed(() => getMetricTone(damageConversionRate.value, 120, 180))
+const winRateTone = computed(() => getMetricTone(winRateValue.value, 45, 55))
 
 const primaryQueueInfo = computed<QueueInfo | null>(() => {
   const queueMap = props.sessionSummoner.rank?.queueMap
@@ -500,11 +552,16 @@ function onNameClick() {
 }
 
 .avatar {
+  display: block;
   width: 58px;
   height: 58px;
   border-radius: 12px;
   object-fit: cover;
   background: var(--bg-tertiary);
+}
+
+.avatar[data-asset-failed='true'] {
+  display: none;
 }
 
 .pregroup-badge {
@@ -555,7 +612,7 @@ function onNameClick() {
   flex-wrap: nowrap;
   gap: 6px;
   max-width: 100%;
-  min-width: 42px;
+  min-width: 0;
 }
 
 .visible-tags {
@@ -670,7 +727,9 @@ function onNameClick() {
 
 .tag-chip {
   flex: 0 0 auto;
-  max-width: 116px;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: min(132px, 100%);
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 12px;
@@ -696,32 +755,68 @@ function onNameClick() {
   color: var(--text-secondary);
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.stat-item {
+.scout-metrics {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.stat-label {
-  font-size: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px 10px;
+  min-width: 0;
+  width: 100%;
+  padding-top: 2px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 800;
+  overflow: visible;
 }
 
-.stat-item strong {
+.metric-item {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 1 1 76px;
+  min-width: max-content;
+  height: 22px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.metric-item span,
+.metric-item strong {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  line-height: 22px;
+}
+
+.metric-item strong {
   color: var(--text-primary);
-  font-size: 18px;
-  line-height: 1.2;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.metric-item strong.metric-high {
+  color: #55d187;
+}
+
+.metric-item strong.metric-neutral {
+  color: var(--text-primary);
+}
+
+.metric-item strong.metric-low {
+  color: #ff6b6b;
+}
+
+.metric-separator {
+  display: none;
+  flex: 0 0 auto;
+  width: 1px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .skeleton {
@@ -796,21 +891,32 @@ function onNameClick() {
     font-size: 16px;
   }
 
-  .stats-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+  .scout-metrics {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px 8px;
+    overflow: visible;
   }
 
-  .stat-item {
-    padding: 8px;
+  .metric-item {
+    flex: 0 1 auto;
+    height: 20px;
+    line-height: 20px;
+    font-size: 12px;
   }
 
-  .stat-label {
-    font-size: 11px;
+  .metric-item span,
+  .metric-item strong {
+    height: 20px;
+    line-height: 20px;
   }
 
-  .stat-item strong {
-    font-size: 16px;
+  .metric-item strong {
+    font-size: 15px;
+  }
+
+  .metric-separator {
+    height: 12px;
   }
 }
 </style>

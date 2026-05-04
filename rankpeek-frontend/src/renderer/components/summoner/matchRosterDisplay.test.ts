@@ -42,13 +42,15 @@ test('styles top kills green and top deaths red in recent match roster', () => {
   assert.match(componentSource, /\.kda-number\.leader-death\s*\{\s*color:\s*#ff6b6b;/)
 })
 
-test('shows item build in the match list before opening details', () => {
+test('shows compact stat details in the match list before opening details', () => {
   const componentSource = readFileSync(new URL('./MatchRosterCompact.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /function getItemIds/)
-  assert.match(componentSource, /function getItemUrl/)
-  assert.match(componentSource, /class="player-build"/)
-  assert.match(componentSource, /class="build-icon"/)
-  assert.match(componentSource, /stats\?\.item0/)
-  assert.match(componentSource, /stats\?\.item6/)
+  assert.match(componentSource, /import \{ buildMatchDetailItems, getTeamKdaLeaders \} from '\.\/matchRosterDisplay'/)
+  assert.match(componentSource, /function getMatchDetails\(player: MatchRosterPlayer\)/)
+  assert.match(componentSource, /return buildMatchDetailItems\(player\.stats\)/)
+  assert.match(componentSource, /class="detail-row"/)
+  assert.match(componentSource, /class="detail-pill"/)
+  assert.match(componentSource, /class="detail-label"/)
+  assert.match(componentSource, /class="detail-value"/)
+  assert.doesNotMatch(componentSource, /class="player-build"/)
 })

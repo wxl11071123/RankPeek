@@ -82,8 +82,20 @@ export interface MatchHistory {
   gameDuration: number
   gameCreation: number
   platformId: string
+  remake?: boolean
   participants: Participant[]
   participantIdentities: ParticipantIdentity[]
+}
+
+export interface MatchHistoryPageResponse {
+  matches: MatchHistory[]
+  page: number
+  pageSize: number
+  hasNext: boolean
+  source: string
+  recordStatus: RecordStatus
+  sgpServerId?: string
+  warnings?: string[]
 }
 
 export interface Participant {
@@ -92,6 +104,11 @@ export interface Participant {
   championId: number
   spell1Id: number
   spell2Id: number
+  teamPosition?: string
+  individualPosition?: string
+  selectedPosition?: string
+  lane?: string
+  role?: string
   stats: Stats
 }
 
@@ -106,6 +123,7 @@ export interface Stats {
   totalDamageDealtToChampions: number
   totalDamageTaken: number
   totalHeal: number
+  visionScore?: number
   // 装备
   item0: number
   item1: number
@@ -120,8 +138,22 @@ export interface Stats {
   healRate?: number
   // MVP/SVP
   mvp?: string
+  doubleKills?: number
+  tripleKills?: number
+  quadraKills?: number
+  pentaKills?: number
+  largestKillingSpree?: number
+  legendaryCount?: number
   // 符文
   perk0?: number
+  perk1?: number
+  perk2?: number
+  perk3?: number
+  perk4?: number
+  perk5?: number
+  perkPrimaryStyle?: number
+  perkSubStyle?: number
+  perks?: Record<string, unknown>
   // 补兵（别名）
   minionsKilled?: number
   // 对塔伤害
@@ -131,6 +163,8 @@ export interface Stats {
   playerAugment2?: number
   playerAugment3?: number
   playerAugment4?: number
+  challenges?: Record<string, unknown>
+  extraFields?: Record<string, unknown>
 }
 
 export interface ParticipantIdentity {
@@ -176,6 +210,14 @@ export interface CacheStatus {
   playerMatchIndexCount: number
   trackedPlayerCount: number
   latestMatchCreation: number | null
+}
+
+export interface UserStoreStatus {
+  enabled: boolean
+  path: string
+  sizeBytes: number
+  updatedAt: number | null
+  tagConfigCount: number
 }
 
 export type CacheClearScope = 'all' | 'memory' | 'localDb'
@@ -254,9 +296,9 @@ export interface RecentData {
 }
 
 export interface RankTag {
-  good: boolean | null
+  good?: boolean | null
   tagName: string
-  tagDesc: string
+  tagDesc?: string
 }
 
 export interface FriendAndDispute {
@@ -316,137 +358,6 @@ export interface AssetDetails {
   extra?: unknown
 }
 
-// ========== 标签配置系统 ==========
-
-// 标签配置
-export interface TagConfig {
-  id: string
-  name: string
-  desc: string
-  good: boolean | null
-  enabled: boolean
-  isDefault: boolean
-  condition: TagCondition
-}
-
-// 条件树节点
-export type TagCondition =
-  | AndCondition
-  | OrCondition
-  | NotCondition
-  | HistoryCondition
-  | CurrentQueueCondition
-  | CurrentChampionCondition
-
-export interface AndCondition {
-  type: 'and'
-  conditions: TagCondition[]
-}
-
-export interface OrCondition {
-  type: 'or'
-  conditions: TagCondition[]
-}
-
-export interface NotCondition {
-  type: 'not'
-  condition: TagCondition
-}
-
-export interface HistoryCondition {
-  type: 'history'
-  filters: MatchFilter[]
-  refresh: MatchRefresh
-}
-
-export interface CurrentQueueCondition {
-  type: 'currentQueue'
-  ids: number[]
-}
-
-export interface CurrentChampionCondition {
-  type: 'currentChampion'
-  ids: number[]
-}
-
-// 过滤器
-export type MatchFilter =
-  | QueueFilter
-  | ChampionFilter
-  | StatFilter
-
-export interface QueueFilter {
-  type: 'queue'
-  ids: number[]
-}
-
-export interface ChampionFilter {
-  type: 'champion'
-  ids: number[]
-}
-
-export interface StatFilter {
-  type: 'stat'
-  metric: string
-  op: Operator
-  value: number
-}
-
-// 刷新器
-export type MatchRefresh =
-  | CountRefresh
-  | AverageRefresh
-  | SumRefresh
-  | MaxRefresh
-  | MinRefresh
-  | StreakRefresh
-
-export interface CountRefresh {
-  type: 'count'
-  op: Operator
-  value: number
-}
-
-export interface AverageRefresh {
-  type: 'average'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface SumRefresh {
-  type: 'sum'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface MaxRefresh {
-  type: 'max'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface MinRefresh {
-  type: 'min'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface StreakRefresh {
-  type: 'streak'
-  min: number
-  kind: StreakType
-}
-
-// 运算符
-export type Operator = '>' | '>=' | '<' | '<=' | '==' | '!='
-
-// 连胜/连败类型
-export type StreakType = 'WIN' | 'LOSS'
-
 // ========== 对局详情 ==========
 
 // 对局详情
@@ -483,6 +394,9 @@ export interface GameParticipant {
   championId: number
   spell1Id: number
   spell2Id: number
+  teamPosition?: string
+  individualPosition?: string
+  selectedPosition?: string
   stats: GameStats
   timeline: GameTimeline
 }
@@ -495,17 +409,28 @@ export interface GameStats {
   totalMinionsKilled: number
   neutralMinionsKilled: number
   goldEarned: number
+  goldSpent?: number
   totalDamageDealtToChampions: number
+  magicDamageDealtToChampions?: number
+  physicalDamageDealtToChampions?: number
+  trueDamageDealtToChampions?: number
   totalDamageTaken: number
   totalHeal: number
+  visionScore?: number
+  detectorWardsPlaced?: number
   visionWardsBoughtInGame: number
   wardsPlaced: number
   wardsKilled: number
   largestMultiKill: number
+  perks?: Record<string, unknown>
+  challenges?: Record<string, unknown>
+  extraFields?: Record<string, unknown>
   doubleKills: number
   tripleKills: number
   quadraKills: number
   pentaKills: number
+  largestKillingSpree?: number
+  legendaryCount?: number
   // 符文
   perk0?: number
   perk1?: number
@@ -530,11 +455,22 @@ export interface GameStats {
   damageDealtToChampionsRate?: number
   damageTakenRate?: number
   healRate?: number
+  item0?: number
+  item1?: number
+  item2?: number
+  item3?: number
+  item4?: number
+  item5?: number
+  item6?: number
 }
 
 export interface GameTimeline {
   lane: string
   role: string
+  teamPosition?: string
+  positionCn?: string
+  rawLane?: string
+  rawRole?: string
 }
 
 // ========== 会话数据 ==========
@@ -551,7 +487,7 @@ export interface SessionSummoner {
   championKey: string
   summoner: Summoner
   matchHistory: MatchHistory[]
-  userTag: UserTag
+  userTag?: UserTag | null
   rank: Rank
   meetGames: OneGamePlayer[]
   preGroupMarkers: PreGroupMarker

@@ -280,9 +280,12 @@ public class AssetController {
      */
     private String getAssetIconUrl(String type, Long id) {
         return switch (type.toLowerCase()) {
-            case "item" -> String.format("https://ddragon.leagueoflegends.com/cdn/14.1.1/img/item/%d.png", id);
-            case "champion" -> String.format("https://ddragon.leagueoflegends.com/cdn/14.1.1/img/champion/%d.png", id);
-            case "spell" -> String.format("https://ddragon.leagueoflegends.com/cdn/14.1.1/img/spell/%d.png", id);
+            case "item" -> String.format("/api/v1/asset/item/%d", id);
+            case "champion" -> String.format("/api/v1/asset/champion/%d", id);
+            case "spell" -> String.format("/api/v1/asset/spell/%d", id);
+            case "perk", "rune" -> String.format("/api/v1/asset/perk/%d", id);
+            case "augment" -> String.format("/api/v1/asset/augment/%d", id);
+            case "profile" -> String.format("/api/v1/asset/profile/%d", id);
             default -> "";
         };
     }

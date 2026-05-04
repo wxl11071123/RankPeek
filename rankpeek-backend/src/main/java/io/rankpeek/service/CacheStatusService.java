@@ -1,9 +1,11 @@
 package io.rankpeek.service;
 
+import io.rankpeek.cache.LocalCacheRecoveryService;
+import io.rankpeek.cache.LocalCacheSchemaInitializer;
 import io.rankpeek.config.LocalDataPathService;
 import io.rankpeek.model.CacheStatus;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -11,14 +13,34 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class CacheStatusService {
 
     private final JdbcTemplate jdbcTemplate;
     private final LocalDataPathService localDataPathService;
+    private final LocalCacheRecoveryService recoveryService;
+    private final LocalCacheSchemaInitializer schemaInitializer;
+
+    @Autowired
+    public CacheStatusService(JdbcTemplate jdbcTemplate,
+                              LocalDataPathService localDataPathService,
+                              LocalCacheRecoveryService recoveryService,
+                              LocalCacheSchemaInitializer schemaInitializer) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.localDataPathService = localDataPathService;
+        this.recoveryService = recoveryService;
+        this.schemaInitializer = schemaInitializer;
+    }
+
+    public CacheStatusService(JdbcTemplate jdbcTemplate, LocalDataPathService localDataPathService) {
+        this(jdbcTemplate, localDataPathService, null, null);
+    }
 
     public CacheStatus getStatus() {
+        return getStatus(false);
+    }
+
+    private CacheStatus getStatus(boolean recoveryAlreadyAttempted) {
         Path databasePath = resolveDatabasePath();
         String databasePathText = databasePath != null ? databasePath.toString() : "";
         long databaseSizeBytes = readDatabaseSizeBytes(databasePath);
@@ -38,9 +60,34 @@ public class CacheStatusService {
                     .latestMatchCreation(queryLong("SELECT MAX(game_creation) FROM match_cache"))
                     .build();
         } catch (Exception e) {
+            if (!recoveryAlreadyAttempted && recoverCorruptCache(e)) {
+                return getStatus(true);
+            }
             log.warn("Failed to read local cache status; reporting cache as disabled: error={}", e.getMessage());
             return disabledStatus(databasePathText, databaseSizeBytes);
         }
+    }
+
+    private boolean recoverCorruptCache(Exception error) {
+        if (recoveryService == null || schemaInitializer == null || !recoveryService.isRecoverableCorruption(error)) {
+            return false;
+        }
+
+        log.warn("Detected local H2 cache corruption while reading status; attempting cache recovery");
+        LocalCacheRecoveryService.RecoveryResult recoveryResult = recoveryService.quarantineIfRecoverable(error);
+        if (!recoveryResult.recovered()) {
+            log.warn("Local H2 cache recovery from status check failed: {}", recoveryResult.message(),
+                    recoveryResult.failure());
+            return false;
+        }
+
+        boolean initialized = schemaInitializer.initializeSchemaIfPossible();
+        if (initialized) {
+            log.info("Local cache schema initialized after status-triggered H2 cache recovery");
+        } else {
+            log.warn("Local cache schema initialization failed after status-triggered H2 cache recovery");
+        }
+        return initialized;
     }
 
     private CacheStatus disabledStatus(String databasePath, long databaseSizeBytes) {

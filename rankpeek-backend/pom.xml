@@ -142,7 +142,7 @@
                             <artifactId>spring-boot-configuration-processor</artifactId>
                         </exclude>
                     </excludes>
-                    <jvmArguments>-Xms32m -Xmx128m</jvmArguments>
+                    <jvmArguments>-Xms128m -Xmx512m</jvmArguments>
                     <!-- 分层构建，优化体积和启动速度 -->
                     <layers>
                         <enabled>true</enabled>

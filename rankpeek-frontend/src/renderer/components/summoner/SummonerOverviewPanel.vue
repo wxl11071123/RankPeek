@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { useI18n, type MessageKey } from '@/i18n'
-import type { QueueInfo, Summoner, UserTag, WinRate } from '@/types/api'
+import { computed } from 'vue'
+import { useI18n } from '@/i18n'
+import type { QueueInfo, Summoner, UserTag } from '@/types/api'
+import { getProfileIconUrl as getStableProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
+import { buildRankDisplay, type RankLoadStatus, type RankDisplayText } from '@/utils/rankDisplay'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
 import iron from '@/assets/imgs/tier/iron.png'
@@ -14,14 +17,30 @@ import master from '@/assets/imgs/tier/master.png'
 import grandmaster from '@/assets/imgs/tier/grandmaster.png'
 import challenger from '@/assets/imgs/tier/challenger.png'
 
+type UserTagLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
+
+interface RecentPerformanceStats {
+  sampleCount: number
+  kda: number | null
+  winRate: number | null
+  averageDamage: number | null
+  averageGold: number | null
+  averageParticipation: number | null
+}
+
 const props = withDefaults(defineProps<{
   summoner: Summoner
   userTag: UserTag | null
   soloRank: QueueInfo | null
   flexRank: QueueInfo | null
-  rankedWinRates: Record<string, WinRate> | null
+  rankStatus?: RankLoadStatus
+  fallbackStats?: RecentPerformanceStats | null
+  userTagStatus?: UserTagLoadStatus
   embedded?: boolean
 }>(), {
+  rankStatus: 'loaded',
+  fallbackStats: null,
+  userTagStatus: 'idle',
   embedded: false
 })
 
@@ -30,6 +49,15 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const recentPerformanceStats = computed<RecentPerformanceStats | null>(() => props.fallbackStats ?? null)
+
+const recentStatsSampleCount = computed(() => recentPerformanceStats.value?.sampleCount ?? 0)
+const hasFallbackStats = computed(() => recentStatsSampleCount.value > 0)
+
+const friendRows = computed(() => props.userTag?.recentData?.friendAndDispute?.friendsSummoner.slice(0, 3) || [])
+const opponentRows = computed(() => props.userTag?.recentData?.friendAndDispute?.disputeSummoner.slice(0, 3) || [])
+const hasRelationships = computed(() => friendRows.value.length > 0 || opponentRows.value.length > 0)
 
 const tierIconMap: Record<string, string> = {
   unranked,
@@ -45,26 +73,63 @@ const tierIconMap: Record<string, string> = {
   challenger
 }
 
-const tierLabelMap: Record<string, MessageKey> = {
-  UNRANKED: 'tier.UNRANKED',
-  IRON: 'tier.IRON',
-  BRONZE: 'tier.BRONZE',
-  SILVER: 'tier.SILVER',
-  GOLD: 'tier.GOLD',
-  PLATINUM: 'tier.PLATINUM',
-  EMERALD: 'tier.EMERALD',
-  DIAMOND: 'tier.DIAMOND',
-  MASTER: 'tier.MASTER',
-  GRANDMASTER: 'tier.GRANDMASTER',
-  CHALLENGER: 'tier.CHALLENGER'
-}
+const rankDisplayText = computed<RankDisplayText>(() => ({
+  loading: t('overview.rankLoading'),
+  error: t('overview.rankFailed'),
+  unranked: t('tier.UNRANKED'),
+  noData: t('overview.rankNoData'),
+  winRate: t('overview.winRate')
+}))
 
-const divisionLabelMap: Record<string, MessageKey> = {
-  I: 'division.I',
-  II: 'division.II',
-  III: 'division.III',
-  IV: 'division.IV'
-}
+const rankItems = computed(() => [
+  {
+    key: 'solo',
+    label: t('overview.soloQueue'),
+    display: buildRankDisplay(props.soloRank, props.rankStatus, rankDisplayText.value)
+  },
+  {
+    key: 'flex',
+    label: t('overview.flexQueue'),
+    display: buildRankDisplay(props.flexRank, props.rankStatus, rankDisplayText.value)
+  }
+])
+
+const statBlocks = computed(() => {
+  const recent = recentPerformanceStats.value
+  if (!recent) {
+    return []
+  }
+
+  return [
+    {
+      key: 'kda',
+      label: 'KDA',
+      value: formatOptionalDecimal(recent.kda),
+      tone: getKdaTone(recent.kda)
+    },
+    {
+      key: 'win-rate',
+      label: t('overview.winRate'),
+      value: formatOptionalPercent(recent.winRate),
+      tone: getRateTone(recent.winRate)
+    },
+    {
+      key: 'damage',
+      label: t('common.damage'),
+      value: formatOptionalCompactNumber(recent.averageDamage)
+    },
+    {
+      key: 'gold',
+      label: t('common.gold'),
+      value: formatOptionalCompactNumber(recent.averageGold)
+    },
+    {
+      key: 'participation',
+      label: t('overview.participation'),
+      value: formatOptionalPercent(recent.averageParticipation)
+    }
+  ]
+})
 
 function fullName(): string {
   return props.summoner.tagLine
@@ -73,8 +138,12 @@ function fullName(): string {
 }
 
 function copyName() {
-  navigator.clipboard.writeText(fullName())
+  void navigator.clipboard?.writeText(fullName()).catch(() => undefined)
   emit('copyName')
+}
+
+function getProfileIconUrl(profileIconId?: number): string {
+  return getStableProfileIconUrl(profileIconId)
 }
 
 function getTierIcon(tier?: string): string {
@@ -82,59 +151,67 @@ function getTierIcon(tier?: string): string {
   return tierIconMap[key] || tierIconMap.unranked
 }
 
-function getTierText(queueInfo: QueueInfo | null): string {
-  if (!queueInfo) {
-    return t(tierLabelMap.UNRANKED)
+function formatCompactNumber(value?: number): string {
+  const safeValue = Number(value || 0)
+  if (safeValue >= 1000000) {
+    return `${trimDecimal(safeValue / 1000000)}m`
   }
-
-  const tierKey = queueInfo?.tier?.toUpperCase()
-  if (!tierKey || tierKey === 'UNRANKED') {
-    return t(tierLabelMap.UNRANKED)
+  if (safeValue >= 1000) {
+    return `${trimDecimal(safeValue / 1000)}k`
   }
-
-  const tierLabel = tierLabelMap[tierKey] ? t(tierLabelMap[tierKey]) : queueInfo.tier
-  if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tierKey)) {
-    return `${tierLabel} ${queueInfo.leaguePoints} LP`
-  }
-
-  const divisionKey = queueInfo?.division?.toUpperCase()
-  const divisionLabel = divisionKey
-    ? (divisionLabelMap[divisionKey] ? t(divisionLabelMap[divisionKey]) : queueInfo.division)
-    : ''
-  return divisionLabel
-    ? `${tierLabel} ${divisionLabel} ${queueInfo.leaguePoints} LP`
-    : `${tierLabel} ${queueInfo.leaguePoints} LP`
+  return `${Math.round(safeValue)}`
 }
 
-function getWinRatePercent(wins: number, losses: number): number {
-  const total = wins + losses
-  return total > 0 ? Math.round((wins / total) * 100) : 0
+function formatOptionalCompactNumber(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '--'
+  }
+  return formatCompactNumber(value)
 }
 
-function getRateColor(rate?: number): string {
+function formatOptionalDecimal(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '--'
+  }
+  return value.toFixed(1)
+}
+
+function formatOptionalPercent(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '--'
+  }
+  return `${Math.round(value)}%`
+}
+
+function trimDecimal(value: number): string {
+  const rounded = value.toFixed(1)
+  return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded
+}
+
+function getRateTone(rate?: number | null): string {
   if (rate == null) {
-    return 'var(--text-secondary)'
+    return 'neutral'
   }
   if (rate >= 55) {
-    return '#3d9b7a'
+    return 'good'
   }
   if (rate <= 40) {
-    return '#c45c5c'
+    return 'bad'
   }
-  return 'var(--text-primary)'
+  return 'neutral'
 }
 
-function getKdaColor(kda?: number): string {
+function getKdaTone(kda?: number | null): string {
   if (kda == null) {
-    return 'var(--text-secondary)'
+    return 'neutral'
   }
   if (kda >= 4) {
-    return '#3d9b7a'
+    return 'good'
   }
   if (kda <= 1.5) {
-    return '#c45c5c'
+    return 'bad'
   }
-  return 'var(--text-primary)'
+  return 'neutral'
 }
 
 function statusMeta() {
@@ -142,513 +219,609 @@ function statusMeta() {
     case 'PRIVATE':
       return {
         label: t('badge.private'),
-        hint: t('overview.privateBody'),
         className: 'private'
       }
     case 'EMPTY':
       return {
         label: t('matchHistory.emptyTitle'),
-        hint: t('matchHistory.emptyBody'),
         className: 'empty'
       }
     case 'ERROR':
-      return {
-        label: t('badge.error'),
-        hint: t('overview.errorBody'),
-        className: 'error'
+      if (!hasFallbackStats.value) {
+        return {
+          label: t('badge.error'),
+          className: 'error'
+        }
       }
+      break
     default:
-      return null
+      break
   }
+
+  if (props.userTagStatus === 'error' && !hasFallbackStats.value) {
+    return {
+      label: t('badge.error'),
+      className: 'error'
+    }
+  }
+
+  if (props.userTagStatus === 'loaded' && !props.userTag?.tag?.length) {
+    return {
+      label: t('badge.noTags'),
+      className: 'empty'
+    }
+  }
+
+  return null
 }
 </script>
 
 <template>
   <div class="overview-panel" :class="{ embedded: props.embedded }">
-    <div class="user-card">
-      <div class="user-card-header">
-        <div class="avatar-wrapper">
-          <img
-            class="avatar-img"
-            :src="`http://127.0.0.1:8080/api/v1/asset/profile/${summoner.profileIconId}`"
-            alt=""
-          />
-          <div class="level-badge">{{ summoner.summonerLevel }}</div>
-        </div>
-
-        <div class="user-info">
-          <div class="user-name-row">
-            <span class="user-name">{{ summoner.gameName }}</span>
-            <button class="copy-btn" type="button" @click="copyName">{{ t('overview.copy') }}</button>
-          </div>
-          <div class="user-tag">#{{ summoner.tagLine }}</div>
-        </div>
+    <section class="identity-section">
+      <div class="avatar-wrapper">
+        <img
+          v-if="getProfileIconUrl(summoner.profileIconId)"
+          class="avatar-img"
+          :src="getProfileIconUrl(summoner.profileIconId)"
+          alt=""
+          @error="markAssetLoadFailed"
+        />
+        <span v-else class="avatar-img avatar-fallback"></span>
+        <span class="level-badge">{{ summoner.summonerLevel }}</span>
       </div>
 
-      <div v-if="statusMeta()" class="status-card" :class="statusMeta()!.className">
-        <div class="status-title">{{ statusMeta()!.label }}</div>
-        <div class="status-hint">{{ statusMeta()!.hint }}</div>
-      </div>
+      <div class="identity-copy">
+        <span class="user-name">{{ summoner.gameName }}</span>
+        <button class="riot-id" type="button" :aria-label="t('overview.copy')" @click="copyName">
+          <span>#{{ summoner.tagLine }}</span>
+          <svg class="copy-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M7 3.5A2.5 2.5 0 0 1 9.5 1h5A2.5 2.5 0 0 1 17 3.5v5A2.5 2.5 0 0 1 14.5 11h-5A2.5 2.5 0 0 1 7 8.5v-5Zm2.5-.9a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h5a.9.9 0 0 0 .9-.9v-5a.9.9 0 0 0-.9-.9h-5Z" />
+            <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H6v1.6h-.5a.9.9 0 0 0-.9.9v6a.9.9 0 0 0 .9.9h6a.9.9 0 0 0 .9-.9V14H14v.5a2.5 2.5 0 0 1-2.5 2.5h-6A2.5 2.5 0 0 1 3 14.5v-6Z" />
+          </svg>
+        </button>
 
-      <div v-else-if="userTag?.tag?.length" class="tags-row">
-        <span
-          v-for="tag in userTag.tag"
-          :key="tag.tagName"
-          class="tag"
-          :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
-          :title="tag.tagDesc"
-        >
-          {{ tag.tagName }}
+        <span v-if="statusMeta()" class="status-chip" :class="statusMeta()!.className">
+          {{ statusMeta()!.label }}
         </span>
-      </div>
-    </div>
 
-    <div
-      v-if="userTag?.recordStatus === 'NORMAL' && userTag?.recentData?.friendAndDispute"
-      class="relationship-section"
-    >
-      <div class="relationship-col">
-        <div class="section-header good">{{ t('overview.bestAllies') }}</div>
+        <div v-else-if="userTag?.tag?.length" class="tags-row">
+          <span
+            v-for="tag in userTag.tag"
+            :key="tag.tagName"
+            class="tag"
+            :class="tag.good === true ? 'good' : tag.good === false ? 'bad' : 'neutral'"
+            :title="tag.tagDesc"
+          >
+            {{ tag.tagName }}
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="rank-section" aria-label="rank summary">
+      <article
+        v-for="rank in rankItems"
+        :key="rank.key"
+        class="rank-item"
+        :title="rank.label"
+      >
+        <img class="rank-img" :src="getTierIcon(rank.display.iconTier)" alt="" />
+        <div class="rank-copy">
+          <strong class="rank-tier">{{ rank.display.tierText }}</strong>
+          <span v-if="rank.display.recordText" class="rank-record">{{ rank.display.recordText }}</span>
+        </div>
+      </article>
+    </section>
+
+    <section v-if="statBlocks.length" class="stats-section" aria-label="recent performance">
+      <article
+        v-for="stat in statBlocks"
+        :key="stat.key"
+        class="stat-block"
+        :class="stat.tone"
+      >
+        <span class="stat-label">{{ stat.label }}</span>
+        <strong class="stat-value">{{ stat.value }}</strong>
+      </article>
+      <span class="sample-count">{{ t('overview.recentStatsSample', { count: recentStatsSampleCount }) }}</span>
+    </section>
+
+    <section v-if="hasRelationships" class="relationship-section" aria-label="relationship summary">
+      <div v-if="friendRows.length" class="relationship-group">
+        <span class="relationship-title good">{{ t('overview.bestAllies') }}</span>
         <div class="relationship-list">
           <div
-            v-for="friend in userTag.recentData.friendAndDispute.friendsSummoner.slice(0, 5)"
+            v-for="friend in friendRows"
             :key="friend.summoner.puuid"
             class="relationship-item"
           >
             <img
+              v-if="getProfileIconUrl(friend.summoner.profileIconId)"
               class="relationship-avatar"
-              :src="`http://127.0.0.1:8080/api/v1/asset/profile/${friend.summoner.profileIconId}`"
+              :src="getProfileIconUrl(friend.summoner.profileIconId)"
               alt=""
+              @error="markAssetLoadFailed"
             />
+            <span v-else class="relationship-avatar relationship-avatar-fallback"></span>
             <span class="relationship-name">{{ friend.summoner.gameName }}</span>
-            <span class="relationship-rate" :style="{ color: getRateColor(friend.winRate) }">
-              {{ friend.winRate }}%
-            </span>
-          </div>
-          <div v-if="userTag.recentData.friendAndDispute.friendsSummoner.length === 0" class="empty-text">
-            {{ t('overview.noBestAllies') }}
+            <span class="relationship-rate">{{ friend.winRate }}%</span>
           </div>
         </div>
       </div>
 
-      <div class="relationship-col">
-        <div class="section-header bad">{{ t('overview.toughOpponents') }}</div>
+      <div v-if="opponentRows.length" class="relationship-group">
+        <span class="relationship-title bad">{{ t('overview.toughOpponents') }}</span>
         <div class="relationship-list">
           <div
-            v-for="enemy in userTag.recentData.friendAndDispute.disputeSummoner.slice(0, 5)"
+            v-for="enemy in opponentRows"
             :key="enemy.summoner.puuid"
             class="relationship-item"
           >
             <img
+              v-if="getProfileIconUrl(enemy.summoner.profileIconId)"
               class="relationship-avatar"
-              :src="`http://127.0.0.1:8080/api/v1/asset/profile/${enemy.summoner.profileIconId}`"
+              :src="getProfileIconUrl(enemy.summoner.profileIconId)"
               alt=""
+              @error="markAssetLoadFailed"
             />
+            <span v-else class="relationship-avatar relationship-avatar-fallback"></span>
             <span class="relationship-name">{{ enemy.summoner.gameName }}</span>
-            <span class="relationship-rate" :style="{ color: getRateColor(enemy.winRate) }">
-              {{ enemy.winRate }}%
-            </span>
-          </div>
-          <div v-if="userTag.recentData.friendAndDispute.disputeSummoner.length === 0" class="empty-text">
-            {{ t('overview.noToughOpponents') }}
+            <span class="relationship-rate">{{ enemy.winRate }}%</span>
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="rank-cards">
-      <div class="rank-card">
-        <span class="rank-label">{{ t('overview.soloQueue') }}</span>
-        <img class="rank-img" :src="getTierIcon(soloRank?.tier)" alt="" />
-        <div class="rank-tier">{{ getTierText(soloRank) }}</div>
-        <div class="win-rate-badge">
-          {{ getWinRatePercent(rankedWinRates?.RANKED_SOLO_5x5?.wins || 0, rankedWinRates?.RANKED_SOLO_5x5?.losses || 0) }}%
-        </div>
-        <div class="rank-wl">
-          <span>{{ t('overview.wins', { count: rankedWinRates?.RANKED_SOLO_5x5?.wins || 0 }) }}</span>
-          <span>{{ t('overview.losses', { count: rankedWinRates?.RANKED_SOLO_5x5?.losses || 0 }) }}</span>
-        </div>
-      </div>
-
-      <div class="rank-card">
-        <span class="rank-label">{{ t('overview.flexQueue') }}</span>
-        <img class="rank-img" :src="getTierIcon(flexRank?.tier)" alt="" />
-        <div class="rank-tier">{{ getTierText(flexRank) }}</div>
-        <div class="win-rate-badge">
-          {{ getWinRatePercent(rankedWinRates?.RANKED_FLEX_SR?.wins || 0, rankedWinRates?.RANKED_FLEX_SR?.losses || 0) }}%
-        </div>
-        <div class="rank-wl">
-          <span>{{ t('overview.wins', { count: rankedWinRates?.RANKED_FLEX_SR?.wins || 0 }) }}</span>
-          <span>{{ t('overview.losses', { count: rankedWinRates?.RANKED_FLEX_SR?.losses || 0 }) }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="userTag?.recordStatus === 'NORMAL' && userTag?.recentData" class="recent-stats-card">
-      <div class="recent-stats-header">{{ t('overview.recentStats') }}</div>
-
-      <div class="stat-row">
-        <span class="stat-label">KDA</span>
-        <span class="stat-main" :style="{ color: getKdaColor(userTag.recentData.kda) }">
-          {{ userTag.recentData.kda?.toFixed(1) || '0.0' }}
-        </span>
-        <span class="stat-sub">
-          {{ userTag.recentData.kills?.toFixed(1) || '0.0' }}/{{ userTag.recentData.deaths?.toFixed(1) || '0.0' }}/{{ userTag.recentData.assists?.toFixed(1) || '0.0' }}
-        </span>
-      </div>
-
-      <div class="stat-row">
-        <span class="stat-label">{{ t('overview.winRate') }}</span>
-        <span
-          class="stat-main"
-          :style="{ color: getRateColor(getWinRatePercent(userTag.recentData.selectWins || 0, userTag.recentData.selectLosses || 0)) }"
-        >
-          {{ getWinRatePercent(userTag.recentData.selectWins || 0, userTag.recentData.selectLosses || 0) }}%
-        </span>
-        <span class="stat-sub">
-          {{ t('overview.wins', { count: userTag.recentData.selectWins || 0 }) }}
-          {{ t('overview.losses', { count: userTag.recentData.selectLosses || 0 }) }}
-        </span>
-      </div>
-
-      <div class="stat-row">
-        <span class="stat-label">{{ t('common.damage') }}</span>
-        <span class="stat-main">{{ userTag.recentData.averageDamageDealtToChampions || 0 }}</span>
-        <span class="stat-sub">{{ t('overview.shareRate', { value: userTag.recentData.damageDealtToChampionsRate || 0 }) }}</span>
-      </div>
-
-      <div class="stat-row">
-        <span class="stat-label">{{ t('common.gold') }}</span>
-        <span class="stat-main">{{ userTag.recentData.averageGold || 0 }}</span>
-        <span class="stat-sub">{{ t('overview.shareRate', { value: userTag.recentData.goldRate || 0 }) }}</span>
-      </div>
-
-      <div class="stat-row">
-        <span class="stat-label">{{ t('overview.participation') }}</span>
-        <span class="stat-main">{{ userTag.recentData.groupRate || 0 }}%</span>
-        <span class="stat-sub">{{ userTag.recentData.selectModeCn }}</span>
-      </div>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .overview-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.overview-panel.embedded {
+  --overview-divider: var(--border-subtle);
+  --overview-good: var(--success-color);
+  --overview-bad: var(--error-color);
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  align-items: stretch;
+  grid-template-columns: minmax(210px, 0.95fr) minmax(170px, 230px) minmax(330px, 1.35fr);
+  gap: clamp(10px, 1.25vw, 18px);
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-primary);
 }
 
-.user-card,
-.relationship-col,
-.rank-card,
-.recent-stats-card {
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
+[data-theme="dark"] .overview-panel {
+  --overview-divider: var(--border-subtle);
+  --overview-good: var(--success-color);
+  --overview-bad: var(--error-color);
 }
 
-.user-card {
-  padding: 16px;
+[data-theme="light"] .overview-panel {
+  --overview-divider: var(--border-subtle);
+  --overview-good: var(--success-color);
+  --overview-bad: var(--error-color);
 }
 
-.overview-panel.embedded > * {
+.identity-section,
+.rank-section,
+.stats-section,
+.relationship-section {
   min-width: 0;
 }
 
-.overview-panel.embedded > .user-card,
-.overview-panel.embedded > .relationship-section {
-  height: 100%;
-}
-
-.user-card-header {
-  display: flex;
+.identity-section {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 14px;
   align-items: center;
 }
 
 .avatar-wrapper {
   position: relative;
+  width: 62px;
+  height: 62px;
+  flex: 0 0 auto;
 }
 
 .avatar-img {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  border: 2px solid var(--border-color);
+  display: block;
+  width: 62px;
+  height: 62px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+}
+
+.avatar-img[data-asset-failed='true'] {
+  display: none;
 }
 
 .level-badge {
   position: absolute;
-  bottom: -4px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
-  background: var(--bg-tertiary);
+  right: -5px;
+  bottom: -5px;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 6px;
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: var(--bg-secondary);
   color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
 }
 
-.user-info {
-  min-width: 0;
-  flex: 1;
-}
-
-.user-name-row {
+.identity-copy {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
 }
 
 .user-name {
-  font-size: 18px;
-  font-weight: 700;
   color: var(--text-primary);
+  font-size: 19px;
+  font-weight: 760;
+  line-height: 1.12;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.copy-btn {
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.user-tag,
-.status-hint,
-.empty-text,
-.rank-wl,
-.stat-sub {
-  color: var(--text-secondary);
-}
-
-.status-card {
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
+.riot-id {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.2;
 }
 
-.status-card.private {
-  background: rgba(198, 154, 66, 0.12);
+.riot-id span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.status-card.empty {
-  background: rgba(128, 128, 128, 0.12);
+.copy-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: currentColor;
+  opacity: 0;
+  transform: translateX(-2px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), color var(--transition-fast);
 }
 
-.status-card.error {
-  background: rgba(196, 92, 92, 0.12);
+.riot-id:hover,
+.riot-id:focus-visible {
+  color: var(--accent-color);
 }
 
-.status-title,
-.recent-stats-header,
-.section-header,
-.rank-tier,
-.stat-main {
-  color: var(--text-primary);
+.riot-id:hover .copy-icon,
+.riot-id:focus-visible .copy-icon {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .tags-row {
-  margin-top: 14px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
+}
+
+.tag,
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .tag {
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tag.good {
-  background: rgba(61, 155, 122, 0.14);
-  color: #3d9b7a;
+.tag.good,
+.status-chip.private {
+  color: var(--success-color);
 }
 
-.tag.bad {
-  background: rgba(196, 92, 92, 0.14);
-  color: #c45c5c;
+.tag.bad,
+.status-chip.error {
+  color: var(--error-color);
 }
 
-.tag.neutral {
-  background: rgba(128, 128, 128, 0.16);
+.tag.neutral,
+.status-chip.empty {
   color: var(--text-secondary);
 }
 
-.relationship-section {
+.rank-section {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  justify-self: stretch;
+  max-width: 230px;
+  padding-inline: 14px;
+  border-inline: 1px solid var(--overview-divider);
 }
 
-.relationship-col,
-.rank-card,
-.recent-stats-card {
-  padding: 14px;
+.rank-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.relationship-col {
+.rank-img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.rank-copy {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  gap: 3px;
+  min-width: 0;
 }
 
-.section-header {
-  font-size: 16px;
+.rank-tier {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-record {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-section {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(50px, 1fr));
+  gap: clamp(6px, 0.8vw, 10px);
+  align-items: center;
+  min-width: 0;
+}
+
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stat-value {
+  display: block;
+  color: var(--text-primary);
+  font-size: clamp(19px, 1.8vw, 24px);
+  font-weight: 780;
+  line-height: 1.05;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.stat-block.good .stat-value {
+  color: var(--overview-good);
+}
+
+.stat-block.bad .stat-value {
+  color: var(--overview-bad);
+}
+
+.stat-label,
+.sample-count {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.sample-count {
+  grid-column: 1 / -1;
+  margin-top: -2px;
+}
+
+.relationship-section {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--overview-divider);
+}
+
+.relationship-group {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.relationship-title {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
-  margin-bottom: 10px;
 }
 
-.section-header.good {
-  color: #3d9b7a;
+.relationship-title.good {
+  color: var(--success-color);
 }
 
-.section-header.bad {
-  color: #c45c5c;
+.relationship-title.bad {
+  color: var(--error-color);
 }
 
 .relationship-list {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex: 1;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
 }
 
 .relationship-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  display: inline-grid;
+  grid-template-columns: 20px minmax(54px, auto) auto;
+  gap: 5px;
   align-items: center;
-  min-height: 42px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .relationship-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+}
+
+.relationship-avatar[data-asset-failed='true'] {
+  display: none;
 }
 
 .relationship-name {
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 600;
+  min-width: 0;
+  max-width: 96px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .relationship-rate {
-  font-size: 16px;
+  color: var(--text-tertiary);
   font-weight: 700;
 }
 
-.relationship-list > .empty-text {
-  font-size: 15px;
-  line-height: 1.6;
-  padding-top: 8px;
+@media (max-width: 1180px) {
+  .overview-panel {
+    grid-template-columns: minmax(190px, 0.9fr) minmax(160px, 210px) minmax(300px, 1.4fr);
+    gap: 12px;
+  }
+
+  .rank-section {
+    max-width: 210px;
+    padding-inline: 12px;
+  }
+
+  .rank-item {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .rank-img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .stats-section {
+    grid-template-columns: repeat(5, minmax(50px, 1fr));
+    gap: 6px;
+  }
+
+  .stat-value {
+    font-size: clamp(18px, 1.6vw, 22px);
+  }
 }
 
-.rank-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-self: stretch;
+@media (max-width: 980px) {
+  .overview-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 210px);
+    gap: 12px;
+  }
+
+  .rank-section {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 210px;
+    padding: 0 0 0 12px;
+    border-inline: 0;
+    border-left: 1px solid var(--overview-divider);
+  }
+
+  .stats-section {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(5, minmax(50px, 1fr));
+    gap: 6px;
+    padding-top: 14px;
+    border-top: 1px solid var(--overview-divider);
+  }
 }
 
-.rank-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: flex-start;
-  justify-content: flex-start;
-  height: 100%;
-  padding: 18px;
+@media (max-width: 760px) {
+  .overview-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(140px, 190px);
+    gap: 10px;
+  }
+
+  .rank-section {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 190px;
+    padding-left: 10px;
+  }
+
+  .stat-value {
+    font-size: 22px;
+  }
+
+  .relationship-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .relationship-group {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
-.rank-label {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
+@media (max-width: 560px) {
+  .overview-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(128px, 160px);
+  }
 
-.stat-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-}
+  .identity-section {
+    gap: 10px;
+  }
 
-.rank-img {
-  width: 72px;
-  height: 72px;
-}
-
-.rank-tier {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
-  word-break: keep-all;
-}
-
-.win-rate-badge {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(92, 163, 234, 0.12);
-  color: #5ca3ea;
-  text-align: center;
-  font-size: 16px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.rank-wl {
-  display: flex;
-  gap: 8px;
-  font-size: 16px;
-  line-height: 1.5;
-  white-space: nowrap;
-}
-
-.stat-row {
-  display: grid;
-  grid-template-columns: 72px auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.stat-row:last-child {
-  border-bottom: 0;
-}
-
-@media (max-width: 1080px) {
-  .overview-panel.embedded,
-  .relationship-section,
-  .rank-cards {
-    grid-template-columns: 1fr;
+  .rank-section {
+    max-width: 160px;
   }
 }
 </style>

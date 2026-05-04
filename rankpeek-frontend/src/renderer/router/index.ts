@@ -28,16 +28,18 @@ const routes: RouteRecordRaw[] = [
     meta: { titleKey: 'nav.matchHistory', keepAlive: false }
   },
   {
+    path: '/ai-analysis',
+    name: 'AiAnalysis',
+    component: () => import('@/views/AiAnalysisView.vue'),
+    meta: { titleKey: 'nav.aiAnalysis', keepAlive: false }
+  },
+  {
     path: '/user-tag',
-    name: 'UserTag',
-    component: () => import('@/views/UserTagView.vue'),
-    meta: { titleKey: 'nav.userTag', keepAlive: true }
+    redirect: '/summoner'
   },
   {
     path: '/tag-config',
-    name: 'TagConfig',
-    component: () => import('@/views/TagConfigView.vue'),
-    meta: { titleKey: 'nav.tagConfig', keepAlive: false }
+    redirect: '/settings'
   },
   {
     path: '/settings',

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n'
 import type { Stats, UserTagSummary } from '@/types/api'
+import { getChampionIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { buildMatchDetailItems, getTeamKdaLeaders } from './matchRosterDisplay'
 
 export interface MatchRosterPlayer {
@@ -29,10 +30,6 @@ const emit = defineEmits<{
 }>()
 
 const teamLeaders = computed(() => getTeamKdaLeaders(props.players))
-
-function getChampionUrl(championId: number): string {
-  return championId > 0 ? `http://127.0.0.1:8080/api/v1/asset/champion/${championId}` : ''
-}
 
 function displayName(player: MatchRosterPlayer): string {
   return player.gameName || player.summonerName || t('common.unknownPlayer')
@@ -74,10 +71,13 @@ function handleClick(player: MatchRosterPlayer) {
     >
       <div class="roster-main">
         <img
+          v-if="getChampionIconUrl(player.championId)"
           class="champion-avatar"
-          :src="getChampionUrl(player.championId)"
+          :src="getChampionIconUrl(player.championId)"
           alt=""
+          @error="markAssetLoadFailed"
         />
+        <span v-else class="champion-avatar champion-avatar-fallback"></span>
 
         <span class="player-name">{{ displayName(player) }}</span>
       </div>
@@ -110,14 +110,20 @@ function handleClick(player: MatchRosterPlayer) {
 .roster {
   display: grid;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .roster-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 48%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 48%);
   align-items: center;
   gap: 14px;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   min-height: 92px;
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -151,12 +157,17 @@ function handleClick(player: MatchRosterPlayer) {
 }
 
 .champion-avatar {
+  display: block;
   width: 56px;
   height: 56px;
   border-radius: 14px;
   object-fit: cover;
   flex-shrink: 0;
   background: var(--bg-tertiary);
+}
+
+.champion-avatar[data-asset-failed='true'] {
+  display: none;
 }
 
 .player-name {
@@ -175,16 +186,21 @@ function handleClick(player: MatchRosterPlayer) {
   flex-direction: column;
   gap: 8px;
   align-items: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .kda-row {
   display: flex;
   align-items: center;
   gap: 3px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .kda-number {
-  font-size: 22px;
+  font-size: clamp(16px, 2vw, 22px);
   font-weight: 800;
   line-height: 1;
   color: #ffffff;
@@ -212,12 +228,16 @@ function handleClick(player: MatchRosterPlayer) {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .detail-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
   padding: 5px 9px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
@@ -227,12 +247,20 @@ function handleClick(player: MatchRosterPlayer) {
 }
 
 .detail-label {
+  min-width: 0;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-value {
+  min-width: 0;
   color: var(--text-primary);
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 980px) {

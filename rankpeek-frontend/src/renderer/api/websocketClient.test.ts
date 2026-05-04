@@ -18,7 +18,7 @@ test('subscribes to backend cache update events and exposes unsubscribe handler'
 
 test('cache update subscription guards parse and callback failures', () => {
   const source = readFileSync(new URL('./websocketClient.ts', import.meta.url), 'utf8')
-  const cacheSubscription = source.match(/this\.client\.subscribe\('\/topic\/cache-updates'[\s\S]*?\n    \}\)/)?.[0] || ''
+  const cacheSubscription = source.match(/this\.client\.subscribe\('\/topic\/cache-updates'[\s\S]*?\n\s{4}\}\)/)?.[0] || ''
 
   assert.match(cacheSubscription, /try \{/)
   assert.match(cacheSubscription, /catch \(e\) \{/)

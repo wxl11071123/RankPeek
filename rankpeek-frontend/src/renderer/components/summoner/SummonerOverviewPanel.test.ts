@@ -2,62 +2,119 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-test('keeps best teammates and troublesome opponents columns at equal height', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('keeps relationship rows compact, wrapping, and text-safe', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /\.relationship-section\s*\{[\s\S]*align-items:\s*stretch;/)
-  assert.match(componentSource, /\.relationship-col\s*\{[\s\S]*height:\s*100%;/)
-  assert.match(componentSource, /\.relationship-list\s*\{[\s\S]*flex:\s*1;/)
+  assert.match(source, /<section v-if="hasRelationships" class="relationship-section"/)
+  assert.match(source, /\.relationship-section\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;[\s\S]*gap:\s*10px 18px;/)
+  assert.match(source, /\.relationship-list\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;/)
+  assert.match(source, /\.relationship-item\s*\{[\s\S]*display:\s*inline-grid;[\s\S]*grid-template-columns:\s*20px minmax\(54px,\s*auto\) auto;/)
+  assert.match(source, /\.relationship-name\s*\{[\s\S]*max-width:\s*96px;[\s\S]*text-overflow:\s*ellipsis;/)
 })
 
-test('aligns relationship section height with the left summoner card in embedded layout', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('keeps embedded overview as a modifier hook without stale card wrappers', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /\.overview-panel\.embedded\s*\{[\s\S]*align-items:\s*stretch;/)
-  assert.match(componentSource, /\.overview-panel\.embedded\s*>\s*\.user-card,\s*[\s\S]*\.overview-panel\.embedded\s*>\s*\.relationship-section\s*\{[\s\S]*height:\s*100%;/)
+  assert.match(source, /<div class="overview-panel" :class="\{ embedded: props\.embedded \}">/)
+  assert.doesNotMatch(source, /\.overview-panel\.embedded\s*>\s*\.user-card/)
+  assert.doesNotMatch(source, /class="user-card"/)
+  assert.doesNotMatch(source, /class="rank-card"/)
 })
 
-test('stretches rank cards to match recent status height in embedded overview', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('renders rank summary as compact rows beside recent stats', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /\.rank-cards\s*\{[\s\S]*align-self:\s*stretch;/)
-  assert.match(componentSource, /\.rank-card\s*\{[\s\S]*height:\s*100%;/)
+  assert.match(source, /const rankItems = computed\(\(\) => \[/)
+  assert.match(source, /label:\s*t\('overview\.soloQueue'\)/)
+  assert.match(source, /label:\s*t\('overview\.flexQueue'\)/)
+  assert.match(source, /display:\s*buildRankDisplay\(props\.soloRank,\s*props\.rankStatus,\s*rankDisplayText\.value\)/)
+  assert.match(source, /display:\s*buildRankDisplay\(props\.flexRank,\s*props\.rankStatus,\s*rankDisplayText\.value\)/)
+  assert.match(source, /<article[\s\S]*v-for="rank in rankItems"[\s\S]*class="rank-item"/)
+  assert.match(source, /<img class="rank-img" :src="getTierIcon\(rank\.display\.iconTier\)" alt="" \/>/)
+  assert.match(source, /\.rank-section\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)[\s\S]*max-width:\s*230px/)
+  assert.match(source, /\.rank-item\s*\{[\s\S]*grid-template-columns:\s*42px minmax\(0,\s*1fr\)[\s\S]*min-width:\s*0/)
+  assert.match(source, /\.rank-img\s*\{[\s\S]*width:\s*42px;[\s\S]*height:\s*42px;/)
 })
 
-test('formats tier labels with Chinese rank names', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('formats tier labels through the shared rank display helper', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+  const helper = readFileSync(new URL('../../utils/rankDisplay.ts', import.meta.url), 'utf8')
+  const zh = readFileSync(new URL('../../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /MASTER:\s*'超凡大师'/)
-  assert.match(componentSource, /GRANDMASTER:\s*'傲世宗师'/)
-  assert.match(componentSource, /CHALLENGER:\s*'最强王者'/)
-  assert.match(componentSource, /EMERALD:\s*'翡翠'/)
+  assert.match(source, /import \{ buildRankDisplay,\s*type RankLoadStatus,\s*type RankDisplayText \} from '@\/utils\/rankDisplay'/)
+  assert.match(helper, /PLATINUM:\s*'铂金'/)
+  assert.match(helper, /EMERALD:\s*'翡翠'/)
+  assert.match(helper, /MASTER:\s*'超凡大师'/)
+  assert.match(helper, /CHALLENGER:\s*'最强王者'/)
+  assert.match(zh, /'overview\.rankLoading':\s*'段位加载中'/)
+  assert.match(zh, /'overview\.rankFailed':\s*'段位获取失败'/)
+  assert.match(zh, /'overview\.rankNoData':\s*'暂无排位数据'/)
 })
 
-test('shows duo queue label and uses larger rank card typography', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('stacks rank row copy in a compact vertical order', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /<span class="rank-label">单双排<\/span>/)
-  assert.match(componentSource, /\.rank-label\s*\{[\s\S]*font-size:\s*16px;/)
-  assert.match(componentSource, /\.rank-tier\s*\{[\s\S]*font-size:\s*16px;/)
-  assert.match(componentSource, /\.rank-img\s*\{[\s\S]*width:\s*72px;[\s\S]*height:\s*72px;/)
+  assert.match(source, /<div class="rank-copy">\s*<strong class="rank-tier">\{\{ rank\.display\.tierText \}\}<\/strong>\s*<span v-if="rank\.display\.recordText" class="rank-record">\{\{ rank\.display\.recordText \}\}<\/span>\s*<\/div>/)
+  assert.match(source, /\.rank-copy\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/)
+  assert.match(source, /\.rank-tier\s*\{[\s\S]*font-size:\s*13px;[\s\S]*text-overflow:\s*ellipsis;/)
+  assert.match(source, /\.rank-record\s*\{[\s\S]*font-size:\s*11px;[\s\S]*text-overflow:\s*ellipsis;/)
+  assert.doesNotMatch(source, /class="win-rate-badge"/)
 })
 
-test('stacks rank card content in the requested vertical order with unified text sizing', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('does not turn missing rank requests into fake zero-win unranked rows', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /<div class="rank-card">\s*<span class="rank-label">单双排<\/span>\s*<img class="rank-img"[\s\S]*?<div class="rank-tier">[\s\S]*?<\/div>\s*<div class="win-rate-badge">[\s\S]*?<\/div>\s*<div class="rank-wl">/)
-  assert.match(componentSource, /<div class="rank-card">\s*<span class="rank-label">灵活组排<\/span>\s*<img class="rank-img"[\s\S]*?<div class="rank-tier">[\s\S]*?<\/div>\s*<div class="win-rate-badge">[\s\S]*?<\/div>\s*<div class="rank-wl">/)
-  assert.match(componentSource, /\.rank-card\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;[\s\S]*align-items:\s*flex-start;/)
-  assert.match(componentSource, /\.win-rate-badge\s*\{[\s\S]*font-size:\s*16px;/)
-  assert.match(componentSource, /\.rank-wl\s*\{[\s\S]*font-size:\s*16px;/)
+  assert.match(source, /rankStatus\?: RankLoadStatus/)
+  assert.match(source, /rankStatus:\s*'loaded'/)
+  assert.doesNotMatch(source, /rankedWinRates/)
+  assert.doesNotMatch(source, /rankedWinRates\?\.RANKED_SOLO_5x5\?\.wins \|\| 0/)
+  assert.doesNotMatch(source, /rankedWinRates\?\.RANKED_FLEX_SR\?\.losses \|\| 0/)
+  assert.doesNotMatch(source, /getRankLine\(rank\.wins,\s*rank\.losses\)/)
 })
 
-test('uses larger teammate and opponent card visuals', () => {
-  const componentSource = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+test('keeps recent performance stats dense and sample-count aware', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /\.section-header\s*\{[\s\S]*font-size:\s*16px;/)
-  assert.match(componentSource, /\.relationship-avatar\s*\{[\s\S]*width:\s*36px;[\s\S]*height:\s*36px;/)
-  assert.match(componentSource, /\.relationship-name\s*\{[\s\S]*font-size:\s*16px;/)
-  assert.match(componentSource, /\.relationship-rate\s*\{[\s\S]*font-size:\s*16px;/)
-  assert.match(componentSource, /\.relationship-list\s*>\s*\.empty-text\s*\{[\s\S]*font-size:\s*15px;/)
+  assert.match(source, /<section v-if="statBlocks\.length" class="stats-section"/)
+  assert.match(source, /<span class="sample-count">\{\{ t\('overview\.recentStatsSample', \{ count: recentStatsSampleCount \}\) \}\}<\/span>/)
+  assert.match(source, /\.stats-section\s*\{[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(50px,\s*1fr\)\)/)
+  assert.match(source, /\.stat-block\s*\{[\s\S]*flex-direction:\s*column;[\s\S]*align-items:\s*flex-start;/)
+  assert.match(source, /\.stat-value\s*\{[\s\S]*font-size:\s*clamp\(19px,\s*1\.8vw,\s*24px\)/)
+})
+
+test('recent performance stats always use visible-match fallback so tag loading cannot replace them', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /fallbackStats\?: RecentPerformanceStats \| null/)
+  assert.match(source, /fallbackStats:\s*null/)
+  assert.match(source, /const recentPerformanceStats = computed<RecentPerformanceStats \| null>\(\(\) => props\.fallbackStats \?\? null\)/)
+  assert.doesNotMatch(source, /const recent = props\.userTag\?\.recentData/)
+  assert.doesNotMatch(source, /wins \/ sampleCount/)
+  assert.match(source, /const recentStatsSampleCount = computed\(\(\) => recentPerformanceStats\.value\?\.sampleCount \?\? 0\)/)
+  assert.match(source, /function formatOptionalCompactNumber\(value\?: number \| null\): string \{[\s\S]*return '--'/)
+  assert.match(source, /function formatOptionalDecimal\(value\?: number \| null\): string \{[\s\S]*return '--'/)
+  assert.match(source, /function formatOptionalPercent\(value\?: number \| null\): string \{[\s\S]*return '--'/)
+})
+
+test('tag area shows a status fallback instead of staying blank', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /type UserTagLoadStatus = 'idle' \| 'loading' \| 'loaded' \| 'error'/)
+  assert.match(source, /userTagStatus\?: UserTagLoadStatus/)
+  assert.match(source, /userTagStatus:\s*'idle'/)
+  assert.match(source, /const hasFallbackStats = computed\(\(\) => recentStatsSampleCount\.value > 0\)/)
+  assert.match(source, /case 'ERROR':[\s\S]*if \(!hasFallbackStats\.value\) \{[\s\S]*label:\s*t\('badge\.error'\)[\s\S]*className:\s*'error'/)
+  assert.match(source, /props\.userTagStatus === 'error' && !hasFallbackStats\.value[\s\S]*label:\s*t\('badge\.error'\)[\s\S]*className:\s*'error'/)
+  assert.match(source, /props\.userTagStatus === 'loaded' && !props\.userTag\?\.tag\?\.length[\s\S]*label:\s*t\('badge\.noTags'\)[\s\S]*className:\s*'empty'/)
+  assert.match(source, /<span v-if="statusMeta\(\)" class="status-chip"/)
+})
+
+test('uses compact relationship visuals that fit the overview row', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.relationship-title\s*\{[\s\S]*font-size:\s*11px;/)
+  assert.match(source, /\.relationship-avatar\s*\{[\s\S]*width:\s*20px;[\s\S]*height:\s*20px;/)
+  assert.match(source, /\.relationship-item\s*\{[\s\S]*font-size:\s*11px;/)
+  assert.match(source, /\.relationship-rate\s*\{[\s\S]*font-weight:\s*700;/)
+  assert.doesNotMatch(source, /\.section-header\s*\{/)
 })

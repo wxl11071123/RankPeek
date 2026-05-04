@@ -2,6 +2,13 @@ import { app, BrowserWindow, ipcMain, Menu, shell, Tray, type MenuItemConstructo
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import * as fs from 'fs'
+import {
+  closeLocalDatabase,
+  getLocalDatabase,
+  initLocalDatabase,
+  registerDatabaseIpcHandlers,
+  type LocalDatabaseLogger
+} from './database/index'
 import { getTrayMenuEntries, getWindowCloseAction, getWindowMinimizeAction, type TrayMenuAction } from './trayBehavior'
 
 let mainWindow: BrowserWindow | null = null
@@ -40,6 +47,12 @@ function log(level: string, message: string) {
   const logLine = `[${timestamp}] [${level}] ${message}\n`
   logStream.write(logLine)
   console.log(logLine.trim())
+}
+
+const databaseLogger: LocalDatabaseLogger = {
+  info: (message) => log('INFO', message),
+  warn: (message) => log('WARN', message),
+  error: (message) => log('ERROR', message)
 }
 
 function getMainIconPath() {
@@ -653,13 +666,21 @@ ipcMain.handle('app:getVersion', () => app.getVersion())
 
 app.whenReady().then(async () => {
   try {
+    initLocalDatabase({
+      userDataPath: app.getPath('userData'),
+      logger: databaseLogger,
+      runSmokeTest: process.env.RANKPEEK_DB_SMOKE_TEST === '1'
+    })
+    registerDatabaseIpcHandlers(ipcMain, getLocalDatabase, databaseLogger)
     createSplashWindow()
     createTray()
     await startBackend()
     createWindow()
   } catch (error) {
+    log('ERROR', `Failed to start application: ${String(error)}`)
     console.error('Failed to start application:', error)
     closeSplashWindow()
+    closeLocalDatabase()
     app.quit()
   }
 
@@ -681,6 +702,7 @@ app.on('before-quit', () => {
   closeSplashWindow()
   appTray?.destroy()
   appTray = null
+  closeLocalDatabase()
   stopBackend()
 })
 

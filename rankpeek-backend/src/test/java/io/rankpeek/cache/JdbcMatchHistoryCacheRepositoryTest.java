@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.model.GameDetail;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
+import io.rankpeek.model.MatchDataScopeCache;
+import io.rankpeek.model.MatchTimeline;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.Summoner;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +15,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,6 +76,60 @@ class JdbcMatchHistoryCacheRepositoryTest {
     }
 
     @Test
+    void saveMatchHistory_persistsOnlyCurrentPlayerRenderableMatches() {
+        List<MatchHistory> matches = new ArrayList<>();
+        matches.add(createMatch(1100L, "target-puuid", 10));
+        for (long gameId = 1101L; gameId <= 1119L; gameId++) {
+            matches.add(createMatchWithMissingCurrentStats(gameId, "target-puuid", 10));
+        }
+
+        repository.saveMatchHistory("target-puuid", matches);
+
+        Optional<MatchHistoryFetchResult> result = repository.findRecentMatchHistory("target-puuid", 50);
+        assertThat(result).isPresent();
+        assertThat(result.get().getMatches()).extracting(MatchHistory::getGameId).containsExactly(1100L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM match_cache",
+                Integer.class
+        )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM match_participant_cache WHERE game_id <> ?",
+                Integer.class,
+                1100L
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM player_match_index WHERE puuid = ?",
+                Integer.class,
+                "target-puuid"
+        )).isEqualTo(1);
+    }
+
+    @Test
+    void saveMatchHistory_doesNotOverwriteExistingCacheWhenAllMatchesAreNotRenderable() {
+        repository.saveMatchHistory("target-puuid", List.of(createMatch(1200L, "target-puuid", 10)));
+
+        repository.saveMatchHistory("target-puuid", List.of(
+                createMatchWithMissingCurrentStats(1201L, "target-puuid", 10),
+                createMatchWithMissingCurrentStats(1202L, "target-puuid", 10)
+        ));
+
+        Optional<MatchHistoryFetchResult> result = repository.findRecentMatchHistory("target-puuid", 50);
+        assertThat(result).isPresent();
+        assertThat(result.get().getMatches()).extracting(MatchHistory::getGameId).containsExactly(1200L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM match_cache WHERE game_id IN (?, ?)",
+                Integer.class,
+                1201L,
+                1202L
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT latest_game_id FROM player_fetch_state WHERE puuid = ?",
+                Long.class,
+                "target-puuid"
+        )).isEqualTo(1200L);
+    }
+
+    @Test
     void findRecentMatchHistory_returnsCachedMatchForNonTargetParticipant() {
         repository.saveMatchHistory("target-puuid", List.of(createMatch(1002L, "target-puuid", 10)));
 
@@ -83,9 +140,9 @@ class JdbcMatchHistoryCacheRepositoryTest {
     }
 
     @Test
-    void trimPlayerMatchIndex_keepsOnlyNewestFiftyRowsForEveryInvolvedPlayer() {
+    void trimPlayerMatchIndex_keepsOnlyNewestTwoHundredRowsForEveryInvolvedPlayer() {
         List<MatchHistory> matches = new ArrayList<>();
-        for (long i = 1; i <= 55; i++) {
+        for (long i = 1; i <= 205; i++) {
             matches.add(createMatch(i, "target-puuid", 2));
         }
 
@@ -95,7 +152,7 @@ class JdbcMatchHistoryCacheRepositoryTest {
                 "SELECT COUNT(*) FROM player_match_index WHERE puuid = ?",
                 Integer.class,
                 "target-puuid"
-        )).isEqualTo(50);
+        )).isEqualTo(200);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT MIN(game_id) FROM player_match_index WHERE puuid = ?",
                 Long.class,
@@ -105,7 +162,7 @@ class JdbcMatchHistoryCacheRepositoryTest {
                 "SELECT COUNT(*) FROM player_match_index WHERE puuid = ?",
                 Integer.class,
                 "player-2"
-        )).isEqualTo(50);
+        )).isEqualTo(200);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT MIN(game_id) FROM player_match_index WHERE puuid = ?",
                 Long.class,
@@ -149,6 +206,29 @@ class JdbcMatchHistoryCacheRepositoryTest {
         assertThat(match.getParticipants()).hasSize(10);
         assertThat(match.getParticipantIdentities()).hasSize(10);
         assertThat(match.getParticipantIdentities().get(9).getPlayer().getPuuid()).isEqualTo("detail-player-10");
+    }
+
+    @Test
+    void findRecentMatchHistory_restoresCompleteRosterWhenTargetPuuidIsMissing() throws Exception {
+        repository.saveMatchHistory("target-puuid", List.of(createMatch(3003L, "target-puuid", 10)));
+        repository.saveGameDetail(createGameDetail(3003L, "target-puuid"));
+        jdbcTemplate.update(
+                "UPDATE match_cache SET raw_json = ? WHERE game_id = ?",
+                objectMapper.writeValueAsString(createMatch(3003L, "summary-player-1", 10)),
+                3003L
+        );
+
+        Optional<MatchHistoryFetchResult> result = repository.findRecentMatchHistory("target-puuid", 50);
+
+        assertThat(result).isPresent();
+        MatchHistory match = result.get().getMatches().getFirst();
+        assertThat(match.getParticipantIdentities())
+                .anySatisfy(identity -> assertThat(identity.getPlayer().getPuuid()).isEqualTo("target-puuid"));
+        assertThat(match.getParticipants())
+                .anySatisfy(participant -> {
+                    assertThat(participant.getParticipantId()).isEqualTo(1);
+                    assertThat(participant.getChampionId()).isEqualTo(101);
+                });
     }
 
     @Test
@@ -201,6 +281,91 @@ class JdbcMatchHistoryCacheRepositoryTest {
                 .contains("GOLD");
     }
 
+    @Test
+    void saveAndReadSgpRawSummaryDetailAndTimelineScopes() {
+        MatchTimeline timeline = new MatchTimeline();
+        timeline.setGameId(5001L);
+        MatchTimeline.TimelineFrame frame = new MatchTimeline.TimelineFrame();
+        frame.setTimestamp(60000L);
+        MatchTimeline.ParticipantFrame participantFrame = new MatchTimeline.ParticipantFrame();
+        participantFrame.setParticipantId(9);
+        participantFrame.setTotalGold(9012);
+        MatchTimeline.Position framePosition = new MatchTimeline.Position();
+        framePosition.setX(5840);
+        framePosition.setY(6910);
+        participantFrame.setPosition(framePosition);
+        frame.setParticipantFrames(Map.of("9", participantFrame));
+        MatchTimeline.TimelineEvent event = new MatchTimeline.TimelineEvent();
+        event.setEventType("CHAMPION_KILL");
+        event.setTimestamp(71613L);
+        event.setKillerId(9);
+        event.setVictimId(4);
+        MatchTimeline.Position position = new MatchTimeline.Position();
+        position.setX(5853);
+        position.setY(6923);
+        event.setPosition(position);
+        timeline.setEvents(List.of(event));
+        frame.setEvents(List.of(event));
+        timeline.setFrames(List.of(frame));
+
+        repository.saveSgpRawSummaries(Map.of(5001L, "{\"gameId\":5001,\"participants\":[]}"));
+        repository.saveSgpRawDetail(5001L, "{\"json\":{\"gameId\":5001,\"frames\":[]}}", "FETCHED", null);
+        repository.saveSgpTimeline(
+                5001L,
+                timeline,
+                "{\"json\":{\"gameId\":5001,\"frames\":[{\"events\":[]}]}}",
+                "FETCHED",
+                null
+        );
+
+        Optional<MatchDataScopeCache> result = repository.findMatchDataScope(5001L);
+
+        assertThat(result).isPresent();
+        MatchDataScopeCache cached = result.get();
+        assertThat(cached.getGameId()).isEqualTo(5001L);
+        assertThat(cached.getSource()).isEqualTo("sgp");
+        assertThat(cached.getSummaryStatus()).isEqualTo("FETCHED");
+        assertThat(cached.getDetailStatus()).isEqualTo("FETCHED");
+        assertThat(cached.getTimelineStatus()).isEqualTo("FETCHED");
+        assertThat(cached.getRawSummaryJson()).contains("\"participants\"");
+        assertThat(cached.getRawDetailJson()).contains("\"frames\"");
+        assertThat(cached.getRawTimelineJson()).contains("\"frames\"");
+        assertThat(cached.getTimeline().getEvents()).hasSize(1);
+        assertThat(cached.getTimeline().getEvents().getFirst().getPosition().getX()).isEqualTo(5853);
+        assertThat(cached.getTimeline().getFrames()).hasSize(1);
+        assertThat(cached.getTimeline().getFrames().getFirst().getParticipantFrames().get("9").getPosition().getX())
+                .isEqualTo(5840);
+        assertThat(cached.getSchemaVersion()).isEqualTo(1);
+        assertThat(cached.getFetchedAt()).isPositive();
+    }
+
+    @Test
+    void initializeSchema_addsMissingSgpScopeColumnsForExistingPartialTable() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:rankpeek-cache-migration-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
+                "sa",
+                ""
+        );
+        JdbcTemplate migratingJdbcTemplate = new JdbcTemplate(dataSource);
+        migratingJdbcTemplate.execute("""
+                CREATE TABLE match_data_scope_cache (
+                    game_id BIGINT PRIMARY KEY
+                )
+                """);
+
+        new LocalCacheSchemaInitializer(migratingJdbcTemplate).initializeSchema();
+        JdbcMatchHistoryCacheRepository migratingRepository =
+                new JdbcMatchHistoryCacheRepository(migratingJdbcTemplate, objectMapper);
+
+        migratingRepository.saveSgpRawSummaries(Map.of(6001L, "{\"gameId\":6001}"));
+
+        Optional<MatchDataScopeCache> migrated = migratingRepository.findMatchDataScope(6001L);
+        assertThat(migrated).isPresent();
+        assertThat(migrated.get().getSource()).isEqualTo("sgp");
+        assertThat(migrated.get().getSummaryStatus()).isEqualTo("FETCHED");
+        assertThat(migrated.get().getSchemaVersion()).isEqualTo(1);
+    }
+
     private MatchHistory createMatch(long gameId, String targetPuuid, int participantCount) {
         MatchHistory match = new MatchHistory();
         match.setGameId(gameId);
@@ -248,6 +413,12 @@ class JdbcMatchHistoryCacheRepositoryTest {
 
         match.setParticipants(participants);
         match.setParticipantIdentities(identities);
+        return match;
+    }
+
+    private MatchHistory createMatchWithMissingCurrentStats(long gameId, String targetPuuid, int participantCount) {
+        MatchHistory match = createMatch(gameId, targetPuuid, participantCount);
+        match.getParticipants().getFirst().setStats(null);
         return match;
     }
 

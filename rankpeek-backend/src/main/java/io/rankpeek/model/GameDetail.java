@@ -1,7 +1,6 @@
 package io.rankpeek.model;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -119,6 +118,9 @@ public class GameDetail {
         @JsonProperty("individualPosition")
         private String individualPosition;
 
+        @JsonProperty("selectedPosition")
+        private String selectedPosition;
+
         @JsonProperty("stats")
         private Stats stats;
 
@@ -192,6 +194,12 @@ public class GameDetail {
         @JsonProperty("pentaKills")
         private Integer pentaKills;
 
+        @JsonProperty("largestKillingSpree")
+        private Integer largestKillingSpree;
+
+        @JsonProperty("legendaryCount")
+        private Integer legendaryCount;
+
         // 装备
         @JsonProperty("item0")
         private Integer item0;
@@ -256,6 +264,9 @@ public class GameDetail {
         @JsonProperty("perkSubStyle")
         private Integer perkSubStyle;
 
+        @JsonProperty("perks")
+        private Map<String, Object> perks;
+
         // 海克斯强化 (竞技场模式)
         @JsonProperty("playerAugment1")
         private Integer playerAugment1;
@@ -272,7 +283,7 @@ public class GameDetail {
         @JsonProperty("challenges")
         private Map<String, Object> challenges;
 
-        @JsonIgnore
+        @JsonProperty("extraFields")
         private Map<String, Object> extraFields = new HashMap<>();
 
         @JsonAnySetter

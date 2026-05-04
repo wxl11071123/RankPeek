@@ -6,8 +6,7 @@ import homeIcon from '@/assets/icons/nav-home.svg'
 import gamingIcon from '@/assets/icons/nav-gamepad.svg'
 import summonerIcon from '@/assets/icons/nav-user-search.svg'
 import matchRecordIcon from '@/assets/icons/nav-record-bars.svg'
-import userTagIcon from '@/assets/icons/nav-tag.svg'
-import tagConfigIcon from '@/assets/icons/nav-clipboard.svg'
+import aiAnalysisIcon from '@/assets/icons/nav-ai-spark.svg'
 import settingsGearIcon from '@/assets/icons/nav-gear-five.svg'
 import sidebarLogo from '@/assets/branding/sidebar-logo.png'
 
@@ -19,8 +18,7 @@ const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
   { path: '/gaming', icon: gamingIcon, labelKey: 'nav.gaming' },
   { path: '/summoner', icon: summonerIcon, labelKey: 'nav.summoner' },
   { path: '/match-history', icon: matchRecordIcon, labelKey: 'nav.matchHistory' },
-  { path: '/user-tag', icon: userTagIcon, labelKey: 'nav.userTag' },
-  { path: '/tag-config', icon: tagConfigIcon, labelKey: 'nav.tagConfig' },
+  { path: '/ai-analysis', icon: aiAnalysisIcon, labelKey: 'nav.aiAnalysis' },
   { path: '/settings', icon: settingsGearIcon, labelKey: 'nav.settings' }
 ]
 

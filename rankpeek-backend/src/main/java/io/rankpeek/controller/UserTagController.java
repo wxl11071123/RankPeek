@@ -4,6 +4,7 @@ import io.rankpeek.model.ApiResponse;
 import io.rankpeek.model.BatchUserTagSummaryRequest;
 import io.rankpeek.model.UserTag;
 import io.rankpeek.model.UserTagSummary;
+import io.rankpeek.model.UserTagSummaryFromMatchesRequest;
 import io.rankpeek.service.UserTagService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +45,16 @@ public class UserTagController {
         return ApiResponse.success(userTagService.getUserTagSummaryBatch(
                 request != null ? request.getPuuids() : null,
                 mode
+        ));
+    }
+
+    @PostMapping("/summary-from-matches")
+    public ApiResponse<UserTagSummary> getUserTagSummaryFromMatches(
+            @RequestBody(required = false) UserTagSummaryFromMatchesRequest request) {
+        return ApiResponse.success(userTagService.getUserTagSummaryFromMatches(
+                request != null ? request.getPuuid() : null,
+                request != null ? request.getMode() : 0,
+                request != null ? request.getMatches() : null
         ));
     }
 }

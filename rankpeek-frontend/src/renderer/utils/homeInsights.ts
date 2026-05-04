@@ -65,24 +65,61 @@ export interface FortuneRecord {
 }
 
 export const FORTUNE_POOL: Fortune[] = [
-  { id: 'good-1', label: '强运！', tone: 'good', text: '今日签：连胜窗口已打开，但第三把容易上头。宜补位，忌嘴硬。' },
-  { id: 'good-2', label: '上大分', tone: 'good', text: '今日签：队友会比较像人。适合打熟练英雄，少贪一波就能收米。' },
-  { id: 'good-3', label: '手热', tone: 'good', text: '今日签：操作手感在线，第一局热身后状态会明显变顺。' },
-  { id: 'good-4', label: '贵人局', tone: 'good', text: '今日签：容易遇到会沟通的队友。宜打信号，忌孤独 carry。' },
-  { id: 'good-5', label: '节奏王', tone: 'good', text: '今日签：中期转线和资源团会有灵感，别被一次小亏打乱节奏。' },
-  { id: 'good-6', label: '稳住赢', tone: 'good', text: '今日签：优势局会比较稳。适合先拿目标，再慢慢压视野。' },
-  { id: 'good-7', label: '神之一手', tone: 'good', text: '今日签：关键团容易打出漂亮操作，记得留技能给对面核心。' },
-  { id: 'good-8', label: '补分日', tone: 'good', text: '今日签：隐藏分心情不错。输一把别急，下一把更像正片。' },
-  { id: 'good-9', label: '小顺风', tone: 'good', text: '今日签：开局容易拿到舒服对线。宜控兵线，忌无脑越塔。' },
-  { id: 'neutral-1', label: '？？？', tone: 'neutral', text: '今日签：系统正在装作看不懂你。适合打一两把试水，见好就收。' },
-  { id: 'neutral-2', label: '五五开', tone: 'neutral', text: '今日签：胜负看心态。你越想证明自己，越容易被兵线教育。' },
-  { id: 'neutral-3', label: '玄学局', tone: 'neutral', text: '今日签：对局味道偏怪。先观察队友，再决定今天打几把。' },
-  { id: 'neutral-4', label: '别急', tone: 'neutral', text: '今日签：慢热。第一波资源团别硬接，等装备和视野一起到位。' },
-  { id: 'bad-1', label: '霉笔', tone: 'bad', text: '今日签：容易撞见嘴硬队友。建议屏蔽早一点，血压低一点。' },
-  { id: 'bad-2', label: '红温预警', tone: 'bad', text: '今日签：逆风局概率偏高。输赢先放一边，别把下一把也赔进去。' },
-  { id: 'bad-3', label: '别排了？', tone: 'bad', text: '今日签：手感可能离家出走。适合复盘、练补刀，少赌最后一把。' }
-]
+  { id: 'omen-1', label: '河道剑魔', tone: 'neutral', text: '' },
+  { id: 'omen-2', label: '/mute all', tone: 'neutral', text: '' },
+  { id: 'omen-3', label: '龙魂听牌', tone: 'neutral', text: '' },
+  { id: 'omen-4', label: '这个贾克斯', tone: 'neutral', text: '' },
+  { id: 'omen-5', label: '辅助给盾', tone: 'neutral', text: '' },
+  { id: 'omen-6', label: '弹幕开庭', tone: 'neutral', text: '' },
+  { id: 'omen-7', label: '飞雷神', tone: 'neutral', text: '' },
+  { id: 'omen-8', label: '上单出山', tone: 'neutral', text: '' },
+  { id: 'omen-9', label: '水晶没碎', tone: 'neutral', text: '' },
+  { id: 'omen-10', label: '主播开麦', tone: 'neutral', text: '' },
 
+  { id: 'omen-11', label: '一级设计', tone: 'neutral', text: '' },
+  { id: 'omen-12', label: '若有怜花意', tone: 'neutral', text: '' },
+  { id: 'omen-13', label: '问号慎点', tone: 'neutral', text: '' },
+  { id: 'omen-14', label: '大龙不语', tone: 'neutral', text: '' },
+  { id: 'omen-15', label: '补刀成神', tone: 'neutral', text: '' },
+  { id: 'omen-16', label: '天雷地火', tone: 'neutral', text: '' },
+  { id: 'omen-17', label: '对面也急', tone: 'neutral', text: '' },
+  { id: 'omen-18', label: '视野藏刀', tone: 'neutral', text: '' },
+  { id: 'omen-19', label: '回家洗澡', tone: 'neutral', text: '' },
+  { id: 'omen-20', label: '中单游走', tone: 'neutral', text: '' },
+
+  { id: 'omen-21', label: '切片预定', tone: 'neutral', text: '' },
+  { id: 'omen-22', label: '野辅联动', tone: 'neutral', text: '' },
+  { id: 'omen-23', label: '排位还债', tone: 'neutral', text: '' },
+  { id: 'omen-24', label: '登峰造極境', tone: 'neutral', text: '' },
+  { id: 'omen-25', label: 'AD等三件', tone: 'neutral', text: '' },
+  { id: 'omen-26', label: '导播给慢放', tone: 'neutral', text: '' },
+  { id: 'omen-27', label: '双日凌空', tone: 'neutral', text: '' },
+  { id: 'omen-28', label: '打野读秒', tone: 'neutral', text: '' },
+  { id: 'omen-29', label: '最后一把', tone: 'neutral', text: '' },
+  { id: 'omen-30', label: '不破不立', tone: 'neutral', text: '' },
+
+  { id: 'omen-31', label: '赛后比伤害', tone: 'neutral', text: '' },
+  { id: 'omen-32', label: '解说席沉默', tone: 'neutral', text: '' },
+  { id: 'omen-33', label: '下路四包二', tone: 'neutral', text: '' },
+  { id: 'omen-34', label: '/remake', tone: 'neutral', text: '' },
+  { id: 'omen-35', label: '三打一被反杀', tone: 'neutral', text: '' },
+  { id: 'omen-36', label: '队友CBA', tone: 'neutral', text: '' },
+  { id: 'omen-37', label: '素材局', tone: 'neutral', text: '' },
+  { id: 'omen-38', label: '版本低语', tone: 'neutral', text: '' },
+  { id: 'omen-39', label: '老龙点名', tone: 'neutral', text: '' },
+  { id: 'omen-40', label: '慢刀割肉', tone: 'neutral', text: '' },
+
+  { id: 'omen-41', label: '闪现向前', tone: 'neutral', text: '' },
+  { id: 'omen-42', label: '妮蔻藏兵', tone: 'neutral', text: '' },
+  { id: 'omen-43', label: '打他蛋', tone: 'neutral', text: '' },
+  { id: 'omen-44', label: '弹幕别急', tone: 'neutral', text: '' },
+  { id: 'omen-45', label: '天神下凡', tone: 'neutral', text: '' },
+  { id: 'omen-46', label: '节目效果', tone: 'neutral', text: '' },
+  { id: 'omen-47', label: '队友像人', tone: 'neutral', text: '' },
+  { id: 'omen-48', label: '重铸荣光', tone: 'neutral', text: '' },
+  { id: 'omen-49', label: '翻过这座山', tone: 'neutral', text: '' },
+  { id: 'omen-50', label: '红眼镜', tone: 'neutral', text: '' }
+]
 export function getTodayKey(date = new Date()): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')

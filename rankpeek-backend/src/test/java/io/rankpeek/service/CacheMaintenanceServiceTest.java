@@ -1,11 +1,17 @@
 package io.rankpeek.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
+import io.rankpeek.config.LocalDataPathService;
 import io.rankpeek.model.CacheClearResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
@@ -110,6 +116,21 @@ class CacheMaintenanceServiceTest {
         verify(summonerService, never()).refreshAllCache();
     }
 
+    @Test
+    void clearCache_doesNotTouchUserStoreFilesForAnyScope(@TempDir Path tempDir) throws Exception {
+        UserStoreService userStoreService = new UserStoreService(new ObjectMapper(), new TestLocalDataPathService(tempDir));
+        userStoreService.setDefaultMatchQueueMode(440);
+        Path userStorePath = tempDir.resolve("user-store").resolve("rankpeek-user-store.json");
+        String before = Files.readString(userStorePath);
+
+        service.clearCache("memory", true);
+        service.clearCache("localDb", true);
+        service.clearCache("all", true);
+
+        assertThat(Files.exists(userStorePath)).isTrue();
+        assertThat(Files.readString(userStorePath)).isEqualTo(before);
+    }
+
     private void insertCacheRows() {
         jdbcTemplate.update("""
                 INSERT INTO summoner_cache (puuid, raw_json, updated_at)
@@ -154,5 +175,23 @@ class CacheMaintenanceServiceTest {
 
     private long count(String tableName) {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + tableName, Long.class);
+    }
+
+    private static final class TestLocalDataPathService extends LocalDataPathService {
+        private final Path root;
+
+        private TestLocalDataPathService(Path root) {
+            this.root = root;
+        }
+
+        @Override
+        public Path getUserDataDirectory() {
+            return root.resolve("user-store");
+        }
+
+        @Override
+        public Path getUserStorePath() {
+            return getUserDataDirectory().resolve("rankpeek-user-store.json");
+        }
     }
 }

@@ -1,6 +1,9 @@
 package io.rankpeek.service;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
+import io.rankpeek.cache.LocalCacheRecoveryService;
 import io.rankpeek.config.LocalDataPathService;
 import io.rankpeek.model.CacheStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +14,10 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLTransientConnectionException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -122,5 +129,93 @@ class CacheStatusServiceTest {
         assertThat(status.getPlayerMatchIndexCount()).isZero();
         assertThat(status.getTrackedPlayerCount()).isZero();
         assertThat(status.getLatestMatchCreation()).isNull();
+    }
+
+    @Test
+    void getStatus_recoversCorruptLocalDatabaseAndReturnsEnabled() throws Exception {
+        Path recoveringDatabasePath = tempDir.resolve("recover-status").resolve("rankpeek-cache").toAbsolutePath();
+        Files.createDirectories(recoveringDatabasePath.getParent());
+        Files.write(recoveringDatabasePath.resolveSibling("rankpeek-cache.mv.db"), new byte[]{4, 3, 2, 1});
+        LocalDataPathService recoveringPathService = mock(LocalDataPathService.class);
+        when(recoveringPathService.getCacheDatabasePath()).thenReturn(recoveringDatabasePath);
+
+        HikariDataSource recoveringDataSource = createDataSource(recoveringDatabasePath);
+        try {
+            JdbcTemplate recoveringJdbcTemplate = new JdbcTemplate(recoveringDataSource);
+            LocalCacheRecoveryService recoveryService =
+                    new LocalCacheRecoveryService(recoveringPathService, fixedClock(), recoveringDataSource);
+            LocalCacheSchemaInitializer initializer =
+                    new LocalCacheSchemaInitializer(recoveringJdbcTemplate, recoveryService);
+            CacheStatusService recoveringService = new CacheStatusService(
+                    recoveringJdbcTemplate,
+                    recoveringPathService,
+                    recoveryService,
+                    initializer
+            );
+
+            CacheStatus status = recoveringService.getStatus();
+
+            Path quarantineDirectory = recoveringDatabasePath.getParent()
+                    .resolve("rankpeek-cache.corrupt.20260501-010203");
+            assertThat(status.isEnabled()).isTrue();
+            assertThat(status.getDatabasePath()).isEqualTo(recoveringDatabasePath.toString());
+            assertThat(status.getSummonerCount()).isZero();
+            assertThat(status.getMatchCount()).isZero();
+            assertThat(Files.readAllBytes(quarantineDirectory.resolve("rankpeek-cache.mv.db")))
+                    .containsExactly(4, 3, 2, 1);
+            assertThat(Files.exists(recoveringDatabasePath.resolveSibling("rankpeek-cache.mv.db"))).isTrue();
+        } finally {
+            recoveringDataSource.close();
+        }
+    }
+
+    @Test
+    void getStatus_doesNotQuarantineNonCorruptionDatabaseFailure() throws Exception {
+        Path nonCorruptDatabasePath = tempDir.resolve("non-corrupt-status").resolve("rankpeek-cache").toAbsolutePath();
+        Files.createDirectories(nonCorruptDatabasePath.getParent());
+        Path h2File = nonCorruptDatabasePath.resolveSibling("rankpeek-cache.mv.db");
+        Files.writeString(h2File, "keep");
+        LocalDataPathService nonCorruptPathService = mock(LocalDataPathService.class);
+        when(nonCorruptPathService.getCacheDatabasePath()).thenReturn(nonCorruptDatabasePath);
+        JdbcTemplate brokenJdbcTemplate = mock(JdbcTemplate.class);
+        when(brokenJdbcTemplate.queryForObject("SELECT COUNT(*) FROM summoner_cache", Long.class))
+                .thenThrow(new RuntimeException(new SQLTransientConnectionException(
+                        "Connection is not available, request timed out after 1000ms"
+                )));
+        LocalCacheRecoveryService recoveryService = new LocalCacheRecoveryService(nonCorruptPathService, fixedClock());
+        CacheStatusService brokenService = new CacheStatusService(
+                brokenJdbcTemplate,
+                nonCorruptPathService,
+                recoveryService,
+                null
+        );
+
+        CacheStatus status = brokenService.getStatus();
+
+        assertThat(status.isEnabled()).isFalse();
+        assertThat(Files.readString(h2File)).isEqualTo("keep");
+        try (var paths = Files.list(nonCorruptDatabasePath.getParent())) {
+            assertThat(paths)
+                    .noneMatch(path -> path.getFileName().toString().contains(".corrupt."));
+        }
+    }
+
+    private HikariDataSource createDataSource(Path databasePath) {
+        HikariConfig config = new HikariConfig();
+        config.setDriverClassName("org.h2.Driver");
+        config.setJdbcUrl("jdbc:h2:file:" + databasePath.toString().replace('\\', '/')
+                + ";MODE=PostgreSQL;DATABASE_TO_UPPER=false");
+        config.setUsername("sa");
+        config.setPassword("");
+        config.setMaximumPoolSize(1);
+        config.setMinimumIdle(0);
+        config.setConnectionTimeout(1_000);
+        config.setInitializationFailTimeout(-1);
+        config.setPoolName("rankpeek-cache-status-recovery-test-" + System.nanoTime());
+        return new HikariDataSource(config);
+    }
+
+    private Clock fixedClock() {
+        return Clock.fixed(Instant.parse("2026-05-01T01:02:03Z"), ZoneOffset.UTC);
     }
 }

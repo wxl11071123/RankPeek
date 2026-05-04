@@ -11,7 +11,7 @@ export default defineConfig({
       fileName: () => 'main.js'
     },
     rollupOptions: {
-      external: ['electron', 'child_process', 'path', 'fs', 'http', 'https', 'url', 'os', 'stream', 'events', 'util', 'buffer', 'crypto', 'net', 'tls', 'zlib', 'querystring'],
+      external: ['electron', 'better-sqlite3', 'child_process', 'path', 'fs', 'http', 'https', 'url', 'os', 'stream', 'events', 'util', 'buffer', 'crypto', 'net', 'tls', 'zlib', 'querystring'],
       output: {
         entryFileNames: 'main.js'
       }

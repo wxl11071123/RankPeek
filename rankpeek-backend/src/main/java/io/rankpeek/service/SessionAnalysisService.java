@@ -1,7 +1,6 @@
 package io.rankpeek.service;
 
 import io.rankpeek.constant.GameConstants;
-import io.rankpeek.constant.QueueType;
 import io.rankpeek.model.*;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -25,19 +24,19 @@ public class SessionAnalysisService {
 
     private final SummonerService summonerService;
     private final RankService rankService;
-    private final MatchHistoryService matchHistoryService;
     private final MatchHistoryRefreshService matchHistoryRefreshService;
-    private final MatchHistoryPrewarmService matchHistoryPrewarmService;
     private final GameFlowService gameFlowService;
     private final ChampionSelectService championSelectService;
-    private final UserTagService userTagService;
+    private final ScoutTagSampleService scoutTagSampleService;
+    private final ScoutTagRuleService scoutTagRuleService;
 
     @Qualifier("dataLoaderExecutor")
     private final Executor dataLoaderExecutor;
 
     // ========== 可配置常量 ==========
     /** 近期战绩查询数量 */
-    private static final int SESSION_ANALYSIS_MATCHES_COUNT = 50;
+    private static final int SCOUT_LOOKBACK_LIMIT = 50;
+    private static final int SCOUT_SAMPLE_LIMIT = 20;
     /** 预组队判定阈值：同队场次 */
     private static final int PRE_GROUP_FRIEND_THRESHOLD = 3;
     /** 预组队最小人数 */
@@ -87,23 +86,21 @@ public class SessionAnalysisService {
 
         List<ChampionSelectSession.Player> myTeam = selectSession.getMyTeam();
         List<ChampionSelectSession.Player> theirTeam = selectSession.getTheirTeam();
-        matchHistoryPrewarmService.prewarmPlayers(collectChampSelectPuuids(myTeam, theirTeam),
-                "ChampSelect-knownPlayers");
-
         log.info("ChampSelect 直接模式: myTeam={}, theirTeam={}",
                 myTeam != null ? myTeam.size() : 0,
                 theirTeam != null ? theirTeam.size() : 0);
 
         Integer queueId = resolveQueueIdFromGameSession();
+        int currentQueueId = resolveCurrentQueueId(queueId);
+        log.info("Scout current queue resolved: phase=ChampSelect, queueId={}, source=GAME_SESSION", currentQueueId);
         String typeCn = "未知模式";
         String queueType = "";
-        if (queueId != null && queueId > 0) {
-            typeCn = GameConstants.getQueueCnName(queueId);
+        if (currentQueueId > 0) {
+            typeCn = GameConstants.getQueueCnName(currentQueueId);
         }
 
-        int analysisMode = resolveAnalysisMode(mode);
-        List<SessionSummoner> teamOne = buildTeamFromChampSelectPlayers(myTeam, analysisMode);
-        List<SessionSummoner> teamTwo = buildTeamFromChampSelectPlayers(theirTeam, analysisMode);
+        List<SessionSummoner> teamOne = buildTeamFromChampSelectPlayers(myTeam, currentQueueId);
+        List<SessionSummoner> teamTwo = buildTeamFromChampSelectPlayers(theirTeam, currentQueueId);
 
         ensureMyTeamIsFirst(teamOne, teamTwo, mySummoner.getPuuid());
 
@@ -115,7 +112,7 @@ public class SessionAnalysisService {
                 .phase("ChampSelect")
                 .queueType(queueType)
                 .typeCn(typeCn)
-                .queueId(queueId != null ? queueId : 0)
+                .queueId(currentQueueId)
                 .teamOne(teamOne)
                 .teamTwo(teamTwo)
                 .build();
@@ -133,14 +130,15 @@ public class SessionAnalysisService {
         return null;
     }
 
-    private List<SessionSummoner> buildTeamFromChampSelectPlayers(List<ChampionSelectSession.Player> players, Integer analysisMode) {
+    private List<SessionSummoner> buildTeamFromChampSelectPlayers(List<ChampionSelectSession.Player> players, int currentQueueId) {
         if (players == null || players.isEmpty()) {
             return List.of();
         }
 
+        List<String> teamPuuids = collectChampSelectTeamPuuids(players);
         List<CompletableFuture<SessionSummoner>> futures = players.stream()
                 .map(p -> CompletableFuture.supplyAsync(
-                        () -> processChampSelectPlayer(p, analysisMode),
+                        () -> processChampSelectPlayer(p, currentQueueId, teamPuuids),
                         dataLoaderExecutor))
                 .toList();
 
@@ -149,7 +147,20 @@ public class SessionAnalysisService {
                 .toList();
     }
 
-    private SessionSummoner processChampSelectPlayer(ChampionSelectSession.Player player, Integer analysisMode) {
+    private List<String> collectChampSelectTeamPuuids(List<ChampionSelectSession.Player> players) {
+        if (players == null || players.isEmpty()) {
+            return List.of();
+        }
+        return players.stream()
+                .filter(Objects::nonNull)
+                .map(ChampionSelectSession.Player::getPuuid)
+                .filter(this::hasText)
+                .toList();
+    }
+
+    private SessionSummoner processChampSelectPlayer(ChampionSelectSession.Player player,
+                                                     int currentQueueId,
+                                                     List<String> teamPuuids) {
         String puuid = player.getPuuid();
         Integer championId = player.getChampionId() != null ? player.getChampionId() : 0;
 
@@ -161,8 +172,9 @@ public class SessionAnalysisService {
         try {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
-            List<MatchHistory> history = safeGetMatchHistory(puuid);
-            UserTag userTag = safeBuildSessionUserTag(puuid, analysisMode, rank, history);
+            ScoutTagSample sample = safeGetScoutSample(puuid, currentQueueId);
+            UserTag userTag = buildScoutUserTag(puuid, currentQueueId, championId, currentPosition(player), teamPuuids, sample);
+            List<MatchHistory> history = sample != null ? sample.getCurrentModeMatches() : List.of();
 
             return SessionSummoner.builder()
                     .championId(championId)
@@ -228,10 +240,6 @@ public class SessionAnalysisService {
 
         ensureMyTeamIsTeamOne(session, mySummoner);
         fillMissingPlayers(session);
-        if (isLiveGamePrewarmPhase(phase)) {
-            matchHistoryPrewarmService.prewarmPlayers(collectGameSessionPuuids(session), phase);
-        }
-
         log.info("处理后: teamOne={}, teamTwo={}",
                 session.getGameData().getTeamOne() != null ? session.getGameData().getTeamOne().size() : 0,
                 session.getGameData().getTeamTwo() != null ? session.getGameData().getTeamTwo().size() : 0);
@@ -250,9 +258,10 @@ public class SessionAnalysisService {
             }
         }
 
-        int analysisMode = resolveAnalysisMode(mode);
-        List<SessionSummoner> teamOne = processTeam(session.getGameData().getTeamOne(), analysisMode);
-        List<SessionSummoner> teamTwo = processTeam(session.getGameData().getTeamTwo(), analysisMode);
+        int currentQueueId = resolveCurrentQueueId(queueId);
+        log.info("Scout current queue resolved: phase={}, queueId={}, source=GAME_SESSION", phase, currentQueueId);
+        List<SessionSummoner> teamOne = processTeam(session.getGameData().getTeamOne(), currentQueueId);
+        List<SessionSummoner> teamTwo = processTeam(session.getGameData().getTeamTwo(), currentQueueId);
 
         addPreGroupMarkers(teamOne, teamTwo);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
@@ -262,7 +271,7 @@ public class SessionAnalysisService {
                 .phase(phase)
                 .queueType(queueType)
                 .typeCn(typeCn)
-                .queueId(queueId)
+                .queueId(currentQueueId)
                 .teamOne(teamOne)
                 .teamTwo(teamTwo)
                 .build();
@@ -285,29 +294,30 @@ public class SessionAnalysisService {
                     .build();
             }
 
-            matchHistoryPrewarmService.prewarmPlayers(collectLobbyPuuids(lobby.getMembers()), "Lobby");
-
             // 获取队列 ID
             Integer queueId = lobby.getQueueId();
+            String queueSource = queueId != null ? "LOBBY_QUEUE" : "UNKNOWN";
             if (queueId == null && lobby.getGameConfig() != null) {
                 queueId = lobby.getGameConfig().getQueueId();
+                queueSource = queueId != null ? "LOBBY_GAME_CONFIG" : "UNKNOWN";
             }
+            int currentQueueId = resolveCurrentQueueId(queueId);
+            log.info("Scout current queue resolved: phase={}, queueId={}, source={}", phase, currentQueueId, queueSource);
 
             // 获取队列名称
             String typeCn = "未知模式";
-            if (queueId != null && queueId > 0) {
-                typeCn = GameConstants.getQueueCnName(queueId);
+            if (currentQueueId > 0) {
+                typeCn = GameConstants.getQueueCnName(currentQueueId);
             }
 
             // 从 Lobby 成员构建队伍数据
-            int analysisMode = resolveAnalysisMode(mode);
-            List<SessionSummoner> teamOne = buildTeamFromLobbyMembers(lobby.getMembers(), analysisMode);
+            List<SessionSummoner> teamOne = buildTeamFromLobbyMembers(lobby.getMembers(), currentQueueId);
 
             return SessionData.builder()
                 .phase(phase)
                 .queueType("")
                 .typeCn(typeCn)
-                .queueId(queueId != null ? queueId : 0)
+                .queueId(currentQueueId)
                 .teamOne(teamOne)
                 .teamTwo(List.of())
                 .build();
@@ -322,68 +332,6 @@ public class SessionAnalysisService {
         }
     }
 
-    private Set<String> collectLobbyPuuids(List<Lobby.Member> members) {
-        if (members == null || members.isEmpty()) {
-            return Set.of();
-        }
-
-        return members.stream()
-                .filter(Objects::nonNull)
-                .map(Lobby.Member::getPuuid)
-                .filter(this::hasText)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-    }
-
-    private Set<String> collectChampSelectPuuids(List<ChampionSelectSession.Player> myTeam,
-                                                 List<ChampionSelectSession.Player> theirTeam) {
-        Set<String> puuids = new LinkedHashSet<>();
-        addChampSelectPuuids(puuids, myTeam);
-        addChampSelectPuuids(puuids, theirTeam);
-        return puuids;
-    }
-
-    private void addChampSelectPuuids(Set<String> puuids, List<ChampionSelectSession.Player> players) {
-        if (players == null || players.isEmpty()) {
-            return;
-        }
-
-        players.stream()
-                .filter(Objects::nonNull)
-                .map(ChampionSelectSession.Player::getPuuid)
-                .filter(this::hasText)
-                .forEach(puuids::add);
-    }
-
-    private Set<String> collectGameSessionPuuids(GameSession session) {
-        if (session == null || session.getGameData() == null) {
-            return Set.of();
-        }
-
-        Set<String> puuids = new LinkedHashSet<>();
-        addGameSessionPuuids(puuids, session.getGameData().getTeamOne());
-        addGameSessionPuuids(puuids, session.getGameData().getTeamTwo());
-        return puuids;
-    }
-
-    private void addGameSessionPuuids(Set<String> puuids, List<GameSession.OnePlayer> players) {
-        if (players == null || players.isEmpty()) {
-            return;
-        }
-
-        for (GameSession.OnePlayer player : players) {
-            if (puuids.size() >= 10) {
-                return;
-            }
-            if (player != null && hasText(player.getPuuid())) {
-                puuids.add(player.getPuuid());
-            }
-        }
-    }
-
-    private boolean isLiveGamePrewarmPhase(String phase) {
-        return "GameStart".equals(phase) || "InProgress".equals(phase) || "PreEndOfGame".equals(phase);
-    }
-
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
@@ -391,14 +339,15 @@ public class SessionAnalysisService {
     /**
      * 从 Lobby 成员构建队伍数据
      */
-    private List<SessionSummoner> buildTeamFromLobbyMembers(List<Lobby.Member> members, Integer analysisMode) {
+    private List<SessionSummoner> buildTeamFromLobbyMembers(List<Lobby.Member> members, int currentQueueId) {
         if (members == null || members.isEmpty()) {
             return List.of();
         }
 
+        List<String> teamPuuids = collectLobbyTeamPuuids(members);
         List<CompletableFuture<SessionSummoner>> futures = members.stream()
             .map(member -> CompletableFuture.supplyAsync(
-                () -> processLobbyMember(member, analysisMode),
+                () -> processLobbyMember(member, currentQueueId, teamPuuids),
                 dataLoaderExecutor))
             .toList();
 
@@ -408,10 +357,21 @@ public class SessionAnalysisService {
             .toList();
     }
 
+    private List<String> collectLobbyTeamPuuids(List<Lobby.Member> members) {
+        if (members == null || members.isEmpty()) {
+            return List.of();
+        }
+        return members.stream()
+                .filter(Objects::nonNull)
+                .map(Lobby.Member::getPuuid)
+                .filter(this::hasText)
+                .toList();
+    }
+
     /**
      * 处理单个 Lobby 成员
      */
-    private SessionSummoner processLobbyMember(Lobby.Member member, Integer analysisMode) {
+    private SessionSummoner processLobbyMember(Lobby.Member member, int currentQueueId, List<String> teamPuuids) {
         String puuid = member.getPuuid();
         if (puuid == null || puuid.isEmpty()) {
             return null;
@@ -420,8 +380,9 @@ public class SessionAnalysisService {
         try {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
-            List<MatchHistory> history = safeGetMatchHistory(puuid);
-            UserTag userTag = safeBuildSessionUserTag(puuid, analysisMode, rank, history);
+            ScoutTagSample sample = safeGetScoutSample(puuid, currentQueueId);
+            UserTag userTag = buildScoutUserTag(puuid, currentQueueId, 0, member.getPosition(), teamPuuids, sample);
+            List<MatchHistory> history = sample != null ? sample.getCurrentModeMatches() : List.of();
 
             return SessionSummoner.builder()
                 .championId(0)
@@ -603,14 +564,15 @@ public class SessionAnalysisService {
     /**
      * 处理队伍数据（使用指定线程池并行处理）
      */
-    private List<SessionSummoner> processTeam(List<GameSession.OnePlayer> team, Integer analysisMode) {
+    private List<SessionSummoner> processTeam(List<GameSession.OnePlayer> team, int currentQueueId) {
         if (team == null || team.isEmpty()) {
             return List.of();
         }
 
+        List<String> teamPuuids = collectGameTeamPuuids(team);
         List<CompletableFuture<SessionSummoner>> futures = team.stream()
                 .map(player -> CompletableFuture.supplyAsync(
-                        () -> processPlayer(player, analysisMode),
+                        () -> processPlayer(player, currentQueueId, teamPuuids),
                         dataLoaderExecutor))
                 .toList();
 
@@ -619,10 +581,21 @@ public class SessionAnalysisService {
                 .toList();
     }
 
+    private List<String> collectGameTeamPuuids(List<GameSession.OnePlayer> team) {
+        if (team == null || team.isEmpty()) {
+            return List.of();
+        }
+        return team.stream()
+                .filter(Objects::nonNull)
+                .map(GameSession.OnePlayer::getPuuid)
+                .filter(this::hasText)
+                .toList();
+    }
+
     /**
      * 处理单个玩家数据（串行获取各数据，避免嵌套并行）
      */
-    private SessionSummoner processPlayer(GameSession.OnePlayer player, Integer analysisMode) {
+    private SessionSummoner processPlayer(GameSession.OnePlayer player, int currentQueueId, List<String> teamPuuids) {
         String puuid = player.getPuuid();
         Integer championId = player.getChampionId();
 
@@ -634,8 +607,16 @@ public class SessionAnalysisService {
             // 串行获取数据（外层已并行处理10个玩家，此处无需再嵌套并行）
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
-            List<MatchHistory> history = safeGetMatchHistory(puuid);
-            UserTag userTag = safeBuildSessionUserTag(puuid, analysisMode, rank, history);
+            ScoutTagSample sample = safeGetScoutSample(puuid, currentQueueId);
+            UserTag userTag = buildScoutUserTag(
+                    puuid,
+                    currentQueueId,
+                    championId,
+                    currentPosition(player),
+                    teamPuuids,
+                    sample
+            );
+            List<MatchHistory> history = sample != null ? sample.getCurrentModeMatches() : List.of();
 
             return SessionSummoner.builder()
                     .championId(championId)
@@ -675,39 +656,281 @@ public class SessionAnalysisService {
         }
     }
 
-    private List<MatchHistory> safeGetMatchHistory(String puuid) {
+    private ScoutTagSample safeGetScoutSample(String puuid, int currentQueueId) {
         try {
-            return matchHistoryService.getMatchHistory(puuid, 0, SESSION_ANALYSIS_MATCHES_COUNT - 1);
+            return scoutTagSampleService.getCurrentModeSample(puuid, currentQueueId, SCOUT_LOOKBACK_LIMIT, SCOUT_SAMPLE_LIMIT);
         } catch (Exception e) {
-            log.warn("获取战绩信息失败：puuid={}, error={}", puuid, e.getMessage());
-            return null;
+            log.warn("获取对战信息页 scout 样本失败：puuid={}, error={}", puuid, e.getMessage());
+            return ScoutTagSample.builder()
+                    .puuid(puuid)
+                    .currentQueueId(currentQueueId)
+                    .lookbackMatches(List.of())
+                    .currentModeMatches(List.of())
+                    .source("EMPTY")
+                    .build();
         }
     }
 
-    private UserTag safeBuildSessionUserTag(String puuid, Integer queueId, Rank rank, List<MatchHistory> matchHistory) {
+    private UserTag buildScoutUserTag(String puuid,
+                                      int currentQueueId,
+                                      Integer championId,
+                                      String currentPosition,
+                                      List<String> teamPuuids,
+                                      ScoutTagSample sample) {
+        ScoutTagSample safeSample = sample != null ? sample : ScoutTagSample.builder()
+                .puuid(puuid)
+                .currentQueueId(currentQueueId)
+                .lookbackMatches(List.of())
+                .currentModeMatches(List.of())
+                .source("EMPTY")
+                .build();
+        ScoutTagContext context = ScoutTagContext.builder()
+                .puuid(puuid)
+                .currentQueueId(currentQueueId)
+                .currentChampionId(championId)
+                .currentPosition(currentPosition)
+                .currentTeamPuuids(teamPuuids != null ? teamPuuids : List.of())
+                .build();
+        List<RankTag> tags;
         try {
-            UserTagSummary summary = userTagService.buildSummaryFromPrefetchedData(puuid, queueId, rank, matchHistory);
-            return UserTag.builder()
-                    .recordStatus(summary.getRecordStatus())
-                    .recentData(summary.getRecentData())
-                    .tag(summary.getTag())
-                    .build();
+            tags = scoutTagRuleService.buildTags(context, safeSample);
         } catch (Exception e) {
-            log.warn("获取用户标签失败：puuid={}, error={}", puuid, e.getMessage());
+            log.warn("生成对战信息页 scout 标签失败：puuid={}, error={}", puuid, e.getMessage());
+            tags = List.of();
+        }
+
+        return UserTag.builder()
+                .recordStatus(resolveScoutRecordStatus(safeSample))
+                .recentData(calculateScoutRecentData(puuid, currentQueueId, safeSample.getCurrentModeMatches()))
+                .tag(tags)
+                .build();
+    }
+
+    private RecordStatus resolveScoutRecordStatus(ScoutTagSample sample) {
+        if (sample == null || "EMPTY".equals(sample.getSource())) {
+            return RecordStatus.ERROR;
+        }
+        if (sample.getLookbackMatches() == null || sample.getLookbackMatches().isEmpty()) {
+            return RecordStatus.EMPTY;
+        }
+        return RecordStatus.NORMAL;
+    }
+
+    private RecentData calculateScoutRecentData(String puuid, int currentQueueId, List<MatchHistory> matches) {
+        int count = 0;
+        int wins = 0;
+        int losses = 0;
+        double kills = 0;
+        double deaths = 0;
+        double assists = 0;
+        double totalGroupRate = 0;
+        double totalGoldRate = 0;
+        double totalDamageRate = 0;
+        int conversionMetricCount = 0;
+        int goldRateCount = 0;
+        int damageRateCount = 0;
+        long totalGold = 0;
+        long totalDamage = 0;
+
+        for (MatchHistory match : matches != null ? matches : List.<MatchHistory>of()) {
+            MatchHistory.Participant participant = findParticipant(match, puuid);
+            if (participant == null || participant.getStats() == null) {
+                continue;
+            }
+            MatchHistory.Stats stats = participant.getStats();
+            count++;
+            kills += intValue(stats.getKills());
+            deaths += intValue(stats.getDeaths());
+            assists += intValue(stats.getAssists());
+            totalGroupRate += calculateKillParticipationRate(match, participant);
+            if (isPositive(stats.getGoldEarned()) && isPositive(stats.getTotalDamageDealtToChampions())) {
+                conversionMetricCount++;
+                totalGold += stats.getGoldEarned();
+                totalDamage += stats.getTotalDamageDealtToChampions();
+            }
+            Double goldRate = calculateGoldShareRate(match, participant);
+            if (goldRate != null) {
+                goldRateCount++;
+                totalGoldRate += goldRate;
+            }
+            Double damageRate = calculateDamageShareRate(match, participant);
+            if (damageRate != null) {
+                damageRateCount++;
+                totalDamageRate += damageRate;
+            }
+            if (Boolean.TRUE.equals(stats.getWin())) {
+                wins++;
+            } else {
+                losses++;
+            }
+        }
+
+        double kda = deaths > 0 ? (kills + assists) / deaths : kills + assists;
+        return RecentData.builder()
+                .kda(count > 0 ? round1(kda) : null)
+                .kills(count > 0 ? round1(kills / count) : null)
+                .deaths(count > 0 ? round1(deaths / count) : null)
+                .assists(count > 0 ? round1(assists / count) : null)
+                .selectMode(currentQueueId)
+                .selectModeCn(currentQueueId == 0 ? "全部模式" : GameConstants.getQueueCnName(currentQueueId))
+                .selectWins(wins)
+                .selectLosses(losses)
+                .groupRate(count > 0 ? (int) Math.round(totalGroupRate / count) : null)
+                .averageGold(conversionMetricCount > 0 ? (int) (totalGold / conversionMetricCount) : null)
+                .goldRate(goldRateCount > 0 ? (int) Math.round(totalGoldRate / goldRateCount) : null)
+                .averageDamageDealtToChampions(conversionMetricCount > 0 ? (int) (totalDamage / conversionMetricCount) : null)
+                .damageDealtToChampionsRate(damageRateCount > 0 ? (int) Math.round(totalDamageRate / damageRateCount) : null)
+                .oneGamePlayersMap(Map.of())
+                .build();
+    }
+
+    private MatchHistory.Participant findParticipant(MatchHistory match, String puuid) {
+        if (match == null || match.getParticipants() == null || match.getParticipants().isEmpty()) {
             return null;
         }
+        Integer participantId = findParticipantId(match, puuid);
+        if (participantId != null) {
+            for (MatchHistory.Participant participant : match.getParticipants()) {
+                if (participantId.equals(participant.getParticipantId())) {
+                    return participant;
+                }
+            }
+        }
+        return match.getParticipants().size() == 1 ? match.getParticipants().getFirst() : null;
+    }
+
+    private double calculateKillParticipationRate(MatchHistory match, MatchHistory.Participant participant) {
+        if (match.getParticipants() == null || participant.getStats() == null) {
+            return 0;
+        }
+
+        int teamKills = 0;
+        for (MatchHistory.Participant teammate : match.getParticipants()) {
+            if (participant.getTeamId() != null
+                    && participant.getTeamId().equals(teammate.getTeamId())
+                    && teammate.getStats() != null) {
+                teamKills += intValue(teammate.getStats().getKills());
+            }
+        }
+
+        if (teamKills <= 0) {
+            return 0;
+        }
+
+        double impact = intValue(participant.getStats().getKills()) + intValue(participant.getStats().getAssists());
+        return impact * 100.0 / teamKills;
+    }
+
+    private Double calculateGoldShareRate(MatchHistory match, MatchHistory.Participant participant) {
+        return calculateTeamRate(match, participant, MatchMetric.GOLD);
+    }
+
+    private Double calculateDamageShareRate(MatchHistory match, MatchHistory.Participant participant) {
+        return calculateTeamRate(match, participant, MatchMetric.DAMAGE);
+    }
+
+    private Double calculateTeamRate(MatchHistory match, MatchHistory.Participant participant, MatchMetric metric) {
+        if (match.getParticipants() == null || participant.getStats() == null) {
+            return null;
+        }
+
+        Integer participantValue = metric == MatchMetric.GOLD
+                ? participant.getStats().getGoldEarned()
+                : participant.getStats().getTotalDamageDealtToChampions();
+        if (!isPositive(participantValue)) {
+            return null;
+        }
+
+        long teamTotal = 0;
+        for (MatchHistory.Participant teammate : match.getParticipants()) {
+            if (participant.getTeamId() != null
+                    && participant.getTeamId().equals(teammate.getTeamId())
+                    && teammate.getStats() != null) {
+                Integer teammateValue = metric == MatchMetric.GOLD
+                        ? intValue(teammate.getStats().getGoldEarned())
+                        : intValue(teammate.getStats().getTotalDamageDealtToChampions());
+                if (isPositive(teammateValue)) {
+                    teamTotal += teammateValue;
+                }
+            }
+        }
+
+        if (teamTotal <= 0) {
+            return null;
+        }
+
+        return participantValue * 100.0 / teamTotal;
+    }
+
+    private Integer findParticipantId(MatchHistory match, String puuid) {
+        if (match.getParticipantIdentities() == null || puuid == null) {
+            return null;
+        }
+        for (MatchHistory.ParticipantIdentity identity : match.getParticipantIdentities()) {
+            if (identity != null
+                    && identity.getPlayer() != null
+                    && puuid.equals(identity.getPlayer().getPuuid())) {
+                return identity.getParticipantId();
+            }
+        }
+        return null;
+    }
+
+    private int intValue(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private boolean isPositive(Integer value) {
+        return value != null && value > 0;
+    }
+
+    private double round1(double value) {
+        return Math.round(value * 10.0) / 10.0;
+    }
+
+    private int resolveCurrentQueueId(Integer currentQueueId) {
+        return currentQueueId != null && currentQueueId > 0 ? currentQueueId : 0;
+    }
+
+    private String currentPosition(ChampionSelectSession.Player player) {
+        if (player == null) {
+            return null;
+        }
+        return firstText(
+                player.getSelectedPosition(),
+                player.getAssignedPosition(),
+                player.getTeamPosition(),
+                player.getIndividualPosition()
+        );
+    }
+
+    private String currentPosition(GameSession.OnePlayer player) {
+        if (player == null) {
+            return null;
+        }
+        return firstText(
+                player.getSelectedPosition(),
+                player.getAssignedPosition(),
+                player.getTeamPosition(),
+                player.getIndividualPosition()
+        );
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (hasText(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**
      * 构建空的 SessionSummoner
      */
-    private int resolveAnalysisMode(Integer mode) {
-        if (mode != null && mode > 0) {
-            return mode;
-        }
-        return QueueType.QUEUE_SOLO_5X5;
-    }
-
     private SessionSummoner buildEmptySessionSummoner(Integer championId) {
         return SessionSummoner.builder()
                 .championId(championId)
@@ -979,5 +1202,10 @@ public class SessionAnalysisService {
             return false;
         }
         return new HashSet<>(b).containsAll(a);
+    }
+
+    private enum MatchMetric {
+        GOLD,
+        DAMAGE
     }
 }

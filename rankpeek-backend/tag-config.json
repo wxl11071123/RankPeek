@@ -53,7 +53,7 @@
       "type" : "average",
       "metric" : "win",
       "op" : "GTE",
-      "value" : 0.65
+      "value" : 0.6
     }
   }
 }, {
@@ -73,7 +73,7 @@
       "type" : "average",
       "metric" : "win",
       "op" : "LT",
-      "value" : 0.35
+      "value" : 0.4
     }
   }
 }, {
@@ -121,54 +121,6 @@
     }
   }
 }, {
-  "id" : "default_feeding",
-  "name" : "暴毙",
-  "desc" : "最近几把死得偏多，团前蒸发概率不低。",
-  "good" : false,
-  "enabled" : true,
-  "isDefault" : true,
-  "condition" : {
-    "type" : "history",
-    "filters" : [ {
-      "type" : "queue",
-      "ids" : [ 420, 440, 1700, 2400 ]
-    }, {
-      "type" : "stat",
-      "metric" : "deaths",
-      "op" : "GTE",
-      "value" : 8.0
-    } ],
-    "refresh" : {
-      "type" : "count",
-      "op" : "GTE",
-      "value" : 4.0
-    }
-  }
-}, {
-  "id" : "default_inting",
-  "name" : "摆烂",
-  "desc" : "最近数据松松垮垮，像是在随便交差。",
-  "good" : false,
-  "enabled" : true,
-  "isDefault" : true,
-  "condition" : {
-    "type" : "history",
-    "filters" : [ {
-      "type" : "queue",
-      "ids" : [ 420, 440, 1700, 2400 ]
-    }, {
-      "type" : "stat",
-      "metric" : "kda",
-      "op" : "LTE",
-      "value" : 1.5
-    } ],
-    "refresh" : {
-      "type" : "count",
-      "op" : "GTE",
-      "value" : 4.0
-    }
-  }
-}, {
   "id" : "default_casual",
   "name" : "娱乐",
   "desc" : "最近主要在玩娱乐模式，排位样本不算多。",
@@ -176,16 +128,25 @@
   "enabled" : true,
   "isDefault" : true,
   "condition" : {
-    "type" : "history",
-    "filters" : [ {
-      "type" : "queue",
-      "ids" : [ 430, 450, 900, 1700, 1900, 2000, 2400 ]
-    } ],
-    "refresh" : {
-      "type" : "count",
-      "op" : "GTE",
-      "value" : 6.0
-    }
+    "type" : "and",
+    "conditions" : [ {
+      "type" : "not",
+      "condition" : {
+        "type" : "currentQueue",
+        "ids" : [ 430, 450, 900, 1700, 1900, 2000, 2400 ]
+      }
+    }, {
+      "type" : "history",
+      "filters" : [ {
+        "type" : "queue",
+        "ids" : [ 430, 450, 900, 1700, 1900, 2000, 2400 ]
+      } ],
+      "refresh" : {
+        "type" : "count",
+        "op" : "GT",
+        "value" : 10.0
+      }
+    } ]
   }
 }, {
   "id" : "default_smolder",

@@ -1,12 +1,13 @@
 package io.rankpeek.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.rankpeek.cache.MatchHistoryCacheRepository;
 import io.rankpeek.model.GameDetail;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
+import io.rankpeek.service.matchhistory.MatchHistoryProvider;
+import io.rankpeek.service.matchhistory.MatchHistoryQueryOptions;
+import io.rankpeek.service.matchhistory.MatchHistorySource;
+import com.github.benmanes.caffeine.cache.Cache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,10 +21,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,16 +33,15 @@ import static org.mockito.Mockito.when;
 class MatchHistoryServiceCacheTest {
 
     @Mock
-    private LcuHttpClient lcuHttpClient;
+    private MatchHistoryProvider matchHistoryProvider;
     @Mock
     private MatchHistoryCacheRepository repository;
 
     private MatchHistoryService service;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        service = new MatchHistoryService(lcuHttpClient, repository);
+        service = new MatchHistoryService(matchHistoryProvider, repository);
         service.init();
     }
 
@@ -57,18 +57,31 @@ class MatchHistoryServiceCacheTest {
         MatchHistoryFetchResult result = service.getMatchHistoryFetchResult("puuid-1", false);
 
         assertThat(result.getMatches()).extracting(MatchHistory::getGameId).containsExactly(1L);
-        verify(lcuHttpClient, never()).get(any(String.class), eq(JsonNode.class));
+        verify(matchHistoryProvider, never()).fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class));
     }
 
     @Test
-    void getMatchHistoryFetchResult_forceRefreshFetchesLcuAndSavesDatabase() {
-        ObjectNode response = objectMapper.createObjectNode();
-        response.putArray("games").addObject().put("gameId", 2L);
-        when(lcuHttpClient.getObjectMapper()).thenReturn(objectMapper);
-        when(lcuHttpClient.get(
-                "lol-match-history/v1/products/lol/puuid-1/matches?begIndex=0&endIndex=49",
-                JsonNode.class
-        )).thenReturn(response);
+    void getMatchHistoryFetchResult_cacheSourceReadsDatabaseWithoutProvider() {
+        MatchHistory cachedMatch = createMatch(4L);
+        when(repository.findRecentMatchHistory("puuid-1", 50))
+                .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
+                        .matches(List.of(cachedMatch))
+                        .rawEmpty(false)
+                        .build()));
+
+        MatchHistoryFetchResult result = service.getMatchHistoryFetchResult("puuid-1", false, MatchHistorySource.CACHE);
+
+        assertThat(result.getMatches()).extracting(MatchHistory::getGameId).containsExactly(4L);
+        verify(matchHistoryProvider, never()).fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getMatchHistoryFetchResult_forceRefreshFetchesProviderAndSavesDatabase() {
+        when(matchHistoryProvider.fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, true)))
+                .thenReturn(MatchHistoryFetchResult.builder()
+                        .matches(List.of(createMatch(2L)))
+                        .rawEmpty(false)
+                        .build());
 
         MatchHistoryFetchResult result = service.getMatchHistoryFetchResult("puuid-1", true);
 
@@ -84,10 +97,8 @@ class MatchHistoryServiceCacheTest {
                         .matches(List.of(staleMatch))
                         .rawEmpty(false)
                         .build()));
-        when(lcuHttpClient.get(
-                "lol-match-history/v1/products/lol/puuid-1/matches?begIndex=0&endIndex=49",
-                JsonNode.class
-        )).thenThrow(new RuntimeException("LCU down"));
+        when(matchHistoryProvider.fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, true)))
+                .thenThrow(new RuntimeException("LCU down"));
 
         MatchHistoryFetchResult result = service.getMatchHistoryFetchResult("puuid-1", true);
 
@@ -95,15 +106,41 @@ class MatchHistoryServiceCacheTest {
     }
 
     @Test
+    void autoSourceUsesDatabaseBeforeLcuWhenSgpFails() {
+        MatchHistoryProvider lcuProvider = mock(MatchHistoryProvider.class);
+        MatchHistoryProvider sgpProvider = mock(MatchHistoryProvider.class);
+        when(lcuProvider.source()).thenReturn(MatchHistorySource.LCU);
+        when(sgpProvider.source()).thenReturn(MatchHistorySource.SGP);
+        MatchHistoryService sourceAwareService = new MatchHistoryService(List.of(lcuProvider, sgpProvider), repository);
+        sourceAwareService.init();
+
+        MatchHistory cachedMatch = createMatch(30L);
+        when(sgpProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpProvider.fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, false)))
+                .thenThrow(new RuntimeException("SGP down"));
+        when(repository.findRecentMatchHistory("puuid-1", 50))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
+                        .matches(List.of(cachedMatch))
+                        .rawEmpty(false)
+                        .build()));
+
+        MatchHistoryFetchResult result = sourceAwareService.getMatchHistoryFetchResult("puuid-1", false);
+
+        assertThat(result.getMatches()).extracting(MatchHistory::getGameId).containsExactly(30L);
+        verify(sgpProvider).fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, false));
+        verify(lcuProvider, never()).fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
     void getGameDetailById_usesDatabaseBeforeLcu() {
-        GameDetail cached = new GameDetail();
-        cached.setGameId(99L);
+        GameDetail cached = createDetail(99L);
         when(repository.findGameDetail(99L)).thenReturn(Optional.of(cached));
 
         GameDetail result = service.getGameDetailById(99L);
 
         assertThat(result).isSameAs(cached);
-        verify(lcuHttpClient, never()).get("lol-match-history/v1/games/99", GameDetail.class);
+        verify(matchHistoryProvider, never()).fetchGameDetail(eq(99L), any(MatchHistoryQueryOptions.class));
     }
 
     @Test
@@ -116,10 +153,10 @@ class MatchHistoryServiceCacheTest {
                 .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
                         .matches(cachedMatches)
                         .rawEmpty(false)
-                        .build()));
+                .build()));
         when(repository.findGameDetail(anyLong())).thenReturn(Optional.empty());
-        when(lcuHttpClient.get(anyString(), eq(GameDetail.class)))
-                .thenAnswer(invocation -> createDetail(gameIdFromDetailUri(invocation.getArgument(0))));
+        when(matchHistoryProvider.fetchGameDetail(anyLong(), any(MatchHistoryQueryOptions.class)))
+                .thenAnswer(invocation -> createDetail(invocation.getArgument(0)));
 
         List<MatchHistory> result = service.getMatchHistory("puuid-1", 0, 9, false);
 
@@ -129,15 +166,41 @@ class MatchHistoryServiceCacheTest {
                     assertThat(match.getParticipants()).hasSize(10);
                     assertThat(match.getParticipantIdentities()).hasSize(10);
                 });
-        verify(lcuHttpClient, times(10)).get(anyString(), eq(GameDetail.class));
-        verify(lcuHttpClient, never()).get("lol-match-history/v1/games/11", GameDetail.class);
-        verify(lcuHttpClient, never()).get("lol-match-history/v1/games/12", GameDetail.class);
+        verify(matchHistoryProvider, times(10)).fetchGameDetail(anyLong(), any(MatchHistoryQueryOptions.class));
+        verify(matchHistoryProvider, never()).fetchGameDetail(eq(11L), any(MatchHistoryQueryOptions.class));
+        verify(matchHistoryProvider, never()).fetchGameDetail(eq(12L), any(MatchHistoryQueryOptions.class));
         verify(repository).saveMatchHistory(eq("puuid-1"), argThat(matches ->
                 matches.size() == 12
                         && matches.get(0).getParticipants().size() == 10
                         && matches.get(9).getParticipantIdentities().size() == 10
                         && matches.get(10).getParticipants().size() == 1
-        ));
+                ));
+    }
+
+    @Test
+    void getMatchHistory_hydratesVisibleRosterWhenCurrentPuuidIsMissingFromSummaryIdentities() {
+        MatchHistory cachedMatch = createCompleteMatchWithoutCurrentPuuid(41L);
+        when(repository.findRecentMatchHistory("puuid-1", 50))
+                .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
+                        .matches(List.of(cachedMatch))
+                        .rawEmpty(false)
+                        .build()));
+        when(repository.findGameDetail(41L)).thenReturn(Optional.empty());
+        when(matchHistoryProvider.fetchGameDetail(eq(41L), any(MatchHistoryQueryOptions.class)))
+                .thenReturn(createDetail(41L));
+
+        List<MatchHistory> result = service.getMatchHistory("puuid-1", 0, 0, false);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getParticipantIdentities())
+                .anySatisfy(identity -> assertThat(identity.getPlayer().getPuuid()).isEqualTo("puuid-1"));
+        assertThat(result.getFirst().getParticipants())
+                .anySatisfy(participant -> {
+                    assertThat(participant.getParticipantId()).isEqualTo(1);
+                    assertThat(participant.getStats().getWin()).isTrue();
+                    assertThat(participant.getStats().getKills()).isEqualTo(1);
+                });
+        verify(matchHistoryProvider).fetchGameDetail(eq(41L), any(MatchHistoryQueryOptions.class));
     }
 
     @Test
@@ -151,10 +214,10 @@ class MatchHistoryServiceCacheTest {
                 .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
                         .matches(cachedMatches)
                         .rawEmpty(false)
-                        .build()));
+                .build()));
         when(repository.findGameDetail(anyLong())).thenReturn(Optional.empty());
-        when(lcuHttpClient.get(anyString(), eq(GameDetail.class)))
-                .thenAnswer(invocation -> createDetail(gameIdFromDetailUri(invocation.getArgument(0))));
+        when(matchHistoryProvider.fetchGameDetail(anyLong(), any(MatchHistoryQueryOptions.class)))
+                .thenAnswer(invocation -> createDetail(invocation.getArgument(0)));
 
         List<MatchHistory> result = service.getFilteredMatchHistory("puuid-1", 0, 9, 420, 22, 10, false);
 
@@ -164,8 +227,31 @@ class MatchHistoryServiceCacheTest {
                     assertThat(match.getParticipants()).hasSize(10);
                     assertThat(match.getParticipantIdentities()).hasSize(10);
                 });
-        verify(lcuHttpClient, times(2)).get(anyString(), eq(GameDetail.class));
-        verify(lcuHttpClient, never()).get("lol-match-history/v1/games/21", GameDetail.class);
+        verify(matchHistoryProvider, times(2)).fetchGameDetail(anyLong(), any(MatchHistoryQueryOptions.class));
+        verify(matchHistoryProvider, never()).fetchGameDetail(eq(21L), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void matchHistoryCache_evictsLargePageResultsByMatchCountWeight() throws Exception {
+        MatchHistoryProvider sgpProvider = mock(MatchHistoryProvider.class);
+        when(sgpProvider.source()).thenReturn(MatchHistorySource.SGP);
+        MatchHistoryService weightedService = new MatchHistoryService(sgpProvider);
+        weightedService.init();
+
+        for (int playerIndex = 1; playerIndex <= 11; playerIndex++) {
+            String puuid = "puuid-" + playerIndex;
+            when(sgpProvider.fetchMatchHistory(eq(puuid), any(MatchHistoryQueryOptions.class)))
+                    .thenReturn(MatchHistoryFetchResult.builder()
+                            .matches(createMatches(playerIndex * 1000L, 200, puuid))
+                            .rawEmpty(false)
+                            .build());
+            weightedService.getMatchHistoryPage(puuid, 1, 200, "sgp", null, null, false, null);
+        }
+
+        cleanUpMatchHistoryCache(weightedService);
+        weightedService.getMatchHistoryPage("puuid-1", 1, 200, "sgp", null, null, false, null);
+
+        verify(sgpProvider, times(2)).fetchMatchHistory(eq("puuid-1"), any(MatchHistoryQueryOptions.class));
     }
 
     private MatchHistory createMatch(long gameId) {
@@ -173,6 +259,48 @@ class MatchHistoryServiceCacheTest {
         match.setGameId(gameId);
         match.setGameCreation(1710000000000L + gameId);
         return match;
+    }
+
+    private List<MatchHistory> createMatches(long firstGameId, int count) {
+        return createMatches(firstGameId, count, "player-1");
+    }
+
+    private List<MatchHistory> createMatches(long firstGameId, int count, String currentPuuid) {
+        List<MatchHistory> matches = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            MatchHistory match = createMatch(firstGameId + index);
+            List<MatchHistory.Participant> participants = new ArrayList<>();
+            List<MatchHistory.ParticipantIdentity> identities = new ArrayList<>();
+            for (int participantId = 1; participantId <= 10; participantId++) {
+                participants.add(createParticipant(participantId, participantId <= 5 ? 100 : 200, 100 + participantId));
+                identities.add(createIdentity(participantId, participantId == 1 ? currentPuuid : "player-" + participantId));
+            }
+            match.setParticipants(participants);
+            match.setParticipantIdentities(identities);
+            matches.add(match);
+        }
+        return matches;
+    }
+
+    private MatchHistoryQueryOptions options(MatchHistorySource source, boolean forceRefresh) {
+        return new MatchHistoryQueryOptions(
+                0,
+                99,
+                null,
+                null,
+                50,
+                forceRefresh,
+                source,
+                null,
+                null
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private void cleanUpMatchHistoryCache(MatchHistoryService service) throws Exception {
+        var field = MatchHistoryService.class.getDeclaredField("matchHistoryCache");
+        field.setAccessible(true);
+        ((Cache<String, MatchHistoryFetchResult>) field.get(service)).cleanUp();
     }
 
     private MatchHistory createIncompleteMatch(long gameId, String targetPuuid) {
@@ -184,6 +312,20 @@ class MatchHistoryServiceCacheTest {
         match.setQueueId(queueId);
         match.setParticipants(List.of(createParticipant(1, 100, championId)));
         match.setParticipantIdentities(List.of(createIdentity(1, targetPuuid)));
+        return match;
+    }
+
+    private MatchHistory createCompleteMatchWithoutCurrentPuuid(long gameId) {
+        MatchHistory match = createMatch(gameId);
+        match.setQueueId(420);
+        List<MatchHistory.Participant> participants = new ArrayList<>();
+        List<MatchHistory.ParticipantIdentity> identities = new ArrayList<>();
+        for (int participantId = 1; participantId <= 10; participantId++) {
+            participants.add(createParticipant(participantId, participantId <= 5 ? 100 : 200, 100 + participantId));
+            identities.add(createIdentity(participantId, "summary-player-" + participantId));
+        }
+        match.setParticipants(participants);
+        match.setParticipantIdentities(identities);
         return match;
     }
 
@@ -263,7 +405,4 @@ class MatchHistoryServiceCacheTest {
         return identity;
     }
 
-    private long gameIdFromDetailUri(String uri) {
-        return Long.parseLong(uri.substring(uri.lastIndexOf('/') + 1));
-    }
 }

@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import io.rankpeek.config.AppConfig;
 import io.rankpeek.model.ApiResponse;
 import io.rankpeek.service.AssetService;
+import io.rankpeek.service.UserStoreService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -27,6 +28,7 @@ public class ConfigController {
 
     private final AppConfig appConfig;
     private final AssetService assetService;
+    private final UserStoreService userStoreService;
 
     /**
      * 获取所有配置
@@ -38,7 +40,7 @@ public class ConfigController {
         Map<String, Object> settings = new HashMap<>();
         Map<String, Object> match = new HashMap<>();
 
-        match.put("defaultQueueMode", appConfig.getDefaultMatchQueueMode());
+        match.put("defaultQueueMode", userStoreService.getDefaultMatchQueueMode());
 
         settings.put("match", match);
         config.put("settings", settings);
@@ -60,6 +62,7 @@ public class ConfigController {
     @PutMapping("/{key}")
     public ApiResponse<Void> setConfig(@PathVariable String key, @RequestBody Map<String, Object> body) {
         Object value = body.get("value");
+        persistUserSetting(key, value);
 
         // 更新配置
         appConfig.updateConfig(key, value);
@@ -95,10 +98,52 @@ public class ConfigController {
         if (key.startsWith("settings.match.")) {
             String matchKey = key.substring("settings.match.".length());
             return switch (matchKey) {
-                case "defaultQueueMode" -> appConfig.getDefaultMatchQueueMode();
+                case "defaultQueueMode" -> userStoreService.getDefaultMatchQueueMode();
                 default -> null;
             };
         }
         return appConfig.getDynamicConfig().get(key);
+    }
+
+    private void persistUserSetting(String key, Object value) {
+        if ("settings.match.defaultQueueMode".equals(key)) {
+            userStoreService.setDefaultMatchQueueMode(toInt(value));
+            return;
+        }
+
+        if ("settings.match".equals(key) && value instanceof Map<?, ?> matchMap) {
+            Object queueMode = matchMap.get("defaultQueueMode");
+            if (queueMode != null) {
+                userStoreService.setDefaultMatchQueueMode(toInt(queueMode));
+            }
+            return;
+        }
+
+        if ("settings".equals(key) && value instanceof Map<?, ?> settingsMap) {
+            Object matchSettings = settingsMap.get("match");
+            if (matchSettings instanceof Map<?, ?> matchMap) {
+                Object queueMode = matchMap.get("defaultQueueMode");
+                if (queueMode != null) {
+                    userStoreService.setDefaultMatchQueueMode(toInt(queueMode));
+                }
+            }
+        }
+    }
+
+    private int toInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String stringValue) {
+            try {
+                return Integer.parseInt(stringValue);
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
+        }
+        if (value instanceof Map<?, ?> map && map.containsKey("value")) {
+            return toInt(map.get("value"));
+        }
+        return 0;
     }
 }

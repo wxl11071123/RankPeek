@@ -55,6 +55,22 @@ test('match-history nav label is renamed to my matches', () => {
   assert.doesNotMatch(enUS, /'nav.matchHistory': 'Summoner Info'/)
 })
 
+test('sidebar retires standalone tag analysis and tag config entries', () => {
+  const source = readRendererFile('components/layout/Sidebar.vue')
+
+  assert.doesNotMatch(source, /import userTagIcon/)
+  assert.doesNotMatch(source, /import tagConfigIcon/)
+  assert.doesNotMatch(source, /path: '\/user-tag'/)
+  assert.doesNotMatch(source, /path: '\/tag-config'/)
+  assert.doesNotMatch(source, /labelKey: 'nav\.userTag'/)
+  assert.doesNotMatch(source, /labelKey: 'nav\.tagConfig'/)
+  assert.match(source, /path: '\/', icon: homeIcon, labelKey: 'nav\.home'/)
+  assert.match(source, /path: '\/gaming', icon: gamingIcon, labelKey: 'nav\.gaming'/)
+  assert.match(source, /path: '\/summoner', icon: summonerIcon, labelKey: 'nav\.summoner'/)
+  assert.match(source, /path: '\/match-history', icon: matchRecordIcon, labelKey: 'nav\.matchHistory'/)
+  assert.match(source, /path: '\/settings', icon: settingsGearIcon, labelKey: 'nav\.settings'/)
+})
+
 test('sidebar nav labels keep bold weight and size across states', () => {
   const source = readRendererFile('components/layout/Sidebar.vue')
   const activeRule = extractRule(source, '.nav-item.active')

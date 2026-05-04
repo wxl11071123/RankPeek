@@ -1,10 +1,11 @@
 package io.rankpeek.config;
 
 import lombok.extern.slf4j.Slf4j;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
 import java.nio.file.Path;
@@ -13,19 +14,24 @@ import java.nio.file.Path;
 @Configuration
 public class LocalDatabaseConfig {
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public DataSource dataSource(LocalDataPathService localDataPathService) {
         Path databasePath = localDataPathService.getCacheDatabasePath().toAbsolutePath();
         String normalizedPath = databasePath.toString().replace('\\', '/');
         String url = "jdbc:h2:file:" + normalizedPath + ";MODE=PostgreSQL;DATABASE_TO_UPPER=false";
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setDriverClassName("org.h2.Driver");
-        dataSource.setUrl(url);
-        dataSource.setUsername("sa");
-        dataSource.setPassword("");
+        HikariConfig config = new HikariConfig();
+        config.setDriverClassName("org.h2.Driver");
+        config.setJdbcUrl(url);
+        config.setUsername("sa");
+        config.setPassword("");
+        config.setMaximumPoolSize(1);
+        config.setMinimumIdle(0);
+        config.setPoolName("rankpeek-local-cache");
+        config.setConnectionTimeout(1_000);
+        config.setInitializationFailTimeout(-1);
         log.info("Local cache database configured at {}", databasePath);
-        return dataSource;
+        return new HikariDataSource(config);
     }
 }

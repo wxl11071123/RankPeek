@@ -1,3 +1,5 @@
+import type { LocalDatabaseAPI } from './localDatabase'
+
 export interface OpenExternalResult {
   success: boolean
   error?: string
@@ -12,4 +14,5 @@ export interface ElectronAPI {
   platform: string
   onBackendReady: (callback: () => void) => () => void
   onTrayNavigate: (callback: (path: string) => void) => () => void
+  database: LocalDatabaseAPI
 }

@@ -70,7 +70,7 @@ public class LcuConnectionManager {
                 } else {
                     int failures = consecutiveFailures.incrementAndGet();
                     if (failures == MAX_FAILURES_BEFORE_WARNING) {
-                        log.warn("LCU 连续 {} 次检查失败，请确认游戏客户端是否正常运行", failures);
+                        log.warn("LCU connection check failed {} times: {}", failures, lcuHttpClient.getLastConnectionFailureReason());
                     }
                 }
 

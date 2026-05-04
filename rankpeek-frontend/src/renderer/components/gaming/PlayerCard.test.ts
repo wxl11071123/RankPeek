@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+const removedScoutLabels = ['\u66b4\u6bd9', '\u6446\u70c2', '\u5f00\u9ed1\u4ed4']
+
 test('shows the Riot ID on one line and packs tags beside the rank before folding extras', () => {
   const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
 
@@ -19,6 +21,43 @@ test('shows the Riot ID on one line and packs tags beside the rank before foldin
   assert.match(source, /\.name-tags\s*{[\s\S]*flex-wrap:\s*nowrap;/)
   assert.match(source, /class="meta-row"[\s\S]*class="tier-row"[\s\S]*class="name-tags"/)
   assert.match(source, /{{ sessionSummoner\.summoner\.gameName }}#{{ sessionSummoner\.summoner\.tagLine }}/)
+})
+
+test('renders scout tags from sessionSummoner defensively without old label names', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import type \{ QueueInfo, RankTag, RecordStatus, SessionSummoner \}/)
+  assert.match(source, /props\.sessionSummoner\.userTag\?\.tag \|\| \[\]/)
+  assert.match(source, /filter\(\(tag\): tag is RankTag => Boolean\(tag\?\.tagName\?\.trim\(\)\)\)/)
+  assert.match(source, /:title="tag\.tagDesc \|\| tag\.tagName"/)
+  assert.match(source, /tag\.good === true \? 'good' : tag\.good === false \? 'bad' : 'neutral'/)
+  assert.doesNotMatch(source, new RegExp(removedScoutLabels.join('|')))
+})
+
+test('keeps long and many scout tags inside the player card', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.name-tags\s*{[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;/)
+  assert.match(source, /\.visible-tags\s*{[\s\S]*min-width:\s*0;[\s\S]*overflow:\s*hidden;/)
+  assert.match(source, /\.hidden-tags-popover\s*{[\s\S]*max-width:\s*min\(260px, 70vw\);[\s\S]*flex-wrap:\s*wrap;/)
+  assert.match(source, /\.tag-chip\s*{[\s\S]*box-sizing:\s*border-box;[\s\S]*min-width:\s*0;[\s\S]*max-width:\s*min\(132px, 100%\);[\s\S]*text-overflow:\s*ellipsis;/)
+})
+
+test('keeps the damage conversion metric visible in compact gaming cards', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<span>伤转率<\/span>/)
+  assert.match(source, /\.scout-metrics\s*{[\s\S]*flex-wrap:\s*wrap;[\s\S]*overflow:\s*visible;/)
+  assert.match(source, /\.metric-item\s*{[\s\S]*flex:\s*1 1 76px;[\s\S]*min-width:\s*max-content;/)
+  assert.match(source, /\.metric-separator\s*{[\s\S]*display:\s*none;/)
+})
+
+test('session tag API types accept nullable or omitted scout fields', () => {
+  const source = readFileSync(new URL('../../types/api.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /good\?: boolean \| null/)
+  assert.match(source, /tagDesc\?: string/)
+  assert.match(source, /userTag\?: UserTag \| null/)
 })
 
 test('formats gaming rank labels with Chinese tier names', () => {

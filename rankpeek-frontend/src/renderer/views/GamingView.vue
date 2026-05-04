@@ -1,150 +1,108 @@
 <template>
-  <div class="gaming-view">
-    <!-- Waiting state -->
-    <div v-if="!sessionData.phase" class="not-in-game">
-      <div class="not-in-game-icon">🎮</div>
-      <h2>{{ t('gaming.waitTitle') }}</h2>
-      <p>{{ t('gaming.waitBody') }}</p>
-      <div v-if="isRefreshPaused" class="connection-error">
-        <span class="error-icon">⚠️</span>
-        <span>{{ t('gaming.connectionPaused') }}</span>
-        <button class="resume-btn" @click="resumeRefresh">{{ t('common.reconnect') }}</button>
-      </div>
-      <button v-else class="refresh-btn" @click="fetchSessionData">{{ t('common.refreshStatus') }}</button>
-    </div>
-
-    <!-- Active game state -->
-    <div v-else class="gaming-content">
+  <div ref="gamingViewRef" class="gaming-view">
+    <div class="gaming-content" :class="{ 'is-idle': !hasActiveSession }">
       <div v-if="isRefreshPaused" class="connection-bar">
-        <span class="error-icon">⚠️</span>
+        <span class="error-icon" aria-hidden="true"></span>
         <span>{{ t('gaming.connectionPaused') }}</span>
-        <button class="resume-btn-small" @click="resumeRefresh">{{ t('common.reconnect') }}</button>
+        <button class="resume-btn-small control-glow" @click="resumeRefresh">{{ t('common.reconnect') }}</button>
       </div>
-      <div class="gaming-header">
+      <div class="gaming-header surface-glow">
         <div class="phase-info">
           <span class="phase-badge" :class="phaseClass">{{ phaseCn }}</span>
-          <span class="queue-name">{{ sessionData.typeCn || t('common.unknownMode') }}</span>
+          <span class="queue-name" :class="{ unknown: queueUnknown }">{{ queueName }}</span>
         </div>
         <div class="header-actions">
-          <button class="refresh-btn-small" @click="fetchSessionData" :disabled="loading">
-            <span class="refresh-icon" :class="{ 'spinning': loading }">↻</span>
-            <span>{{ loading ? t('common.refreshing') : t('common.refresh') }}</span>
-            <span v-if="loading" class="loading-bar">
-              <span class="loading-progress"></span>
-            </span>
-          </button>
-        </div>
-      </div>
-
-      <div :class="['match-analysis-toolbar', { 'has-analysis-output': latestAnalysisSummary }]">
-        <svg class="ai-wordmark" viewBox="0 0 1240 220" aria-hidden="true" focusable="false">
-          <defs>
-            <linearGradient id="rankpeekAiStroke" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="rgba(84, 177, 255, 0.12)" />
-              <stop offset="48%" stop-color="rgba(157, 219, 255, 0.42)" />
-              <stop offset="100%" stop-color="rgba(50, 124, 255, 0.16)" />
-            </linearGradient>
-            <linearGradient id="rankpeekAiFill" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="rgba(255, 255, 255, 0.04)" />
-              <stop offset="100%" stop-color="rgba(41, 151, 255, 0.1)" />
-            </linearGradient>
-            <filter id="rankpeekAiGlow" x="-8%" y="-60%" width="116%" height="220%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          <g class="wordmark-skew" filter="url(#rankpeekAiGlow)">
-            <text class="wordmark-echo" x="28" y="156">RANKPEEK</text>
-            <text class="wordmark-echo wordmark-ai-echo" x="970" y="156">AI</text>
-            <text class="wordmark-main" x="20" y="150">RANKPEEK</text>
-            <text class="wordmark-main wordmark-ai" x="960" y="150">AI</text>
-          </g>
-        </svg>
-        <div class="analysis-actions">
-          <div class="analysis-action">
-            <button class="analysis-btn" type="button" disabled>队友成分</button>
-            <span class="analysis-help">检查大腿or拖油瓶</span>
-          </div>
-          <div class="analysis-action">
-            <button class="analysis-btn" type="button" disabled>赛前分析</button>
-            <span class="analysis-help">分析小代or软柿子</span>
-          </div>
-        </div>
-
-        <div v-if="latestAnalysisSummary" class="analysis-result">
-          <strong>{{ latestAnalysisSummary }}</strong>
-          <p v-if="latestAnalysisDetail">{{ latestAnalysisDetail }}</p>
+          <RefreshIconButton
+            :aria-label="refreshButtonLabel"
+            :title="refreshButtonLabel"
+            :loading="loading"
+            :disabled="loading"
+            @click="() => fetchSessionData()"
+          />
         </div>
       </div>
 
       <div class="teams-container">
-        <section class="team-panel team-blue">
+        <section class="team-panel team-blue surface-glow">
           <div class="team-header team-header-blue">
             <div class="team-title">
-              <span class="team-icon">⚔</span>
               <div>
                 <h2>{{ t('gaming.blueTeam') }}</h2>
-                <span>{{ sessionData.teamOne?.length || 0 }} / 5</span>
+                <span>{{ blueTeamCount }} / 5</span>
               </div>
             </div>
+            <button
+              class="team-analysis-btn team-analysis-btn-blue control-glow"
+              type="button"
+              aria-disabled="true"
+              title="AI 待命"
+            >
+              队友成分
+            </button>
           </div>
-          <template v-if="!sessionData.teamOne || sessionData.teamOne.length === 0">
-            <div class="team-placeholder team-placeholder-blue">
-              <span class="placeholder-icon">👀</span>
-              <span>{{ t('gaming.waitingToJoin') }}</span>
-            </div>
-          </template>
-          <template v-else>
-            <div class="team-players">
-              <PlayerCard
-                v-for="(player, idx) in sessionData.teamOne"
-                :key="'blue-' + idx"
-                :session-summoner="player"
-                team="blue"
-                @navigate-to-player="handleNavigateToPlayer"
-              />
-            </div>
-          </template>
+          <div class="team-players">
+            <PlayerCard
+              v-for="(player, idx) in blueTeamPlayers"
+              :key="'blue-' + idx"
+              class="gaming-player-card surface-glow"
+              :session-summoner="player"
+              team="blue"
+              @navigate-to-player="handleNavigateToPlayer"
+            />
+            <span
+              v-for="slot in blueEmptySlots"
+              :key="`blue-empty-${slot}`"
+              class="idle-player-slot idle-player-slot-blue"
+              aria-hidden="true"
+            >
+              <span class="idle-slot-avatar"></span>
+              <span class="idle-slot-copy">
+                <span class="idle-slot-title"></span>
+                <span class="idle-slot-subtitle"></span>
+              </span>
+            </span>
+          </div>
         </section>
 
-        <section class="team-panel team-red">
+        <section class="team-panel team-red surface-glow">
           <div class="team-header team-header-red">
             <div class="team-title">
-              <span class="team-icon">🛡</span>
               <div>
                 <h2>{{ t('gaming.redTeam') }}</h2>
-                <span>{{ sessionData.teamTwo?.length || 0 }} / 5</span>
+                <span>{{ redTeamCount }} / 5</span>
               </div>
             </div>
+            <button
+              class="team-analysis-btn team-analysis-btn-red control-glow"
+              type="button"
+              aria-disabled="true"
+              title="AI 待命"
+            >
+              赛前分析
+            </button>
           </div>
-          <template v-if="sessionData.phase === 'ChampSelect' && (!sessionData.teamTwo || sessionData.teamTwo.length === 0)">
-            <div class="enemy-loading">
-              <div class="loading-dots">
-                <span></span><span></span><span></span>
-              </div>
-              <span class="loading-text">{{ t('gaming.waitingEnemySelect') }}</span>
-            </div>
-          </template>
-          <template v-else-if="!sessionData.teamTwo || sessionData.teamTwo.length === 0">
-            <div class="enemy-placeholder">
-              <span class="placeholder-icon">👀</span>
-              <span>{{ t('gaming.waitingEnemyData') }}</span>
-            </div>
-          </template>
-          <template v-else>
-            <div class="team-players">
-              <PlayerCard
-                v-for="(player, idx) in sessionData.teamTwo"
-                :key="'red-' + idx"
-                :session-summoner="player"
-                team="red"
-                @navigate-to-player="handleNavigateToPlayer"
-              />
-            </div>
-          </template>
+          <div class="team-players">
+            <PlayerCard
+              v-for="(player, idx) in redTeamPlayers"
+              :key="'red-' + idx"
+              class="gaming-player-card surface-glow"
+              :session-summoner="player"
+              team="red"
+              @navigate-to-player="handleNavigateToPlayer"
+            />
+            <span
+              v-for="slot in redEmptySlots"
+              :key="`red-empty-${slot}`"
+              class="idle-player-slot idle-player-slot-red"
+              aria-hidden="true"
+            >
+              <span class="idle-slot-avatar"></span>
+              <span class="idle-slot-copy">
+                <span class="idle-slot-title"></span>
+                <span class="idle-slot-subtitle"></span>
+              </span>
+            </span>
+          </div>
         </section>
       </div>
     </div>
@@ -156,13 +114,20 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
+import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import type { CacheUpdateEvent, SessionData } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
-import { DEFAULT_ANALYSIS_QUEUE_MODE } from '@/utils/matchPreferences'
 import { useI18n, type MessageKey } from '@/i18n'
 
 const router = useRouter()
 const { t } = useI18n()
+
+const CONTROL_GLOW_RANGE = 96
+const SURFACE_GLOW_RANGE = 220
+const EDGE_GLOW_MIN = 0.03
+const PAGE_GLOW_SELECTOR = '.surface-glow, .control-glow'
+
+const gamingViewRef = ref<HTMLElement | null>(null)
 
 const sessionData = ref<SessionData>({
   phase: '',
@@ -188,9 +153,19 @@ const maxRetries = 3
 const failCount = ref(0)
 const maxFailCount = 10
 const isRefreshPaused = ref(false)
-const latestAnalysisSummary = ref('')
-const latestAnalysisDetail = ref('')
 let autoResumeTimer: ReturnType<typeof setTimeout> | null = null
+
+const hasActiveSession = computed(() => {
+  const phase = sessionData.value.phase
+  return Boolean(phase && phase !== 'None')
+})
+
+const blueTeamPlayers = computed(() => hasActiveSession.value ? (sessionData.value.teamOne || []) : [])
+const redTeamPlayers = computed(() => hasActiveSession.value ? (sessionData.value.teamTwo || []) : [])
+const blueTeamCount = computed(() => blueTeamPlayers.value.length)
+const redTeamCount = computed(() => redTeamPlayers.value.length)
+const blueEmptySlots = computed(() => Math.max(0, 5 - blueTeamCount.value))
+const redEmptySlots = computed(() => Math.max(0, 5 - redTeamCount.value))
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -204,17 +179,107 @@ const phaseCn = computed(() => {
     ReadyCheck: 'gaming.phase.ReadyCheck',
     Reconnect: 'gaming.phase.Reconnect'
   }
+  const phase = sessionData.value.phase
+  if (!phase || phase === 'None') {
+    return '等待对局'
+  }
   const key = phaseMap[sessionData.value.phase]
-  return key ? t(key) : sessionData.value.phase
+  return key ? t(key) : '未进入对局'
 })
 
 const phaseClass = computed(() => {
   const phase = sessionData.value.phase
+  if (!phase || phase === 'None') return 'phase-idle'
   if (phase === 'InProgress' || phase === 'GameStart') return 'phase-playing'
   if (phase === 'ChampSelect') return 'phase-select'
   if (phase === 'EndOfGame' || phase === 'PreEndOfGame') return 'phase-ended'
   return ''
 })
+
+const queueName = computed(() => hasActiveSession.value ? (sessionData.value.typeCn || t('common.unknownMode')) : '未进入房间')
+const queueUnknown = computed(() => !hasActiveSession.value || !sessionData.value.typeCn)
+const refreshButtonLabel = computed(() => {
+  if (loading.value) return t('common.refreshing')
+  return hasActiveSession.value ? t('common.refresh') : t('common.refreshStatus')
+})
+
+function isDisabledControl(target: HTMLElement) {
+  return target instanceof HTMLButtonElement && target.disabled
+}
+
+function resetEdgeGlow(target: HTMLElement) {
+  target.style.setProperty('--edge-top-alpha', '0')
+  target.style.setProperty('--edge-right-alpha', '0')
+  target.style.setProperty('--edge-bottom-alpha', '0')
+  target.style.setProperty('--edge-left-alpha', '0')
+  delete target.dataset.nearGlow
+}
+
+function resetGlowElement(target: HTMLElement) {
+  target.style.setProperty('--control-glow-x', '50%')
+  target.style.setProperty('--control-glow-y', '50%')
+  resetEdgeGlow(target)
+}
+
+function applyGlowElement(target: HTMLElement, clientX: number, clientY: number) {
+  if (isDisabledControl(target)) {
+    resetGlowElement(target)
+    return
+  }
+
+  const rect = target.getBoundingClientRect()
+  if (!rect.width || !rect.height) {
+    resetGlowElement(target)
+    return
+  }
+
+  const range = target.classList.contains('surface-glow') ? SURFACE_GLOW_RANGE : CONTROL_GLOW_RANGE
+  const x = clientX - rect.left
+  const y = clientY - rect.top
+  const clampedX = Math.min(Math.max(x, 0), rect.width)
+  const clampedY = Math.min(Math.max(y, 0), rect.height)
+  const inRange = x >= -range && x <= rect.width + range && y >= -range && y <= rect.height + range
+
+  target.style.setProperty('--control-glow-x', `${clampedX}px`)
+  target.style.setProperty('--control-glow-y', `${clampedY}px`)
+
+  if (!inRange) {
+    resetEdgeGlow(target)
+    return
+  }
+
+  const strength = (distance: number) => {
+    const raw = Math.max(0, 1 - Math.min(Math.abs(distance), range) / range)
+    return Math.pow(raw, 1.18)
+  }
+
+  const top = strength(y)
+  const right = strength(rect.width - x)
+  const bottom = strength(rect.height - y)
+  const left = strength(x)
+  const maxStrength = Math.max(top, right, bottom, left)
+
+  target.style.setProperty('--edge-top-alpha', top.toFixed(3))
+  target.style.setProperty('--edge-right-alpha', right.toFixed(3))
+  target.style.setProperty('--edge-bottom-alpha', bottom.toFixed(3))
+  target.style.setProperty('--edge-left-alpha', left.toFixed(3))
+
+  if (maxStrength > EDGE_GLOW_MIN) {
+    target.dataset.nearGlow = 'true'
+  } else {
+    delete target.dataset.nearGlow
+  }
+}
+
+function updatePageGlow(event: PointerEvent) {
+  gamingViewRef.value?.querySelectorAll<HTMLElement>(PAGE_GLOW_SELECTOR).forEach(element => {
+    applyGlowElement(element, event.clientX, event.clientY)
+  })
+}
+
+function resetPageGlow() {
+  gamingViewRef.value?.querySelectorAll<HTMLElement>(PAGE_GLOW_SELECTOR).forEach(resetGlowElement)
+}
 
 async function fetchSessionData(options: { showLoading?: boolean } = {}) {
   if (isRefreshPaused.value || sessionFetchInFlight) return
@@ -223,7 +288,7 @@ async function fetchSessionData(options: { showLoading?: boolean } = {}) {
   sessionFetchInFlight = true
   if (showLoading) loading.value = true
   try {
-    const data = await apiClient.getSessionData(DEFAULT_ANALYSIS_QUEUE_MODE)
+    const data = await apiClient.getSessionData()
     sessionData.value = data
     failCount.value = 0
   } catch (e) {
@@ -320,6 +385,9 @@ function handleNavigateToPlayer(gameName: string, tagLine: string) {
 onMounted(() => {
   fetchSessionData()
   refreshInterval = setInterval(fetchSessionData, 5000)
+  window.addEventListener('pointermove', updatePageGlow)
+  window.addEventListener('blur', resetPageGlow)
+  document.addEventListener('mouseleave', resetPageGlow)
   unsubscribeCacheUpdate = wsClient.onCacheUpdate((event: CacheUpdateEvent) => {
     if (isCacheUpdateRelevant(event)) {
       scheduleCacheUpdateRefresh()
@@ -375,63 +443,63 @@ onUnmounted(() => {
     clearTimeout(cacheUpdateRefreshTimer)
     cacheUpdateRefreshTimer = null
   }
+  window.removeEventListener('pointermove', updatePageGlow)
+  window.removeEventListener('blur', resetPageGlow)
+  document.removeEventListener('mouseleave', resetPageGlow)
 })
 </script>
 
 <style scoped>
 .gaming-view {
+  --module-edge-color: rgba(232, 221, 186, 0.46);
+  --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 82px;
+  --gaming-control-border-local-glow: rgba(148, 211, 255, 0.98);
+  --gaming-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
+  --gaming-control-edge-rgb: 148, 211, 255;
+  --gaming-control-edge-shadow:
+    inset 0 1px 0 rgba(var(--gaming-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
+    inset -1px 0 0 rgba(var(--gaming-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
+    inset 0 -1px 0 rgba(var(--gaming-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.82)),
+    inset 1px 0 0 rgba(var(--gaming-control-edge-rgb), calc(var(--edge-left-alpha) * 0.82)),
+    0 -3px 11px -6px rgba(var(--gaming-control-edge-rgb), calc(var(--edge-top-alpha) * 0.48)),
+    3px 0 11px -6px rgba(var(--gaming-control-edge-rgb), calc(var(--edge-right-alpha) * 0.48)),
+    0 3px 11px -6px rgba(var(--gaming-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.48)),
+    -3px 0 11px -6px rgba(var(--gaming-control-edge-rgb), calc(var(--edge-left-alpha) * 0.48));
+  --gaming-control-bg-hover: rgba(28, 36, 48, 0.96);
+  --gaming-control-border: var(--border-color);
+  --gaming-control-bg-hover-local: linear-gradient(var(--gaming-control-bg-hover), var(--gaming-control-bg-hover)) padding-box,
+    radial-gradient(
+      circle at var(--control-glow-x) var(--control-glow-y),
+      var(--gaming-control-border-local-glow) 0%,
+      var(--gaming-control-border-local-glow-fade) 36%,
+      var(--gaming-control-border) 72%
+    ) border-box;
+  --gaming-control-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 0 16px rgba(41, 151, 255, 0.22);
+  --gaming-hover-border: rgba(226, 179, 34, 0.32);
+  --gaming-hover-shadow: var(--module-edge-glow);
   min-height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-/* Waiting state */
-.not-in-game {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  gap: 16px;
-  text-align: center;
+:global([data-theme="light"] .gaming-view) {
+  --module-edge-color: rgba(226, 179, 34, 0.34);
+  --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
+  --gaming-control-border-local-glow: rgba(255, 218, 76, 0.94);
+  --gaming-control-border-local-glow-fade: rgba(244, 183, 24, 0.52);
+  --gaming-control-edge-rgb: 226, 179, 34;
+  --gaming-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --gaming-control-border: var(--border-color);
+  --gaming-control-hover-shadow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
+  --gaming-hover-border: rgba(196, 145, 16, 0.34);
+  --gaming-hover-shadow: var(--module-edge-glow);
 }
 
-.not-in-game-icon {
-  font-size: 64px;
-  opacity: 0.5;
-}
-
-.not-in-game h2 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.not-in-game p {
-  margin: 0;
-  color: var(--text-secondary);
-  max-width: 300px;
-}
-
-.refresh-btn {
-  padding: 10px 24px;
-  background: var(--accent-color);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-weight: 600;
-}
-
-.refresh-btn:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
-
-/* Active game state */
 .gaming-content {
   display: flex;
   flex-direction: column;
@@ -440,31 +508,49 @@ onUnmounted(() => {
 }
 
 .gaming-header {
+  position: relative;
+  overflow: hidden;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+  min-width: 0;
+  padding: 9px 10px 9px 12px;
   background: var(--bg-secondary);
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
+  box-shadow: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.gaming-header:hover,
+.gaming-header:focus-within {
+  border-color: var(--gaming-hover-border);
+  box-shadow: var(--gaming-hover-shadow);
 }
 
 .phase-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
 }
 
 .phase-badge {
-  padding: 7px 13px;
-  border-radius: 8px;
-  font-size: 15px;
-  font-weight: 700;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.phase-badge.phase-idle {
+  color: var(--text-secondary);
 }
 
 .phase-badge.phase-playing {
@@ -483,223 +569,103 @@ onUnmounted(() => {
 }
 
 .queue-name {
-  font-size: 15px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.055);
   color: var(--text-secondary);
-  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-name.unknown {
+  border-color: var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 0.68;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 
-.refresh-btn-small {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  padding: 6px 16px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.15s;
-  position: relative;
-  overflow: hidden;
-  font-weight: 600;
-}
-
-.refresh-btn-small:hover:not(:disabled) {
-  background: var(--bg-elevated);
-}
-
-.refresh-btn-small:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.match-analysis-toolbar {
+.control-glow {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 82px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
   position: relative;
   isolation: isolate;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  min-height: 142px;
-  max-height: 142px;
-  padding: 28px 22px;
-  border: 1px solid rgba(var(--accent-rgb), 0.34);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(var(--accent-rgb), 0.2), transparent 34%),
-    radial-gradient(circle at 82% 100%, rgba(77, 210, 255, 0.12), transparent 38%),
-    linear-gradient(135deg, rgba(10, 16, 28, 0.96), rgba(22, 28, 42, 0.9));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(var(--accent-rgb), 0.08),
-    0 16px 36px rgba(0, 0, 0, 0.28),
-    0 0 34px rgba(var(--accent-rgb), 0.14);
-  transition:
-    min-height var(--transition-normal),
-    max-height var(--transition-normal),
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
+  overflow: visible;
 }
 
-.match-analysis-toolbar.has-analysis-output {
-  align-items: stretch;
-  justify-content: flex-start;
-  min-height: 248px;
-  max-height: 360px;
-  border-color: rgba(var(--accent-rgb), 0.48);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 0 0 1px rgba(var(--accent-rgb), 0.12),
-    0 20px 42px rgba(0, 0, 0, 0.32),
-    0 0 42px rgba(var(--accent-rgb), 0.2);
+.surface-glow {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 220px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
 }
 
-.ai-wordmark {
-  position: absolute;
-  right: -28px;
-  top: 50%;
-  z-index: 0;
-  width: auto;
-  height: clamp(170px, 24vw, 300px);
-  transform: translateY(-47%);
-  opacity: 0.78;
-  pointer-events: none;
-}
-
-.wordmark-skew {
-  transform: skewX(-9deg);
-  transform-origin: 50% 50%;
-}
-
-.wordmark-main,
-.wordmark-echo {
-  font-family: Arial, Helvetica, sans-serif;
-  font-weight: 900;
-  font-size: 142px;
-  line-height: 1;
-  letter-spacing: 0;
-  paint-order: stroke fill;
-}
-
-.wordmark-main {
-  fill: url(#rankpeekAiFill);
-  stroke: url(#rankpeekAiStroke);
-  stroke-width: 3px;
-}
-
-.wordmark-echo {
-  fill: transparent;
-  stroke: rgba(84, 177, 255, 0.12);
-  stroke-width: 8px;
-}
-
-.wordmark-ai,
-.wordmark-ai-echo {
-  font-size: 154px;
-}
-
-.match-analysis-toolbar::after {
+.control-glow::before,
+.surface-glow::before {
   content: '';
   position: absolute;
-  inset: 1px;
-  z-index: -1;
-  border-radius: 15px;
-  background:
-    linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.08), transparent),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 26px);
+  inset: var(--control-edge-offset);
+  border-radius: inherit;
+  background: radial-gradient(
+    circle var(--edge-glow-size) at calc(var(--control-glow-x) + 1px) calc(var(--control-glow-y) + 1px),
+    var(--gaming-control-border-local-glow) 0%,
+    var(--gaming-control-border-local-glow-fade) 42%,
+    transparent 78%
+  );
+  padding: var(--control-edge-width);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+  z-index: 0;
+}
+
+.control-glow:hover:not(:disabled)::before,
+.control-glow:focus-visible::before,
+.control-glow[data-near-glow='true']:not(:disabled)::before,
+.surface-glow:hover::before,
+.surface-glow:focus-visible::before,
+.surface-glow[data-near-glow='true']::before {
+  opacity: 1;
+}
+
+.control-glow:active:not(:disabled)::before,
+.surface-glow:active::before {
   opacity: 0.55;
-}
-
-.analysis-actions {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 16px;
-  width: 100%;
-}
-
-.analysis-action {
-  position: relative;
-  display: inline-flex;
-  flex: 0 1 220px;
-  min-width: 178px;
-  z-index: 1;
-}
-
-.analysis-result {
-  position: relative;
-  z-index: 1;
-  margin-top: 18px;
-  padding: 16px 18px;
-  border: 1px solid rgba(var(--accent-rgb), 0.24);
-  border-radius: 14px;
-  background: rgba(8, 14, 24, 0.7);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 14px 28px rgba(0, 0, 0, 0.24);
-  backdrop-filter: blur(8px);
-}
-
-.analysis-result strong {
-  display: block;
-  color: #f4fbff;
-  font-size: 18px;
-  line-height: 1.45;
-}
-
-.analysis-result p {
-  margin: 8px 0 0;
-  color: #aacfff;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.refresh-icon {
-  font-size: 14px;
-  transition: transform 0.3s;
-}
-
-.refresh-icon.spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.loading-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: rgba(255,255,255,0.1);
-}
-
-.loading-progress {
-  display: block;
-  height: 100%;
-  background: var(--accent-color);
-  animation: loading-progress 1.5s ease-in-out infinite;
-}
-
-@keyframes loading-progress {
-  0% { width: 0%; }
-  50% { width: 70%; }
-  100% { width: 100%; }
 }
 
 /* Teams */
@@ -708,17 +674,42 @@ onUnmounted(() => {
   grid-template-columns: 1fr;
   gap: 16px;
   align-content: start;
+  align-items: stretch;
 }
 
 .team-panel {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--border-color);
   border-radius: 14px;
   background: var(--bg-secondary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.team-blue {
+  border-color: rgba(59, 130, 246, 0.16);
+}
+
+.team-red {
+  border-color: rgba(239, 68, 68, 0.16);
+}
+
+.team-blue:hover,
+.team-blue:focus-within {
+  border-color: var(--gaming-hover-border);
+  box-shadow: var(--gaming-hover-shadow);
+}
+
+.team-red:hover,
+.team-red:focus-within {
+  border-color: var(--gaming-hover-border);
+  box-shadow: var(--gaming-hover-shadow);
 }
 
 .team-header {
@@ -731,9 +722,24 @@ onUnmounted(() => {
 }
 
 .team-title {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
+  min-width: 0;
+}
+
+.team-title::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 3px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(var(--team-accent-rgb), 0.74);
+  box-shadow: 0 0 12px rgba(var(--team-accent-rgb), 0.18);
+}
+
+.team-title > div {
   min-width: 0;
 }
 
@@ -742,9 +748,12 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-size: 21px;
   line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.team-title span:not(.team-icon) {
+.team-title div > span {
   display: block;
   margin-top: 4px;
   color: var(--text-secondary);
@@ -752,117 +761,70 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.team-icon {
-  width: 38px;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  font-size: 20px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.analysis-btn {
-  position: relative;
-  overflow: hidden;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  width: 100%;
-  min-height: 84px;
-  padding: 0 30px;
-  border-radius: 14px;
-  border: 1px solid rgba(126, 198, 255, 0.62);
-  background:
-    linear-gradient(180deg, rgba(38, 58, 88, 0.98), rgba(10, 16, 28, 0.98)),
-    rgba(var(--accent-rgb), 0.16);
-  color: #d9efff;
-  font-size: 28px;
-  font-weight: 900;
+.team-analysis-btn {
+  flex: 0 0 auto;
+  min-width: 92px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(126, 198, 255, 0.48);
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), 0.065);
+  color: #c7e6ff;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 800;
   line-height: 1;
-  text-align: left;
-  text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.32);
-  transform: translateY(0);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -14px 28px rgba(var(--accent-rgb), 0.12),
-    0 0 0 1px rgba(var(--accent-rgb), 0.16),
-    0 14px 30px rgba(0, 0, 0, 0.28),
-    0 0 24px rgba(var(--accent-rgb), 0.24);
+  white-space: nowrap;
+  cursor: default;
+  opacity: 1;
   transition:
-    transform var(--transition-fast),
     border-color var(--transition-fast),
+    background var(--transition-fast),
     box-shadow var(--transition-fast),
     color var(--transition-fast);
 }
 
-.analysis-btn::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.34) 45%, transparent 58%);
-  transform: translateX(-140%);
-  transition: transform 0.62s ease;
+.team-analysis-btn:hover,
+.team-analysis-btn:focus-visible {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+  color: #f7e6ad;
+  box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
+  outline: none;
 }
 
-.analysis-action:hover .analysis-btn,
-.analysis-action:focus-within .analysis-btn {
-  transform: translateY(-2px);
-  border-color: rgba(146, 211, 255, 0.9);
-  color: #ffffff;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 0 0 1px rgba(var(--accent-rgb), 0.22),
-    0 18px 34px rgba(0, 0, 0, 0.32),
-    0 0 34px rgba(var(--accent-rgb), 0.42);
+.team-analysis-btn.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
+  box-shadow: var(--gaming-control-edge-shadow);
 }
 
-.analysis-action:hover .analysis-btn::before,
-.analysis-action:focus-within .analysis-btn::before {
-  transform: translateX(140%);
-}
-
-.analysis-btn:disabled {
+.team-analysis-btn[aria-disabled="true"] {
   opacity: 1;
-  cursor: default;
 }
 
-.analysis-help {
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 7px);
-  z-index: 5;
-  width: max-content;
-  max-width: 180px;
-  padding: 6px 9px;
-  border: 1px solid rgba(var(--accent-rgb), 0.26);
-  border-radius: 8px;
-  background: rgba(8, 14, 24, 0.96);
-  color: #aacfff;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.32), 0 0 18px rgba(var(--accent-rgb), 0.16);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.25;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -4px);
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+:global([data-theme="light"] .gaming-view .team-analysis-btn) {
+  border-color: rgba(59, 130, 246, 0.34);
+  background: rgba(59, 130, 246, 0.055);
+  color: #245f9f;
+  box-shadow: none;
 }
 
-.analysis-action:hover .analysis-help,
-.analysis-action:focus-within .analysis-help {
-  opacity: 1;
-  transform: translate(-50%, 0);
+:global([data-theme="light"] .gaming-view .team-analysis-btn:hover),
+:global([data-theme="light"] .gaming-view .team-analysis-btn:focus-visible) {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+  color: #69510e;
+  box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
 }
 
 .team-header-blue {
+  --team-accent-rgb: 96, 165, 250;
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(59, 130, 246, 0.1));
   color: #93c5fd;
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .team-header-red {
+  --team-accent-rgb: 248, 113, 113;
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(239, 68, 68, 0.1));
   color: #fca5a5;
   border: 1px solid rgba(239, 68, 68, 0.3);
@@ -872,107 +834,111 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
-/* Enemy loading state */
-.enemy-loading {
-  flex: 1;
+.gaming-player-card.surface-glow {
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.gaming-player-card.surface-glow:hover,
+.gaming-player-card.surface-glow:focus-within {
+  border-color: var(--gaming-hover-border);
+  box-shadow: var(--gaming-hover-shadow);
+}
+
+.gaming-player-card.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within) {
+  box-shadow: var(--gaming-control-edge-shadow);
+}
+
+.gaming-player-card.surface-glow.team-blue:hover,
+.gaming-player-card.surface-glow.team-blue:focus-within {
+  border-left-color: rgba(92, 163, 234, 0.82);
+}
+
+.gaming-player-card.surface-glow.team-red:hover,
+.gaming-player-card.surface-glow.team-red:focus-within {
+  border-left-color: rgba(222, 111, 111, 0.82);
+}
+
+.idle-player-slot-blue {
+  --slot-accent-rgb: 96, 165, 250;
+  --slot-bar-color: rgba(92, 163, 234, 0.7);
+  --slot-border-color: rgba(92, 163, 234, 0.2);
+  --slot-border-hover: rgba(92, 163, 234, 0.28);
+  --slot-avatar-bg: rgba(92, 163, 234, 0.14);
+  --slot-line-bg: rgba(92, 163, 234, 0.2);
+}
+
+.idle-player-slot-red {
+  --slot-accent-rgb: 248, 113, 113;
+  --slot-bar-color: rgba(222, 111, 111, 0.7);
+  --slot-border-color: rgba(222, 111, 111, 0.2);
+  --slot-border-hover: rgba(222, 111, 111, 0.28);
+  --slot-avatar-bg: rgba(222, 111, 111, 0.13);
+  --slot-line-bg: rgba(222, 111, 111, 0.19);
+}
+
+.idle-player-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 62px;
+  flex: 0 0 62px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--slot-border-color);
+  border-left: 3px solid var(--slot-bar-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  opacity: 0.84;
+  overflow: hidden;
+  transition: border-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.idle-player-slot:hover {
+  border-color: var(--slot-border-hover);
+  border-left-color: var(--slot-bar-color);
+  opacity: 0.9;
+}
+
+.idle-slot-avatar {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  background: var(--slot-avatar-bg);
+}
+
+.idle-slot-copy {
+  width: 100%;
+  height: 38px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  background: rgba(239, 68, 68, 0.05);
-  border-radius: 10px;
-  border: 1px dashed rgba(239, 68, 68, 0.3);
+  gap: 8px;
 }
 
-.loading-dots {
-  display: flex;
-  gap: 6px;
+.idle-slot-title,
+.idle-slot-subtitle {
+  display: block;
+  border-radius: 4px;
+  background: var(--slot-line-bg);
 }
 
-.loading-dots span {
-  width: 8px;
-  height: 8px;
-  background: rgba(239, 68, 68, 0.5);
-  border-radius: 50%;
-  animation: dot-bounce 1.4s ease-in-out infinite both;
+.idle-slot-title {
+  width: min(118px, 54%);
+  height: 16px;
 }
 
-.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
-.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-.loading-dots span:nth-child(3) { animation-delay: 0s; }
-
-@keyframes dot-bounce {
-  0%, 80%, 100% {
-    transform: scale(0);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.loading-text {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* Enemy placeholder */
-.enemy-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  background: rgba(239, 68, 68, 0.05);
-  border-radius: 10px;
-  border: 1px dashed rgba(239, 68, 68, 0.3);
-  color: var(--text-tertiary);
-  font-size: 14px;
-}
-
-/* Ally placeholder */
-.team-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  border-radius: 10px;
-  font-size: 14px;
-}
-
-.team-placeholder-blue {
-  background: rgba(61, 155, 122, 0.08);
-  border: 1px dashed rgba(61, 155, 122, 0.4);
-  color: var(--text-secondary);
-}
-
-.placeholder-icon {
-  font-size: 32px;
-  opacity: 0.6;
-}
-
-/* Connection warning */
-.connection-error {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  color: #fca5a5;
-  font-size: 13px;
+.idle-slot-subtitle {
+  width: min(72px, 34%);
+  height: 14px;
+  opacity: 0.72;
 }
 
 .connection-bar {
@@ -990,11 +956,18 @@ onUnmounted(() => {
 }
 
 .error-icon {
-  font-size: 16px;
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f87171;
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.12), 0 0 12px rgba(248, 113, 113, 0.26);
 }
 
-.resume-btn,
 .resume-btn-small {
+  --gaming-control-border-local-glow: rgba(248, 113, 113, 0.9);
+  --gaming-control-border-local-glow-fade: rgba(239, 68, 68, 0.42);
+  --gaming-control-edge-rgb: 248, 113, 113;
   padding: 6px 14px;
   background: rgba(239, 68, 68, 0.2);
   color: #fca5a5;
@@ -1006,14 +979,25 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.resume-btn:hover,
-.resume-btn-small:hover {
-  background: rgba(239, 68, 68, 0.3);
+.resume-btn-small:hover,
+.resume-btn-small:focus-visible {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+  box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
+  outline: none;
+}
+
+.resume-btn-small.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
+  box-shadow: var(--gaming-control-edge-shadow);
 }
 
 @media (min-width: 1180px) {
   .teams-container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .idle-player-slot {
+    flex: 1 1 62px;
   }
 }
 
@@ -1022,60 +1006,47 @@ onUnmounted(() => {
     gap: 12px;
   }
 
-  .gaming-header,
   .team-header {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .header-actions {
-    justify-content: stretch;
-  }
-
-  .refresh-btn-small {
-    flex: 1;
-    justify-content: center;
-    min-height: 42px;
-    font-size: 14px;
-  }
-
-  .match-analysis-toolbar {
-    align-items: center;
-    gap: 10px;
-    min-height: 126px;
-    max-height: 126px;
-    padding: 14px;
-  }
-
-  .match-analysis-toolbar.has-analysis-output {
-    align-items: stretch;
-    min-height: 260px;
-    max-height: 420px;
-  }
-
-  .analysis-actions {
-    gap: 10px;
-    justify-content: flex-start;
-  }
-
-  .analysis-action {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  .analysis-btn {
-    min-height: 76px;
+  .team-analysis-btn {
+    align-self: flex-start;
+    min-width: 88px;
+    min-height: 30px;
     padding: 0 10px;
-    border-radius: 13px;
-    font-size: 24px;
-  }
-
-  .analysis-help {
-    max-width: 138px;
+    font-size: 12px;
   }
 
   .team-panel {
     padding: 12px;
+  }
+
+  .idle-player-slot {
+    min-height: 58px;
+    flex-basis: 58px;
+    gap: 10px;
+    padding: 9px 11px;
+  }
+
+  .idle-slot-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .idle-slot-copy {
+    height: 36px;
+  }
+
+  .idle-slot-title {
+    width: min(104px, 58%);
+    height: 15px;
+  }
+
+  .idle-slot-subtitle {
+    width: min(66px, 38%);
+    height: 13px;
   }
 
   .team-title h2 {

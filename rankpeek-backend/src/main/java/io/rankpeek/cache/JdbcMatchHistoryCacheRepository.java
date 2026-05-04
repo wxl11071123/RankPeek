@@ -3,8 +3,10 @@ package io.rankpeek.cache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.model.GameDetail;
+import io.rankpeek.model.MatchDataScopeCache;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
+import io.rankpeek.model.MatchTimeline;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.Summoner;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +31,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheRepository {
 
-    private static final int DEFAULT_MATCH_INDEX_KEEP_COUNT = 50;
+    private static final int DEFAULT_MATCH_INDEX_KEEP_COUNT = 200;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -70,7 +72,7 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 if (match.getGameId() == null) {
                     match.setGameId(row.gameId());
                 }
-                matches.add(restoreRosterFromLocalCache(match));
+                matches.add(restoreRosterFromLocalCache(puuid, match));
             }
 
             if (matches.isEmpty()) {
@@ -93,25 +95,31 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             return;
         }
 
+        List<MatchHistory> renderableMatches = filterRenderableCurrentPlayerMatches(puuid, matches);
+        if (renderableMatches.size() < matches.size()) {
+            log.info("Filtered incomplete match history rows before H2 save: puuid={}, filtered={}, kept={}",
+                    puuidPrefix(puuid), matches.size() - renderableMatches.size(), renderableMatches.size());
+        }
+        if (renderableMatches.isEmpty()) {
+            return;
+        }
+
         long now = System.currentTimeMillis();
         Set<String> indexedPuuids = new HashSet<>();
         indexedPuuids.add(puuid);
         try {
-            for (MatchHistory match : matches) {
-                if (match == null || match.getGameId() == null) {
-                    continue;
-                }
+            for (MatchHistory match : renderableMatches) {
                 saveMatch(match, now);
                 saveParticipants(match, now);
                 indexedPuuids.addAll(savePlayerMatchIndexesForAllParticipants(match, now));
             }
-            updatePlayerFetchState(puuid, matches, "OK", null);
+            updatePlayerFetchState(puuid, renderableMatches, "OK", null);
             for (String indexedPuuid : indexedPuuids) {
                 trimPlayerMatchIndex(indexedPuuid, DEFAULT_MATCH_INDEX_KEEP_COUNT);
             }
         } catch (Exception e) {
             log.warn("Failed to save match history to local cache, puuid={}", puuidPrefix(puuid), e);
-            updatePlayerFetchState(puuid, matches, "ERROR", e.getMessage());
+            updatePlayerFetchState(puuid, renderableMatches, "ERROR", e.getMessage());
         }
     }
 
@@ -155,6 +163,151 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             );
         } catch (Exception e) {
             log.warn("Failed to save game detail to local cache, gameId={}", detail.getGameId(), e);
+        }
+    }
+
+    @Override
+    public void saveSgpRawSummaries(Map<Long, String> rawSummaryJsonByGameId) {
+        if (rawSummaryJsonByGameId == null || rawSummaryJsonByGameId.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<Long, String> entry : rawSummaryJsonByGameId.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null || entry.getValue().isBlank()) {
+                continue;
+            }
+            try {
+                saveSgpRawSummary(entry.getKey(), entry.getValue());
+            } catch (Exception e) {
+                log.warn("Failed to save SGP raw summary scope, gameId={}", entry.getKey(), e);
+            }
+        }
+    }
+
+    @Override
+    public void saveSgpRawDetail(Long gameId, String rawDetailJson, String status, String lastError) {
+        if (gameId == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        try {
+            int updated = jdbcTemplate.update(
+                    """
+                            UPDATE match_data_scope_cache
+                            SET source = ?, detail_raw_json = ?, detail_status = ?,
+                                fetched_at = ?, schema_version = ?, last_error = ?, updated_at = ?
+                            WHERE game_id = ?
+                            """,
+                    "sgp",
+                    rawDetailJson,
+                    normalizeStatus(status),
+                    now,
+                    1,
+                    lastError,
+                    now,
+                    gameId
+            );
+            if (updated == 0) {
+                jdbcTemplate.update(
+                        """
+                                INSERT INTO match_data_scope_cache (
+                                    game_id, source, detail_raw_json, detail_status,
+                                    fetched_at, schema_version, last_error, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                        gameId,
+                        "sgp",
+                        rawDetailJson,
+                        normalizeStatus(status),
+                        now,
+                        1,
+                        lastError,
+                        now
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Failed to save SGP raw detail scope, gameId={}", gameId, e);
+        }
+    }
+
+    @Override
+    public void saveSgpTimeline(Long gameId,
+                                MatchTimeline timeline,
+                                String rawTimelineJson,
+                                String status,
+                                String lastError) {
+        if (gameId == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        try {
+            String timelineJson = timeline == null ? null : writeValue(timeline);
+            int updated = jdbcTemplate.update(
+                    """
+                            UPDATE match_data_scope_cache
+                            SET source = ?, timeline_raw_json = ?, timeline_json = ?, timeline_status = ?,
+                                fetched_at = ?, schema_version = ?, last_error = ?, updated_at = ?
+                            WHERE game_id = ?
+                            """,
+                    "sgp",
+                    rawTimelineJson,
+                    timelineJson,
+                    normalizeStatus(status),
+                    now,
+                    1,
+                    lastError,
+                    now,
+                    gameId
+            );
+            if (updated == 0) {
+                jdbcTemplate.update(
+                        """
+                                INSERT INTO match_data_scope_cache (
+                                    game_id, source, timeline_raw_json, timeline_json, timeline_status,
+                                    fetched_at, schema_version, last_error, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                        gameId,
+                        "sgp",
+                        rawTimelineJson,
+                        timelineJson,
+                        normalizeStatus(status),
+                        now,
+                        1,
+                        lastError,
+                        now
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Failed to save SGP timeline scope, gameId={}", gameId, e);
+        }
+    }
+
+    @Override
+    public Optional<MatchDataScopeCache> findMatchDataScope(Long gameId) {
+        if (gameId == null) {
+            return Optional.empty();
+        }
+
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
+                    """
+                            SELECT game_id, source, summary_raw_json, detail_raw_json, timeline_raw_json,
+                                   timeline_json, summary_status, detail_status, timeline_status,
+                                   fetched_at, schema_version, last_error, updated_at
+                            FROM match_data_scope_cache
+                            WHERE game_id = ?
+                            """,
+                    (rs, rowNum) -> toMatchDataScopeCache(rs),
+                    gameId
+            ));
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("Failed to read match data scope cache, gameId={}", gameId, e);
+            return Optional.empty();
         }
     }
 
@@ -403,6 +556,42 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         );
     }
 
+    private void saveSgpRawSummary(Long gameId, String rawSummaryJson) {
+        long now = System.currentTimeMillis();
+        int updated = jdbcTemplate.update(
+                """
+                        UPDATE match_data_scope_cache
+                        SET source = ?, summary_raw_json = ?, summary_status = ?,
+                            fetched_at = ?, schema_version = ?, updated_at = ?
+                        WHERE game_id = ?
+                        """,
+                "sgp",
+                rawSummaryJson,
+                "FETCHED",
+                now,
+                1,
+                now,
+                gameId
+        );
+        if (updated == 0) {
+            jdbcTemplate.update(
+                    """
+                            INSERT INTO match_data_scope_cache (
+                                game_id, source, summary_raw_json, summary_status,
+                                fetched_at, schema_version, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                    gameId,
+                    "sgp",
+                    rawSummaryJson,
+                    "FETCHED",
+                    now,
+                    1,
+                    now
+            );
+        }
+    }
+
     private void saveParticipants(MatchHistory match, long now) throws JsonProcessingException {
         if (match.getParticipants() == null || match.getParticipants().isEmpty()) {
             return;
@@ -555,6 +744,31 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         return Optional.empty();
     }
 
+    private List<MatchHistory> filterRenderableCurrentPlayerMatches(String puuid, List<MatchHistory> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return List.of();
+        }
+        return matches.stream()
+                .filter(match -> match != null
+                        && match.getGameId() != null
+                        && hasRenderableCurrentParticipant(match, puuid))
+                .toList();
+    }
+
+    private boolean hasRenderableCurrentParticipant(MatchHistory match, String puuid) {
+        MatchHistory.Participant participant = participantByPuuid(match, puuid).orElse(null);
+        if (participant == null || participant.getChampionId() == null || participant.getChampionId() <= 0) {
+            return false;
+        }
+
+        MatchHistory.Stats stats = participant.getStats();
+        return stats != null
+                && stats.getWin() != null
+                && stats.getKills() != null
+                && stats.getDeaths() != null
+                && stats.getAssists() != null;
+    }
+
     private Map<Integer, MatchHistory.Player> playersByParticipantId(MatchHistory match) {
         Map<Integer, MatchHistory.Player> players = new HashMap<>();
         if (match.getParticipantIdentities() == null) {
@@ -583,15 +797,15 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         return participants;
     }
 
-    private MatchHistory restoreRosterFromLocalCache(MatchHistory match) {
-        if (hasCompleteRoster(match) || match == null || match.getGameId() == null) {
+    private MatchHistory restoreRosterFromLocalCache(String puuid, MatchHistory match) {
+        if (match == null || match.getGameId() == null || hasRenderableRoster(match, puuid)) {
             return match;
         }
 
         Optional<GameDetail> detail = findGameDetail(match.getGameId());
         if (detail.isPresent()) {
             mergeGameDetailIntoMatchHistory(match, detail.get());
-            if (hasCompleteRoster(match)) {
+            if (hasRenderableRoster(match, puuid)) {
                 return match;
             }
         }
@@ -637,6 +851,17 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             log.debug("Failed to rebuild roster from participant cache, gameId={}", match.getGameId(), e);
         }
         return match;
+    }
+
+    private boolean hasRenderableRoster(MatchHistory match, String puuid) {
+        return hasCompleteRoster(match) && hasCurrentParticipant(match, puuid);
+    }
+
+    private boolean hasCurrentParticipant(MatchHistory match, String puuid) {
+        if (puuid == null || puuid.isBlank()) {
+            return true;
+        }
+        return participantByPuuid(match, puuid).isPresent();
     }
 
     private boolean hasCompleteRoster(MatchHistory match) {
@@ -691,6 +916,20 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         participant.setChampionId(gameParticipant.getChampionId());
         participant.setSpell1Id(gameParticipant.getSpell1Id());
         participant.setSpell2Id(gameParticipant.getSpell2Id());
+        participant.setTeamPosition(gameParticipant.getTeamPosition());
+        participant.setIndividualPosition(gameParticipant.getIndividualPosition());
+        participant.setSelectedPosition(gameParticipant.getSelectedPosition());
+        if (gameParticipant.getTimeline() != null) {
+            participant.setLane(firstText(
+                    gameParticipant.getTimeline().getTeamPosition(),
+                    gameParticipant.getTimeline().getLane(),
+                    gameParticipant.getTimeline().getRawLane()
+            ));
+            participant.setRole(firstText(
+                    gameParticipant.getTimeline().getRole(),
+                    gameParticipant.getTimeline().getRawRole()
+            ));
+        }
         participant.setStats(toMatchStats(gameParticipant.getStats()));
         return participant;
     }
@@ -735,6 +974,7 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         stats.setTotalHeal(toInteger(detailStats.getTotalHeal()));
         stats.setTotalMinionsKilled(detailStats.getTotalMinionsKilled());
         stats.setNeutralMinionsKilled(detailStats.getNeutralMinionsKilled());
+        stats.setVisionScore(detailStats.getVisionScore());
         stats.setItem0(detailStats.getItem0());
         stats.setItem1(detailStats.getItem1());
         stats.setItem2(detailStats.getItem2());
@@ -746,13 +986,29 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         stats.setDamageTakenRate(detailStats.getDamageTakenRate());
         stats.setHealRate(detailStats.getHealRate());
         stats.setMvp(detailStats.getMvp());
+        stats.setDoubleKills(detailStats.getDoubleKills());
+        stats.setTripleKills(detailStats.getTripleKills());
+        stats.setQuadraKills(detailStats.getQuadraKills());
+        stats.setPentaKills(detailStats.getPentaKills());
+        stats.setLargestKillingSpree(detailStats.getLargestKillingSpree());
+        stats.setLegendaryCount(detailStats.getLegendaryCount());
         stats.setPerk0(detailStats.getPerk0());
+        stats.setPerk1(detailStats.getPerk1());
+        stats.setPerk2(detailStats.getPerk2());
+        stats.setPerk3(detailStats.getPerk3());
+        stats.setPerk4(detailStats.getPerk4());
+        stats.setPerk5(detailStats.getPerk5());
+        stats.setPerkPrimaryStyle(detailStats.getPerkPrimaryStyle());
+        stats.setPerkSubStyle(detailStats.getPerkSubStyle());
+        stats.setPerks(detailStats.getPerks());
         stats.setMinionsKilled(detailStats.getTotalMinionsKilled());
         stats.setDamageDealtToTurrets(toInteger(detailStats.getDamageDealtToTurrets()));
         stats.setPlayerAugment1(detailStats.getPlayerAugment1());
         stats.setPlayerAugment2(detailStats.getPlayerAugment2());
         stats.setPlayerAugment3(detailStats.getPlayerAugment3());
         stats.setPlayerAugment4(detailStats.getPlayerAugment4());
+        stats.setChallenges(detailStats.getChallenges());
+        stats.setExtraFields(detailStats.getExtraFields());
         return stats;
     }
 
@@ -853,6 +1109,45 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
 
     private Integer toInteger(Long value) {
         return value == null ? null : value.intValue();
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private MatchDataScopeCache toMatchDataScopeCache(ResultSet rs) throws SQLException {
+        MatchDataScopeCache cache = new MatchDataScopeCache();
+        cache.setGameId(rs.getLong("game_id"));
+        cache.setSource(rs.getString("source"));
+        cache.setRawSummaryJson(rs.getString("summary_raw_json"));
+        cache.setRawDetailJson(rs.getString("detail_raw_json"));
+        cache.setRawTimelineJson(rs.getString("timeline_raw_json"));
+        cache.setTimeline(readValue(rs.getString("timeline_json"), MatchTimeline.class, "match timeline").orElse(null));
+        cache.setSummaryStatus(rs.getString("summary_status"));
+        cache.setDetailStatus(rs.getString("detail_status"));
+        cache.setTimelineStatus(rs.getString("timeline_status"));
+        cache.setFetchedAt(getLong(rs, "fetched_at"));
+        cache.setSchemaVersion(getInteger(rs, "schema_version"));
+        cache.setLastError(rs.getString("last_error"));
+        cache.setUpdatedAt(getLong(rs, "updated_at"));
+        return cache;
+    }
+
+    private Long getLong(ResultSet rs, String columnName) throws SQLException {
+        long value = rs.getLong(columnName);
+        return rs.wasNull() ? null : value;
+    }
+
+    private String normalizeStatus(String status) {
+        return status == null || status.isBlank() ? "UNKNOWN" : status.trim();
     }
 
     private MatchHistory latestMatch(List<MatchHistory> matches) {

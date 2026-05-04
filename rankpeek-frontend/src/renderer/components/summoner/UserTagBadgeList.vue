@@ -6,19 +6,19 @@ import type { RankTag, RecordStatus } from '@/types/api'
 const props = withDefaults(defineProps<{
   recordStatus?: RecordStatus
   tags?: RankTag[]
-  limit?: number
+  limit?: number | null
   compact?: boolean
   showEmpty?: boolean
 }>(), {
   recordStatus: 'NORMAL',
   tags: () => [],
-  limit: 2,
+  limit: null,
   compact: false,
   showEmpty: false
 })
 
 const { t } = useI18n()
-const visibleTags = computed(() => props.tags.slice(0, props.limit))
+const visibleTags = computed(() => props.limit == null ? props.tags : props.tags.slice(0, props.limit))
 
 const statusMeta = computed(() => {
   switch (props.recordStatus) {

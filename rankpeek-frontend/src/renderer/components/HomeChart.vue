@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { apiClient } from '@/api/httpClient'
-import type { GameDetail, MatchHistory } from '@/types/api'
+import {
+  createHomeChartEntries,
+  mergeHomeChartDetail,
+  runWithConcurrencyLimit
+} from '@/services/homeChartEntries'
+import { loadReliableMatchHistory } from '@/services/reliableMatchHistory'
+import type { HomeChartEntry } from '@/services/homeChartEntries'
+import type { MatchHistory, Summoner } from '@/types/api'
+import { getChampionIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 type QueueMode = 420 | 440
 type MetricKey =
@@ -13,28 +21,8 @@ type MetricKey =
   | 'damageRate'
   | 'goldDiff15'
   | 'visionScore'
-type LaneKey = 'all' | 'top' | 'jungle' | 'mid' | 'bottom' | 'support' | 'unknown'
-type DetailParticipant = GameDetail['participants'][number]
-type MatchParticipant = MatchHistory['participants'][number]
-type StatsLike = (DetailParticipant['stats'] | MatchParticipant['stats']) & Record<string, unknown>
-
-interface ChartEntry {
-  gameId: number
-  gameCreation: number
-  championId: number
-  win: boolean
-  lane: LaneKey
-  laneLabel: string
-  kills: number
-  deaths: number
-  assists: number
-  kdaText: string
-  gold: number
-  totalDamage: number
-  damageRate: number | null
-  goldDiff15: number | null
-  visionScore: number | null
-}
+type LaneKey = HomeChartEntry['lane']
+type ChartEntry = HomeChartEntry
 
 interface ChartPoint {
   entry: ChartEntry
@@ -58,9 +46,99 @@ interface HoverValueBadge {
 }
 
 const props = defineProps<{
+  summoner?: Summoner | null
   puuid?: string
   connected: boolean
 }>()
+
+const CONTROL_GLOW_RANGE = 96
+const SURFACE_GLOW_RANGE = 220
+const EDGE_GLOW_MIN = 0.03
+
+function isDisabledControl(target: HTMLElement) {
+  return (target instanceof HTMLButtonElement || target instanceof HTMLSelectElement) && target.disabled
+}
+
+function resetEdgeGlow(target: HTMLElement) {
+  target.style.setProperty('--edge-top-alpha', '0')
+  target.style.setProperty('--edge-right-alpha', '0')
+  target.style.setProperty('--edge-bottom-alpha', '0')
+  target.style.setProperty('--edge-left-alpha', '0')
+  delete target.dataset.nearGlow
+}
+
+function resetGlowElement(target: HTMLElement) {
+  target.style.setProperty('--control-glow-x', '50%')
+  target.style.setProperty('--control-glow-y', '50%')
+  resetEdgeGlow(target)
+}
+
+function applyGlowElement(target: HTMLElement, clientX: number, clientY: number) {
+  if (isDisabledControl(target)) {
+    resetGlowElement(target)
+    return
+  }
+
+  const rect = target.getBoundingClientRect()
+  const range = target.classList.contains('surface-glow') ? SURFACE_GLOW_RANGE : CONTROL_GLOW_RANGE
+  const x = clientX - rect.left
+  const y = clientY - rect.top
+  const clampedX = Math.min(Math.max(x, 0), rect.width)
+  const clampedY = Math.min(Math.max(y, 0), rect.height)
+  const inRange = x >= -range && x <= rect.width + range && y >= -range && y <= rect.height + range
+
+  target.style.setProperty('--control-glow-x', `${clampedX}px`)
+  target.style.setProperty('--control-glow-y', `${clampedY}px`)
+
+  if (!inRange) {
+    resetEdgeGlow(target)
+    return
+  }
+
+  const strength = (distance: number) => {
+    const raw = Math.max(0, 1 - Math.min(Math.abs(distance), range) / range)
+    return Math.pow(raw, 1.18)
+  }
+
+  const top = strength(y)
+  const right = strength(rect.width - x)
+  const bottom = strength(rect.height - y)
+  const left = strength(x)
+  const maxStrength = Math.max(top, right, bottom, left)
+
+  target.style.setProperty('--edge-top-alpha', top.toFixed(3))
+  target.style.setProperty('--edge-right-alpha', right.toFixed(3))
+  target.style.setProperty('--edge-bottom-alpha', bottom.toFixed(3))
+  target.style.setProperty('--edge-left-alpha', left.toFixed(3))
+
+  if (maxStrength > EDGE_GLOW_MIN) {
+    target.dataset.nearGlow = 'true'
+  } else {
+    delete target.dataset.nearGlow
+  }
+}
+
+function updateControlGlow(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) {
+    return
+  }
+
+  applyGlowElement(target, event.clientX, event.clientY)
+  target.querySelectorAll<HTMLElement>('.control-glow').forEach(element => {
+    applyGlowElement(element, event.clientX, event.clientY)
+  })
+}
+
+function resetControlGlow(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) {
+    return
+  }
+
+  resetGlowElement(target)
+  target.querySelectorAll<HTMLElement>('.control-glow').forEach(resetGlowElement)
+}
 
 const QUEUE_OPTIONS: Array<{ value: QueueMode; label: string }> = [
   { value: 420, label: '单双排' },
@@ -93,9 +171,21 @@ const CHART_LEFT = 74
 const CHART_RIGHT = 26
 const CHART_TOP = 28
 const CHART_BOTTOM = 44
+const CHART_POINT_SIZE = 20
+const CHART_POINT_RADIUS = CHART_POINT_SIZE / 2
+const CHART_POINT_CORNER_RADIUS = 5
+const CHART_POINT_RING_SIZE = CHART_POINT_SIZE + 2
+const CHART_POINT_RING_RADIUS = CHART_POINT_RING_SIZE / 2
+const CHART_POINT_RING_CORNER_RADIUS = CHART_POINT_CORNER_RADIUS + 1
+const CHART_POINT_ACTIVE_SIZE = CHART_POINT_RING_SIZE + 6
+const CHART_POINT_ACTIVE_RADIUS = CHART_POINT_ACTIVE_SIZE / 2
+const CHART_POINT_ACTIVE_CORNER_RADIUS = CHART_POINT_RING_CORNER_RADIUS + 2
+const CHART_POINT_HIT_RADIUS = 16
 const GRID_LINE_COUNT = 4
 const MAX_DISPLAY_MATCHES = 10
 const LOOKBACK_MATCH_COUNT = 50
+const DETAIL_REQUEST_CONCURRENCY = 4
+const LOAD_ERROR_TEXT = '战绩趋势加载失败'
 
 const selectedQueue = ref<QueueMode>(420)
 const selectedMetric = ref<MetricKey>('kda')
@@ -105,6 +195,10 @@ const loading = ref(false)
 const error = ref('')
 const activePoint = ref<ChartPoint | null>(null)
 let requestId = 0
+let detailRequestId = 0
+let activeDataKey = ''
+
+const currentPuuid = computed(() => props.puuid || props.summoner?.puuid || '')
 
 const filteredEntries = computed(() =>
   selectedLane.value === 'all'
@@ -208,7 +302,7 @@ const emptyText = computed(() => {
 })
 
 watch(
-  [() => props.puuid, () => props.connected, selectedQueue],
+  [currentPuuid, () => props.connected, selectedQueue],
   () => {
     void loadChartData()
   },
@@ -220,47 +314,62 @@ watch([selectedMetric, selectedLane], () => {
 })
 
 async function loadChartData() {
-  const puuid = props.puuid
+  const puuid = currentPuuid.value
   const currentRequestId = ++requestId
+  const dataKey = `${puuid}:${selectedQueue.value}`
   activePoint.value = null
 
   if (!props.connected || !puuid) {
     entries.value = []
     error.value = ''
+    loading.value = false
+    activeDataKey = ''
     return
+  }
+
+  if (dataKey !== activeDataKey) {
+    entries.value = []
+    activeDataKey = dataKey
   }
 
   loading.value = true
   error.value = ''
+  let receivedUsableMatches = false
+
+  const applyMatches = (matches: MatchHistory[]) => {
+    if (currentRequestId !== requestId) {
+      return
+    }
+
+    entries.value = createHomeChartEntries(matches, puuid)
+    receivedUsableMatches = entries.value.length > 0
+    loading.value = false
+    const currentDetailRequestId = ++detailRequestId
+    void hydrateEntryDetails(matches, puuid, currentRequestId, currentDetailRequestId)
+  }
 
   try {
-    const matches = await apiClient.getFilteredMatchHistory(puuid, {
-      begIndex: 0,
-      endIndex: 99,
+    const result = await loadReliableMatchHistory({
+      summoner: props.summoner ?? null,
+      currentPuuid: puuid,
       queueId: selectedQueue.value,
-      maxResults: LOOKBACK_MATCH_COUNT
+      limit: LOOKBACK_MATCH_COUNT,
+      minQualityMatches: MAX_DISPLAY_MATCHES,
+      forceRefresh: true,
+      onUpdate: update => applyMatches(update.matches)
     })
-    const orderedMatches = matches
-      .slice()
-      .sort((a, b) => (b.gameCreation || 0) - (a.gameCreation || 0))
-      .slice(0, LOOKBACK_MATCH_COUNT)
-
-    const detailResults = await Promise.allSettled(
-      orderedMatches.map(match => apiClient.getGameDetail(match.gameId))
-    )
-
-    const nextEntries = orderedMatches
-      .map((match, index) => createEntry(match, detailResults[index], puuid))
-      .filter((entry): entry is ChartEntry => Boolean(entry))
-
     if (currentRequestId === requestId) {
-      entries.value = nextEntries
+      if (!receivedUsableMatches && result.matches.length > 0) {
+        applyMatches(result.matches)
+      }
+      if (!entries.value.length && result.errors.length > 0) {
+        error.value = LOAD_ERROR_TEXT
+      }
     }
   } catch (loadError) {
     console.error('Failed to load home chart data', loadError)
-    if (currentRequestId === requestId) {
-      entries.value = []
-      error.value = '战绩趋势加载失败'
+    if (currentRequestId === requestId && !entries.value.length) {
+      error.value = LOAD_ERROR_TEXT
     }
   } finally {
     if (currentRequestId === requestId) {
@@ -269,193 +378,29 @@ async function loadChartData() {
   }
 }
 
-function createEntry(
-  match: MatchHistory,
-  detailResult: PromiseSettledResult<GameDetail>,
-  puuid: string
-): ChartEntry | null {
-  const participantId = match.participantIdentities.find(identity => identity.player.puuid === puuid)?.participantId
-  if (!participantId) {
-    return null
-  }
+async function hydrateEntryDetails(
+  matches: MatchHistory[],
+  puuid: string,
+  chartRequestId: number,
+  currentDetailRequestId: number
+) {
+  const matchesToHydrate = matches.slice(0, LOOKBACK_MATCH_COUNT)
+  await runWithConcurrencyLimit(matchesToHydrate, DETAIL_REQUEST_CONCURRENCY, async match => {
+    const detail = await apiClient.getGameDetail(match.gameId)
+    if (chartRequestId !== requestId || currentDetailRequestId !== detailRequestId) {
+      return
+    }
 
-  const matchParticipant = match.participants.find(participant => participant.participantId === participantId)
-  const detail = detailResult.status === 'fulfilled' ? detailResult.value : null
-  const detailParticipant = detail?.participants.find(participant => participant.participantId === participantId)
-  const stats = (detailParticipant?.stats || matchParticipant?.stats) as StatsLike | undefined
-
-  if (!stats) {
-    return null
-  }
-
-  const lane = resolveLane(detailParticipant, matchParticipant)
-  const kills = stats.kills || 0
-  const deaths = stats.deaths || 0
-  const assists = stats.assists || 0
-  const gold = stats.goldEarned || 0
-  const totalDamage = stats.totalDamageDealtToChampions || 0
-
-  return {
-    gameId: match.gameId,
-    gameCreation: match.gameCreation,
-    championId: detailParticipant?.championId || matchParticipant?.championId || 0,
-    win: Boolean(stats.win),
-    lane,
-    laneLabel: LANE_OPTIONS.find(option => option.value === lane)?.label || '未知',
-    kills,
-    deaths,
-    assists,
-    kdaText: `${kills}/${deaths}/${assists}`,
-    gold,
-    totalDamage,
-    damageRate: calculateDamageConversion(stats),
-    goldDiff15: calculateGoldDiff15(detail, detailParticipant, lane, stats, match.gameDuration),
-    visionScore: readVisionScore(stats)
-  }
+    entries.value = entries.value.map(entry =>
+      entry.gameId === match.gameId
+        ? mergeHomeChartDetail(entry, match, detail, puuid)
+        : entry
+    )
+  }, (detailError, match) => {
+    console.warn(`Failed to hydrate home chart detail for game ${match.gameId}`, detailError)
+  })
 }
 
-function resolveLane(
-  detailParticipant?: DetailParticipant,
-  matchParticipant?: MatchParticipant
-): LaneKey {
-  const detailRecord = toRecord(detailParticipant)
-  const matchRecord = toRecord(matchParticipant)
-  const timeline = toRecord(detailRecord?.timeline) || toRecord(matchRecord?.timeline)
-
-  return normalizeLane(
-    readString(timeline, ['lane']) || readString(detailRecord, ['lane']),
-    readString(timeline, ['role']) || readString(detailRecord, ['role']),
-    readString(detailRecord, ['teamPosition']) || readString(matchRecord, ['teamPosition']),
-    readString(detailRecord, ['individualPosition']) || readString(matchRecord, ['individualPosition'])
-  )
-}
-
-function normalizeLane(
-  lane?: string,
-  role?: string,
-  teamPosition?: string,
-  individualPosition?: string
-): LaneKey {
-  const laneKey = normalizePosition(lane)
-  const roleKey = normalizePosition(role)
-  const teamPositionKey = normalizePosition(teamPosition)
-  const individualPositionKey = normalizePosition(individualPosition)
-  const positionCandidates = [laneKey, teamPositionKey, individualPositionKey, roleKey]
-
-  if (positionCandidates.some(value => value === 'JUNGLE' || value === '打野')) {
-    return 'jungle'
-  }
-  if (positionCandidates.some(value => value === 'TOP' || value === '上路')) {
-    return 'top'
-  }
-  if (positionCandidates.some(value => value === 'MIDDLE' || value === 'MID' || value === '中路')) {
-    return 'mid'
-  }
-  if (
-    roleKey.includes('SUPPORT') ||
-    teamPositionKey === 'UTILITY' ||
-    teamPositionKey === 'SUPPORT' ||
-    individualPositionKey === 'UTILITY' ||
-    individualPositionKey === 'SUPPORT' ||
-    laneKey === 'UTILITY' ||
-    laneKey === '辅助'
-  ) {
-    return 'support'
-  }
-  if (
-    laneKey === 'BOTTOM' ||
-    laneKey === 'BOT' ||
-    laneKey === '下路' ||
-    roleKey === 'DUO_CARRY' ||
-    teamPositionKey === 'BOTTOM' ||
-    teamPositionKey === 'BOT' ||
-    individualPositionKey === 'BOTTOM' ||
-    individualPositionKey === 'BOT'
-  ) {
-    return 'bottom'
-  }
-
-  return 'unknown'
-}
-
-function calculateDamageConversion(stats: StatsLike): number | null {
-  const statsRecord = toRecord(stats)
-  const challenges = toRecord(statsRecord?.challenges)
-  const challengeValue = readNumber(challenges, ['damagePerGold'])
-  if (challengeValue != null) {
-    return challengeValue * 100
-  }
-
-  const damage = stats.totalDamageDealtToChampions || 0
-  const gold = stats.goldEarned || 0
-  if (damage <= 0 || gold <= 0) {
-    return null
-  }
-  return (damage / gold) * 100
-}
-
-function calculateGoldDiff15(
-  detail: GameDetail | null,
-  detailParticipant: DetailParticipant | undefined,
-  lane: LaneKey,
-  stats: StatsLike,
-  gameDuration: number
-): number | null {
-  const statsRecord = toRecord(stats)
-  const challenges = toRecord(statsRecord?.challenges)
-  const directValue = readNumber(statsRecord, [
-    'goldDiff15',
-    'goldDiffAt15',
-    'goldDifferenceAt15',
-    'fifteenMinuteGoldDiff'
-  ]) ?? readNumber(challenges, [
-    'goldDiff15',
-    'goldDiffAt15',
-    'goldDifferenceAt15',
-    'fifteenMinuteGoldDiff'
-  ])
-
-  if (directValue != null) {
-    return directValue
-  }
-
-  if (!detail || !detailParticipant || lane === 'unknown') {
-    return null
-  }
-
-  const opponent = detail.participants.find(participant =>
-    participant.teamId !== detailParticipant.teamId && resolveLane(participant) === lane
-  )
-  if (!opponent?.stats) {
-    return null
-  }
-
-  const minutes = Math.max(1, (detail.gameDuration || gameDuration || 0) / 60)
-  const ownCs = getCreepScore(stats)
-  const opponentCs = getCreepScore(opponent.stats as StatsLike)
-  return Math.round(((ownCs - opponentCs) / minutes) * 15 * 21)
-}
-
-function readVisionScore(stats: StatsLike): number | null {
-  const statsRecord = toRecord(stats)
-  if (!statsRecord) {
-    return null
-  }
-  if (Object.prototype.hasOwnProperty.call(statsRecord, 'visionScore')) {
-    return readNumber(statsRecord, ['visionScore']) ?? 0
-  }
-
-  const challenges = toRecord(statsRecord.challenges)
-  if (challenges && Object.prototype.hasOwnProperty.call(challenges, 'visionScore')) {
-    return readNumber(challenges, ['visionScore']) ?? 0
-  }
-
-  return null
-}
-
-function getCreepScore(stats: StatsLike): number {
-  return (stats.totalMinionsKilled || 0) + (stats.neutralMinionsKilled || 0)
-}
 
 function getMetricValue(entry: ChartEntry, metric: MetricKey): number | null {
   if (metric === 'kda') {
@@ -596,61 +541,37 @@ function formatDate(timestamp: number): string {
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
-function championIconUrl(championId: number): string {
-  return championId > 0
-    ? `http://127.0.0.1:8080/api/v1/asset/champion/${championId}`
-    : ''
+function resolveChampionCdnUrl(championId: number): string {
+  return getChampionIconUrl(championId)
+}
+
+function pointClipId(point: ChartPoint): string {
+  return `home-chart-point-${point.entry.gameId}`
 }
 
 function pointAriaLabel(point: ChartPoint): string {
   return `${point.entry.laneLabel} ${point.entry.kdaText} ${metricLabel.value} ${formatMetricValue(point.value)}`
 }
 
-function normalizePosition(value?: string): string {
-  return (value || '').trim().toUpperCase().replace(/\s+/g, '_')
-}
-
-function toRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : null
-}
-
-function readString(record: Record<string, unknown> | null, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = record?.[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value
-    }
-  }
-  return undefined
-}
-
-function readNumber(record: Record<string, unknown> | null, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record?.[key]
-    if (value === null) {
-      return null
-    }
-    const numberValue = typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number(value)
-        : Number.NaN
-    if (Number.isFinite(numberValue)) {
-      return numberValue
-    }
-  }
-  return null
-}
 </script>
 
 <template>
-  <section class="home-chart-card">
+  <section
+    class="home-chart-card surface-glow"
+    @pointermove="updateControlGlow"
+    @pointerleave="resetControlGlow"
+  >
     <div class="chart-card-header">
       <div>
         <h2>战绩趋势</h2>
       </div>
       <div class="chart-toolbar">
-        <div class="queue-tabs" aria-label="排位队列">
+        <div
+          class="queue-tabs control-glow"
+          aria-label="排位队列"
+          @pointermove="updateControlGlow"
+          @pointerleave="resetControlGlow"
+        >
           <button
             v-for="option in QUEUE_OPTIONS"
             :key="option.value"
@@ -661,12 +582,24 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
             {{ option.label }}
           </button>
         </div>
-        <select v-model="selectedMetric" class="chart-select" aria-label="筛选数据">
+        <select
+          v-model="selectedMetric"
+          class="chart-select control-glow"
+          aria-label="选择指标"
+          @pointermove="updateControlGlow"
+          @pointerleave="resetControlGlow"
+        >
           <option v-for="option in METRIC_OPTIONS" :key="option.value" :value="option.value">
             {{ option.label }}
           </option>
         </select>
-        <select v-model="selectedLane" class="chart-select" aria-label="分路">
+        <select
+          v-model="selectedLane"
+          class="chart-select control-glow"
+          aria-label="选择分路"
+          @pointermove="updateControlGlow"
+          @pointerleave="resetControlGlow"
+        >
           <option v-for="option in LANE_OPTIONS" :key="option.value" :value="option.value">
             {{ option.label }}
           </option>
@@ -679,6 +612,23 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
         {{ emptyText }}
       </div>
       <svg v-else viewBox="0 0 760 280" role="img" :aria-label="`最近 10 局${metricLabel}趋势`">
+        <defs>
+          <clipPath
+            v-for="point in chartPoints"
+            :id="pointClipId(point)"
+            :key="`clip-${point.entry.gameId}`"
+            clipPathUnits="userSpaceOnUse"
+          >
+            <rect
+              :x="point.x - CHART_POINT_RADIUS"
+              :y="point.y - CHART_POINT_RADIUS"
+              :width="CHART_POINT_SIZE"
+              :height="CHART_POINT_SIZE"
+              :rx="CHART_POINT_CORNER_RADIUS"
+              :ry="CHART_POINT_CORNER_RADIUS"
+            />
+          </clipPath>
+        </defs>
         <g v-for="line in chartGridLines" :key="`grid-${line.label}-${line.y}`">
           <line
             :x1="CHART_LEFT"
@@ -711,8 +661,47 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
           @focus="activePoint = point"
           @blur="activePoint = null"
         >
-          <circle class="trend-hit" :cx="point.x" :cy="point.y" r="16" />
-          <circle class="trend-dot" :class="{ loss: !point.entry.win }" :cx="point.x" :cy="point.y" r="6" />
+          <rect
+            v-if="activePoint?.entry.gameId === point.entry.gameId"
+            class="trend-active-ring"
+            :x="point.x - CHART_POINT_ACTIVE_RADIUS"
+            :y="point.y - CHART_POINT_ACTIVE_RADIUS"
+            :width="CHART_POINT_ACTIVE_SIZE"
+            :height="CHART_POINT_ACTIVE_SIZE"
+            :rx="CHART_POINT_ACTIVE_CORNER_RADIUS"
+            :ry="CHART_POINT_ACTIVE_CORNER_RADIUS"
+          />
+          <rect
+            class="trend-avatar-ring"
+            :x="point.x - CHART_POINT_RING_RADIUS"
+            :y="point.y - CHART_POINT_RING_RADIUS"
+            :width="CHART_POINT_RING_SIZE"
+            :height="CHART_POINT_RING_SIZE"
+            :rx="CHART_POINT_RING_CORNER_RADIUS"
+            :ry="CHART_POINT_RING_CORNER_RADIUS"
+          />
+          <image
+            v-if="resolveChampionCdnUrl(point.entry.championId)"
+            class="trend-avatar"
+            :href="resolveChampionCdnUrl(point.entry.championId)"
+            :x="point.x - CHART_POINT_RADIUS"
+            :y="point.y - CHART_POINT_RADIUS"
+            :width="CHART_POINT_SIZE"
+            :height="CHART_POINT_SIZE"
+            :clip-path="`url(#${pointClipId(point)})`"
+            preserveAspectRatio="xMidYMid slice"
+          />
+          <rect
+            v-else
+            class="trend-avatar-fallback"
+            :x="point.x - CHART_POINT_RADIUS"
+            :y="point.y - CHART_POINT_RADIUS"
+            :width="CHART_POINT_SIZE"
+            :height="CHART_POINT_SIZE"
+            :rx="CHART_POINT_CORNER_RADIUS"
+            :ry="CHART_POINT_CORNER_RADIUS"
+          />
+          <circle class="trend-hit" :cx="point.x" :cy="point.y" :r="CHART_POINT_HIT_RADIUS" />
         </g>
         <text
           v-for="point in chartPoints"
@@ -734,10 +723,11 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
       </svg>
       <div v-if="activePoint" class="chart-hover-panel">
         <img
-          v-if="championIconUrl(activePoint.entry.championId)"
+          v-if="resolveChampionCdnUrl(activePoint.entry.championId)"
           class="hover-champion"
-          :src="championIconUrl(activePoint.entry.championId)"
+          :src="resolveChampionCdnUrl(activePoint.entry.championId)"
           alt=""
+          @error="markAssetLoadFailed"
         />
         <div class="hover-copy">
           <strong>{{ activePoint.entry.kdaText }}</strong>
@@ -750,12 +740,71 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 
 <style scoped>
 .home-chart-card {
-  --chart-theme-glow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.24);
-  --chart-card-hover-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 26px rgba(212, 175, 55, 0.34), 0 10px 28px rgba(212, 175, 55, 0.14);
-  --chart-control-glow: 0 0 0 1px rgba(212, 175, 55, 0.46), 0 0 22px rgba(212, 175, 55, 0.3);
-  --chart-surface-glow: inset 0 -1px 0 rgba(212, 175, 55, 0.34), 0 10px 24px rgba(212, 175, 55, 0.1);
-  --chart-glow-border: rgba(212, 175, 55, 0.42);
-  --theme-hover-glow: var(--chart-card-hover-glow);
+  --module-edge-color: rgba(232, 221, 186, 0.46);
+  --module-edge-soft: rgba(212, 175, 55, 0.14);
+  --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
+  --chart-hover-border: var(--module-edge-color);
+  --chart-hover-shadow: var(--module-edge-glow);
+  --chart-bright-blue-rgb: 33, 196, 255;
+  --chart-bright-blue: rgb(var(--chart-bright-blue-rgb));
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 82px;
+  --chart-control-local-glow: transparent;
+  --chart-control-local-glow-fade: transparent;
+  --chart-control-border-local-glow: rgba(148, 211, 255, 0.98);
+  --chart-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
+  --chart-control-edge-rgb: 148, 211, 255;
+  --chart-control-edge-shadow:
+    inset 0 1px 0 rgba(var(--chart-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
+    inset -1px 0 0 rgba(var(--chart-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
+    inset 0 -1px 0 rgba(var(--chart-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.82)),
+    inset 1px 0 0 rgba(var(--chart-control-edge-rgb), calc(var(--edge-left-alpha) * 0.82)),
+    0 -3px 11px -6px rgba(var(--chart-control-edge-rgb), calc(var(--edge-top-alpha) * 0.48)),
+    3px 0 11px -6px rgba(var(--chart-control-edge-rgb), calc(var(--edge-right-alpha) * 0.48)),
+    0 3px 11px -6px rgba(var(--chart-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.48)),
+    -3px 0 11px -6px rgba(var(--chart-control-edge-rgb), calc(var(--edge-left-alpha) * 0.48));
+  --chart-control-active-local-glow: transparent;
+  --chart-control-active-local-glow-fade: transparent;
+  --chart-control-radius: 10px;
+  --chart-control-bg: var(--bg-secondary);
+  --chart-control-bg-hover: rgba(28, 36, 48, 0.96);
+  --chart-control-bg-hover-local: linear-gradient(var(--chart-control-bg-hover), var(--chart-control-bg-hover)) padding-box,
+    radial-gradient(
+      circle at var(--control-glow-x) var(--control-glow-y),
+      var(--chart-control-border-local-glow) 0%,
+      var(--chart-control-border-local-glow-fade) 36%,
+      var(--chart-control-border) 72%
+    ) border-box;
+  --chart-control-bg-active: rgba(13, 17, 24, 0.98);
+  --chart-control-active-bg: rgba(var(--chart-bright-blue-rgb), 0.78);
+  --chart-control-active-bg-hover-local: linear-gradient(var(--chart-control-active-bg), var(--chart-control-active-bg)) padding-box,
+    radial-gradient(
+      circle at var(--control-glow-x) var(--control-glow-y),
+      var(--chart-control-border-local-glow) 0%,
+      var(--chart-control-border-local-glow-fade) 36%,
+      var(--chart-control-border) 72%
+    ) border-box;
+  --chart-control-active-bg-pressed: rgba(var(--chart-bright-blue-rgb), 0.58);
+  --chart-control-border: var(--border-color);
+  --chart-control-border-hover: rgba(96, 176, 255, 0.58);
+  --chart-control-text: var(--text-primary);
+  --chart-control-active-text: #f5faff;
+  --chart-control-muted: var(--text-secondary);
+  --chart-control-shadow: none;
+  --chart-control-focus: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 0 16px rgba(41, 151, 255, 0.22);
+  --chart-control-active-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(41, 151, 255, 0.14);
+  --chart-tab-thumb-hover-shadow: var(--chart-control-focus);
+  --chart-tab-shell-bg: var(--bg-secondary);
+  --chart-select-menu-bg: #161b24;
+  --chart-select-menu-text: var(--text-primary);
+  --chart-surface-shadow: inset 0 0 0 1px var(--module-edge-soft);
+  --chart-avatar-ring: #1d1d1f;
+  --chart-badge-bg: rgba(14, 15, 19, 0.86);
+  --chart-hover-panel-bg: rgba(14, 15, 19, 0.82);
+  --chart-hover-panel-border: rgba(255, 255, 255, 0.14);
   padding: 22px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -764,8 +813,8 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 }
 
 .home-chart-card:hover {
-  border-color: var(--chart-glow-border);
-  box-shadow: var(--theme-hover-glow);
+  border-color: var(--chart-hover-border);
+  box-shadow: var(--chart-hover-shadow);
 }
 
 .chart-card-header {
@@ -790,64 +839,168 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   gap: 10px;
 }
 
+.control-glow {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 82px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.surface-glow {
+  --control-glow-x: 50%;
+  --control-glow-y: 50%;
+  --control-edge-width: 1px;
+  --control-edge-offset: -1px;
+  --edge-glow-size: 220px;
+  --edge-top-alpha: 0;
+  --edge-right-alpha: 0;
+  --edge-bottom-alpha: 0;
+  --edge-left-alpha: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.control-glow::before,
+.surface-glow::before {
+  content: '';
+  position: absolute;
+  inset: var(--control-edge-offset);
+  border-radius: inherit;
+  background: radial-gradient(
+    circle var(--edge-glow-size) at calc(var(--control-glow-x) + 1px) calc(var(--control-glow-y) + 1px),
+    var(--chart-control-border-local-glow) 0%,
+    var(--chart-control-border-local-glow-fade) 42%,
+    transparent 78%
+  );
+  padding: var(--control-edge-width);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+
+.control-glow:hover::before,
+.control-glow:focus-visible::before,
+.control-glow[data-near-glow='true']::before,
+.surface-glow:hover::before,
+.surface-glow:focus-visible::before,
+.surface-glow[data-near-glow='true']::before {
+  opacity: 1;
+}
+
+.control-glow:active::before,
+.surface-glow:active::before {
+  opacity: 0.55;
+}
+
 .queue-tabs {
   display: inline-flex;
   padding: 4px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--chart-control-border);
   border-radius: 999px;
-  background: var(--bg-tertiary);
+  background: var(--chart-tab-shell-bg);
+  box-shadow: var(--chart-control-shadow);
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .queue-tabs button {
   min-height: 30px;
   padding: 0 12px;
+  border: 0;
   border-radius: 999px;
-  color: var(--text-secondary);
+  background: transparent;
+  color: var(--chart-control-muted);
   font-size: 13px;
   font-weight: 800;
   transition: background 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
 }
 
 .queue-tabs:hover {
-  border-color: var(--chart-glow-border);
+  border-color: transparent;
+  background: var(--chart-control-bg-hover-local);
+  box-shadow: var(--chart-control-focus), var(--chart-control-edge-shadow);
+}
+
+.queue-tabs.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
+  box-shadow: var(--chart-control-edge-shadow);
 }
 
 .queue-tabs button:hover,
 .queue-tabs button:focus-visible {
-  color: var(--text-primary);
-  background: rgba(var(--accent-rgb), 0.14);
-  box-shadow: var(--chart-control-glow);
+  color: var(--chart-control-text);
+  background: var(--chart-control-bg-hover-local);
+  box-shadow: none;
   outline: none;
 }
 
-.queue-tabs button.active {
-  background: var(--accent-color);
-  color: #ffffff;
+.queue-tabs button:active {
+  background: var(--chart-control-bg-active);
 }
 
+.queue-tabs button.active {
+  background: var(--chart-control-active-bg);
+  color: var(--chart-control-active-text);
+}
+
+.queue-tabs:hover button.active,
 .queue-tabs button.active:hover,
 .queue-tabs button.active:focus-visible {
-  box-shadow: var(--chart-control-glow);
+  background: var(--chart-control-active-bg-hover-local);
+  box-shadow: var(--chart-tab-thumb-hover-shadow), var(--chart-control-edge-shadow);
+}
+
+.queue-tabs button.active:active {
+  background: var(--chart-control-active-bg-pressed);
 }
 
 .chart-select {
   min-height: 38px;
   padding: 0 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  border: 1px solid var(--chart-control-border);
+  border-radius: var(--chart-control-radius);
+  background: var(--chart-control-bg);
+  color: var(--chart-control-text);
+  box-shadow: var(--chart-control-shadow);
   font-size: 13px;
   font-weight: 800;
   transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
 }
 
+.chart-select option {
+  background: var(--chart-select-menu-bg);
+  background-color: var(--chart-select-menu-bg);
+  color: var(--chart-select-menu-text);
+}
+
 .chart-select:hover,
 .chart-select:focus {
-  border-color: var(--chart-glow-border);
-  box-shadow: var(--chart-control-glow);
+  border-color: transparent;
+  background: var(--chart-control-bg-hover-local);
+  box-shadow: var(--chart-control-focus), var(--chart-control-edge-shadow);
   outline: none;
+}
+
+.chart-select.control-glow[data-near-glow='true']:not(:hover):not(:focus) {
+  box-shadow: var(--chart-control-edge-shadow);
+}
+
+.chart-select:active {
+  border-color: var(--chart-control-border);
+  background: var(--chart-control-bg-active);
+  box-shadow: var(--chart-control-active-shadow), var(--chart-control-edge-shadow);
 }
 
 .chart-surface {
@@ -861,7 +1014,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 }
 
 .home-chart-card:hover .chart-surface {
-  box-shadow: var(--chart-surface-glow);
+  box-shadow: var(--chart-surface-shadow);
 }
 
 .chart-surface svg {
@@ -881,7 +1034,7 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 }
 
 .chart-axis {
-  stroke: rgba(var(--accent-rgb), 0.7);
+  stroke: var(--chart-bright-blue);
   stroke-width: 2;
 }
 
@@ -892,8 +1045,8 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 
 .trend-line {
   fill: none;
-  stroke: var(--accent-color);
-  stroke-width: 4;
+  stroke: var(--chart-bright-blue);
+  stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -909,13 +1062,13 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 }
 
 .metric-hover-badge rect {
-  fill: rgba(14, 15, 19, 0.86);
-  stroke: var(--accent-color);
+  fill: var(--chart-badge-bg);
+  stroke: var(--chart-bright-blue);
   stroke-width: 1;
 }
 
 .metric-hover-badge text {
-  fill: var(--accent-color);
+  fill: var(--chart-bright-blue);
   font-size: 14px;
   font-weight: 900;
 }
@@ -925,19 +1078,37 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   cursor: pointer;
 }
 
-.trend-dot {
-  fill: var(--success-color);
-  stroke: var(--bg-tertiary);
-  stroke-width: 3;
+.trend-avatar-ring {
+  fill: none;
+  stroke: var(--chart-avatar-ring);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.24));
 }
 
-.trend-dot.loss {
-  fill: var(--error-color);
+.trend-active-ring {
+  fill: none;
+  stroke: var(--module-edge-color);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 8px var(--module-edge-soft));
+}
+
+.trend-avatar {
+  pointer-events: none;
+}
+
+.trend-avatar-fallback {
+  fill: var(--chart-bright-blue);
+  stroke: var(--chart-avatar-ring);
+  stroke-width: 1;
+}
+
+.trend-point:focus-visible .trend-active-ring {
+  stroke-width: 3;
 }
 
 .axis-label,
 .x-label {
-  fill: var(--text-secondary);
+  fill: rgba(var(--chart-bright-blue-rgb), 0.82);
   font-weight: 800;
 }
 
@@ -963,20 +1134,25 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
   gap: 10px;
   min-width: 158px;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--chart-hover-panel-border);
   border-radius: 10px;
-  background: rgba(14, 15, 19, 0.82);
+  background: var(--chart-hover-panel-bg);
   color: #ffffff;
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
   pointer-events: none;
 }
 
 .hover-champion {
+  display: block;
   width: 38px;
   height: 38px;
   flex-shrink: 0;
   border-radius: 8px;
   object-fit: cover;
+}
+
+.hover-champion[data-asset-failed='true'] {
+  display: none;
 }
 
 .hover-copy {
@@ -999,12 +1175,83 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
 }
 
 :global([data-theme="light"] .home-chart-card) {
-  --chart-theme-glow: 0 0 0 1px rgba(100, 116, 139, 0.18), 0 0 16px rgba(100, 116, 139, 0.18);
-  --chart-card-hover-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 24px rgba(100, 116, 139, 0.26), 0 10px 26px rgba(100, 116, 139, 0.14);
-  --chart-control-glow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 0 22px rgba(100, 116, 139, 0.24);
-  --chart-surface-glow: inset 0 -1px 0 rgba(100, 116, 139, 0.22), 0 10px 22px rgba(100, 116, 139, 0.1);
-  --chart-glow-border: rgba(100, 116, 139, 0.28);
-  --theme-hover-glow: var(--chart-card-hover-glow);
+  --rp-light-gold-border: var(--border-color);
+  --rp-light-gold-border-hover: var(--border-color);
+  --rp-light-gold-edge-core: rgba(255, 218, 76, 0.94);
+  --rp-light-gold-edge-fade: rgba(244, 183, 24, 0.52);
+  --rp-light-gold-glow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
+  --rp-light-gold-glow-active: inset 0 1px 2px rgba(90, 70, 20, 0.18), 0 0 0 2px rgba(170, 126, 12, 0.08), 0 0 4px rgba(170, 126, 12, 0.12);
+  --rp-light-global-glow: var(--rp-light-gold-glow);
+  --rp-gold-border: var(--rp-light-gold-border);
+  --rp-gold-border-hover: var(--rp-light-gold-border-hover);
+  --rp-gold-glow-soft: none;
+  --rp-gold-glow-hover: var(--rp-light-gold-glow);
+  --rp-gold-glow-active: var(--rp-light-gold-glow-active);
+  --rp-blue-glow-hover: 0 0 0 2px rgba(41, 151, 255, 0.12), 0 0 6px rgba(41, 151, 255, 0.22);
+  --module-edge-color: rgba(226, 179, 34, 0.36);
+  --module-edge-soft: rgba(226, 179, 34, 0.1);
+  --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
+  --chart-control-bg: var(--bg-secondary);
+  --chart-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --chart-control-local-glow: transparent;
+  --chart-control-local-glow-fade: transparent;
+  --control-edge-width: 2px;
+  --control-edge-offset: -2px;
+  --chart-control-border-local-glow: var(--rp-light-gold-edge-core);
+  --chart-control-border-local-glow-fade: var(--rp-light-gold-edge-fade);
+  --chart-control-edge-rgb: 255, 210, 62;
+  --chart-control-active-local-glow: transparent;
+  --chart-control-active-local-glow-fade: transparent;
+  --chart-control-bg-active: rgba(232, 216, 174, 0.98);
+  --chart-control-active-bg: rgba(226, 179, 34, 0.22);
+  --chart-control-active-bg-pressed: rgba(190, 145, 22, 0.28);
+  --chart-control-border: var(--rp-gold-border);
+  --chart-control-border-hover: var(--rp-gold-border-hover);
+  --chart-control-text: #4f421e;
+  --chart-control-active-text: #4f421e;
+  --chart-control-muted: #6b5e38;
+  --chart-control-shadow: var(--rp-gold-glow-soft);
+  --chart-control-focus: var(--rp-gold-glow-hover);
+  --chart-control-active-shadow: var(--rp-gold-glow-active);
+  --chart-tab-thumb-hover-shadow: var(--rp-gold-glow-hover);
+  --chart-tab-shell-bg: var(--bg-secondary);
+  --chart-select-menu-bg: #f7f3e6;
+  --chart-select-menu-text: #4f421e;
+  --chart-hover-border: var(--module-edge-color);
+  --chart-hover-shadow: var(--module-edge-glow);
+  --chart-surface-shadow: inset 0 0 0 1px var(--module-edge-soft);
+  --chart-avatar-ring: #ffffff;
+  --chart-badge-bg: rgba(255, 255, 255, 0.94);
+  --chart-hover-panel-bg: rgba(255, 255, 255, 0.94);
+  --chart-hover-panel-border: rgba(0, 113, 227, 0.18);
+}
+
+:global([data-theme="light"] .queue-tabs button:hover),
+:global([data-theme="light"] .queue-tabs button:focus-visible) {
+  background: var(--chart-control-bg-hover-local);
+}
+
+:global([data-theme="light"] .queue-tabs:hover button.active),
+:global([data-theme="light"] .queue-tabs button.active:hover),
+:global([data-theme="light"] .queue-tabs button.active:focus-visible) {
+  background: var(--chart-control-active-bg-hover-local);
+  box-shadow: var(--chart-tab-thumb-hover-shadow);
+}
+
+:global([data-theme="light"] .metric-hover-badge rect) {
+  fill: var(--chart-badge-bg);
+}
+
+:global([data-theme="light"] .chart-hover-panel) {
+  color: var(--text-primary);
+}
+
+:global([data-theme="light"] .hover-copy strong) {
+  color: var(--text-primary);
+}
+
+:global([data-theme="light"] .hover-copy span) {
+  color: var(--text-secondary);
 }
 
 @media (max-width: 920px) {
