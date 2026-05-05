@@ -130,6 +130,7 @@ coverage/
 # 本地数据库文件 (SQLite, H2 等)
 *.db
 *.sql
+!rankpeek-server/src/main/resources/db/migration/*.sql
 *.sqlite
 *.h2.db
 *.trace.db

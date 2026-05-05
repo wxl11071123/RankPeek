@@ -1,0 +1,28 @@
+server:
+  port: 18080
+
+spring:
+  application:
+    name: rankpeek-server
+  datasource:
+    url: jdbc:h2:mem:rankpeek_server_local;MODE=PostgreSQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    enabled: true
+  sql:
+    init:
+      mode: never
+
+rankpeek:
+  server:
+    service: rankpeek-server
+    mode: local-dev
+    version: 0.1.0
+
+# Production placeholder only. Do not use a real database URL or secret in this repo.
+# Future PostgreSQL example:
+# spring.datasource.url: jdbc:postgresql://localhost:5432/rankpeek_server
+# spring.datasource.username: rankpeek
+# spring.datasource.password: ${RANKPEEK_SERVER_DB_PASSWORD}
