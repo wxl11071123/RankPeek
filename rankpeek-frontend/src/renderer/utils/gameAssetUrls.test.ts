@@ -5,6 +5,7 @@ import {
   getAssetFallbackClass,
   getAssetPlaceholderUrl,
   getAugmentIconUrl,
+  getAugmentRarityClass,
   getAugmentAssetDetails,
   getAugmentTooltipDetails,
   getChampionIconUrl,
@@ -19,12 +20,16 @@ import {
   getPerkTooltipDetails,
   getProfileIconUrl,
   getObjectiveIconUrl,
+  getSummonerSpellAssetDetails,
   getSummonerSpellIconUrl,
+  getSummonerSpellTooltipDetails,
   recordAssetLoadFailure,
   resetGameAssetResolverForTest,
   setGameAssetMetadataForTest,
   setGameAssetManifestForTest
 } from './gameAssetUrls.ts'
+
+const RAW_TOOLTIP_PATTERN = /<[^>]+>|\{\{|\}\}|@[A-Za-z0-9_]+@|%i:/
 
 test('game asset helpers prefer local manifest paths before remote fallbacks', () => {
   resetGameAssetResolverForTest()
@@ -233,11 +238,15 @@ test('item slots preserve seven equipment positions with empty placeholders', ()
 
 test('failed DDragon URLs are remembered and not returned again in the same session', () => {
   resetGameAssetResolverForTest()
+  setGameAssetManifestForTest({
+    version: '16.1.1',
+    locale: 'zh_CN'
+  })
 
   const localProxyUrl = getItemIconUrl(1001)
   recordAssetLoadFailure(localProxyUrl)
   const ddragonUrl = getItemIconUrl(1001)
-  assert.equal(ddragonUrl, 'https://ddragon.leagueoflegends.com/cdn/15.24.1/img/item/1001.png')
+  assert.equal(ddragonUrl, 'https://ddragon.leagueoflegends.com/cdn/16.1.1/img/item/1001.png')
 
   recordAssetLoadFailure(ddragonUrl)
   assert.equal(getItemIconUrl(1001), getAssetPlaceholderUrl())
@@ -257,6 +266,26 @@ test('fallback classes distinguish empty and failed asset states', () => {
   assert.equal(getAssetFallbackClass('item', 'empty'), 'asset-slot asset-slot-item asset-slot-empty')
   assert.equal(getAssetFallbackClass('champion', 'failed'), 'asset-slot asset-slot-champion asset-slot-failed')
   assert.equal(getAssetFallbackClass('augment', 'failed'), 'asset-slot asset-slot-augment asset-slot-failed')
+})
+
+test('augment rarity class helper maps Riot rarity keys to stable icon classes', () => {
+  assert.equal(getAugmentRarityClass('kSilver'), 'augment-rarity-silver')
+  assert.equal(getAugmentRarityClass('kGold'), 'augment-rarity-gold')
+  assert.equal(getAugmentRarityClass('golden'), 'augment-rarity-gold')
+  assert.equal(getAugmentRarityClass('kPrismatic'), 'augment-rarity-prismatic')
+  assert.equal(getAugmentRarityClass('kBronze'), 'augment-rarity-bronze')
+  assert.equal(getAugmentRarityClass('unknown'), 'augment-rarity-default')
+  assert.equal(getAugmentRarityClass(undefined), 'augment-rarity-default')
+})
+
+test('augment rarity frame styles provide border and background variables', () => {
+  const source = readFileSync(new URL('../assets/styles/main.css', import.meta.url), 'utf8')
+
+  for (const rarity of ['silver', 'gold', 'prismatic', 'bronze']) {
+    const block = source.match(new RegExp(`\\.augment-rarity-${rarity} \\{[\\s\\S]*?\\n\\}`))?.[0] || ''
+    assert.match(block, /--augment-rarity-border:/)
+    assert.match(block, /--augment-rarity-bg:/)
+  }
 })
 
 test('asset-consuming Vue components do not hardcode backend or remote asset URLs', () => {
@@ -353,7 +382,7 @@ test('local game asset manifest contains selective objective icons for normal re
   }
 })
 
-test('game asset metadata helpers expose item, perk, and augment text without changing icon lookup', () => {
+test('game asset metadata helpers expose item, perk, augment, and summoner spell text without changing existing icon lookup', () => {
   resetGameAssetResolverForTest()
   setGameAssetMetadataForTest({
     version: 'test',
@@ -389,6 +418,16 @@ test('game asset metadata helpers expose item, perk, and augment text without ch
         description: 'Adaptive force.',
         icon: 'augments/1205.png'
       }
+    },
+    summonerSpells: {
+      4: {
+        id: 4,
+        name: 'Flash',
+        description: 'Teleport a short distance.',
+        tooltip: 'Blinks toward target location.',
+        plaintext: 'Short blink.',
+        icon: 'summoner-spells/4.png'
+      }
     }
   })
 
@@ -398,14 +437,19 @@ test('game asset metadata helpers expose item, perk, and augment text without ch
   assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
   assert.equal(getPerkAssetDetails(8005)?.shortDesc, 'Hit three times.')
   assert.equal(getAugmentAssetDetails(1205)?.description, 'Adaptive force.')
+  assert.equal(getSummonerSpellAssetDetails(4)?.name, 'Flash')
+  assert.equal(getSummonerSpellAssetDetails(4)?.icon, 'summoner-spells/4.png')
   assert.equal(getPerkAssetDetails(999999), null)
 })
 
-test('tooltip details use metadata names, sanitized descriptions, subtitles, and icon helpers', () => {
+test('tooltip details use metadata names, sanitized structured item details, and icon helpers', () => {
   resetGameAssetResolverForTest()
   setGameAssetManifestForTest({
     version: 'test',
     locale: 'zh_CN',
+    items: {
+      1038: 'items/1038.png'
+    },
     perks: {
       8005: 'perks/8005.png'
     }
@@ -417,8 +461,12 @@ test('tooltip details use metadata names, sanitized descriptions, subtitles, and
       3031: {
         id: 3031,
         name: 'Infinity Edge',
-        description: '<mainText><stats>70 Attack Damage</stats><br><br>Critical strikes deal &amp; scale bonus.</mainText>',
+        description: '<mainText><stats>70 Attack Damage</stats><br><br><passive>Impermanence:</passive><br>Critical strikes deal &amp; scale bonus.</mainText>',
         plaintext: 'Critical item.',
+        from: [1038],
+        stats: {
+          FlatPhysicalDamageMod: 70
+        },
         gold: {
           total: 3600,
           base: 625,
@@ -441,18 +489,35 @@ test('tooltip details use metadata names, sanitized descriptions, subtitles, and
         name: 'ADAPt',
         description: 'Gain <font color="#48C4B7">adaptive force</font>.'
       }
+    },
+    summonerSpells: {
+      4: {
+        id: 4,
+        name: 'Flash',
+        description: '<mainText>Teleports your champion <br> a short distance &amp; resets.</mainText>',
+        tooltip: 'This should lose to description.',
+        plaintext: 'Blink.',
+        icon: 'summoner-spells/4.png'
+      }
     }
   })
 
   const item = getItemTooltipDetails(3031)
   const perk = getPerkTooltipDetails(8005)
   const augment = getAugmentTooltipDetails(1205)
+  const spell = getSummonerSpellTooltipDetails(4)
 
   assert.equal(item?.kind, 'item')
   assert.equal(item?.id, 3031)
   assert.equal(item?.name, 'Infinity Edge')
-  assert.equal(item?.subtitle, '售价 3600')
-  assert.equal(item?.description, '70 Attack Damage\nCritical strikes deal & scale bonus.')
+  assert.equal(item?.subtitle, '')
+  assert.equal(item?.priceText, '3600 G (合成 625 G)')
+  assert.deepEqual(item?.recipeIconUrls, ['./game-assets/items/1038.png'])
+  assert.deepEqual(item?.statLines, ['70 攻击力'])
+  assert.equal(item?.sections?.[0]?.label, 'Impermanence:')
+  assert.equal(item?.sections?.[0]?.tone, 'passive')
+  assert.equal(item?.sections?.[0]?.text, 'Critical strikes deal & scale bonus.')
+  assert.equal(item?.description, '70 Attack Damage\nImpermanence:\nCritical strikes deal & scale bonus.')
   assert.equal(item?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/item/3031')
   assert.equal(perk?.kind, 'perk')
   assert.equal(perk?.subtitle, '')
@@ -462,9 +527,17 @@ test('tooltip details use metadata names, sanitized descriptions, subtitles, and
   assert.equal(augment?.subtitle, '')
   assert.equal(augment?.description, 'Gain adaptive force.')
   assert.equal(augment?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/augment/1205')
-  assert.doesNotMatch(item?.description || '', /<[^>]+>|&amp;/)
-  assert.doesNotMatch(perk?.description || '', /<[^>]+>|&amp;/)
-  assert.doesNotMatch(augment?.description || '', /<[^>]+>|font/i)
+  assert.equal(spell?.kind, 'spell')
+  assert.equal(spell?.id, 4)
+  assert.equal(spell?.name, 'Flash')
+  assert.equal(spell?.subtitle, '')
+  assert.equal(spell?.description, 'Teleports your champion\na short distance & resets.')
+  assert.equal(spell?.iconUrl, './game-assets/summoner-spells/4.png')
+  assert.doesNotMatch(item?.description || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(item?.sections?.map(section => `${section.label || ''} ${section.text}`).join('\n') || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(perk?.description || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(spell?.description || '', RAW_TOOLTIP_PATTERN)
 })
 
 test('tooltip details fall back to readable names and no-detail copy when metadata is missing', () => {
@@ -486,10 +559,18 @@ test('tooltip details fall back to readable names and no-detail copy when metada
     description: '暂无详细说明',
     iconUrl: getAssetPlaceholderUrl()
   })
+  assert.deepEqual(getSummonerSpellTooltipDetails(4), {
+    kind: 'spell',
+    id: 4,
+    name: '召唤师技能 4',
+    subtitle: '召唤师技能 4',
+    description: '暂无详细说明',
+    iconUrl: 'http://127.0.0.1:8080/api/v1/asset/spell/4'
+  })
   assert.equal(getAugmentTooltipDetails(0), null)
 })
 
-test('local game asset metadata contains tooltip text for common items, perks, and augments', () => {
+test('local game asset metadata contains tooltip text for common items, perks, augments, and summoner spells', () => {
   const metadata = JSON.parse(readFileSync(new URL('../../../public/game-assets/metadata.json', import.meta.url), 'utf8'))
 
   assert.equal(typeof metadata.items['3031']?.name, 'string')
@@ -499,6 +580,9 @@ test('local game asset metadata contains tooltip text for common items, perks, a
   assert.equal(typeof metadata.perks['8005']?.name, 'string')
   assert.equal(typeof metadata.perks['8100']?.name, 'string')
   assert.equal(typeof metadata.perks['8135']?.name, 'string')
+  assert.equal(typeof metadata.summonerSpells?.['4']?.name, 'string')
+  assert.equal(typeof metadata.summonerSpells?.['4']?.description, 'string')
+  assert.equal(typeof metadata.summonerSpells?.['4']?.icon, 'string')
   assert.ok(Object.keys(metadata.augments || {}).length > 0)
   assert.ok(Object.values(metadata.augments || {}).some(entry =>
     typeof entry.description === 'string' && entry.description.length > 0
@@ -524,30 +608,48 @@ test('local game asset metadata resolves screenshot item, augment, and perk tool
   assert.equal(typeof metadata.items['6610']?.gold?.total, 'number')
   assert.ok(metadata.items['6610'].description.trim())
   assert.equal(item?.name, metadata.items['6610'].name)
-  assert.match(item?.subtitle || '', /^售价\s+\d+/)
-  assert.doesNotMatch(item?.subtitle || '', /装备 6610/)
+  assert.match(item?.priceText || '', /^\d+\s+G/)
+  assert.doesNotMatch(item?.priceText || '', /装备 6610/)
   assert.notEqual(item?.name, itemFallback?.name)
   assert.notEqual(item?.description, itemFallback?.description)
   assert.ok(item?.description.trim())
   assert.notEqual(item?.description, '暂无详细说明')
-  assert.doesNotMatch(item?.description || '', /<[^>]+>/)
+  assert.doesNotMatch(item?.description || '', RAW_TOOLTIP_PATTERN)
 
   assert.equal(typeof metadata.augments['2005']?.name, 'string')
   assert.equal(typeof metadata.augments['2005']?.description, 'string')
   assert.ok(metadata.augments['2005'].description.trim())
   assert.equal(augment?.name, metadata.augments['2005'].name)
-  assert.notEqual(augment?.subtitle, '海克斯强化 2005')
+  assert.notEqual(augment?.rarityLabel || augment?.subtitle, '海克斯强化 2005')
   assert.notEqual(augment?.name, augmentFallback?.name)
   assert.notEqual(augment?.description, augmentFallback?.description)
   assert.ok(augment?.description.trim())
   assert.notEqual(augment?.description, '暂无详细说明')
-  assert.doesNotMatch(augment?.description || '', /<[^>]+>/)
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
 
   assert.equal(typeof metadata.perks['8005']?.name, 'string')
   assert.equal(perk?.name, metadata.perks['8005'].name)
   assert.notEqual(perk?.description, perkFallback?.description)
   assert.ok(perk?.description.trim())
+  assert.doesNotMatch(perk?.description || '', RAW_TOOLTIP_PATTERN)
   assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
+})
+
+test('local game asset metadata resolves screenshot augment with full clean description', () => {
+  const metadata = JSON.parse(readFileSync(new URL('../../../public/game-assets/metadata.json', import.meta.url), 'utf8'))
+
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest(metadata)
+
+  const augment = getAugmentTooltipDetails(1346)
+
+  assert.equal(augment?.name, '吸血习性')
+  assert.equal(augment?.subtitle, '')
+  assert.equal(augment?.rarityLabel, '黄金阶')
+  assert.equal(augment?.rarityTone, 'gold')
+  assert.match(augment?.description || '', /全能吸血/)
+  assert.notEqual(augment?.description, '暂无详细说明')
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
 })
 
 test('tooltip text cleanup keeps useful item and augment text after game HTML tags are removed', () => {
@@ -575,11 +677,18 @@ test('tooltip text cleanup keeps useful item and augment text after game HTML ta
   const augment = getAugmentTooltipDetails(2005)
 
   assert.equal(item?.description, '40 Attack Damage\nPassive keep text\nActive use text\nRule text')
+  assert.deepEqual(item?.statLines, ['40 Attack Damage'])
+  assert.equal(item?.sections?.[0]?.label, 'Passive')
+  assert.equal(item?.sections?.[0]?.tone, 'passive')
+  assert.equal(item?.sections?.[0]?.text, 'keep text')
+  assert.equal(item?.sections?.[1]?.label, 'Active')
+  assert.equal(item?.sections?.[1]?.tone, 'active')
+  assert.equal(item?.sections?.[1]?.text, 'use text')
   assert.equal(augment?.description, 'Inferno\nUseful rule text')
   assert.ok(item?.description.trim())
   assert.ok(augment?.description.trim())
-  assert.doesNotMatch(item?.description || '', /<[^>]+>/)
-  assert.doesNotMatch(augment?.description || '', /<[^>]+>/)
+  assert.doesNotMatch(item?.description || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
 })
 
 test('tooltip text cleanup preserves client-style line breaks from Riot markup', () => {
@@ -603,11 +712,235 @@ test('tooltip text cleanup preserves client-style line breaks from Riot markup',
     item?.description,
     '40攻击力\n400生命值\n10技能急速\n光盾打击\n你对一个英雄打出的第一次攻击会暴击并回复生命值。'
   )
-  assert.equal(item?.subtitle, '售价 3100')
+  assert.equal(item?.priceText, '3100 G')
+  assert.deepEqual(item?.statLines, ['40攻击力', '400生命值', '10技能急速'])
+  assert.equal(item?.sections?.[0]?.label, '光盾打击')
+  assert.equal(item?.sections?.[0]?.text, '你对一个英雄打出的第一次攻击会暴击并回复生命值。')
   assert.equal((item?.description.match(/\n/g) || []).length, 4)
 })
 
-test('LCU metadata overlay overrides local item and augment metadata by id', async () => {
+test('item tooltip details build client-style price, recipe, stats, passive, and active sections', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetManifestForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      1028: 'items/1028.png',
+      1031: 'items/1031.png'
+    }
+  })
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      3143: {
+        id: 3143,
+        name: '兰顿之兆',
+        description: '<mainText><stats><attention>350</attention>生命值<br><attention>75</attention>护甲</stats><br><br><active>主动 - 谦卑：</active><br>使附近敌人<status>减速</status>。<br><br><passive>坚如磐石：</passive><br>减少来自暴击的伤害。{{ should_not_leak }} @TotalArmor@ %i:scaleArmor%</mainText>',
+        plaintext: 'Old short text should not win.',
+        gold: { total: 2700, base: 800 },
+        from: [1028, 1031],
+        stats: {
+          FlatHPPoolMod: 350,
+          FlatArmorMod: 75
+        }
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(3143)
+
+  assert.equal(item?.name, '兰顿之兆')
+  assert.equal(item?.priceText, '2700 G (合成 800 G)')
+  assert.deepEqual(item?.recipeIconUrls, ['./game-assets/items/1028.png', './game-assets/items/1031.png'])
+  assert.deepEqual(item?.statLines, ['350 生命值', '75 护甲'])
+  assert.equal(item?.sections?.[0]?.tone, 'active')
+  assert.equal(item?.sections?.[0]?.label, '主动 - 谦卑：')
+  assert.equal(item?.sections?.[0]?.text, '使附近敌人减速。')
+  assert.equal(item?.sections?.[1]?.tone, 'passive')
+  assert.equal(item?.sections?.[1]?.label, '坚如磐石：')
+  assert.equal(item?.sections?.[1]?.text, '减少来自暴击的伤害。')
+  assert.doesNotMatch(item?.description || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(item?.sections?.map(section => `${section.label || ''}\n${section.text}`).join('\n') || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('augment tooltip chooses complete clean text over short descriptions and localizes rarity', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    augments: {
+      2005: {
+        id: 2005,
+        name: '扳机炼狱',
+        description: '短句。',
+        tooltip: '<mainText><attention>每回合</attention>，你要么变大，要么获得额外属性。<br><rules>这个效果会持续到战斗结束。</rules></mainText>',
+        shortDesc: '更短。',
+        rarity: 'kGold'
+      }
+    }
+  })
+
+  const augment = getAugmentTooltipDetails(2005)
+
+  assert.equal(augment?.name, '扳机炼狱')
+  assert.equal(augment?.subtitle, '')
+  assert.equal(augment?.rarityLabel, '黄金阶')
+  assert.equal(augment?.rarityTone, 'gold')
+  assert.equal(augment?.description, '每回合，你要么变大，要么获得额外属性。\n这个效果会持续到战斗结束。')
+  assert.notEqual(augment?.description, '短句。')
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('augment tooltip chooses complete desc or tooltip text and never duplicates rarity in subtitle', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    augments: {
+      1346: {
+        id: 1346,
+        name: '吸血习性',
+        description: '短句。',
+        desc: '',
+        tooltipTra: '<mainText>获得<lifeSteal>15%全能吸血</lifeSteal>。<br><rules>参与击败会使这个效果提升，持续到战斗结束。</rules>{{ raw }} @Value@ %i:bad%</mainText>',
+        rarity: 'kGold'
+      }
+    }
+  })
+
+  const augment = getAugmentTooltipDetails(1346)
+
+  assert.equal(augment?.name, '吸血习性')
+  assert.equal(augment?.subtitle, '')
+  assert.equal(augment?.rarityLabel, '黄金阶')
+  assert.equal(augment?.rarityTone, 'gold')
+  assert.equal(augment?.description, '获得15%全能吸血。\n参与击败会使这个效果提升，持续到战斗结束。')
+  assert.notEqual(augment?.description, '短句。')
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('augment tooltip prefers clean GTIMG tooltip over raw template-heavy desc', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    augments: {
+      2016: {
+        id: 2016,
+        name: '注魔',
+        description: '',
+        tooltip: '攻击特效消耗法力值以造成魔法伤害，这个伤害可以暴击。',
+        desc: '<OnHit>%i:OnHit%攻击特效</OnHit>消耗<scaleMana>@Calc_Mana_Cost@法力值</scaleMana>以造成<magicDamage>@Calc_Damage@魔法伤害</magicDamage>，这个伤害可以暴击。',
+        rarity: 'kSilver'
+      }
+    }
+  })
+
+  const augment = getAugmentTooltipDetails(2016)
+
+  assert.equal(augment?.description, '攻击特效消耗法力值以造成魔法伤害，这个伤害可以暴击。')
+  assert.equal(augment?.rarityLabel, '银色')
+  assert.equal(augment?.rarityTone, 'silver')
+  assert.notEqual(augment?.description, '暂无详细说明')
+  assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
+  assert.doesNotMatch(augment?.description || '', /@Calc_|%i:|\{\{|\}\}/)
+})
+
+test('item tooltip title omits metadata id suffix when item name is known', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      6333: {
+        id: 6333,
+        name: '死亡之舞',
+        description: '<mainText><stats><attention>60</attention>攻击力</stats></mainText>'
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(6333)
+
+  assert.equal(item?.name, '死亡之舞')
+  assert.doesNotMatch(item?.name || '', /\(6333\)/)
+})
+
+test('item tooltip sections only split on structural passive markers', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      6333: {
+        id: 6333,
+        name: '死亡之舞',
+        description: '<mainText><stats><attention>60</attention>攻击力<br><attention>50</attention>护甲</stats><br><br><passive>无视痛苦</passive><br>所受的一部分伤害会以流血形式在3秒里持续扣除。<br><br><passive>蔑视</passive><br>如果一名在过去3秒内曾被你造成过伤害的英雄阵亡，会净化<passive>无视痛苦</passive>的剩余伤害，并在2秒里持续为你回复<healing>生命值</healing>。</mainText>'
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(6333)
+
+  assert.deepEqual(item?.statLines, ['60攻击力', '50护甲'])
+  assert.equal(item?.sections?.length, 2)
+  assert.equal(item?.sections?.[0]?.label, '无视痛苦')
+  assert.equal(item?.sections?.[0]?.text, '所受的一部分伤害会以流血形式在3秒里持续扣除。')
+  assert.equal(item?.sections?.[1]?.label, '蔑视')
+  assert.equal(item?.sections?.[1]?.text, '如果一名在过去3秒内曾被你造成过伤害的英雄阵亡，会净化无视痛苦的剩余伤害，并在2秒里持续为你回复生命值。')
+  assert.doesNotMatch(item?.sections?.map(section => `${section.label || ''}\n${section.text}`).join('\n') || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('item tooltip sections do not split when passive names appear inside active body', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      3748: {
+        id: 3748,
+        name: '巨型九头蛇',
+        description: '<mainText><stats><attention>40</attention>攻击力<br><attention>600</attention>生命值</stats><br><br><passive>顺劈</passive><br>攻击附带<physicalDamage>物理伤害</physicalDamage>并对目标身后的敌人们造成物理伤害。<br><active>刚斩</active><br>强化你的下一次<passive>顺劈</passive>，使其造成<physicalDamage>额外物理伤害</physicalDamage> <OnHit>攻击特效</OnHit>并对目标身后的敌人们造成<physicalDamage>额外物理伤害</physicalDamage>。</mainText>'
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(3748)
+
+  assert.equal(item?.name, '巨型九头蛇')
+  assert.equal(item?.sections?.length, 2)
+  assert.equal(item?.sections?.[0]?.label, '顺劈')
+  assert.equal(item?.sections?.[1]?.label, '刚斩')
+  assert.equal(item?.sections?.[1]?.tone, 'active')
+  assert.equal(item?.sections?.[1]?.text, '强化你的下一次顺劈，使其造成额外物理伤害 攻击特效并对目标身后的敌人们造成额外物理伤害。')
+  assert.doesNotMatch(item?.sections?.map(section => `${section.label || ''}\n${section.text}`).join('\n') || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('summoner spell tooltip keeps real names while rejecting raw template-heavy tooltip text', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    summonerSpells: {
+      4: {
+        id: 4,
+        name: '闪现',
+        description: '<mainText>使你朝着你的指针位置瞬间传送一小段距离。</mainText>',
+        tooltip: '向前位移 {{ range }} 码，@Cooldown@ %i:spell_flash%',
+        plaintext: '位移。'
+      }
+    }
+  })
+
+  const spell = getSummonerSpellTooltipDetails(4)
+
+  assert.equal(spell?.name, '闪现')
+  assert.equal(spell?.description, '使你朝着你的指针位置瞬间传送一小段距离。')
+  assert.doesNotMatch(spell?.description || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('LCU metadata overlay overrides local item, augment, and summoner spell metadata by id', async () => {
   resetGameAssetResolverForTest()
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string) => ({
@@ -621,7 +954,9 @@ test('LCU metadata overlay overrides local item and augment metadata by id', asy
               id: 6610,
               name: 'Static Sundered Sky',
               description: 'Old DDragon text.',
-              gold: { total: 3000 }
+              gold: { total: 3000, base: 700 },
+              from: [1036],
+              stats: { FlatPhysicalDamageMod: 40 }
             }
           },
           augments: {
@@ -629,6 +964,14 @@ test('LCU metadata overlay overrides local item and augment metadata by id', asy
               id: 2005,
               name: 'Static Triggered Inferno',
               description: 'Old augment text.'
+            }
+          },
+          summonerSpells: {
+            4: {
+              id: 4,
+              name: 'Static Flash',
+              description: 'Old spell text.',
+              icon: 'summoner-spells/4.png'
             }
           }
         }
@@ -640,7 +983,8 @@ test('LCU metadata overlay overrides local item and augment metadata by id', asy
               id: 6610,
               name: '焚天',
               description: '<stats>40攻击力<br>400生命值</stats>',
-              gold: { total: 3100, base: 900, sell: 2170 }
+              gold: { total: 3100, sell: 2170 },
+              stats: { FlatHPPoolMod: 400 }
             }
           },
           augments: {
@@ -650,6 +994,15 @@ test('LCU metadata overlay overrides local item and augment metadata by id', asy
               description: '每回合，你要么变大。',
               rarity: 'gold'
             }
+          },
+          summonerSpells: {
+            4: {
+              id: 4,
+              name: '闪现',
+              description: '<mainText>朝着目标区域瞬移一小段距离。</mainText>',
+              tooltip: '快速位移。',
+              icon: 'summoner-spells/4.png'
+            }
           }
         }
   })) as unknown as typeof fetch
@@ -657,16 +1010,26 @@ test('LCU metadata overlay overrides local item and augment metadata by id', asy
   try {
     await loadGameAssetMetadata('http://asset.test/local-metadata.json')
     assert.equal(getItemTooltipDetails(6610)?.name, 'Static Sundered Sky')
-    assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3000')
+    assert.equal(getItemTooltipDetails(6610)?.priceText, '3000 G (合成 700 G)')
+    assert.equal(getSummonerSpellTooltipDetails(4)?.name, 'Static Flash')
 
     await loadLcuGameAssetMetadataOverlay('http://asset.test/lcu-metadata')
 
     assert.equal(getItemTooltipDetails(6610)?.name, '焚天')
-    assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3100')
+    assert.equal(getItemTooltipDetails(6610)?.priceText, '3100 G (合成 700 G)')
+    assert.deepEqual(getItemTooltipDetails(6610)?.statLines, ['400 生命值'])
     assert.equal(getItemTooltipDetails(6610)?.description, '40攻击力\n400生命值')
     assert.equal(getAugmentTooltipDetails(2005)?.name, '扳机炼狱')
-    assert.notEqual(getAugmentTooltipDetails(2005)?.subtitle, '海克斯强化 2005')
+    assert.equal(getAugmentTooltipDetails(2005)?.rarityLabel, '黄金阶')
+    assert.equal(getAugmentTooltipDetails(2005)?.rarityTone, 'gold')
     assert.equal(getAugmentTooltipDetails(2005)?.description, '每回合，你要么变大。')
+    assert.equal(getSummonerSpellTooltipDetails(4)?.name, '闪现')
+    assert.equal(getSummonerSpellTooltipDetails(4)?.description, '朝着目标区域瞬移一小段距离。')
+
+    await loadGameAssetMetadata('http://asset.test/local-metadata.json')
+    assert.equal(getItemTooltipDetails(6610)?.name, '焚天')
+    assert.equal(getItemTooltipDetails(6610)?.description, '40攻击力\n400生命值')
+    assert.equal(getSummonerSpellTooltipDetails(4)?.name, '闪现')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -708,7 +1071,7 @@ test('local metadata remains available when LCU metadata overlay cannot be loade
     await loadLcuGameAssetMetadataOverlay('http://asset.test/lcu-metadata')
 
     assert.equal(getItemTooltipDetails(6610)?.name, '焚天')
-    assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3100')
+    assert.equal(getItemTooltipDetails(6610)?.priceText, '3100 G')
     assert.equal(getAugmentTooltipDetails(2005)?.name, '扳机炼狱')
     assert.equal(getAugmentTooltipDetails(2005)?.description, 'Static augment text.')
   } finally {
@@ -733,10 +1096,40 @@ test('local game asset manifest stays selective while including local perk mappi
   assert.ok(existsSync(new URL('../../../public/game-assets/perks/8000.png', import.meta.url)))
 })
 
-test('game asset sync script hydrates item, perk, augment, and metadata selectively', () => {
+test('bundled augment metadata includes GTIMG Kiwi descriptions for known missing ids', () => {
+  resetGameAssetResolverForTest()
+  const bundledMetadata = JSON.parse(readFileSync(new URL('../../../public/game-assets/metadata.json', import.meta.url), 'utf8'))
+  const targetIds = ['1032', '1320', '1391', '2016']
+
+  for (const id of targetIds) {
+    const entry = bundledMetadata.augments?.[id]
+    const candidates = [
+      entry?.description,
+      entry?.tooltip,
+      entry?.desc,
+      entry?.shortDesc,
+      entry?.longDesc,
+      entry?.descriptionTra,
+      entry?.tooltipTra,
+      entry?.tooltipTRA
+    ].filter(value => typeof value === 'string' && value.trim())
+
+    assert.ok(entry, `missing augment metadata ${id}`)
+    assert.ok(candidates.length > 0, `missing augment description candidate ${id}`)
+  }
+
+  setGameAssetMetadataForTest(bundledMetadata)
+  const juiced = getAugmentTooltipDetails(2016)
+  assert.notEqual(juiced?.description, '暂无详细说明')
+  assert.match(juiced?.description || '', /攻击特效|魔法伤害/)
+  assert.doesNotMatch(juiced?.description || '', RAW_TOOLTIP_PATTERN)
+})
+
+test('game asset sync script hydrates item, summoner spell, perk, augment, and metadata selectively', () => {
   const source = readFileSync(new URL('../../../scripts/sync-game-assets.mjs', import.meta.url), 'utf8')
 
   assert.match(source, /--all-items/)
+  assert.match(source, /--all-spells/)
   assert.match(source, /--all-item-metadata/)
   assert.match(source, /--all-perks/)
   assert.match(source, /--all-augments/)
@@ -748,6 +1141,8 @@ test('game asset sync script hydrates item, perk, augment, and metadata selectiv
   assert.match(source, /writeMetadata/)
   assert.match(source, /downloadAllItems/)
   assert.match(source, /downloadAllItemMetadata/)
+  assert.match(source, /downloadAllSummonerSpells/)
+  assert.match(source, /hydrateSummonerSpellMetadata/)
   assert.match(source, /runesReforged\.json/)
   assert.match(source, /downloadAllPerks/)
   assert.match(source, /downloadAllAugments/)
@@ -759,8 +1154,22 @@ test('game asset sync script hydrates item, perk, augment, and metadata selectiv
   assert.match(source, /cherry-augments\.json/)
   assert.match(source, /manifest\.perks/)
   assert.match(source, /metadata\.items/)
+  assert.match(source, /metadata\.summonerSpells/)
   assert.match(source, /metadata\.perks/)
   assert.match(source, /metadata\.augments/)
+  assert.match(source, /resolveDDragonVersion/)
+  assert.match(source, /ddragon\.leagueoflegends\.com\/api\/versions\.json/)
+  assert.doesNotMatch(source, /const version = args\.version \|\| '15\.24\.1'/)
+  assert.match(source, /itemMetadata\.from/)
+  assert.match(source, /itemMetadata\.into/)
+  assert.match(source, /itemMetadata\.stats/)
+  assert.match(source, /tooltipTRA/)
+  assert.match(source, /descriptionTRA/)
+  assert.match(source, /shortDesc/)
+  assert.match(source, /longDesc/)
+  assert.match(source, /--kiwi-augment-source/)
+  assert.match(source, /kiwi_augments\.json/)
+  assert.match(source, /mergeKiwiAugmentMetadata/)
   assert.match(source, /ddragonImageCdn\}\/\$\{icon\}/)
   assert.doesNotMatch(source, /dragontail/i)
 })

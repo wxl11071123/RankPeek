@@ -1,5 +1,3 @@
-const DATA_DRAGON_VERSION = '15.24.1'
-const DATA_DRAGON_CDN = `https://ddragon.leagueoflegends.com/cdn/${DATA_DRAGON_VERSION}`
 const COMMUNITY_DRAGON_RAW = 'https://raw.communitydragon.org/latest'
 const COMMUNITY_DRAGON_GAME_DATA = `${COMMUNITY_DRAGON_RAW}/plugins/rcp-be-lol-game-data/global/default/v1`
 const COMMUNITY_DRAGON_MINIMAP_ICONS = `${COMMUNITY_DRAGON_RAW}/game/assets/ux/minimap/icons`
@@ -34,6 +32,7 @@ export type ObjectiveIconKind =
   | 'unknownDragon'
 export type GameAssetFallbackState = 'empty' | 'failed'
 type GameAssetManifestSection = Record<string, string>
+type GameAssetStats = Record<string, number>
 type LocalAssetCacheResolver = (kind: GameAssetKind, id: number) => string | null | undefined
 
 const VERIFIED_OBJECTIVE_MINIMAP_FILES: Partial<Record<ObjectiveIconKind, string>> = {
@@ -75,16 +74,25 @@ export interface GameAssetManifest {
 export interface GameAssetMetadataEntry {
   id: number
   name?: string
+  nameTRA?: string
   description?: string
   tooltip?: string
   plaintext?: string
+  desc?: string
   shortDesc?: string
   longDesc?: string
+  descriptionTra?: string
+  descriptionTRA?: string
+  tooltipTra?: string
+  tooltipTRA?: string
   rarity?: string
   icon?: string
   gold?: GameAssetGold
   total?: number
   price?: number | GameAssetGold
+  from?: number[]
+  into?: number[]
+  stats?: GameAssetStats
 }
 
 export interface GameAssetGold {
@@ -97,8 +105,25 @@ export interface GameAssetMetadata {
   version: string
   locale: string
   items: Record<string, GameAssetMetadataEntry>
+  summonerSpells: Record<string, GameAssetMetadataEntry>
   perks: Record<string, GameAssetMetadataEntry>
   augments: Record<string, GameAssetMetadataEntry>
+}
+
+export type GameAssetTooltipSection = {
+  label?: string
+  text: string
+  tone?: 'stat' | 'passive' | 'active' | 'body'
+}
+
+type RiotItemSectionTone = 'passive' | 'active' | 'rules'
+type AugmentRarityTone = 'silver' | 'gold' | 'prismatic' | 'bronze' | 'default'
+
+type RiotItemSectionMarker = {
+  tone: RiotItemSectionTone
+  label: string
+  start: number
+  end: number
 }
 
 export interface GameAssetTooltipDetails {
@@ -108,6 +133,12 @@ export interface GameAssetTooltipDetails {
   subtitle: string
   description: string
   iconUrl: string
+  priceText?: string
+  recipeIconUrls?: string[]
+  statLines?: string[]
+  sections?: GameAssetTooltipSection[]
+  rarityLabel?: string
+  rarityTone?: string
 }
 
 export interface ItemIconSlot {
@@ -133,11 +164,14 @@ const EMPTY_METADATA: GameAssetMetadata = {
   version: 'seed',
   locale: 'zh_CN',
   items: {},
+  summonerSpells: {},
   perks: {},
   augments: {}
 }
 
 let manifest: GameAssetManifest = normalizeManifest(EMPTY_MANIFEST)
+let bundledMetadata: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
+let metadataOverlay: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 let metadata: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 let localAssetCacheResolver: LocalAssetCacheResolver | null = null
 const failedAssetUrls = new Set<string>()
@@ -183,6 +217,19 @@ export function getAugmentAssetDetails(augmentId?: number | null): GameAssetMeta
   return getAssetDetails('augment', augmentId)
 }
 
+export function getAugmentRarityClass(value: unknown): string {
+  return `augment-rarity-${getAugmentRarityTone(value)}`
+}
+
+export function getSummonerSpellAssetDetails(spellId?: number | null): GameAssetMetadataEntry | null {
+  const id = normalizeAssetId(spellId)
+  if (id === null) {
+    return null
+  }
+
+  return metadata.summonerSpells[String(id)] || null
+}
+
 export function getItemTooltipDetails(itemId?: number | null): GameAssetTooltipDetails | null {
   return getAssetTooltipDetails('item', itemId, getItemIconUrl)
 }
@@ -202,12 +249,14 @@ export function getSummonerSpellTooltipDetails(spellId?: number | null): GameAss
   }
 
   const label = getTooltipKindLabel('spell')
+  const details = getSummonerSpellAssetDetails(id)
+  const fallbackName = `${label} ${id}`
   return {
     kind: 'spell',
     id,
-    name: `${label} ${id}`,
-    subtitle: `${label} ${id}`,
-    description: '暂无详细说明',
+    name: normalizeRiotTooltipText(details?.name) || fallbackName,
+    subtitle: details ? '' : fallbackName,
+    description: getTooltipDescription(details, 'spell'),
     iconUrl: getSummonerSpellIconUrl(id)
   }
 }
@@ -324,6 +373,8 @@ export function markAssetLoadFailed(event: Event): void {
 
 export function resetGameAssetResolverForTest(): void {
   manifest = normalizeManifest(EMPTY_MANIFEST)
+  bundledMetadata = normalizeMetadata(EMPTY_METADATA)
+  metadataOverlay = normalizeMetadata(EMPTY_METADATA)
   metadata = normalizeMetadata(EMPTY_METADATA)
   localAssetCacheResolver = null
   failedAssetUrls.clear()
@@ -351,10 +402,11 @@ function resolveAssetUrl(kind: GameAssetKind, rawId?: number | null): string {
 }
 
 function setGameAssetMetadata(nextMetadata: Partial<GameAssetMetadata>): void {
-  metadata = normalizeMetadata({
+  bundledMetadata = normalizeMetadata({
     ...EMPTY_METADATA,
     ...nextMetadata
   })
+  rebuildGameAssetMetadata()
 }
 
 function mergeGameAssetMetadataOverlay(nextMetadata: Partial<GameAssetMetadata>): void {
@@ -363,13 +415,12 @@ function mergeGameAssetMetadataOverlay(nextMetadata: Partial<GameAssetMetadata>)
     ...nextMetadata
   })
 
-  metadata = {
-    version: nextMetadata.version || metadata.version,
-    locale: nextMetadata.locale || metadata.locale,
-    items: mergeMetadataSection(metadata.items, overlay.items),
-    perks: mergeMetadataSection(metadata.perks, overlay.perks),
-    augments: mergeMetadataSection(metadata.augments, overlay.augments)
-  }
+  metadataOverlay = mergeMetadata(metadataOverlay, overlay)
+  rebuildGameAssetMetadata()
+}
+
+function rebuildGameAssetMetadata(): void {
+  metadata = mergeMetadata(bundledMetadata, metadataOverlay)
 }
 
 function getAssetDetails(kind: 'item' | 'perk' | 'augment', rawId?: number | null): GameAssetMetadataEntry | null {
@@ -395,28 +446,49 @@ function getAssetTooltipDetails(
   const label = getTooltipKindLabel(kind)
   const details = getAssetDetails(kind, id)
   const fallbackName = `${label} ${id}`
-  return {
+  const description = getTooltipDescription(details, kind)
+  const tooltipDetails: GameAssetTooltipDetails = {
     kind,
     id,
-    name: cleanTooltipText(details?.name) || fallbackName,
+    name: getTooltipTitle(details, fallbackName),
     subtitle: getTooltipSubtitle(kind, details),
-    description: getTooltipDescription(details),
+    description,
     iconUrl: getIconUrl(id)
   }
+
+  if (kind === 'item' && details) {
+    const priceText = formatItemPriceText(details)
+    const recipeIconUrls = getItemRecipeIconUrls(details)
+    const statLines = getItemStatLines(details)
+    const sections = getItemTooltipSections(details)
+    if (priceText) {
+      tooltipDetails.priceText = priceText
+    }
+    if (recipeIconUrls.length) {
+      tooltipDetails.recipeIconUrls = recipeIconUrls
+    }
+    if (statLines.length) {
+      tooltipDetails.statLines = statLines
+    }
+    if (sections.length) {
+      tooltipDetails.sections = sections
+    }
+  }
+
+  if (kind === 'augment' && details) {
+    const rarity = getAugmentRarityDetails(details.rarity)
+    if (rarity.label) {
+      tooltipDetails.rarityLabel = rarity.label
+      tooltipDetails.rarityTone = rarity.tone
+    }
+  }
+
+  return tooltipDetails
 }
 
 function getTooltipSubtitle(kind: 'item' | 'perk' | 'augment', details: GameAssetMetadataEntry | null): string {
   if (!details) {
     return ''
-  }
-
-  if (kind === 'item') {
-    const totalPrice = getItemTotalPrice(details)
-    return totalPrice ? `售价 ${totalPrice}` : ''
-  }
-
-  if (kind === 'augment') {
-    return formatAugmentRarity(details.rarity)
   }
 
   return ''
@@ -446,20 +518,103 @@ function getTooltipKindLabel(kind: GameAssetTooltipDetails['kind']): string {
   }
 }
 
-function getTooltipDescription(details: GameAssetMetadataEntry | null): string {
+function getTooltipTitle(details: GameAssetMetadataEntry | null, fallbackName: string): string {
+  const name = normalizeRiotTooltipText(details?.name) || normalizeRiotTooltipText(details?.nameTRA) || fallbackName
+  return name
+}
+
+function getTooltipDescription(details: GameAssetMetadataEntry | null, kind: GameAssetTooltipDetails['kind']): string {
   if (!details) {
     return '暂无详细说明'
   }
 
-  const rawDescription = [
-    details.description,
-    details.tooltip,
-    details.shortDesc,
-    details.longDesc,
-    details.plaintext
-  ].find(value => cleanTooltipText(value))
+  return pickBestTooltipText(details, kind).text || '暂无详细说明'
+}
 
-  return cleanTooltipText(rawDescription) || '暂无详细说明'
+function pickBestTooltipText(
+  details: GameAssetMetadataEntry,
+  kind: GameAssetTooltipDetails['kind']
+): { text: string, raw: string, key: string } {
+  const candidates = getTooltipTextCandidates(details, kind)
+    .map(candidate => {
+      const text = normalizeRiotTooltipText(candidate.value)
+      return {
+        ...candidate,
+        text,
+        score: scoreTooltipTextCandidate(candidate.key, candidate.value, text, kind)
+      }
+    })
+    .filter(candidate => candidate.text && !hasRawTooltipTrace(candidate.text))
+    .sort((left, right) => right.score - left.score)
+
+  const best = candidates[0]
+  return best ? { text: best.text, raw: best.value, key: best.key } : { text: '', raw: '', key: '' }
+}
+
+function getTooltipTextCandidates(
+  details: GameAssetMetadataEntry,
+  kind: GameAssetTooltipDetails['kind']
+): Array<{ key: string, value: string }> {
+  const keys = kind === 'augment'
+    ? [
+        'tooltipTRA',
+        'tooltipTra',
+        'tooltip',
+        'descriptionTRA',
+        'descriptionTra',
+        'description',
+        'desc',
+        'longDesc',
+        'shortDesc',
+        'plaintext'
+      ] as const
+    : [
+        'description',
+        'tooltip',
+        'desc',
+        'longDesc',
+        'shortDesc',
+        'plaintext',
+        'descriptionTRA',
+        'descriptionTra',
+        'tooltipTRA',
+        'tooltipTra'
+      ] as const
+
+  return keys.flatMap(key => {
+    const value = details[key]
+    return typeof value === 'string' && value.trim() ? [{ key, value }] : []
+  })
+}
+
+function scoreTooltipTextCandidate(
+  key: string,
+  rawValue: string,
+  text: string,
+  kind: GameAssetTooltipDetails['kind']
+): number {
+  if (!text) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  const fieldWeights: Record<string, number> = {
+    tooltipTRA: kind === 'augment' ? 45 : 35,
+    tooltipTra: kind === 'augment' ? 45 : 35,
+    tooltip: kind === 'augment' ? 44 : 30,
+    desc: kind === 'augment' ? 32 : 34,
+    longDesc: kind === 'perk' ? 25 : 32,
+    descriptionTRA: 28,
+    descriptionTra: 28,
+    description: kind === 'spell' ? 36 : 24,
+    shortDesc: kind === 'perk' ? 50 : kind === 'augment' ? 4 : 18,
+    plaintext: -16
+  }
+  const markerBonus = kind === 'item' && /<(?:stats|passive|active|rules)\b/i.test(rawValue) ? 35 : 0
+  const augmentCompletenessBonus = kind === 'augment' ? Math.min(text.length, 140) : Math.min(text.length, 90)
+  const rawTracePenalty = hasUnresolvedTemplateTrace(rawValue) ? 28 : 0
+  const shortPenalty = kind === 'augment' && text.length < 12 ? 20 : 0
+
+  return (fieldWeights[key] || 0) + markerBonus + augmentCompletenessBonus - rawTracePenalty - shortPenalty
 }
 
 function getItemTotalPrice(details: GameAssetMetadataEntry): number | null {
@@ -472,39 +627,226 @@ function getItemTotalPrice(details: GameAssetMetadataEntry): number | null {
   return priceCandidates.map(normalizePositiveNumber).find(value => value !== null) || null
 }
 
-function formatAugmentRarity(value: unknown): string {
-  if (typeof value !== 'string') {
+function formatItemPriceText(details: GameAssetMetadataEntry): string {
+  const totalPrice = getItemTotalPrice(details)
+  if (totalPrice === null) {
     return ''
+  }
+
+  const basePrice = getItemBasePrice(details)
+  return basePrice === null ? `${totalPrice} G` : `${totalPrice} G (合成 ${basePrice} G)`
+}
+
+function getItemBasePrice(details: GameAssetMetadataEntry): number | null {
+  const priceCandidates = [
+    details.gold?.base,
+    typeof details.price === 'number' ? null : details.price?.base
+  ]
+
+  return priceCandidates.map(normalizePositiveNumber).find(value => value !== null) || null
+}
+
+function getItemRecipeIconUrls(details: GameAssetMetadataEntry): string[] {
+  return (details.from || [])
+    .map(itemId => getItemIconUrl(itemId))
+    .filter(Boolean)
+}
+
+function getItemStatLines(details: GameAssetMetadataEntry): string[] {
+  const stats = getItemStatLinesFromStats(details.stats)
+  return stats.length ? stats : getItemStatLinesFromTooltip(details)
+}
+
+function getItemStatLinesFromStats(stats: GameAssetStats | undefined): string[] {
+  if (!stats) {
+    return []
+  }
+
+  const statOrder = [
+    'FlatHPPoolMod',
+    'FlatMPPoolMod',
+    'FlatPhysicalDamageMod',
+    'FlatMagicDamageMod',
+    'FlatArmorMod',
+    'FlatSpellBlockMod',
+    'PercentAttackSpeedMod',
+    'FlatCritChanceMod',
+    'FlatMovementSpeedMod'
+  ]
+  const lines = statOrder
+    .map(key => formatItemStatLine(key, stats[key]))
+    .filter(Boolean)
+
+  const orderedKeys = new Set(statOrder)
+  const extraLines = Object.entries(stats)
+    .filter(([key]) => !orderedKeys.has(key))
+    .map(([key, value]) => formatItemStatLine(key, value))
+    .filter(Boolean)
+
+  return [...lines, ...extraLines]
+}
+
+function formatItemStatLine(key: string, rawValue: unknown): string {
+  const value = normalizeFiniteNumber(rawValue)
+  if (value === null || value === 0) {
+    return ''
+  }
+
+  const labels: Record<string, { label: string, percent?: boolean }> = {
+    FlatHPPoolMod: { label: '生命值' },
+    FlatMPPoolMod: { label: '法力' },
+    FlatPhysicalDamageMod: { label: '攻击力' },
+    FlatMagicDamageMod: { label: '法术强度' },
+    FlatArmorMod: { label: '护甲' },
+    FlatSpellBlockMod: { label: '魔法抗性' },
+    PercentAttackSpeedMod: { label: '攻击速度', percent: true },
+    FlatCritChanceMod: { label: '暴击几率', percent: true },
+    FlatMovementSpeedMod: { label: '移动速度' }
+  }
+  const stat = labels[key]
+  if (!stat) {
+    return `${formatNumberForTooltip(value)} ${key}`
+  }
+
+  const displayValue = stat.percent
+    ? `${formatNumberForTooltip(Math.abs(value) <= 1 ? value * 100 : value)}%`
+    : formatNumberForTooltip(value)
+  return `${displayValue} ${stat.label}`
+}
+
+function getItemStatLinesFromTooltip(details: GameAssetMetadataEntry): string[] {
+  const raw = pickBestTooltipText(details, 'item').raw
+  return parseRiotItemSections(raw).statLines
+}
+
+function getItemTooltipSections(details: GameAssetMetadataEntry): GameAssetTooltipSection[] {
+  const raw = pickBestTooltipText(details, 'item').raw
+  return parseRiotItemSections(raw).sections
+}
+
+function parseRiotItemSections(raw: string): { statLines: string[], sections: GameAssetTooltipSection[] } {
+  if (!raw) {
+    return { statLines: [], sections: [] }
+  }
+
+  const statLines = extractRiotTagBlocks(raw, 'stats')
+    .flatMap(block => normalizeRiotTooltipText(block).split('\n'))
+    .map(line => line.trim())
+    .filter(Boolean)
+  const markers = getRiotItemSectionMarkers(raw)
+  const sections = markers.flatMap((marker, index): GameAssetTooltipSection[] => {
+    const nextMarkerIndex = markers[index + 1]?.start ?? raw.length
+    const body = normalizeRiotTooltipText(raw.slice(marker.end, nextMarkerIndex))
+    const text = body || (marker.tone === 'rules' ? marker.label : '')
+    if (!text) {
+      return []
+    }
+
+    return [{
+      label: marker.tone === 'rules' ? undefined : marker.label,
+      text,
+      tone: marker.tone === 'active' ? 'active' : marker.tone === 'passive' ? 'passive' : 'body'
+    }]
+  })
+
+  return { statLines, sections }
+}
+
+function getRiotItemSectionMarkers(raw: string): RiotItemSectionMarker[] {
+  const markerPattern = /<(passive|active|rules)\b[^>]*>([\s\S]*?)<\/\1>/gi
+  return Array.from(raw.matchAll(markerPattern))
+    .filter(marker => isRiotItemSectionMarker(raw, marker))
+    .map(marker => {
+      const tone = marker[1].toLowerCase() as RiotItemSectionTone
+      const start = marker.index === undefined ? 0 : marker.index
+      return {
+        tone,
+        label: normalizeRiotTooltipText(marker[2]),
+        start,
+        end: start + marker[0].length
+      }
+    })
+}
+
+function isRiotItemSectionMarker(raw: string, marker: RegExpMatchArray): boolean {
+  const tone = marker[1].toLowerCase() as RiotItemSectionTone
+  const start = marker.index === undefined ? 0 : marker.index
+  const end = start + marker[0].length
+  return hasSectionBoundaryBefore(raw, start) || (tone !== 'rules' && hasSectionBoundaryAfter(raw, end))
+}
+
+function hasSectionBoundaryBefore(raw: string, index: number): boolean {
+  const prefix = raw.slice(Math.max(0, index - 120), index).trimEnd()
+  return !prefix || /(?:<maintext\b[^>]*>|<br\s*\/?>|<li(?:\s[^>]*)?>|<\/stats>|<\/rules>)\s*$/i.test(prefix)
+}
+
+function hasSectionBoundaryAfter(raw: string, index: number): boolean {
+  return /^\s*(?:<br\s*\/?>|<\/li>|<li(?:\s[^>]*)?>)/i.test(raw.slice(index, index + 80))
+}
+
+function extractRiotTagBlocks(raw: string, tagName: string): string[] {
+  if (!raw) {
+    return []
+  }
+
+  const pattern = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi')
+  return Array.from(raw.matchAll(pattern), match => match[1] || '')
+}
+
+function getAugmentRarityDetails(value: unknown): { label: string, tone?: string } {
+  const tone = getAugmentRarityTone(value)
+  const labels: Partial<Record<AugmentRarityTone, { label: string, tone: string }>> = {
+    silver: { label: '银色', tone: 'silver' },
+    gold: { label: '黄金阶', tone: 'gold' },
+    prismatic: { label: '棱彩', tone: 'prismatic' }
+  }
+
+  return labels[tone] || { label: '' }
+}
+
+function getAugmentRarityTone(value: unknown): AugmentRarityTone {
+  if (typeof value !== 'string') {
+    return 'default'
   }
 
   const normalized = value.trim().toLowerCase().replace(/^k/, '')
-  const labels: Record<string, string> = {
-    silver: '银色',
-    gold: '金色',
-    golden: '金色',
-    prismatic: '棱彩'
+  const tones: Record<string, AugmentRarityTone> = {
+    silver: 'silver',
+    gold: 'gold',
+    golden: 'gold',
+    prismatic: 'prismatic',
+    bronze: 'bronze'
   }
 
-  return labels[normalized] || ''
+  return tones[normalized] || 'default'
 }
 
-function cleanTooltipText(value: unknown): string {
+export function normalizeRiotTooltipText(value: unknown): string {
   if (typeof value !== 'string') {
     return ''
   }
 
-  return decodeHtmlEntities(
-    value
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(?:p|div|li|ul|ol|tr|table|maintext)>/gi, '\n')
-      .replace(/<li(?:\s[^>]*)?>/gi, '\n')
-      .replace(/<[^>]*>/g, '')
-  )
+  return decodeHtmlEntities(value)
     .replace(/\r\n?/g, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|ul|ol|tr|table|maintext|stats|rules)>/gi, '\n')
+    .replace(/<li(?:\s[^>]*)?>/gi, '\n')
+    .replace(/\{\{[\s\S]*?\}\}/g, '')
+    .replace(/@[^@\s]+@/g, '')
+    .replace(/%i:[^%\s]+%?/gi, '')
+    .replace(/<[^>]*>/g, '')
     .replace(/[ \t\f\v]+/g, ' ')
     .replace(/ *\n+ */g, '\n')
     .replace(/\n{2,}/g, '\n')
     .trim()
+}
+
+function hasRawTooltipTrace(value: string): boolean {
+  return /<[^>]+>|\{\{|\}\}|@[^@\s]+@|%i:/i.test(value)
+}
+
+function hasUnresolvedTemplateTrace(value: string): boolean {
+  return /\{\{|\}\}|@[^@\s]+@|%i:/i.test(value)
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -557,11 +899,13 @@ function getManifestSection(kind: GameAssetKind): GameAssetManifestSection {
 }
 
 function getMetadataAssetUrl(kind: GameAssetKind, id: number): string {
-  if (kind !== 'perk') {
+  if (kind !== 'perk' && kind !== 'spell') {
     return ''
   }
 
-  const value = metadata.perks[String(id)]?.icon
+  const value = kind === 'spell'
+    ? metadata.summonerSpells[String(id)]?.icon
+    : metadata.perks[String(id)]?.icon
   return value ? normalizeManifestAssetPath(value) : ''
 }
 
@@ -613,20 +957,39 @@ function getBackendAssetUrl(kind: GameAssetKind, id: number): string {
 }
 
 function getRemoteAssetUrls(kind: GameAssetKind, id: number): string[] {
+  const dataDragonCdn = getDataDragonCdn()
   switch (kind) {
     case 'champion':
       return [`${COMMUNITY_DRAGON_GAME_DATA}/champion-icons/${id}.png`]
     case 'item':
-      return [`${DATA_DRAGON_CDN}/img/item/${id}.png`]
+      return [`${dataDragonCdn}/img/item/${id}.png`]
     case 'spell':
       return [`${COMMUNITY_DRAGON_GAME_DATA}/summoner-spells/${id}.png`]
     case 'perk':
       return []
     case 'profile':
-      return [`${DATA_DRAGON_CDN}/img/profileicon/${id}.png`]
+      return [`${dataDragonCdn}/img/profileicon/${id}.png`]
     case 'augment':
       return []
   }
+}
+
+function getDataDragonCdn(): string {
+  return `https://ddragon.leagueoflegends.com/cdn/${getDataDragonVersion()}`
+}
+
+function getDataDragonVersion(): string {
+  return getConcreteAssetVersion(manifest.version) ||
+    getConcreteAssetVersion(metadata.version) ||
+    'latest'
+}
+
+function getConcreteAssetVersion(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const trimmed = value.trim()
+  return trimmed && !['seed', 'lcu'].includes(trimmed.toLowerCase()) ? trimmed : ''
 }
 
 function registerFallbackChain(candidates: string[]): void {
@@ -702,6 +1065,7 @@ function normalizeMetadata(nextMetadata: Partial<GameAssetMetadata>): GameAssetM
     version: nextMetadata.version || EMPTY_METADATA.version,
     locale: nextMetadata.locale || EMPTY_METADATA.locale,
     items: normalizeMetadataSection(nextMetadata.items),
+    summonerSpells: normalizeMetadataSection(nextMetadata.summonerSpells),
     perks: normalizeMetadataSection(nextMetadata.perks),
     augments: normalizeMetadataSection(nextMetadata.augments)
   }
@@ -734,7 +1098,22 @@ function normalizeMetadataEntry(entry: GameAssetMetadataEntry | undefined): Game
   }
 
   const normalized: GameAssetMetadataEntry = { id }
-  for (const key of ['name', 'description', 'tooltip', 'plaintext', 'shortDesc', 'longDesc', 'rarity', 'icon'] as const) {
+  for (const key of [
+    'name',
+    'nameTRA',
+    'description',
+    'tooltip',
+    'plaintext',
+    'desc',
+    'shortDesc',
+    'longDesc',
+    'descriptionTra',
+    'descriptionTRA',
+    'tooltipTra',
+    'tooltipTRA',
+    'rarity',
+    'icon'
+  ] as const) {
     const value = entry[key]
     if (typeof value === 'string' && value.trim()) {
       normalized[key] = value
@@ -753,7 +1132,40 @@ function normalizeMetadataEntry(entry: GameAssetMetadataEntry | undefined): Game
   if (total !== null) {
     normalized.total = total
   }
+
+  const from = normalizeAssetIdArray(entry.from)
+  const into = normalizeAssetIdArray(entry.into)
+  const stats = normalizeStats(entry.stats)
+  if (from.length) {
+    normalized.from = from
+  }
+  if (into.length) {
+    normalized.into = into
+  }
+  if (stats) {
+    normalized.stats = stats
+  }
   return normalized
+}
+
+function normalizeAssetIdArray(value: unknown): number[] {
+  return Array.isArray(value)
+    ? value.map(item => normalizeAssetId(typeof item === 'string' ? Number(item) : item)).filter((item): item is number => item !== null)
+    : []
+}
+
+function normalizeStats(value: unknown): GameAssetStats | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const stats = Object.fromEntries(
+    Object.entries(value)
+      .map(([key, rawValue]): [string, number | null] => [key, normalizeFiniteNumber(rawValue)])
+      .filter((entry): entry is [string, number] => entry[1] !== null)
+  )
+
+  return Object.keys(stats).length ? stats : undefined
 }
 
 function normalizeGold(value: unknown): GameAssetGold | undefined {
@@ -784,9 +1196,46 @@ function mergeMetadataSection(
 ): Record<string, GameAssetMetadataEntry> {
   const merged: Record<string, GameAssetMetadataEntry> = { ...base }
   for (const [key, entry] of Object.entries(overlay)) {
-    merged[key] = {
-      ...(merged[key] || {}),
-      ...entry
+    merged[key] = mergeMetadataEntry(merged[key], entry)
+  }
+
+  return merged
+}
+
+function mergeMetadata(base: GameAssetMetadata, overlay: GameAssetMetadata): GameAssetMetadata {
+  const overlayVersion = getConcreteAssetVersion(overlay.version)
+  return {
+    version: overlayVersion || base.version,
+    locale: overlay.locale !== EMPTY_METADATA.locale ? overlay.locale : base.locale,
+    items: mergeMetadataSection(base.items, overlay.items),
+    summonerSpells: mergeMetadataSection(base.summonerSpells, overlay.summonerSpells),
+    perks: mergeMetadataSection(base.perks, overlay.perks),
+    augments: mergeMetadataSection(base.augments, overlay.augments)
+  }
+}
+
+function mergeMetadataEntry(
+  base: GameAssetMetadataEntry | undefined,
+  overlay: GameAssetMetadataEntry
+): GameAssetMetadataEntry {
+  if (!base) {
+    return { ...overlay }
+  }
+
+  const merged: GameAssetMetadataEntry = {
+    ...base,
+    ...overlay
+  }
+  if (base.gold || overlay.gold) {
+    merged.gold = {
+      ...(base.gold || {}),
+      ...(overlay.gold || {})
+    }
+  }
+  if ((base.price && typeof base.price !== 'number') || (overlay.price && typeof overlay.price !== 'number')) {
+    merged.price = {
+      ...(typeof base.price === 'number' ? { total: base.price } : base.price || {}),
+      ...(typeof overlay.price === 'number' ? { total: overlay.price } : overlay.price || {})
     }
   }
 
@@ -795,6 +1244,21 @@ function mergeMetadataSection(
 
 function normalizePositiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function normalizeFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) ? numberValue : null
+  }
+  return null
+}
+
+function formatNumberForTooltip(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
 }
 
 function uniqueNonEmpty(values: string[]): string[] {

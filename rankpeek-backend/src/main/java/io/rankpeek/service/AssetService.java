@@ -1,5 +1,6 @@
 package io.rankpeek.service;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -33,6 +34,7 @@ public class AssetService {
     private final Map<Long, ItemMetadata> itemMetadataCache = new ConcurrentHashMap<>();
     // 召唤师技能缓存 (id -> iconPath)
     private final Map<Long, String> spellIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, SpellMetadata> spellMetadataCache = new ConcurrentHashMap<>();
     // 海克斯强化缓存 (id -> iconPath)
     private final Map<Long, String> augmentIconPathCache = new ConcurrentHashMap<>();
     private final Map<Long, AugmentMetadata> augmentMetadataCache = new ConcurrentHashMap<>();
@@ -111,8 +113,11 @@ public class AssetService {
             Spell[] spells = lcuHttpClient.get("lol-game-data/assets/v1/summoner-spells.json", Spell[].class);
             if (spells != null) {
                 for (Spell spell : spells) {
-                    if (spell.id > 0 && spell.iconPath != null && !spell.iconPath.isEmpty()) {
-                        spellIconPathCache.put(spell.id, spell.iconPath);
+                    if (spell.id > 0) {
+                        if (spell.iconPath != null && !spell.iconPath.isEmpty()) {
+                            spellIconPathCache.put(spell.id, spell.iconPath);
+                        }
+                        spellMetadataCache.put(spell.id, toSpellMetadata(spell));
                     }
                 }
             }
@@ -379,6 +384,7 @@ public class AssetService {
                 "lcu",
                 "zh_CN",
                 toStringKeyedMap(itemMetadataCache),
+                toStringKeyedMap(spellMetadataCache),
                 Map.of(),
                 toStringKeyedMap(augmentMetadataCache)
         );
@@ -393,16 +399,20 @@ public class AssetService {
     }
 
     private ItemMetadata toItemMetadata(Item item) {
-        ItemGold gold = normalizeGold(item.gold, item.priceTotal, item.total, item.price, item.base, item.sell);
+        ItemGold gold = normalizeGold(item.gold, firstPositive(item.priceTotal, item.total, item.price), item.base, item.sell);
         return new ItemMetadata(
                 item.id,
                 firstText(item.name),
-                firstText(item.description, item.tooltip),
+                firstText(item.description),
+                firstText(item.tooltip),
                 firstText(item.plaintext),
                 normalizePublicIcon("items", item.id, item.iconPath),
                 gold,
                 firstPositive(item.total, item.priceTotal),
-                item.price
+                item.price,
+                normalizeIdList(item.from),
+                normalizeIdList(item.into),
+                normalizeStats(item.stats)
         );
     }
 
@@ -411,18 +421,55 @@ public class AssetService {
         return new AugmentMetadata(
                 augment.id,
                 firstText(augment.name, augment.nameTra),
-                firstText(augment.description, augment.descriptionTra),
+                firstText(augment.description, augment.descriptionTra, augment.desc, augment.tooltip, augment.tooltipTra, augment.longDesc, augment.shortDesc),
                 firstText(augment.tooltip),
+                firstText(augment.desc),
+                firstText(augment.shortDesc),
+                firstText(augment.longDesc),
+                firstText(augment.descriptionTra),
+                firstText(augment.tooltipTra),
                 firstText(augment.rarity),
                 normalizePublicIcon("augments", augment.id, iconPath)
         );
     }
 
-    private ItemGold normalizeGold(ItemGold gold, Long... fallbacks) {
-        Long total = gold != null ? firstPositive(gold.total(), firstPositive(fallbacks)) : firstPositive(fallbacks);
-        Long base = gold != null ? gold.base() : null;
-        Long sell = gold != null ? gold.sell() : null;
+    private SpellMetadata toSpellMetadata(Spell spell) {
+        return new SpellMetadata(
+                spell.id,
+                firstText(spell.name),
+                firstText(spell.description),
+                firstText(spell.tooltip),
+                firstText(spell.plaintext),
+                normalizePublicIcon("summoner-spells", spell.id, spell.iconPath)
+        );
+    }
+
+    private ItemGold normalizeGold(ItemGold gold, Long totalFallback, Long baseFallback, Long sellFallback) {
+        Long total = gold != null ? firstPositive(gold.total(), totalFallback) : totalFallback;
+        Long base = gold != null ? firstPositive(gold.base(), baseFallback) : baseFallback;
+        Long sell = gold != null ? firstPositive(gold.sell(), sellFallback) : sellFallback;
         return total != null || base != null || sell != null ? new ItemGold(total, base, sell) : null;
+    }
+
+    private List<Long> normalizeIdList(List<Long> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(value -> value != null && value > 0)
+                .toList();
+    }
+
+    private Map<String, Number> normalizeStats(Map<String, Number> values) {
+        if (values == null) {
+            return Map.of();
+        }
+        Map<String, Number> stats = new LinkedHashMap<>();
+        values.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank())
+                .filter(entry -> entry.getValue() != null)
+                .forEach(entry -> stats.put(entry.getKey(), entry.getValue()));
+        return stats;
     }
 
     private Long firstPositive(Long... values) {
@@ -493,6 +540,7 @@ public class AssetService {
             String version,
             String locale,
             Map<String, ItemMetadata> items,
+            Map<String, SpellMetadata> summonerSpells,
             Map<String, GameAssetMetadataEntry> perks,
             Map<String, AugmentMetadata> augments
     ) {
@@ -513,11 +561,25 @@ public class AssetService {
             long id,
             String name,
             String description,
+            String tooltip,
             String plaintext,
             String icon,
             ItemGold gold,
             Long total,
-            Long price
+            Long price,
+            List<Long> from,
+            List<Long> into,
+            Map<String, Number> stats
+    ) {
+    }
+
+    public record SpellMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String plaintext,
+            String icon
     ) {
     }
 
@@ -526,6 +588,11 @@ public class AssetService {
             String name,
             String description,
             String tooltip,
+            String desc,
+            String shortDesc,
+            String longDesc,
+            String descriptionTra,
+            String tooltipTra,
             String rarity,
             String icon
     ) {
@@ -569,6 +636,15 @@ public class AssetService {
 
         @JsonProperty("sell")
         private Long sell;
+
+        @JsonProperty("from")
+        private List<Long> from;
+
+        @JsonProperty("into")
+        private List<Long> into;
+
+        @JsonProperty("stats")
+        private Map<String, Number> stats;
     }
 
     @Data
@@ -576,6 +652,18 @@ public class AssetService {
     public static class Spell {
         @JsonProperty("id")
         private long id;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("plaintext")
+        private String plaintext;
 
         @JsonProperty("iconPath")
         private String iconPath;
@@ -618,11 +706,26 @@ public class AssetService {
         @JsonProperty("tooltip")
         private String tooltip;
 
+        @JsonProperty("desc")
+        private String desc;
+
+        @JsonProperty("shortDesc")
+        private String shortDesc;
+
+        @JsonProperty("longDesc")
+        @JsonAlias("longDescription")
+        private String longDesc;
+
         @JsonProperty("nameTRA")
         private String nameTra;
 
         @JsonProperty("descriptionTRA")
+        @JsonAlias("descriptionTra")
         private String descriptionTra;
+
+        @JsonProperty("tooltipTRA")
+        @JsonAlias("tooltipTra")
+        private String tooltipTra;
 
         @JsonProperty("rarity")
         private String rarity;

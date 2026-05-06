@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  getAugmentRarityClass,
   getAugmentTooltipDetails,
   getItemTooltipDetails,
   getObjectiveIconUrl,
@@ -11,6 +12,10 @@ import {
 
 function readInlineDetailSource(): string {
   return readFileSync(new URL('./MatchHistoryInlineDetail.vue', import.meta.url), 'utf8')
+}
+
+function readApiSource(): string {
+  return readFileSync(new URL('../../types/api.ts', import.meta.url), 'utf8')
 }
 
 function readFunctionBlock(source: string, signature: string): string {
@@ -100,7 +105,7 @@ test('runes tab shows perk0 and perkSubStyle for normal matches and playerAugmen
   assert.match(source, /playerAugment6/)
   assert.match(source, /getPerkAssetDetails/)
   assert.match(source, /getAugmentAssetDetails/)
-  assert.match(source, /:title="slot\.label"/)
+  assert.match(source, /:aria-label="slot\.label"/)
   assert.match(source, /\{ empty: slot\.empty \}/)
 })
 
@@ -113,19 +118,96 @@ test('inline detail uses rich asset tooltips for overview items and trait icons'
   assert.match(source, /getItemTooltipDetails/)
   assert.match(source, /getPerkTooltipDetails/)
   assert.match(source, /getAugmentTooltipDetails/)
+  assert.match(source, /getSummonerSpellTooltipDetails/)
   assert.match(source, /type GameAssetTooltipDetails/)
   assert.match(source, /function getTraitTooltipDetails\(slot: TraitSlot\): GameAssetTooltipDetails \| null \{[\s\S]*slot\.kind === 'augment'[\s\S]*getAugmentTooltipDetails\(slot\.id\)[\s\S]*getPerkTooltipDetails\(slot\.id\)/)
 
+  assert.match(overviewBlock, /class="spell-stack"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getSummonerSpellTooltipDetails\(slot\.id\)"[\s\S]*:details="getSummonerSpellTooltipDetails\(slot\.id\)!"/)
   assert.match(overviewBlock, /class="trait-pair"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
   assert.match(overviewBlock, /class="item-row compact" aria-label="items"[\s\S]*v-for="slot in getPlayerItemSlots\(player\)"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && slot\.itemId !== null"[\s\S]*:details="getItemTooltipDetails\(slot\.itemId\)!"/)
+  assert.match(runesBlock, /class="spell-stack"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getSummonerSpellTooltipDetails\(slot\.id\)"[\s\S]*:details="getSummonerSpellTooltipDetails\(slot\.id\)!"/)
   assert.match(runesBlock, /class="trait-list"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
-  assert.match(source, /:title="getItemSlotLabel\(slot\)"/)
-  assert.match(source, /:title="slot\.label"/)
+  assert.doesNotMatch(source, /:title="getItemSlotLabel\(slot\)"/)
+  assert.doesNotMatch(source, /:title="slot\.label"/)
   assert.match(overviewBlock, /class="item-row compact" aria-label="items"/)
   assert.match(overviewBlock, /:class="\{ empty: slot\.empty \}"/)
 })
 
-test('inline detail overview and rune tooltip details share price and non-id subtitle rules', () => {
+test('inline detail applies the same augment rarity classes in overview and runes tabs', () => {
+  const source = readInlineDetailSource()
+  const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.equal(getAugmentRarityClass('kGold'), 'augment-rarity-gold')
+  assert.equal(getAugmentRarityClass('kSilver'), 'augment-rarity-silver')
+  assert.equal(getAugmentRarityClass('kPrismatic'), 'augment-rarity-prismatic')
+  assert.match(source, /getAugmentRarityClass/)
+  assert.match(source, /rarityClass\?: string/)
+  assert.match(source, /rarityClass: getTraitRarityClass\(kind, id\)/)
+  assert.match(source, /function getTraitRarityClass\(kind: TraitKind, id: number \| null\): string/)
+  assert.match(source, /getAugmentRarityClass\(getAugmentAssetDetails\(id\)\?\.rarity\)/)
+  assert.match(overviewBlock, /:class="\[`trait-\$\{slot\.kind\}`, slot\.rarityClass, \{ empty: slot\.empty \}\]"/)
+  assert.match(runesBlock, /:class="\[`trait-\$\{slot\.kind\}`, slot\.rarityClass, \{ empty: slot\.empty \}\]"/)
+  assert.match(overviewBlock, /<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(runesBlock, /<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
+})
+
+test('overview shows owned augments as a compact horizontal strip next to player identity', () => {
+  const source = readInlineDetailSource()
+  const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
+  const overviewAugmentBlock = source.match(/class="overview-augment-strip"[\s\S]*?<\/span>\s*<\/span>/)?.[0] || ''
+  const augmentSlotsBlock = readFunctionBlock(
+    source,
+    'function getPlayerOverviewAugmentSlots(player: MatchDetailParticipant): TraitSlot[]'
+  )
+
+  assert.match(augmentSlotsBlock, /return getAugmentTraitSlots\(player\)\.filter\(slot => !slot\.empty && slot\.id !== null\)/)
+  assert.match(overviewBlock, /class="player-copy player-name-wrap"[\s\S]*class="overview-augment-strip"/)
+  assert.match(overviewBlock, /class="trait-pair"[\s\S]*v-if="!hasValidAugment\(player\)"[\s\S]*v-for="slot in getPlayerTraitSlots\(player\)\.slice\(0, 2\)"/)
+  assert.match(overviewBlock, /class="overview-augment-strip"[\s\S]*v-if="getPlayerOverviewAugmentSlots\(player\)\.length"/)
+  assert.match(overviewBlock, /v-for="slot in getPlayerOverviewAugmentSlots\(player\)"/)
+  assert.match(overviewAugmentBlock, /class="overview-augment-slot"/)
+  assert.match(overviewAugmentBlock, /:class="slot\.rarityClass"/)
+  assert.match(overviewAugmentBlock, /<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.doesNotMatch(overviewAugmentBlock, /slice\(0, 2\)|Array\.from\(\{ length: 6 \}/)
+  assert.match(overviewBlock, /class="kda-cell"/)
+  assert.match(overviewBlock, /class="metric-cell"/)
+  assert.match(overviewBlock, /class="item-row compact" aria-label="items"/)
+})
+
+test('overview fixes augment strip column and truncates player names before augments', () => {
+  const source = readInlineDetailSource()
+  const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
+  const identityRule = source.match(/\.player-identity-main \{[\s\S]*?\n\}/)?.[0] || ''
+  const identityAugmentRule = source.match(/\.player-identity-main\.with-augments \{[\s\S]*?\n\}/)?.[0] || ''
+  const nameRule = source.match(/\.player-name-wrap \{[\s\S]*?\n\}/)?.[0] || ''
+  const augmentStripRule = source.match(/\.overview-augment-strip \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(overviewBlock, /class="player-identity-main"[\s\S]*'with-augments': getPlayerOverviewAugmentSlots\(player\)\.length/)
+  assert.match(overviewBlock, /class="player-copy player-name-wrap"/)
+  assert.match(identityRule, /display:\s*grid/)
+  assert.match(identityRule, /min-width:\s*0/)
+  assert.match(identityAugmentRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+var\(--overview-augment-strip-width\)/)
+  assert.match(nameRule, /overflow:\s*hidden/)
+  assert.match(nameRule, /text-overflow:\s*ellipsis/)
+  assert.match(nameRule, /white-space:\s*nowrap/)
+  assert.match(augmentStripRule, /width:\s*var\(--overview-augment-strip-width\)/)
+  assert.match(augmentStripRule, /flex:\s*0 0 var\(--overview-augment-strip-width\)/)
+  assert.match(augmentStripRule, /z-index:\s*2/)
+})
+
+test('overview damage and taken metric tracks use a shared shortened width', () => {
+  const source = readInlineDetailSource()
+  const metricTrackRule = source.match(/\.metric-track \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /--metric-bar-width:\s*7[0-9]%/)
+  assert.match(metricTrackRule, /width:\s*var\(--metric-bar-width\)/)
+  assert.match(source, /\.damage-bar \{[\s\S]*background:/)
+  assert.match(source, /\.taken-bar \{[\s\S]*background:/)
+  assert.doesNotMatch(source, /(?:ARAM|CHERRY)[\s\S]{0,120}--metric-bar-width|--metric-bar-width[\s\S]{0,120}(?:ARAM|CHERRY)/)
+})
+
+test('inline detail overview and rune tooltip details share structured price and non-id rarity rules', () => {
   resetGameAssetResolverForTest()
   setGameAssetMetadataForTest({
     version: 'test',
@@ -161,9 +243,9 @@ test('inline detail overview and rune tooltip details share price and non-id sub
   assert.match(overviewBlock, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
   assert.match(overviewBlock, /:details="getTraitTooltipDetails\(slot\)!"/)
   assert.match(runesBlock, /:details="getTraitTooltipDetails\(slot\)!"/)
-  assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3100')
-  assert.doesNotMatch(getItemTooltipDetails(6610)?.subtitle || '', /装备 6610/)
-  assert.notEqual(getAugmentTooltipDetails(2005)?.subtitle, '海克斯强化 2005')
+  assert.equal(getItemTooltipDetails(6610)?.priceText, '3100 G')
+  assert.doesNotMatch(getItemTooltipDetails(6610)?.priceText || '', /装备 6610/)
+  assert.notEqual(getAugmentTooltipDetails(2005)?.rarityLabel || getAugmentTooltipDetails(2005)?.subtitle, '海克斯强化 2005')
 })
 
 test('chart tab uses an honest empty state when timeline frames are unavailable', () => {
@@ -424,7 +506,7 @@ test('structure objective counts fall back from summary to objective events and 
     'function sumTeamParticipantObjectiveStats(teamId: number, fieldKeys: string[]): number | null'
   )
 
-  assert.match(countBlock, /readNullableObjectiveCount\(summary\[source\.summaryKey\]\)/)
+  assert.match(countBlock, /readStructureSummaryObjectiveCount\(summary, source\)/)
   assert.match(countBlock, /countObjectiveEvents\(summary, teamId, source\.eventKind\)/)
   assert.match(countBlock, /sumTeamParticipantObjectiveStats\(teamId, source\.directStatKeys\)/)
   assert.match(countBlock, /sumTeamParticipantObjectiveStats\(teamId, source\.lastFallbackStatKeys\)/)
@@ -433,8 +515,43 @@ test('structure objective counts fall back from summary to objective events and 
   assert.match(participantFallbackBlock, /readParticipantObjectiveStat\(player, fieldKeys\)/)
   assert.match(source, /turret:[\s\S]*summaryKey: 'turretKills'[\s\S]*eventKind: 'turret'[\s\S]*directStatKeys: \['turretKills'\][\s\S]*lastFallbackStatKeys: \['turretTakedowns'\]/)
   assert.match(source, /inhibitor:[\s\S]*summaryKey: 'inhibitorKills'[\s\S]*eventKind: 'inhibitor'[\s\S]*directStatKeys: \['inhibitorKills'\][\s\S]*lastFallbackStatKeys: \['inhibitorTakedowns'\]/)
-  assert.match(source, /turretPlate:[\s\S]*summaryKey: 'turretPlateKills'[\s\S]*eventKind: 'turretPlate'[\s\S]*directStatKeys: \['turretPlatesTaken'\][\s\S]*lastFallbackStatKeys: \[\]/)
+  assert.match(source, /turretPlate:[\s\S]*summaryKey: 'turretPlateKills'[\s\S]*summaryKeys: \['turretPlateKills', 'turretPlatesTaken'\][\s\S]*eventKind: 'turretPlate'[\s\S]*directStatKeys: \['turretPlatesTaken'\][\s\S]*lastFallbackStatKeys: \[\]/)
   assert.match(source, /function readParticipantObjectiveField\(player: MatchDetailParticipant, key: string\): number \| null[\s\S]*readStatNumber\(player, key\)[\s\S]*player\.stats\?\.challenges/)
+})
+
+test('turret plate counts read summary aliases before falling back to participant stats and events', () => {
+  const source = readInlineDetailSource()
+  const apiSource = readApiSource()
+  const countBlock = readFunctionBlock(
+    source,
+    "function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSummary, sourceKey: StructureObjectiveSourceKey): number | null"
+  )
+  const summaryBlock = readFunctionBlock(
+    source,
+    'function readStructureSummaryObjectiveCount(summary: TeamObjectiveSummary, source: StructureObjectiveSource): number | null'
+  )
+  const participantFieldBlock = readFunctionBlock(
+    source,
+    'function readParticipantObjectiveField(player: MatchDetailParticipant, key: string): number | null'
+  )
+  const countTextBlock = readFunctionBlock(
+    source,
+    'function getObjectiveCountText(item: ObjectiveDisplayItem): string'
+  )
+
+  assert.match(apiSource, /export interface TeamObjectiveSummary \{[\s\S]*turretPlateKills\?: number[\s\S]*turretPlatesTaken\?: number/)
+  assert.match(source, /type StructureObjectiveSummaryKey = 'turretKills' \| 'inhibitorKills' \| 'turretPlateKills' \| 'turretPlatesTaken'/)
+  assert.match(source, /summaryKeys\?: StructureObjectiveSummaryKey\[\]/)
+  assert.match(source, /turretPlate:[\s\S]*summaryKey: 'turretPlateKills'[\s\S]*summaryKeys: \['turretPlateKills', 'turretPlatesTaken'\]/)
+  assert.match(summaryBlock, /const keys = source\.summaryKeys \?\? \[source\.summaryKey\]/)
+  assert.match(summaryBlock, /readNullableObjectiveCount\(summary\[key\]\)/)
+  assert.match(countBlock, /const summaryCount = readStructureSummaryObjectiveCount\(summary, source\)/)
+  assert.match(countBlock, /if \(sourceKey === 'turretPlate' && summaryCount !== null\) \{[\s\S]*return summaryCount[\s\S]*\}/)
+  assert.match(countBlock, /const directStatCount = sumTeamParticipantObjectiveStats\(teamId, source\.directStatKeys\)/)
+  assert.match(participantFieldBlock, /const statsValue = readStatNumber\(player, key\)/)
+  assert.match(participantFieldBlock, /const challengeValue = normalizeFiniteNumber\(challenges\?\.\[key\]\)/)
+  assert.match(countBlock, /if \(sourceKey === 'turretPlate' && eventCount !== null\) \{[\s\S]*return eventCount[\s\S]*\}/)
+  assert.match(countTextBlock, /return item\.count === null \? '--' : String\(item\.count\)/)
 })
 
 test('missing turret plate fields stay unknown instead of rendering a synthetic zero', () => {
@@ -449,7 +566,7 @@ test('missing turret plate fields stay unknown instead of rendering a synthetic 
     'function addStructureObjectiveItem('
   )
 
-  assert.match(countBlock, /readNullableObjectiveCount\(summary\[source\.summaryKey\]\)/)
+  assert.match(countBlock, /readStructureSummaryObjectiveCount\(summary, source\)/)
   assert.match(countBlock, /return null/)
   assert.doesNotMatch(countBlock, /return sumTeamParticipantObjectiveStats\(teamId, source\.lastFallbackStatKeys\)/)
   assert.match(structureItemBlock, /count: number \| null/)
@@ -457,7 +574,7 @@ test('missing turret plate fields stay unknown instead of rendering a synthetic 
   assert.match(headerBlock, /\{\{ getObjectiveCountText\(item\) \}\}/)
   assert.doesNotMatch(headerBlock, /\{\{ item\.count \}\}/)
   assert.match(source, /function readNullableObjectiveCount\(value: unknown\): number \| null/)
-  assert.match(source, /turretPlate:[\s\S]*directStatKeys: \['turretPlatesTaken'\][\s\S]*lastFallbackStatKeys: \[\]/)
+  assert.match(source, /turretPlate:[\s\S]*summaryKeys: \['turretPlateKills', 'turretPlatesTaken'\][\s\S]*directStatKeys: \['turretPlatesTaken'\][\s\S]*lastFallbackStatKeys: \[\]/)
 })
 
 test('structure objective tooltips use actor ownership before event team id and fall back to participant stats', () => {

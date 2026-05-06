@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  getAugmentRarityClass,
   getAugmentTooltipDetails,
   getItemTooltipDetails,
   resetGameAssetResolverForTest,
@@ -21,6 +22,7 @@ test('match history card renders spell loadout, mode-aware traits, and performan
   assert.match(source, /getPerkTooltipDetails/)
   assert.match(source, /getAugmentAssetDetails/)
   assert.match(source, /getAugmentTooltipDetails/)
+  assert.match(source, /getSummonerSpellTooltipDetails/)
   assert.match(source, /AssetHoverTooltip/)
   assert.match(source, /getMatchPerformanceTags/)
   assert.match(source, /const currentSpellSlots = computed/)
@@ -55,6 +57,7 @@ test('match history card renders spell loadout, mode-aware traits, and performan
   assert.match(source, /:aria-label="slot\.label"/)
   assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"/)
   assert.match(source, /:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(source, /class="loadout-column spell-column"[\s\S]*<AssetHoverTooltip\s+v-if="slot\.url && getSummonerSpellTooltipDetails\(slot\.id\)"[\s\S]*:details="getSummonerSpellTooltipDetails\(slot\.id\)!"/)
   assert.match(source, /\.trait-grid/)
   assert.match(source, /--loadout-slot-size: 19px/)
   assert.match(source, /grid-template-columns: repeat\(3, var\(--loadout-slot-size\)\)/)
@@ -88,15 +91,32 @@ test('match history card exposes inline detail expanded state and chevron afford
 test('match history card rich asset tooltips are not only browser title text', () => {
   const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
 
+  assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && getSummonerSpellTooltipDetails\(slot\.id\)"/)
   assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"/)
   assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && slot\.itemId !== null"/)
+  assert.match(source, /:details="getSummonerSpellTooltipDetails\(slot\.id\)!"/)
   assert.match(source, /:details="getTraitTooltipDetails\(slot\)!"/)
   assert.match(source, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
   assert.doesNotMatch(source, /:title="getItemSlotLabel\(slot\)"/)
   assert.doesNotMatch(source, /:title="slot\.label"/)
 })
 
-test('match history card item and augment tooltip details use price subtitles instead of id subtitles', () => {
+test('match history card applies augment rarity classes without changing tooltip wrapping', () => {
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+
+  assert.equal(getAugmentRarityClass('kGold'), 'augment-rarity-gold')
+  assert.equal(getAugmentRarityClass('kSilver'), 'augment-rarity-silver')
+  assert.equal(getAugmentRarityClass('kPrismatic'), 'augment-rarity-prismatic')
+  assert.match(source, /getAugmentRarityClass/)
+  assert.match(source, /rarityClass\?: string/)
+  assert.match(source, /rarityClass: getTraitRarityClass\(kind, id\)/)
+  assert.match(source, /function getTraitRarityClass\(kind: MatchTraitMode, id: number \| null\): string/)
+  assert.match(source, /getAugmentRarityClass\(getAugmentAssetDetails\(id\)\?\.rarity\)/)
+  assert.match(source, /:class="\[\s*`loadout-slot-\$\{slot\.kind\}`,\s*slot\.rarityClass,\s*\{ empty: slot\.empty \}\s*\]"/)
+  assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
+})
+
+test('match history card item and augment tooltip details use structured price and rarity instead of id subtitles', () => {
   resetGameAssetResolverForTest()
   setGameAssetMetadataForTest({
     version: 'test',
@@ -126,7 +146,7 @@ test('match history card item and augment tooltip details use price subtitles in
   assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && slot\.itemId !== null"/)
   assert.match(source, /:details="getTraitTooltipDetails\(slot\)!"/)
   assert.match(source, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
-  assert.equal(item?.subtitle, '售价 3100')
-  assert.doesNotMatch(item?.subtitle || '', /装备 6610/)
-  assert.notEqual(augment?.subtitle, '海克斯强化 2005')
+  assert.equal(item?.priceText, '3100 G')
+  assert.doesNotMatch(item?.priceText || '', /装备 6610/)
+  assert.notEqual(augment?.rarityLabel || augment?.subtitle, '海克斯强化 2005')
 })

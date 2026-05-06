@@ -7,6 +7,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -42,9 +45,13 @@ class AssetServiceTest {
         item.setId(6610);
         item.setName("焚天");
         item.setDescription("<mainText><stats>40攻击力<br>400生命值</stats></mainText>");
+        item.setTooltip("<mainText><passive>光盾打击</passive><br>造成额外伤害。</mainText>");
         item.setPlaintext("光盾打击");
         item.setIconPath("/lol-game-data/assets/v1/items/6610.png");
         item.setGold(new AssetService.ItemGold(3100L, 900L, 2170L));
+        item.setFrom(List.of(1036L, 1028L));
+        item.setInto(List.of(3143L));
+        item.setStats(Map.of("FlatPhysicalDamageMod", 40, "FlatHPPoolMod", 400));
 
         when(lcuHttpClient.get(eq("lol-game-data/assets/v1/items.json"), eq(AssetService.Item[].class)))
                 .thenReturn(new AssetService.Item[]{item});
@@ -58,10 +65,40 @@ class AssetServiceTest {
         assertThat(entry.id()).isEqualTo(6610);
         assertThat(entry.name()).isEqualTo("焚天");
         assertThat(entry.description()).contains("40攻击力");
+        assertThat(entry.tooltip()).contains("光盾打击");
         assertThat(entry.plaintext()).isEqualTo("光盾打击");
         assertThat(entry.icon()).isEqualTo("items/6610.png");
         assertThat(entry.gold().total()).isEqualTo(3100);
+        assertThat(entry.from()).containsExactly(1036L, 1028L);
+        assertThat(entry.into()).containsExactly(3143L);
+        assertThat(entry.stats()).containsEntry("FlatHPPoolMod", 400);
         assertThat(service.getItemIconPath(6610)).isEqualTo("/lol-game-data/assets/v1/items/6610.png");
+    }
+
+    @Test
+    void loadSpellsCachesLcuMetadataForFrontendTooltips() {
+        AssetService.Spell spell = new AssetService.Spell();
+        spell.setId(4);
+        spell.setName("闪现");
+        spell.setDescription("朝着目标区域瞬移一小段距离。");
+        spell.setTooltip("<mainText>快速位移。</mainText>");
+        spell.setIconPath("/lol-game-data/assets/v1/summoner-spells/4.png");
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/summoner-spells.json"), eq(AssetService.Spell[].class)))
+                .thenReturn(new AssetService.Spell[]{spell});
+
+        ReflectionTestUtils.invokeMethod(service, "loadSpells");
+
+        AssetService.GameAssetMetadata metadata = service.getGameAssetMetadata();
+        AssetService.SpellMetadata entry = metadata.summonerSpells().get("4");
+
+        assertThat(entry).isNotNull();
+        assertThat(entry.id()).isEqualTo(4);
+        assertThat(entry.name()).isEqualTo("闪现");
+        assertThat(entry.description()).isEqualTo("朝着目标区域瞬移一小段距离。");
+        assertThat(entry.tooltip()).isEqualTo("<mainText>快速位移。</mainText>");
+        assertThat(entry.icon()).isEqualTo("summoner-spells/4.png");
+        assertThat(service.getSpellIconPath(4)).isEqualTo("/lol-game-data/assets/v1/summoner-spells/4.png");
     }
 
     @Test
@@ -88,6 +125,35 @@ class AssetServiceTest {
         assertThat(entry.rarity()).isEqualTo("gold");
         assertThat(entry.icon()).isEqualTo("augments/2005.png");
         assertThat(service.getAugmentIconPath(2005)).isEqualTo("/lol-game-data/assets/v1/augments/2005.png");
+    }
+
+    @Test
+    void loadAugmentsKeepsDetailedTooltipCandidatesForFrontendSelection() {
+        AssetService.CherryAugment augment = new AssetService.CherryAugment();
+        augment.setId(1346);
+        augment.setNameTra("吸血习性");
+        augment.setDescription("短句。");
+        augment.setDesc("获得全能吸血。");
+        augment.setTooltipTra("<mainText>获得<lifeSteal>15%全能吸血</lifeSteal>。<br><rules>参与击败会提升这个效果。</rules></mainText>");
+        augment.setShortDesc("短。");
+        augment.setLongDesc("获得全能吸血，并在参与击败后提升效果。");
+        augment.setRarity("kGold");
+        augment.setAugmentSmallIconPath("/lol-game-data/assets/v1/augments/1346.png");
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/cherry-augments.json"), eq(AssetService.CherryAugment[].class)))
+                .thenReturn(new AssetService.CherryAugment[]{augment});
+
+        ReflectionTestUtils.invokeMethod(service, "loadAugments");
+
+        AssetService.AugmentMetadata entry = service.getGameAssetMetadata().augments().get("1346");
+
+        assertThat(entry).isNotNull();
+        assertThat(entry.description()).isEqualTo("短句。");
+        assertThat(entry.desc()).isEqualTo("获得全能吸血。");
+        assertThat(entry.tooltipTra()).contains("15%全能吸血");
+        assertThat(entry.shortDesc()).isEqualTo("短。");
+        assertThat(entry.longDesc()).contains("参与击败");
+        assertThat(entry.rarity()).isEqualTo("kGold");
     }
 
     @Test

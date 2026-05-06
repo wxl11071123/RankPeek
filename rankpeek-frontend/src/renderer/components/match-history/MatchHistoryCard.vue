@@ -6,6 +6,7 @@ import type { MatchHistory, Participant, Stats, UserTagSummary } from '@/types/a
 import {
   getAugmentIconUrl,
   getAugmentAssetDetails,
+  getAugmentRarityClass,
   getAugmentTooltipDetails,
   getChampionIconUrl,
   getItemIconSlots,
@@ -15,6 +16,7 @@ import {
   getPerkAssetDetails,
   getPerkTooltipDetails,
   getSummonerSpellIconUrl,
+  getSummonerSpellTooltipDetails,
   markAssetLoadFailed,
   type GameAssetTooltipDetails
 } from '@/utils/gameAssetUrls'
@@ -39,6 +41,7 @@ interface MatchTraitIconSlot {
   url: string
   empty: boolean
   label?: string
+  rarityClass?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -173,8 +176,17 @@ function createTraitSlot(kind: MatchTraitMode, index: number, id: number | null)
     id,
     url,
     empty: id === null || !url,
-    label: getTraitSlotLabel(kind, id)
+    label: getTraitSlotLabel(kind, id),
+    rarityClass: getTraitRarityClass(kind, id)
   }
+}
+
+function getTraitRarityClass(kind: MatchTraitMode, id: number | null): string {
+  if (kind !== 'augment' || id === null) {
+    return ''
+  }
+
+  return getAugmentRarityClass(getAugmentAssetDetails(id)?.rarity)
 }
 
 function readTraitId(
@@ -286,7 +298,13 @@ function displayMode(match: MatchHistory): string {
             class="loadout-slot"
             :class="`loadout-slot-${slot.kind}`"
           >
-            <img :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            <AssetHoverTooltip
+              v-if="slot.url && getSummonerSpellTooltipDetails(slot.id)"
+              :details="getSummonerSpellTooltipDetails(slot.id)!"
+            >
+              <img :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            </AssetHoverTooltip>
+            <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
           </span>
         </div>
 
@@ -301,6 +319,7 @@ function displayMode(match: MatchHistory): string {
             :aria-label="slot.label"
             :class="[
               `loadout-slot-${slot.kind}`,
+              slot.rarityClass,
               { empty: slot.empty }
             ]"
           >
@@ -611,9 +630,10 @@ function displayMode(match: MatchHistory): string {
   height: var(--loadout-slot-size);
   flex: 0 0 var(--loadout-slot-size);
   overflow: hidden;
-  border: 1px solid var(--slot-border);
+  border: 1px solid var(--augment-rarity-border, var(--slot-border));
   border-radius: 4px;
-  background: var(--slot-bg);
+  background: var(--augment-rarity-bg, var(--slot-bg));
+  box-shadow: inset 0 0 0 1px var(--augment-rarity-inner, transparent);
 }
 
 .trait-slot {

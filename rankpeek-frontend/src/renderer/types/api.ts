@@ -399,6 +399,7 @@ export interface TeamObjectiveSummary {
   bans?: number[]
   turretKills?: number
   turretPlateKills?: number
+  turretPlatesTaken?: number
   inhibitorKills?: number
   baronKills?: number
   dragonKills?: number

@@ -17,6 +17,7 @@ import type {
 import {
   getAugmentAssetDetails,
   getAugmentIconUrl,
+  getAugmentRarityClass,
   getAugmentTooltipDetails,
   getChampionIconUrl,
   getItemAssetDetails,
@@ -27,7 +28,9 @@ import {
   getPerkIconUrl,
   getPerkTooltipDetails,
   getSummonerSpellIconUrl,
+  getSummonerSpellTooltipDetails,
   markAssetLoadFailed,
+  normalizeRiotTooltipText,
   type GameAssetTooltipDetails,
   type ItemIconSlot,
   type ObjectiveIconKind
@@ -61,6 +64,7 @@ interface TraitSlot {
   url: string
   empty: boolean
   label: string
+  rarityClass?: string
 }
 
 interface TeamSection {
@@ -106,10 +110,11 @@ interface ObjectiveEventDescriptor {
 }
 
 type StructureObjectiveSourceKey = 'turret' | 'inhibitor' | 'turretPlate'
-type StructureObjectiveSummaryKey = 'turretKills' | 'inhibitorKills' | 'turretPlateKills'
+type StructureObjectiveSummaryKey = 'turretKills' | 'inhibitorKills' | 'turretPlateKills' | 'turretPlatesTaken'
 
 interface StructureObjectiveSource {
   summaryKey: StructureObjectiveSummaryKey
+  summaryKeys?: StructureObjectiveSummaryKey[]
   eventKind: TeamObjectiveEvent['kind']
   directStatKeys: string[]
   lastFallbackStatKeys: string[]
@@ -195,6 +200,7 @@ const STRUCTURE_OBJECTIVE_SOURCES: Record<StructureObjectiveSourceKey, Structure
   },
   turretPlate: {
     summaryKey: 'turretPlateKills',
+    summaryKeys: ['turretPlateKills', 'turretPlatesTaken'],
     eventKind: 'turretPlate',
     directStatKeys: ['turretPlatesTaken'],
     lastFallbackStatKeys: []
@@ -357,6 +363,10 @@ function getAugmentTraitSlots(player: MatchDetailParticipant): TraitSlot[] {
     .map(key => createTraitSlot('augment', key, readTraitId(player, key)))
 }
 
+function getPlayerOverviewAugmentSlots(player: MatchDetailParticipant): TraitSlot[] {
+  return getAugmentTraitSlots(player).filter(slot => !slot.empty && slot.id !== null)
+}
+
 function createTraitSlot(kind: TraitKind, key: string, id: number | null): TraitSlot {
   const url = id === null
     ? ''
@@ -369,8 +379,17 @@ function createTraitSlot(kind: TraitKind, key: string, id: number | null): Trait
     id,
     url,
     empty: id === null || !url,
-    label: getTraitSlotLabel(kind, id)
+    label: getTraitSlotLabel(kind, id),
+    rarityClass: getTraitRarityClass(kind, id)
   }
+}
+
+function getTraitRarityClass(kind: TraitKind, id: number | null): string {
+  if (kind !== 'augment' || id === null) {
+    return ''
+  }
+
+  return getAugmentRarityClass(getAugmentAssetDetails(id)?.rarity)
 }
 
 function hasValidAugment(player: MatchDetailParticipant): boolean {
@@ -390,7 +409,7 @@ function getTraitSlotLabel(kind: TraitKind, id: number | null): string {
   const details = kind === 'augment' ? getAugmentAssetDetails(id) : getPerkAssetDetails(id)
   const fallback = kind === 'augment' ? t('matchDetail.augmentLabel') : t('matchDetail.runeLabel')
   const name = details?.name || `${fallback} ${id}`
-  const description = stripHtml(details?.description || details?.shortDesc || details?.longDesc || details?.plaintext || '')
+  const description = normalizeRiotTooltipText(details?.description || details?.tooltip || details?.shortDesc || details?.longDesc || details?.plaintext || '')
   return description ? `${name} (${id}) - ${description}` : `${name} (${id})`
 }
 
@@ -568,22 +587,36 @@ function getTeamBanSummary(teamId: number): TeamBanSummary | null {
 
 function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSummary, sourceKey: StructureObjectiveSourceKey): number | null {
   const source = STRUCTURE_OBJECTIVE_SOURCES[sourceKey]
+  const summaryCount = readStructureSummaryObjectiveCount(summary, source)
+  const directStatCount = sumTeamParticipantObjectiveStats(teamId, source.directStatKeys)
+  const lastFallbackStatCount = sumTeamParticipantObjectiveStats(teamId, source.lastFallbackStatKeys)
   const eventCount = countObjectiveEvents(summary, teamId, source.eventKind)
+
+  if (sourceKey === 'turretPlate' && summaryCount !== null) {
+    return summaryCount
+  }
+  if (sourceKey === 'turretPlate' && directStatCount !== null) {
+    return directStatCount
+  }
+  if (sourceKey === 'turretPlate' && lastFallbackStatCount !== null) {
+    return lastFallbackStatCount
+  }
+  if (sourceKey === 'turretPlate' && eventCount !== null) {
+    return eventCount
+  }
+
   if (eventCount !== null && eventCount > 0) {
     return eventCount
   }
 
-  const directStatCount = sumTeamParticipantObjectiveStats(teamId, source.directStatKeys)
   if (directStatCount !== null && directStatCount > 0) {
     return directStatCount
   }
 
-  const lastFallbackStatCount = sumTeamParticipantObjectiveStats(teamId, source.lastFallbackStatKeys)
   if (lastFallbackStatCount !== null && lastFallbackStatCount > 0) {
     return lastFallbackStatCount
   }
 
-  const summaryCount = readNullableObjectiveCount(summary[source.summaryKey])
   if (summaryCount !== null && summaryCount > 0) {
     return summaryCount
   }
@@ -598,6 +631,17 @@ function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSumma
   }
   if (sourceKey !== 'turretPlate' && summaryCount !== null) {
     return summaryCount
+  }
+  return null
+}
+
+function readStructureSummaryObjectiveCount(summary: TeamObjectiveSummary, source: StructureObjectiveSource): number | null {
+  const keys = source.summaryKeys ?? [source.summaryKey]
+  for (const key of keys) {
+    const count = readNullableObjectiveCount(summary[key])
+    if (count !== null) {
+      return count
+    }
   }
   return null
 }
@@ -1136,10 +1180,6 @@ function normalizeFiniteNumber(value: unknown): number | null {
   return null
 }
 
-function stripHtml(value: string): string {
-  return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-}
-
 function formatSignedNumber(value: number): string {
   if (value === 0) {
     return '0'
@@ -1556,16 +1596,25 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                   class="mini-slot spell-slot"
                   :class="{ empty: slot.empty }"
                 >
-                  <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                  <AssetHoverTooltip
+                    v-if="slot.url && !slot.empty && getSummonerSpellTooltipDetails(slot.id)"
+                    :details="getSummonerSpellTooltipDetails(slot.id)!"
+                  >
+                    <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                  </AssetHoverTooltip>
+                  <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
                 </span>
               </span>
-              <span class="trait-pair">
+              <span
+                class="trait-pair"
+                v-if="!hasValidAugment(player)"
+              >
                 <span
                   v-for="slot in getPlayerTraitSlots(player).slice(0, 2)"
                   :key="slot.key"
                   class="mini-slot trait-slot"
-                  :class="[`trait-${slot.kind}`, { empty: slot.empty }]"
-                  :title="slot.label"
+                  :class="[`trait-${slot.kind}`, slot.rarityClass, { empty: slot.empty }]"
+                  :aria-label="slot.label"
                 >
                   <AssetHoverTooltip
                     v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
@@ -1576,9 +1625,35 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                   <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
                 </span>
               </span>
-              <span class="player-copy">
-                <strong>{{ getPlayerName(player) }}</strong>
-                <span v-if="getDisplayPosition(player)">{{ getDisplayPosition(player) }}</span>
+              <span
+                class="player-identity-main"
+                :class="{ 'with-augments': getPlayerOverviewAugmentSlots(player).length }"
+              >
+                <span class="player-copy player-name-wrap">
+                  <strong>{{ getPlayerName(player) }}</strong>
+                  <span v-if="getDisplayPosition(player)">{{ getDisplayPosition(player) }}</span>
+                </span>
+                <span
+                  class="overview-augment-strip"
+                  v-if="getPlayerOverviewAugmentSlots(player).length"
+                  aria-label="augments"
+                >
+                  <span
+                    v-for="slot in getPlayerOverviewAugmentSlots(player)"
+                    :key="`overview-${slot.key}`"
+                    class="overview-augment-slot"
+                    :class="slot.rarityClass"
+                    :aria-label="slot.label"
+                  >
+                    <AssetHoverTooltip
+                      v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                      :details="getTraitTooltipDetails(slot)!"
+                    >
+                      <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                    </AssetHoverTooltip>
+                    <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                  </span>
+                </span>
               </span>
             </div>
 
@@ -1659,7 +1734,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                 :key="`${player.participantId}-overview-item-${slot.index}`"
                 class="item-slot"
                 :class="{ empty: slot.empty }"
-                :title="getItemSlotLabel(slot)"
+                :aria-label="getItemSlotLabel(slot)"
               >
                 <AssetHoverTooltip
                   v-if="slot.url && !slot.empty && slot.itemId !== null"
@@ -1698,7 +1773,13 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                 class="mini-slot spell-slot"
                 :class="{ empty: slot.empty }"
               >
-                <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                <AssetHoverTooltip
+                  v-if="slot.url && !slot.empty && getSummonerSpellTooltipDetails(slot.id)"
+                  :details="getSummonerSpellTooltipDetails(slot.id)!"
+                >
+                  <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                </AssetHoverTooltip>
+                <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
               </span>
             </span>
             <span class="player-copy">
@@ -1712,8 +1793,8 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
               v-for="slot in getPlayerTraitSlots(player)"
               :key="`runes-${slot.key}`"
               class="trait-detail-slot"
-              :class="[`trait-${slot.kind}`, { empty: slot.empty }]"
-              :title="slot.label"
+              :class="[`trait-${slot.kind}`, slot.rarityClass, { empty: slot.empty }]"
+              :aria-label="slot.label"
             >
               <AssetHoverTooltip
                 v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
@@ -1741,6 +1822,9 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 <style scoped>
 .inline-match-detail {
+  --metric-bar-width: 74%;
+  --overview-augment-slot-size: 16px;
+  --overview-augment-strip-width: 106px;
   width: 100%;
   min-width: 0;
   margin-top: 8px;
@@ -2165,6 +2249,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 .champion-wrap img,
 .mini-slot img,
+.overview-augment-slot img,
 .trait-detail-slot img,
 .ban-champion-icon img,
 .item-slot img {
@@ -2176,6 +2261,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 .champion-wrap img[data-asset-failed='true'],
 .mini-slot img[data-asset-failed='true'],
+.overview-augment-slot img[data-asset-failed='true'],
 .trait-detail-slot img[data-asset-failed='true'],
 .ban-champion-icon img[data-asset-failed='true'],
 .objective-tooltip-avatar[data-asset-failed='true'],
@@ -2211,22 +2297,61 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   flex: 0 0 auto;
 }
 
+.player-identity-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.player-identity-main.with-augments {
+  grid-template-columns: minmax(0, 1fr) var(--overview-augment-strip-width);
+}
+
+.overview-augment-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: var(--overview-augment-strip-width);
+  min-width: var(--overview-augment-strip-width);
+  flex: 0 0 var(--overview-augment-strip-width);
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  white-space: nowrap;
+}
+
 .mini-slot,
+.overview-augment-slot,
 .trait-detail-slot,
 .item-slot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 1px solid rgba(124, 139, 164, 0.14);
+  border: 1px solid var(--augment-rarity-border, rgba(124, 139, 164, 0.14));
   border-radius: 4px;
-  background: rgba(124, 139, 164, 0.1);
+  background: var(--augment-rarity-bg, rgba(124, 139, 164, 0.1));
+  box-shadow: inset 0 0 0 1px var(--augment-rarity-inner, transparent);
 }
 
 .mini-slot {
   width: 15px;
   height: 15px;
   flex: 0 0 15px;
+}
+
+.overview-augment-slot {
+  width: var(--overview-augment-slot-size);
+  height: var(--overview-augment-slot-size);
+  flex: 0 0 var(--overview-augment-slot-size);
+}
+
+.overview-augment-slot :deep(.asset-tooltip-trigger) {
+  width: 100%;
+  height: 100%;
 }
 
 .trait-detail-slot {
@@ -2252,6 +2377,14 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+.player-name-wrap {
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .player-copy strong,
@@ -2344,7 +2477,8 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 }
 
 .metric-track {
-  width: 100%;
+  width: var(--metric-bar-width);
+  max-width: 100%;
   height: 4px;
   overflow: hidden;
   border-radius: 999px;

@@ -285,6 +285,34 @@ img {
 }
 
 /* ========================================
+   Augment Rarity Icon Frames
+   ======================================== */
+
+.augment-rarity-silver {
+  --augment-rarity-border: rgba(198, 211, 226, 0.78);
+  --augment-rarity-bg: linear-gradient(135deg, rgba(74, 83, 96, 0.74), rgba(31, 38, 49, 0.9));
+  --augment-rarity-inner: rgba(236, 242, 248, 0.16);
+}
+
+.augment-rarity-gold {
+  --augment-rarity-border: rgba(220, 174, 82, 0.86);
+  --augment-rarity-bg: linear-gradient(135deg, rgba(96, 70, 30, 0.76), rgba(47, 33, 18, 0.92));
+  --augment-rarity-inner: rgba(244, 202, 112, 0.16);
+}
+
+.augment-rarity-prismatic {
+  --augment-rarity-border: rgba(218, 157, 255, 0.84);
+  --augment-rarity-bg: linear-gradient(135deg, rgba(91, 54, 126, 0.76), rgba(38, 24, 64, 0.92) 55%, rgba(103, 48, 84, 0.72));
+  --augment-rarity-inner: rgba(255, 183, 233, 0.16);
+}
+
+.augment-rarity-bronze {
+  --augment-rarity-border: rgba(187, 124, 70, 0.82);
+  --augment-rarity-bg: linear-gradient(135deg, rgba(83, 50, 28, 0.76), rgba(43, 28, 20, 0.92));
+  --augment-rarity-inner: rgba(230, 155, 92, 0.14);
+}
+
+/* ========================================
    Lists
    ======================================== */
 
