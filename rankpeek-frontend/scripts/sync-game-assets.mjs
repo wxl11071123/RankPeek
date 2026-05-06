@@ -16,7 +16,13 @@ const cdragonGameData = `${cdragonRoot}/v1`
 const cdragonMinimapIcons = `${cdragonRaw}/game/assets/ux/minimap/icons`
 const itemSource = () => `${ddragonCdn(version)}/data/${locale}/item.json`
 const traitSource = () => `${ddragonCdn(version)}/data/${locale}/runesReforged.json`
-const defaultAugmentSource = () => `${cdragonGameData}/cherry-augments.json`
+const cdragonLocale = () => locale.toLowerCase().replace('-', '_')
+const cdragonLocalizedGameData = () =>
+  `${cdragonRaw}/plugins/rcp-be-lol-game-data/global/${cdragonLocale()}/v1`
+const defaultAugmentSource = () => `${cdragonLocalizedGameData()}/cherry-augments.json`
+const defaultAugmentFallbackSource = () => `${cdragonGameData}/cherry-augments.json`
+const arenaAugmentDetailsSource = () => `${cdragonRaw}/cdragon/arena/${cdragonLocale()}.json`
+const arenaAugmentDetailsFallbackSource = () => `${cdragonRaw}/cdragon/arena/en_us.json`
 
 const args = parseArgs(process.argv.slice(2))
 const version = args.version || '15.24.1'
@@ -76,16 +82,24 @@ for (const [kind, config] of Object.entries(sections)) {
   }
 }
 
-if (args.allItems) {
+if (args.allItems && !args.metadataOnly) {
   await downloadAllItems()
+}
+
+if (shouldDownloadItemMetadataOnly(args)) {
+  await downloadAllItemMetadata()
 }
 
 if (args.allPerks) {
   await downloadAllPerks()
 }
 
-if (args.allAugments) {
+if (args.allAugments && !args.metadataOnly) {
   await downloadAllAugments(args.augmentSource || defaultAugmentSource())
+}
+
+if (shouldDownloadAugmentMetadataOnly(args)) {
+  await downloadAllAugmentMetadata(args.augmentSource || defaultAugmentSource())
 }
 
 if (args.allObjectives) {
@@ -108,7 +122,15 @@ for (const augment of args.augment || []) {
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 console.log(`Updated ${manifestPath}`)
 
-if (args.withMetadata || args.allItems || args.allPerks || args.allAugments) {
+if (
+  args.withMetadata ||
+  args.allItems ||
+  args.allPerks ||
+  args.allAugments ||
+  args.allItemMetadata ||
+  args.allAugmentMetadata ||
+  args.metadataOnly
+) {
   await writeMetadata()
 }
 
@@ -146,36 +168,16 @@ async function syncAsset(kind, config, id) {
 
 async function downloadAllItems() {
   manifest.items = manifest.items || {}
-  let payload
-  try {
-    const response = await fetch(itemSource())
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`)
-    }
-    payload = await response.json()
-  } catch (error) {
-    process.exitCode = 1
-    console.warn(`Failed to read DDragon item index: ${error instanceof Error ? error.message : String(error)}`)
+  const items = await readItemEntries()
+  if (!items) {
     return
   }
-
-  const items = Object.entries(payload?.data || {})
-    .map(([id, item]) => ({ id: normalizeId(id), item }))
-    .filter(entry => entry.id)
-    .sort((left, right) => left.id - right.id)
   let synced = 0
   let failed = 0
 
   for (const entry of items) {
     const ok = await syncAsset('item', sections.item, entry.id)
-    const icon = `items/${entry.id}.png`
-    metadata.items[String(entry.id)] = {
-      id: entry.id,
-      name: textValue(entry.item?.name),
-      description: textValue(entry.item?.description),
-      plaintext: textValue(entry.item?.plaintext),
-      icon
-    }
+    hydrateItemMetadata(entry)
     if (ok) {
       synced += 1
     } else {
@@ -187,6 +189,19 @@ async function downloadAllItems() {
   if (failed > 0) {
     process.exitCode = 1
   }
+}
+
+async function downloadAllItemMetadata() {
+  const items = await readItemEntries()
+  if (!items) {
+    return
+  }
+
+  for (const entry of items) {
+    hydrateItemMetadata(entry)
+  }
+
+  console.log(`Hydrated ${items.length} DDragon item metadata entries from item.json`)
 }
 
 async function downloadAllPerks() {
@@ -241,19 +256,10 @@ async function downloadAllPerks() {
 
 async function downloadAllAugments(sourceUrl) {
   manifest.augments = manifest.augments || {}
-  let payload
-  try {
-    const response = await fetch(sourceUrl)
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`)
-    }
-    payload = await response.json()
-  } catch (error) {
-    console.warn(`Skipped all augments; source unavailable at ${sourceUrl}: ${error instanceof Error ? error.message : String(error)}`)
+  const augments = await readAugmentEntries(sourceUrl)
+  if (!augments) {
     return
   }
-
-  const augments = extractAugments(payload)
   let synced = 0
   let failed = 0
 
@@ -263,12 +269,7 @@ async function downloadAllAugments(sourceUrl) {
       dir: 'augments',
       url: () => augment.sourceUrl
     }, augment.id)
-    metadata.augments[String(augment.id)] = {
-      id: augment.id,
-      name: textValue(augment.name),
-      description: textValue(augment.description),
-      icon: `augments/${augment.id}.png`
-    }
+    hydrateAugmentMetadata(augment)
     if (ok) {
       synced += 1
     } else {
@@ -280,6 +281,19 @@ async function downloadAllAugments(sourceUrl) {
   if (failed > 0) {
     console.warn(`Skipped ${failed} augment icons; item and perk sync results are unaffected.`)
   }
+}
+
+async function downloadAllAugmentMetadata(sourceUrl) {
+  const augments = await readAugmentEntries(sourceUrl)
+  if (!augments) {
+    return
+  }
+
+  for (const augment of augments) {
+    hydrateAugmentMetadata(augment)
+  }
+
+  console.log(`Hydrated ${augments.length} CommunityDragon augment metadata entries from cherry-augments.json`)
 }
 
 async function downloadAllObjectives() {
@@ -299,6 +313,104 @@ async function downloadAllObjectives() {
   console.log(`Synced ${synced}/${Object.keys(objectiveSources).length} CommunityDragon minimap objective icons`)
   if (failed > 0) {
     process.exitCode = 1
+  }
+}
+
+async function readItemEntries() {
+  let payload
+  try {
+    const response = await fetch(itemSource())
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    payload = await response.json()
+  } catch (error) {
+    process.exitCode = 1
+    console.warn(`Failed to read DDragon item index: ${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
+
+  return Object.entries(payload?.data || {})
+    .map(([id, item]) => ({ id: normalizeId(id), item }))
+    .filter(entry => entry.id)
+    .sort((left, right) => left.id - right.id)
+}
+
+async function readAugmentEntries(sourceUrl) {
+  const payload = await readAugmentIndexPayload(sourceUrl)
+  if (!payload) {
+    return null
+  }
+
+  const detailsById = await readArenaAugmentDetails()
+  return extractAugments(payload)
+    .map(augment => {
+      const details = detailsById.get(String(augment.id))
+      return details
+        ? {
+            ...augment,
+            name: firstText(details.name, augment.name),
+            description: firstText(details.description, augment.description)
+          }
+        : augment
+    })
+}
+
+async function readAugmentIndexPayload(sourceUrl) {
+  const fallbackUrl = sourceUrl === defaultAugmentSource() ? defaultAugmentFallbackSource() : ''
+  const payload = await readJsonFromUrl(sourceUrl)
+  if (payload) {
+    return payload
+  }
+
+  if (!fallbackUrl) {
+    console.warn(`Skipped all augments; source unavailable at ${sourceUrl}`)
+    return null
+  }
+
+  console.warn(`Falling back to default CommunityDragon augment index at ${fallbackUrl}`)
+  const fallbackPayload = await readJsonFromUrl(fallbackUrl)
+  if (!fallbackPayload) {
+    console.warn(`Skipped all augments; fallback source unavailable at ${fallbackUrl}`)
+  }
+  return fallbackPayload
+}
+
+async function readArenaAugmentDetails() {
+  const detailsPayload = await readJsonFromUrl(arenaAugmentDetailsSource()) ||
+    await readJsonFromUrl(arenaAugmentDetailsFallbackSource())
+  return extractArenaAugmentDetails(detailsPayload)
+}
+
+async function readJsonFromUrl(url) {
+  try {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    return await response.json()
+  } catch (error) {
+    console.warn(`Failed to read ${url}: ${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
+}
+
+function hydrateItemMetadata(entry) {
+  metadata.items[String(entry.id)] = {
+    id: entry.id,
+    name: textValue(entry.item?.name),
+    description: textValue(entry.item?.description),
+    plaintext: textValue(entry.item?.plaintext),
+    icon: `items/${entry.id}.png`
+  }
+}
+
+function hydrateAugmentMetadata(augment) {
+  metadata.augments[String(augment.id)] = {
+    id: augment.id,
+    name: textValue(augment.name),
+    description: textValue(augment.description),
+    icon: `augments/${augment.id}.png`
   }
 }
 
@@ -369,9 +481,12 @@ function parseArgs(rawArgs) {
     profile: [],
     augment: [],
     allItems: false,
+    allItemMetadata: false,
     allPerks: false,
     allAugments: false,
+    allAugmentMetadata: false,
     allObjectives: false,
+    metadataOnly: false,
     withMetadata: false,
     augmentSource: ''
   }
@@ -386,6 +501,10 @@ function parseArgs(rawArgs) {
       parsed.allItems = true
       continue
     }
+    if (arg === '--all-item-metadata') {
+      parsed.allItemMetadata = true
+      continue
+    }
     if (arg === '--all-perks') {
       parsed.allPerks = true
       continue
@@ -394,8 +513,16 @@ function parseArgs(rawArgs) {
       parsed.allAugments = true
       continue
     }
+    if (arg === '--all-augment-metadata') {
+      parsed.allAugmentMetadata = true
+      continue
+    }
     if (arg === '--all-objectives') {
       parsed.allObjectives = true
+      continue
+    }
+    if (arg === '--metadata-only') {
+      parsed.metadataOnly = true
       continue
     }
     if (arg === '--with-metadata') {
@@ -418,6 +545,16 @@ function parseArgs(rawArgs) {
   }
 
   return parsed
+}
+
+function shouldDownloadItemMetadataOnly(parsed) {
+  return parsed.allItemMetadata ||
+    (parsed.metadataOnly && (parsed.allItems || (!parsed.allItems && !parsed.allAugments)))
+}
+
+function shouldDownloadAugmentMetadataOnly(parsed) {
+  return parsed.allAugmentMetadata ||
+    (parsed.metadataOnly && (parsed.allAugments || (!parsed.allItems && !parsed.allAugments)))
 }
 
 function normalizeId(value) {
@@ -480,6 +617,22 @@ function extractAugments(payload) {
   return Array.from(unique.values()).sort((left, right) => left.id - right.id)
 }
 
+function extractArenaAugmentDetails(payload) {
+  const unique = new Map()
+  for (const augment of Array.isArray(payload?.augments) ? payload.augments : []) {
+    const id = normalizeId(augment?.id)
+    if (!id) {
+      continue
+    }
+    unique.set(String(id), {
+      id,
+      name: firstText(augment.name, augment.nameTRA, augment.simpleName, augment.simpleNameTRA),
+      description: firstText(augment.desc, augment.tooltip, augment.description, augment.descriptionTRA, augment.tooltipTRA)
+    })
+  }
+  return unique
+}
+
 function normalizeIconPath(value) {
   return typeof value === 'string' && value.trim()
     ? value.trim().replace(/^\/+/, '')
@@ -510,6 +663,8 @@ Usage:
   node scripts/sync-game-assets.mjs --version 15.24.1 --item 1001 --spell 4 --perk 8005 --champion 103
   node scripts/sync-game-assets.mjs --version 15.24.1 --locale zh_CN --all-items --all-perks --all-augments --with-metadata
   node scripts/sync-game-assets.mjs --version 15.24.1 --locale zh_CN --all-items --all-perks --with-metadata
+  node scripts/sync-game-assets.mjs --version 15.24.1 --locale zh_CN --all-item-metadata --all-augment-metadata
+  node scripts/sync-game-assets.mjs --version 15.24.1 --locale zh_CN --metadata-only
   node scripts/sync-game-assets.mjs --version 15.24.1 --locale zh_CN --all-objectives
 
 Notes:
@@ -518,6 +673,8 @@ Notes:
   - DDragon version is used for item/profile icons and item/perk metadata.
   - --all-perks reads runesReforged.json and downloads style plus rune icons from the small icon CDN.
   - --all-augments reads CommunityDragon cherry-augments.json by default and can be overridden with --augment-source.
+  - --all-item-metadata and --all-augment-metadata update metadata.json without downloading item or augment icons.
+  - --metadata-only updates item and augment metadata without downloading item or augment icons.
   - --all-objectives downloads the small CommunityDragon minimap objective icons referenced by manifest.objectives.
   - Augment sync failures are skipped so item and perk syncs are not blocked.
   - Do not commit full archive packs.

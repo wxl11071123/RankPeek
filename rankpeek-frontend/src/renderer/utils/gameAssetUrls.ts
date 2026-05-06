@@ -90,6 +90,15 @@ export interface GameAssetMetadata {
   augments: Record<string, GameAssetMetadataEntry>
 }
 
+export interface GameAssetTooltipDetails {
+  kind: 'item' | 'perk' | 'augment' | 'spell'
+  id: number
+  name: string
+  subtitle: string
+  description: string
+  iconUrl: string
+}
+
 export interface ItemIconSlot {
   index: number
   itemId: number | null
@@ -161,6 +170,35 @@ export function getPerkAssetDetails(perkId?: number | null): GameAssetMetadataEn
 
 export function getAugmentAssetDetails(augmentId?: number | null): GameAssetMetadataEntry | null {
   return getAssetDetails('augment', augmentId)
+}
+
+export function getItemTooltipDetails(itemId?: number | null): GameAssetTooltipDetails | null {
+  return getAssetTooltipDetails('item', itemId, getItemIconUrl)
+}
+
+export function getPerkTooltipDetails(perkId?: number | null): GameAssetTooltipDetails | null {
+  return getAssetTooltipDetails('perk', perkId, getPerkIconUrl)
+}
+
+export function getAugmentTooltipDetails(augmentId?: number | null): GameAssetTooltipDetails | null {
+  return getAssetTooltipDetails('augment', augmentId, getAugmentIconUrl)
+}
+
+export function getSummonerSpellTooltipDetails(spellId?: number | null): GameAssetTooltipDetails | null {
+  const id = normalizeAssetId(spellId)
+  if (id === null) {
+    return null
+  }
+
+  const label = getTooltipKindLabel('spell')
+  return {
+    kind: 'spell',
+    id,
+    name: `${label} ${id}`,
+    subtitle: `${label} ${id}`,
+    description: '暂无详细说明',
+    iconUrl: getSummonerSpellIconUrl(id)
+  }
 }
 
 export function getItemIconSlots(stats: unknown): ItemIconSlot[] {
@@ -302,6 +340,29 @@ function getAssetDetails(kind: 'item' | 'perk' | 'augment', rawId?: number | nul
   return section[String(id)] || null
 }
 
+function getAssetTooltipDetails(
+  kind: 'item' | 'perk' | 'augment',
+  rawId: number | null | undefined,
+  getIconUrl: (id: number) => string
+): GameAssetTooltipDetails | null {
+  const id = normalizeAssetId(rawId)
+  if (id === null) {
+    return null
+  }
+
+  const label = getTooltipKindLabel(kind)
+  const details = getAssetDetails(kind, id)
+  const fallbackName = `${label} ${id}`
+  return {
+    kind,
+    id,
+    name: cleanTooltipText(details?.name) || fallbackName,
+    subtitle: fallbackName,
+    description: getTooltipDescription(details),
+    iconUrl: getIconUrl(id)
+  }
+}
+
 function getMetadataSection(kind: 'item' | 'perk' | 'augment'): Record<string, GameAssetMetadataEntry> {
   switch (kind) {
     case 'item':
@@ -311,6 +372,65 @@ function getMetadataSection(kind: 'item' | 'perk' | 'augment'): Record<string, G
     case 'augment':
       return metadata.augments
   }
+}
+
+function getTooltipKindLabel(kind: GameAssetTooltipDetails['kind']): string {
+  switch (kind) {
+    case 'item':
+      return '装备'
+    case 'perk':
+      return '符文'
+    case 'augment':
+      return '海克斯强化'
+    case 'spell':
+      return '召唤师技能'
+  }
+}
+
+function getTooltipDescription(details: GameAssetMetadataEntry | null): string {
+  if (!details) {
+    return '暂无详细说明'
+  }
+
+  const rawDescription = [
+    details.description,
+    details.shortDesc,
+    details.longDesc,
+    details.plaintext
+  ].find(value => cleanTooltipText(value))
+
+  return cleanTooltipText(rawDescription) || '暂无详细说明'
+}
+
+function cleanTooltipText(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  return decodeHtmlEntities(
+    value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|li|ul|ol|tr|table|maintext)>/gi, '\n')
+      .replace(/<li(?:\s[^>]*)?>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+  )
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/ *\n+ */g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
 }
 
 function buildAssetCandidates(kind: GameAssetKind, id: number): string[] {

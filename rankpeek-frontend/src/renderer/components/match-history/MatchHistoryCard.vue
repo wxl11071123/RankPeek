@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
 import { useI18n } from '@/i18n'
 import type { MatchHistory, Participant, Stats, UserTagSummary } from '@/types/api'
 import {
   getAugmentIconUrl,
   getAugmentAssetDetails,
+  getAugmentTooltipDetails,
   getChampionIconUrl,
   getItemIconSlots,
   getItemAssetDetails,
+  getItemTooltipDetails,
   getPerkIconUrl,
   getPerkAssetDetails,
+  getPerkTooltipDetails,
   getSummonerSpellIconUrl,
-  markAssetLoadFailed
+  markAssetLoadFailed,
+  type GameAssetTooltipDetails
 } from '@/utils/gameAssetUrls'
 import {
   getMatchPerformanceTags,
@@ -201,6 +206,16 @@ function getTraitSlotLabel(kind: MatchTraitMode, id: number | null): string {
   return details?.name ? `${details.name} (${id})` : `${fallback} ${id}`
 }
 
+function getTraitTooltipDetails(slot: MatchTraitIconSlot): GameAssetTooltipDetails | null {
+  if (slot.empty || slot.id === null) {
+    return null
+  }
+
+  return slot.kind === 'augment'
+    ? getAugmentTooltipDetails(slot.id)
+    : getPerkTooltipDetails(slot.id)
+}
+
 function getItemSlotLabel(slot: { itemId: number | null, empty: boolean }): string {
   if (slot.empty || slot.itemId === null) {
     return '空装备槽'
@@ -283,13 +298,19 @@ function displayMode(match: MatchHistory): string {
             v-for="slot in currentTraitSlots"
             :key="slot.key"
             class="loadout-slot trait-slot"
-            :title="slot.label"
+            :aria-label="slot.label"
             :class="[
               `loadout-slot-${slot.kind}`,
               { empty: slot.empty }
             ]"
           >
-            <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            <AssetHoverTooltip
+              v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+              :details="getTraitTooltipDetails(slot)!"
+            >
+              <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            </AssetHoverTooltip>
+            <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
           </span>
         </div>
 
@@ -304,10 +325,16 @@ function displayMode(match: MatchHistory): string {
             v-for="slot in currentItemSlots"
             :key="`${match.gameId}-item-${slot.index}`"
             class="item-slot"
-            :title="getItemSlotLabel(slot)"
+            :aria-label="getItemSlotLabel(slot)"
             :class="{ empty: slot.empty }"
           >
-            <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            <AssetHoverTooltip
+              v-if="slot.url && !slot.empty && slot.itemId !== null"
+              :details="getItemTooltipDetails(slot.itemId)!"
+            >
+              <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            </AssetHoverTooltip>
+            <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
           </span>
         </div>
 

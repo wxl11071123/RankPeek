@@ -6,12 +6,15 @@ import {
   getAssetPlaceholderUrl,
   getAugmentIconUrl,
   getAugmentAssetDetails,
+  getAugmentTooltipDetails,
   getChampionIconUrl,
   getItemIconSlots,
   getItemIconUrl,
   getItemAssetDetails,
+  getItemTooltipDetails,
   getPerkIconUrl,
   getPerkAssetDetails,
+  getPerkTooltipDetails,
   getProfileIconUrl,
   getObjectiveIconUrl,
   getSummonerSpellIconUrl,
@@ -393,6 +396,105 @@ test('game asset metadata helpers expose item, perk, and augment text without ch
   assert.equal(getPerkAssetDetails(999999), null)
 })
 
+test('tooltip details use metadata names, sanitized descriptions, subtitles, and icon helpers', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetManifestForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    perks: {
+      8005: 'perks/8005.png'
+    }
+  })
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      3031: {
+        id: 3031,
+        name: 'Infinity Edge',
+        description: '<mainText><stats>70 Attack Damage</stats><br><br>Critical strikes deal &amp; scale bonus.</mainText>',
+        plaintext: 'Critical item.'
+      }
+    },
+    perks: {
+      8005: {
+        id: 8005,
+        name: 'Press the Attack',
+        shortDesc: 'Hit <b>three</b> times &amp; expose.',
+        longDesc: 'This should not win over shortDesc.',
+        icon: 'perks/8005.png'
+      }
+    },
+    augments: {
+      1205: {
+        id: 1205,
+        name: 'ADAPt',
+        description: 'Gain <font color="#48C4B7">adaptive force</font>.'
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(3031)
+  const perk = getPerkTooltipDetails(8005)
+  const augment = getAugmentTooltipDetails(1205)
+
+  assert.equal(item?.kind, 'item')
+  assert.equal(item?.id, 3031)
+  assert.equal(item?.name, 'Infinity Edge')
+  assert.equal(item?.subtitle, '装备 3031')
+  assert.equal(item?.description, '70 Attack Damage\nCritical strikes deal & scale bonus.')
+  assert.equal(item?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/item/3031')
+  assert.equal(perk?.kind, 'perk')
+  assert.equal(perk?.subtitle, '符文 8005')
+  assert.equal(perk?.description, 'Hit three times & expose.')
+  assert.equal(perk?.iconUrl, './game-assets/perks/8005.png')
+  assert.equal(augment?.kind, 'augment')
+  assert.equal(augment?.subtitle, '海克斯强化 1205')
+  assert.equal(augment?.description, 'Gain adaptive force.')
+  assert.equal(augment?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/augment/1205')
+  assert.doesNotMatch(item?.description || '', /<[^>]+>|&amp;/)
+  assert.doesNotMatch(perk?.description || '', /<[^>]+>|&amp;/)
+  assert.doesNotMatch(augment?.description || '', /<[^>]+>|font/i)
+})
+
+test('tooltip details fall back to readable names and no-detail copy when metadata is missing', () => {
+  resetGameAssetResolverForTest()
+
+  assert.deepEqual(getItemTooltipDetails(3031), {
+    kind: 'item',
+    id: 3031,
+    name: '装备 3031',
+    subtitle: '装备 3031',
+    description: '暂无详细说明',
+    iconUrl: 'http://127.0.0.1:8080/api/v1/asset/item/3031'
+  })
+  assert.deepEqual(getPerkTooltipDetails(8005), {
+    kind: 'perk',
+    id: 8005,
+    name: '符文 8005',
+    subtitle: '符文 8005',
+    description: '暂无详细说明',
+    iconUrl: getAssetPlaceholderUrl()
+  })
+  assert.equal(getAugmentTooltipDetails(0), null)
+})
+
+test('local game asset metadata contains tooltip text for common items, perks, and augments', () => {
+  const metadata = JSON.parse(readFileSync(new URL('../../../public/game-assets/metadata.json', import.meta.url), 'utf8'))
+
+  assert.equal(typeof metadata.items['3031']?.name, 'string')
+  assert.equal(typeof metadata.items['3031']?.description, 'string')
+  assert.equal(typeof metadata.items['3153']?.name, 'string')
+  assert.equal(typeof metadata.items['3006']?.name, 'string')
+  assert.equal(typeof metadata.perks['8005']?.name, 'string')
+  assert.equal(typeof metadata.perks['8100']?.name, 'string')
+  assert.equal(typeof metadata.perks['8135']?.name, 'string')
+  assert.ok(Object.keys(metadata.augments || {}).length > 0)
+  assert.ok(Object.values(metadata.augments || {}).some(entry =>
+    typeof entry.description === 'string' && entry.description.length > 0
+  ))
+})
+
 test('local game asset manifest stays selective while including local perk mappings', () => {
   const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
 
@@ -414,17 +516,22 @@ test('game asset sync script hydrates item, perk, augment, and metadata selectiv
   const source = readFileSync(new URL('../../../scripts/sync-game-assets.mjs', import.meta.url), 'utf8')
 
   assert.match(source, /--all-items/)
+  assert.match(source, /--all-item-metadata/)
   assert.match(source, /--all-perks/)
   assert.match(source, /--all-augments/)
+  assert.match(source, /--all-augment-metadata/)
   assert.match(source, /--all-objectives/)
   assert.match(source, /--with-metadata/)
   assert.match(source, /metadataPath/)
   assert.match(source, /readMetadata/)
   assert.match(source, /writeMetadata/)
   assert.match(source, /downloadAllItems/)
+  assert.match(source, /downloadAllItemMetadata/)
   assert.match(source, /runesReforged\.json/)
   assert.match(source, /downloadAllPerks/)
   assert.match(source, /downloadAllAugments/)
+  assert.match(source, /downloadAllAugmentMetadata/)
+  assert.match(source, /cdragon\/arena/)
   assert.match(source, /downloadAllObjectives/)
   assert.match(source, /objectiveSources/)
   assert.match(source, /manifest\.objectives/)
