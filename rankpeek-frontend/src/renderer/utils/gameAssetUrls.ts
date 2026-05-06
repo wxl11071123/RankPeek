@@ -317,6 +317,7 @@ function buildAssetCandidates(kind: GameAssetKind, id: number): string[] {
   return uniqueNonEmpty([
     getManifestAssetUrl(kind, id),
     localAssetCacheResolver?.(kind, id) || '',
+    getMetadataAssetUrl(kind, id),
     getBackendAssetUrl(kind, id),
     ...getRemoteAssetUrls(kind, id)
   ])
@@ -347,6 +348,15 @@ function getManifestSection(kind: GameAssetKind): GameAssetManifestSection {
     case 'profile':
       return manifest.profileIcons || {}
   }
+}
+
+function getMetadataAssetUrl(kind: GameAssetKind, id: number): string {
+  if (kind !== 'perk') {
+    return ''
+  }
+
+  const value = metadata.perks[String(id)]?.icon
+  return value ? normalizeManifestAssetPath(value) : ''
 }
 
 function getManifestObjectiveIconUrl(kind: ObjectiveIconKind): string {
@@ -405,7 +415,7 @@ function getRemoteAssetUrls(kind: GameAssetKind, id: number): string[] {
     case 'spell':
       return [`${COMMUNITY_DRAGON_GAME_DATA}/summoner-spells/${id}.png`]
     case 'perk':
-      return [`${COMMUNITY_DRAGON_GAME_DATA}/perks/${id}.png`]
+      return []
     case 'profile':
       return [`${DATA_DRAGON_CDN}/img/profileicon/${id}.png`]
     case 'augment':

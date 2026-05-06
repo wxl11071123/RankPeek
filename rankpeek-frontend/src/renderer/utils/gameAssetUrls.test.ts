@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   getAssetFallbackClass,
   getAssetPlaceholderUrl,
@@ -29,7 +29,12 @@ test('game asset helpers prefer local manifest paths before remote fallbacks', (
     champions: { 103: 'champions/103.png' },
     items: { 1001: 'items/1001.png' },
     summonerSpells: { 4: 'summoner-spells/4.png' },
-    perks: { 8005: 'perks/8005.png' },
+    perks: {
+      8000: 'perks/8000.png',
+      8005: 'perks/8005.png',
+      8100: 'perks/8100.png',
+      8135: 'perks/8135.png'
+    },
     augments: { 12345: 'augments/12345.png' },
     profileIcons: { 29: 'profile-icons/29.png' }
   })
@@ -37,7 +42,10 @@ test('game asset helpers prefer local manifest paths before remote fallbacks', (
   assert.equal(getChampionIconUrl(103), './game-assets/champions/103.png')
   assert.equal(getItemIconUrl(1001), './game-assets/items/1001.png')
   assert.equal(getSummonerSpellIconUrl(4), './game-assets/summoner-spells/4.png')
+  assert.equal(getPerkIconUrl(8000), './game-assets/perks/8000.png')
   assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
+  assert.equal(getPerkIconUrl(8100), './game-assets/perks/8100.png')
+  assert.equal(getPerkIconUrl(8135), './game-assets/perks/8135.png')
   assert.equal(getAugmentIconUrl(12345), './game-assets/augments/12345.png')
   assert.equal(getProfileIconUrl(29), './game-assets/profile-icons/29.png')
 })
@@ -164,7 +172,28 @@ test('game asset helpers fall back through local backend before remote URLs', ()
   assert.equal(getSummonerSpellIconUrl(4), 'http://127.0.0.1:8080/api/v1/asset/spell/4')
   assert.equal(getProfileIconUrl(29), 'http://127.0.0.1:8080/api/v1/asset/profile/29')
   assert.equal(getAugmentIconUrl(12345), 'http://127.0.0.1:8080/api/v1/asset/augment/12345')
-  assert.equal(getPerkIconUrl(8005), 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perks/8005.png')
+  assert.equal(getPerkIconUrl(8005), getAssetPlaceholderUrl())
+  assert.doesNotMatch(getPerkIconUrl(8005), /raw\.communitydragon\.org\/latest\/plugins\/rcp-be-lol-game-data\/global\/default\/v1\/perks\/8005\.png/)
+})
+
+test('perk icon helper uses metadata local icon paths when manifest is missing', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    perks: {
+      8135: {
+        id: 8135,
+        name: 'Treasure Hunter',
+        description: 'Earn extra gold.',
+        icon: 'perks/8135.png'
+      }
+    }
+  })
+
+  assert.equal(getPerkIconUrl(8135), './game-assets/perks/8135.png')
+  assert.equal(getPerkAssetDetails(8135)?.name, 'Treasure Hunter')
+  assert.doesNotMatch(getPerkIconUrl(8135), /raw\.communitydragon\.org\/latest\/plugins\/rcp-be-lol-game-data\/global\/default\/v1\/perks\/8135\.png/)
 })
 
 test('invalid asset ids do not create broken image URLs', () => {
@@ -356,20 +385,29 @@ test('game asset metadata helpers expose item, perk, and augment text without ch
   })
 
   assert.equal(getItemAssetDetails(3153)?.name, 'Blade of the Ruined King')
+  assert.equal(getPerkIconUrl(8000), './game-assets/perks/8000.png')
   assert.equal(getPerkAssetDetails(8000)?.icon, 'perks/8000.png')
+  assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
   assert.equal(getPerkAssetDetails(8005)?.shortDesc, 'Hit three times.')
   assert.equal(getAugmentAssetDetails(1205)?.description, 'Adaptive force.')
   assert.equal(getPerkAssetDetails(999999), null)
 })
 
-test('local game asset manifest stays selective and avoids non-objective bulk mappings', () => {
+test('local game asset manifest stays selective while including local perk mappings', () => {
   const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
 
   assert.deepEqual(manifest.items, {})
-  assert.deepEqual(manifest.perks, {})
   assert.deepEqual(manifest.augments, {})
   assert.equal(typeof manifest.objectives, 'object')
   assert.ok(Object.keys(manifest.objectives).length > 0)
+  assert.equal(typeof manifest.perks, 'object')
+  assert.equal(manifest.perks['8005'], 'perks/8005.png')
+  assert.equal(manifest.perks['8100'], 'perks/8100.png')
+  assert.equal(manifest.perks['8000'], 'perks/8000.png')
+  assert.equal(manifest.perks['8135'], 'perks/8135.png')
+  assert.ok(existsSync(new URL('../../../public/game-assets/perks/8005.png', import.meta.url)))
+  assert.ok(existsSync(new URL('../../../public/game-assets/perks/8100.png', import.meta.url)))
+  assert.ok(existsSync(new URL('../../../public/game-assets/perks/8000.png', import.meta.url)))
 })
 
 test('game asset sync script hydrates item, perk, augment, and metadata selectively', () => {
