@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   MATCH_HISTORY_OVERVIEW_LOOKBACK_LIMIT,
   RANKED_OVERVIEW_SAMPLE_LIMIT,
+  isRemakeMatch,
   selectRecentMatchLookback,
   selectRecentRankedSample
 } from './matchHistorySampling.ts'
@@ -88,4 +89,10 @@ test('does not fill ranked sample with casual matches and excludes remakes', () 
   assert.equal(sample.length, 12)
   assert.ok(sample.every(item => item.queueId === 420 || item.queueId === 440))
   assert.ok(sample.every(item => item.remake !== true && item.gameDuration >= 300))
+})
+
+test('detects remake matches below five minutes and keeps five-minute matches normal', () => {
+  assert.equal(isRemakeMatch(match(1, 420, { gameDuration: 299 })), true)
+  assert.equal(isRemakeMatch(match(2, 420, { gameDuration: 300 })), false)
+  assert.equal(isRemakeMatch(match(3, 420, { gameDuration: 1800, remake: true })), true)
 })

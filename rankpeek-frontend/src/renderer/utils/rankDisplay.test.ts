@@ -45,6 +45,47 @@ test('formats ranked tier, division, league points, and win rate from queue info
   assert.equal(display.iconTier, 'gold')
 })
 
+test('formats rank record from explicit wins and losses without forcing 100 percent', () => {
+  const display = buildRankDisplay(queueInfo({
+    tier: 'PLATINUM',
+    division: 'III',
+    leaguePoints: 12,
+    wins: 292,
+    losses: 308
+  }), 'loaded')
+
+  assert.equal(display.tierText, '铂金 III 12LP')
+  assert.equal(display.recordText, '49% 胜率 (292W 308L)')
+})
+
+test('derives rank losses from games when the rank payload omits losses', () => {
+  const display = buildRankDisplay(queueInfo({
+    tier: 'PLATINUM',
+    division: 'III',
+    leaguePoints: 12,
+    wins: 292,
+    losses: undefined,
+    games: 600
+  }), 'loaded')
+
+  assert.equal(display.recordText, '49% 胜率 (292W 308L)')
+})
+
+test('does not render a fake perfect rank record when losses are zero and total games are unavailable', () => {
+  const display = buildRankDisplay(queueInfo({
+    tier: 'PLATINUM',
+    division: 'III',
+    leaguePoints: 12,
+    wins: 292,
+    losses: 0,
+    totalGames: undefined,
+    games: undefined
+  }), 'loaded')
+
+  assert.equal(display.tierText, '铂金 III 12LP')
+  assert.equal(display.recordText, '')
+})
+
 test('does not show fake unranked records while rank data is loading', () => {
   const display = buildRankDisplay(null, 'loading')
 

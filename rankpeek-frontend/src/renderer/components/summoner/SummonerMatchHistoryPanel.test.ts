@@ -47,6 +47,28 @@ test('inline detail is not passed user tag summaries while history cards keep th
   assert.doesNotMatch(inlineBlock, /user-tag-summaries/)
 })
 
+test('lookup rank summary is requested with the viewed summoner puuid', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const setupBlock = source.match(/<script setup lang="ts">[\s\S]*?<\/script>/)?.[0] || ''
+  const watcherBlock = setupBlock.match(/watch\(\s*\(\) => currentSummoner\.value\?\.puuid[\s\S]*?\{ immediate: true \}\s*\)/)?.[0] || ''
+  const refreshFunction = setupBlock.match(/async function refreshRemoteMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?async function handleRemoteMatchHistoryFailure/)?.[0] || ''
+  const rankFunction = setupBlock.match(/async function loadRankSummary\(puuid: string, requestId: number\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const sgpRecordFunction = setupBlock.match(/async function loadSgpRankedRecords\(puuid: string, requestId: number, forceRefresh: boolean\) \{[\s\S]*?function calculateSgpRankedRecords/)?.[0] || ''
+
+  assert.match(setupBlock, /const currentSummoner = computed\(\(\) => props\.summoner\)/)
+  assert.doesNotMatch(setupBlock, /useGameStore/)
+  assert.match(watcherBlock, /const requestId = matchHistoryRequestId/)
+  assert.match(watcherBlock, /void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
+  assert.match(refreshFunction, /const puuid = currentSummoner\.value\?\.puuid/)
+  assert.match(refreshFunction, /void loadRankSummary\(puuid, requestId\)/)
+  assert.match(refreshFunction, /void loadSgpRankedRecords\(puuid, requestId, options\.forceRefresh === true\)/)
+  assert.match(rankFunction, /apiClient\.getRank\(puuid\)/)
+  assert.match(source, /:ranked-records="sgpRankedRecords"/)
+  assert.match(sgpRecordFunction, /apiClient\.getMatchHistoryPage\(puuid, \{[\s\S]*pageSize:\s*200[\s\S]*source:\s*'sgp'/)
+  assert.match(sgpRecordFunction, /currentSummoner\.value\?\.puuid !== puuid/)
+  assert.match(setupBlock, /function getRankedQueueKey\(queueId\?: number\): RankedQueueKey \| null[\s\S]*queueId === 420[\s\S]*'RANKED_SOLO_5x5'[\s\S]*queueId === 440[\s\S]*'RANKED_FLEX_SR'/)
+})
+
 test('inline detail toggle folds the same match and keeps only one expanded game active', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const toggleFunction = source.match(/async function toggleInlineDetail\(match: MatchHistory\) \{[\s\S]*?function collapseInlineDetail/)?.[0] || ''

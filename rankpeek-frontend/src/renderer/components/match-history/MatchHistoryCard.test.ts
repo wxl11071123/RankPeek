@@ -80,12 +80,28 @@ test('match history card exposes inline detail expanded state and chevron afford
 
   assert.match(source, /expanded\?: boolean/)
   assert.match(source, /expanded: false/)
-  assert.match(source, /:class="\{ win: isWin, loss: !isWin, expanded \}"/)
+  assert.match(source, /:class="\{\s*remake: isRemake,\s*win: !isRemake && isWin,\s*loss: !isRemake && !isWin,\s*expanded\s*\}"/)
+  assert.doesNotMatch(source, /:class="\{ win: isWin, loss: !isWin, expanded \}"/)
   assert.match(source, /class="detail-chevron"/)
   assert.match(source, /:class="\{ expanded \}"/)
   assert.match(source, /:aria-expanded="expanded"/)
   assert.match(source, /@click\.stop="emit\('open-detail', match\)"/)
   assert.match(source, /class="chevron-icon"/)
+})
+
+test('match history card renders remake result state without win or loss coloring', () => {
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import \{ isRemakeMatch \} from '@\/utils\/matchHistorySampling'/)
+  assert.match(source, /const isRemake = computed\(\(\) => isRemakeMatch\(props\.match\)\)/)
+  assert.match(source, /const resultText = computed\(\(\) =>\s*isRemake\.value\s*\?\s*'重开'\s*:\s*isWin\.value\s*\?\s*t\('common\.win'\)\s*:\s*t\('common\.loss'\)\s*\)/)
+  assert.match(source, /:class="\{\s*remake: isRemake,\s*win: !isRemake && isWin,\s*loss: !isRemake && !isWin,\s*expanded\s*\}"/)
+  assert.match(source, /class="result-rail"\s+:class="\{\s*remake: isRemake,\s*win: !isRemake && isWin,\s*loss: !isRemake && !isWin\s*\}"/)
+  assert.doesNotMatch(source, /class="result-rail"\s+:class="\{ win: isWin, loss: !isWin \}"/)
+  assert.match(source, /\{\{ resultText \}\}/)
+  assert.match(source, /--remake-color:/)
+  assert.match(source, /\.result-rail\.remake\s*\{\s*background: var\(--remake-color\);\s*\}/)
+  assert.match(source, /\.match-history-card\.remake \.result-text\s*\{\s*color: var\(--remake-color\);\s*\}/)
 })
 
 test('match history card rich asset tooltips are not only browser title text', () => {

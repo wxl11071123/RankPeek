@@ -27,8 +27,8 @@ test('renders rank summary as compact rows beside recent stats', () => {
   assert.match(source, /const rankItems = computed\(\(\) => \[/)
   assert.match(source, /label:\s*t\('overview\.soloQueue'\)/)
   assert.match(source, /label:\s*t\('overview\.flexQueue'\)/)
-  assert.match(source, /display:\s*buildRankDisplay\(props\.soloRank,\s*props\.rankStatus,\s*rankDisplayText\.value\)/)
-  assert.match(source, /display:\s*buildRankDisplay\(props\.flexRank,\s*props\.rankStatus,\s*rankDisplayText\.value\)/)
+  assert.match(source, /display:\s*buildRankDisplay\(withSgpRankedRecord\(props\.soloRank,\s*'RANKED_SOLO_5x5'\),\s*props\.rankStatus,\s*rankDisplayText\.value\)/)
+  assert.match(source, /display:\s*buildRankDisplay\(withSgpRankedRecord\(props\.flexRank,\s*'RANKED_FLEX_SR'\),\s*props\.rankStatus,\s*rankDisplayText\.value\)/)
   assert.match(source, /<article[\s\S]*v-for="rank in rankItems"[\s\S]*class="rank-item"/)
   assert.match(source, /<img class="rank-img" :src="getTierIcon\(rank\.display\.iconTier\)" alt="" \/>/)
   assert.match(source, /\.rank-section\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)[\s\S]*max-width:\s*230px/)
@@ -36,12 +36,22 @@ test('renders rank summary as compact rows beside recent stats', () => {
   assert.match(source, /\.rank-img\s*\{[\s\S]*width:\s*42px;[\s\S]*height:\s*42px;/)
 })
 
+test('uses SGP ranked records for rank row win loss copy', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /rankedRecords\?: Partial<Record<RankedQueueKey,\s*WinRate>>/)
+  assert.match(source, /function withSgpRankedRecord\(queueInfo: QueueInfo \| null, queueKey: RankedQueueKey\): QueueInfo \| null/)
+  assert.match(source, /const record = props\.rankedRecords\?\.\[queueKey\]/)
+  assert.match(source, /wins:\s*0,[\s\S]*losses:\s*null,[\s\S]*games:\s*null,[\s\S]*totalGames:\s*null/)
+  assert.match(source, /wins,[\s\S]*losses,[\s\S]*games:\s*wins \+ losses,[\s\S]*totalGames:\s*wins \+ losses/)
+})
+
 test('formats tier labels through the shared rank display helper', () => {
   const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
   const helper = readFileSync(new URL('../../utils/rankDisplay.ts', import.meta.url), 'utf8')
   const zh = readFileSync(new URL('../../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
 
-  assert.match(source, /import \{ buildRankDisplay,\s*type RankLoadStatus,\s*type RankDisplayText \} from '@\/utils\/rankDisplay'/)
+  assert.match(source, /import \{ buildRankDisplay,\s*type RankedQueueKey,\s*type RankLoadStatus,\s*type RankDisplayText \} from '@\/utils\/rankDisplay'/)
   assert.match(helper, /PLATINUM:\s*'铂金'/)
   assert.match(helper, /EMERALD:\s*'翡翠'/)
   assert.match(helper, /MASTER:\s*'超凡大师'/)

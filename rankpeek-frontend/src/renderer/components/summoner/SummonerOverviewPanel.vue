@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from '@/i18n'
-import type { QueueInfo, Summoner, UserTag } from '@/types/api'
+import type { QueueInfo, Summoner, UserTag, WinRate } from '@/types/api'
 import { getProfileIconUrl as getStableProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
-import { buildRankDisplay, type RankLoadStatus, type RankDisplayText } from '@/utils/rankDisplay'
+import { buildRankDisplay, type RankedQueueKey, type RankLoadStatus, type RankDisplayText } from '@/utils/rankDisplay'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
 import iron from '@/assets/imgs/tier/iron.png'
@@ -33,6 +33,7 @@ const props = withDefaults(defineProps<{
   userTag: UserTag | null
   soloRank: QueueInfo | null
   flexRank: QueueInfo | null
+  rankedRecords?: Partial<Record<RankedQueueKey, WinRate>>
   rankStatus?: RankLoadStatus
   fallbackStats?: RecentPerformanceStats | null
   userTagStatus?: UserTagLoadStatus
@@ -85,12 +86,12 @@ const rankItems = computed(() => [
   {
     key: 'solo',
     label: t('overview.soloQueue'),
-    display: buildRankDisplay(props.soloRank, props.rankStatus, rankDisplayText.value)
+    display: buildRankDisplay(withSgpRankedRecord(props.soloRank, 'RANKED_SOLO_5x5'), props.rankStatus, rankDisplayText.value)
   },
   {
     key: 'flex',
     label: t('overview.flexQueue'),
-    display: buildRankDisplay(props.flexRank, props.rankStatus, rankDisplayText.value)
+    display: buildRankDisplay(withSgpRankedRecord(props.flexRank, 'RANKED_FLEX_SR'), props.rankStatus, rankDisplayText.value)
   }
 ])
 
@@ -140,6 +141,37 @@ function fullName(): string {
 function copyName() {
   void navigator.clipboard?.writeText(fullName()).catch(() => undefined)
   emit('copyName')
+}
+
+function withSgpRankedRecord(queueInfo: QueueInfo | null, queueKey: RankedQueueKey): QueueInfo | null {
+  if (!queueInfo) {
+    return null
+  }
+
+  const record = props.rankedRecords?.[queueKey]
+  const wins = readRecordCount(record?.wins)
+  const losses = readRecordCount(record?.losses)
+  if (wins + losses <= 0) {
+    return {
+      ...queueInfo,
+      wins: 0,
+      losses: null,
+      games: null,
+      totalGames: null
+    }
+  }
+
+  return {
+    ...queueInfo,
+    wins,
+    losses,
+    games: wins + losses,
+    totalGames: wins + losses
+  }
+}
+
+function readRecordCount(value?: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
 }
 
 function getProfileIconUrl(profileIconId?: number): string {

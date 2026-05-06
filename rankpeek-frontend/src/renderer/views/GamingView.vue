@@ -41,14 +41,23 @@
             </button>
           </div>
           <div class="team-players">
-            <PlayerCard
+            <template
               v-for="(player, idx) in blueTeamPlayers"
-              :key="'blue-' + idx"
-              class="gaming-player-card surface-glow"
-              :session-summoner="player"
-              team="blue"
-              @navigate-to-player="handleNavigateToPlayer"
-            />
+              :key="getParticipantKey(player) || `blue-${idx}`"
+            >
+              <PlayerCard
+                class="gaming-player-card surface-glow"
+                :session-summoner="player"
+                :selected="isParticipantExpanded(player)"
+                team="blue"
+                @select-player="toggleParticipantRecentMatches(player)"
+              />
+              <ParticipantRecentMatchesPanel
+                v-if="isParticipantExpanded(player)"
+                class="participant-recent-inline-panel surface-glow"
+                :player="player"
+              />
+            </template>
             <span
               v-for="slot in blueEmptySlots"
               :key="`blue-empty-${slot}`"
@@ -82,14 +91,23 @@
             </button>
           </div>
           <div class="team-players">
-            <PlayerCard
+            <template
               v-for="(player, idx) in redTeamPlayers"
-              :key="'red-' + idx"
-              class="gaming-player-card surface-glow"
-              :session-summoner="player"
-              team="red"
-              @navigate-to-player="handleNavigateToPlayer"
-            />
+              :key="getParticipantKey(player) || `red-${idx}`"
+            >
+              <PlayerCard
+                class="gaming-player-card surface-glow"
+                :session-summoner="player"
+                :selected="isParticipantExpanded(player)"
+                team="red"
+                @select-player="toggleParticipantRecentMatches(player)"
+              />
+              <ParticipantRecentMatchesPanel
+                v-if="isParticipantExpanded(player)"
+                class="participant-recent-inline-panel surface-glow"
+                :player="player"
+              />
+            </template>
             <span
               v-for="slot in redEmptySlots"
               :key="`red-empty-${slot}`"
@@ -111,15 +129,14 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
-import type { CacheUpdateEvent, SessionData } from '@/types/api'
+import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
+import type { CacheUpdateEvent, SessionData, SessionSummoner } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
 import { useI18n, type MessageKey } from '@/i18n'
 
-const router = useRouter()
 const { t } = useI18n()
 
 const CONTROL_GLOW_RANGE = 96
@@ -166,6 +183,11 @@ const blueTeamCount = computed(() => blueTeamPlayers.value.length)
 const redTeamCount = computed(() => redTeamPlayers.value.length)
 const blueEmptySlots = computed(() => Math.max(0, 5 - blueTeamCount.value))
 const redEmptySlots = computed(() => Math.max(0, 5 - redTeamCount.value))
+const allSessionPlayers = computed<SessionSummoner[]>(() => [
+  ...blueTeamPlayers.value,
+  ...redTeamPlayers.value
+])
+const expandedParticipantKeys = ref<Set<string>>(new Set())
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -281,6 +303,55 @@ function resetPageGlow() {
   gamingViewRef.value?.querySelectorAll<HTMLElement>(PAGE_GLOW_SELECTOR).forEach(resetGlowElement)
 }
 
+function getParticipantKey(player: SessionSummoner | null | undefined): string {
+  const puuid = player?.summoner?.puuid?.trim()
+  if (puuid) {
+    return `puuid:${puuid}`
+  }
+
+  const summonerId = normalizeKeyPart(player?.summoner?.summonerId)
+  if (summonerId) {
+    return `summoner:${summonerId}`
+  }
+
+  const gameName = player?.summoner?.gameName?.trim()
+  const tagLine = player?.summoner?.tagLine?.trim()
+  if (gameName) {
+    return `riot:${gameName}#${tagLine || ''}`
+  }
+
+  return ''
+}
+
+function normalizeKeyPart(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  return ''
+}
+
+function isParticipantExpanded(player: SessionSummoner): boolean {
+  const key = getParticipantKey(player)
+  return Boolean(key && expandedParticipantKeys.value.has(key))
+}
+
+function toggleParticipantRecentMatches(player: SessionSummoner) {
+  const key = getParticipantKey(player)
+  if (!key) {
+    return
+  }
+  const nextKeys = new Set(expandedParticipantKeys.value)
+  if (nextKeys.has(key)) {
+    nextKeys.delete(key)
+  } else {
+    nextKeys.add(key)
+  }
+  expandedParticipantKeys.value = nextKeys
+}
+
 async function fetchSessionData(options: { showLoading?: boolean } = {}) {
   if (isRefreshPaused.value || sessionFetchInFlight) return
 
@@ -375,13 +446,6 @@ function resumeRefresh() {
   }
 }
 
-function handleNavigateToPlayer(gameName: string, tagLine: string) {
-  router.push({
-    path: '/summoner',
-    query: { name: `${gameName}#${tagLine}` }
-  })
-}
-
 onMounted(() => {
   fetchSessionData()
   refreshInterval = setInterval(fetchSessionData, 5000)
@@ -394,6 +458,17 @@ onMounted(() => {
     }
   })
 })
+
+watch(
+  () => allSessionPlayers.value.map(getParticipantKey).join('|'),
+  () => {
+    const currentKeys = new Set(allSessionPlayers.value.map(getParticipantKey).filter(Boolean))
+    const nextKeys = new Set([...expandedParticipantKeys.value].filter(key => currentKeys.has(key)))
+    if (nextKeys.size !== expandedParticipantKeys.value.size) {
+      expandedParticipantKeys.value = nextKeys
+    }
+  }
+)
 
 watch(() => sessionData.value.phase, (newVal, oldVal) => {
   if (newVal === 'ChampSelect' && oldVal !== 'ChampSelect') {
@@ -860,6 +935,20 @@ onUnmounted(() => {
 .gaming-player-card.surface-glow.team-red:hover,
 .gaming-player-card.surface-glow.team-red:focus-within {
   border-left-color: rgba(222, 111, 111, 0.82);
+}
+
+.participant-recent-inline-panel.surface-glow {
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.participant-recent-inline-panel.surface-glow:hover,
+.participant-recent-inline-panel.surface-glow:focus-within {
+  border-color: var(--gaming-hover-border);
+  box-shadow: var(--gaming-hover-shadow);
+}
+
+.participant-recent-inline-panel.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within) {
+  box-shadow: var(--gaming-control-edge-shadow);
 }
 
 .idle-player-slot-blue {

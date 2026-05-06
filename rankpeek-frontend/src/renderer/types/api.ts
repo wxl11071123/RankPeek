@@ -61,12 +61,13 @@ export interface QueueInfo {
   queueType: string
   tier: string
   displayRank?: string
-  totalGames?: number
+  totalGames?: number | null
+  games?: number | null
   tierCn?: string
   division: string
   leaguePoints: number
   wins: number
-  losses: number
+  losses?: number | null
   highestTier: string
   highestDivision: string
   isProvisional: boolean

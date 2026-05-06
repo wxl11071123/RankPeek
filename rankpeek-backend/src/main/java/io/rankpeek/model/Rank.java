@@ -99,14 +99,17 @@ public class Rank {
          * 如果 API 没有返回 losses，尝试从 games - wins 计算
          */
         public Integer getLosses() {
+            Integer derivedLosses = deriveLossesFromGames();
+            if (derivedLosses != null) {
+                return derivedLosses;
+            }
             if (losses != null) {
-                return losses;
+                if (losses == 0 && getWins() > 0) {
+                    return null;
+                }
+                return Math.max(0, losses);
             }
-            // 如果只有 games 和 wins，计算 losses
-            if (games != null && wins != null && games >= wins) {
-                return games - wins;
-            }
-            return 0;
+            return null;
         }
 
         /**
@@ -129,17 +132,31 @@ public class Rank {
         /**
          * 获取总场次
          */
-        public int getTotalGames() {
-            return getWins() + getLosses();
+        public Integer getTotalGames() {
+            if (games != null && games >= 0) {
+                return games;
+            }
+            Integer normalizedLosses = getLosses();
+            if (normalizedLosses == null) {
+                return null;
+            }
+            return getWins() + normalizedLosses;
         }
 
         /**
          * 计算胜率
          */
         public double calculateWinRate() {
-            int total = getTotalGames();
-            if (total == 0) return 0.0;
+            Integer total = getTotalGames();
+            if (total == null || total == 0) return 0.0;
             return getWins() * 100.0 / total;
+        }
+
+        private Integer deriveLossesFromGames() {
+            if (games != null && wins != null && games >= wins) {
+                return games - wins;
+            }
+            return null;
         }
     }
 }

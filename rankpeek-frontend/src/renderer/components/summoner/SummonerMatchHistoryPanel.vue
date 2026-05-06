@@ -155,6 +155,7 @@
             :user-tag="overviewUserTag"
             :solo-rank="soloRank"
             :flex-rank="flexRank"
+            :ranked-records="sgpRankedRecords"
             :rank-status="rankLoadStatus"
             :fallback-stats="visibleMatchStats"
             :user-tag-status="userTagLoadStatus"
@@ -252,7 +253,7 @@ import {
   isRenderableMatchForPuuid
 } from '../../../shared/matchQuality.ts'
 import { getDefaultMatchQueueMode } from '@/utils/matchPreferences'
-import type { RankLoadStatus } from '@/utils/rankDisplay'
+import type { RankedQueueKey, RankLoadStatus } from '@/utils/rankDisplay'
 import type {
   CacheUpdateEvent,
   ChampionOption,
@@ -268,7 +269,8 @@ import type {
   Summoner,
   Stats,
   UserTag,
-  UserTagSummary
+  UserTagSummary,
+  WinRate
 } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -466,6 +468,7 @@ function handleWindowPointerOut(event: PointerEvent) {
 const matchHistory = ref<MatchHistory[]>([])
 const overviewLookbackMatches = ref<MatchHistory[]>([])
 const rank = ref<Rank | null>(null)
+const sgpRankedRecords = ref<Partial<Record<RankedQueueKey, WinRate>>>({})
 const rankLoadStatus = ref<RankLoadStatus>('loading')
 const overviewUserTag = ref<UserTag | null>(null)
 const userTagLoadStatus = ref<UserTagLoadStatus>('idle')
@@ -749,6 +752,7 @@ function resetPanelState() {
   summariesAbortController?.abort()
   summariesAbortController = null
   rank.value = null
+  sgpRankedRecords.value = {}
   rankLoadStatus.value = 'loading'
   overviewUserTag.value = null
   overviewLookbackMatches.value = []
@@ -1297,6 +1301,7 @@ async function refreshRemoteMatchHistory(options: MatchHistoryLoadOptions = {}) 
   const refreshRunId = startRefreshing(requestId)
   rankLoadStatus.value = 'loading'
   void loadRankSummary(puuid, requestId)
+  void loadSgpRankedRecords(puuid, requestId, options.forceRefresh === true)
   void loadOverviewUserTagSummary(puuid, requestId)
 
   try {
@@ -1372,6 +1377,76 @@ async function loadRankSummary(puuid: string, requestId: number) {
     rank.value = null
     rankLoadStatus.value = 'error'
   }
+}
+
+async function loadSgpRankedRecords(puuid: string, requestId: number, forceRefresh: boolean) {
+  try {
+    const response = await apiClient.getMatchHistoryPage(puuid, {
+      page: 1,
+      pageSize: 200,
+      source: 'sgp',
+      forceRefresh
+    })
+    if (requestId !== matchHistoryRequestId || currentSummoner.value?.puuid !== puuid) {
+      return
+    }
+
+    sgpRankedRecords.value = calculateSgpRankedRecords(response.matches ?? [], puuid)
+  } catch (err) {
+    if (requestId !== matchHistoryRequestId || currentSummoner.value?.puuid !== puuid) {
+      return
+    }
+    console.warn('Failed to load SGP ranked records', err)
+    sgpRankedRecords.value = {}
+  }
+}
+
+function calculateSgpRankedRecords(matches: MatchHistory[], puuid: string): Partial<Record<RankedQueueKey, WinRate>> {
+  const records: Record<RankedQueueKey, { wins: number; losses: number }> = {
+    RANKED_SOLO_5x5: { wins: 0, losses: 0 },
+    RANKED_FLEX_SR: { wins: 0, losses: 0 }
+  }
+
+  for (const match of matches) {
+    const queueKey = getRankedQueueKey(match.queueId)
+    if (!queueKey) {
+      continue
+    }
+
+    const participant = getParticipantByPuuid(match, puuid)
+    if (!participant || !hasCompleteParticipantStats(participant.stats)) {
+      continue
+    }
+
+    if (participant.stats.win) {
+      records[queueKey].wins += 1
+    } else {
+      records[queueKey].losses += 1
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(records)
+      .filter(([, record]) => record.wins + record.losses > 0)
+      .map(([queueKey, record]) => [
+        queueKey,
+        {
+          wins: record.wins,
+          losses: record.losses,
+          winRate: Math.round((record.wins / (record.wins + record.losses)) * 100)
+        }
+      ])
+  ) as Partial<Record<RankedQueueKey, WinRate>>
+}
+
+function getRankedQueueKey(queueId?: number): RankedQueueKey | null {
+  if (queueId === 420) {
+    return 'RANKED_SOLO_5x5'
+  }
+  if (queueId === 440) {
+    return 'RANKED_FLEX_SR'
+  }
+  return null
 }
 
 async function resolveOverviewUserTagMatches(puuid: string, requestId: number): Promise<MatchHistory[]> {

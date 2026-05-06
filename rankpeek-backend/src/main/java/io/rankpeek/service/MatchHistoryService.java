@@ -883,7 +883,8 @@ public class MatchHistoryService {
         if (queueInfo == null) {
             return false;
         }
-        if (queueInfo.getTotalGames() > 0) {
+        Integer totalGames = queueInfo.getTotalGames();
+        if (totalGames != null && totalGames > 0) {
             return true;
         }
         if (queueInfo.getTier() != null && !"UNRANKED".equalsIgnoreCase(queueInfo.getTier())) {

@@ -4,6 +4,25 @@ import { readFileSync } from 'node:fs'
 
 const removedScoutLabels = ['\u66b4\u6bd9', '\u6446\u70c2', '\u5f00\u9ed1\u4ed4']
 
+test('player card is selectable by click and keyboard while preserving tag hover popovers', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /selected\?: boolean/)
+  assert.match(source, /selectPlayer: \[\]/)
+  assert.match(source, /role="button"/)
+  assert.match(source, /tabindex="0"/)
+  assert.match(source, /:aria-pressed="selected \? 'true' : 'false'"/)
+  assert.match(source, /@click="onCardSelect"/)
+  assert.match(source, /@keydown\.enter\.prevent="onCardSelect"/)
+  assert.match(source, /@keydown\.space\.prevent="onCardSelect"/)
+  assert.match(source, /\{ selected \}/)
+  assert.match(source, /function onCardSelect\(\)[\s\S]*emit\('selectPlayer'\)/)
+  assert.match(source, /class="player-id"[\s\S]*@click\.stop="onCardSelect"/)
+  assert.match(source, /class="more-chip" type="button"[\s\S]*@click\.stop/)
+  assert.match(source, /\.tag-overflow:hover \.hidden-tags-popover,/)
+  assert.match(source, /\.player-card\.selected/)
+})
+
 test('shows the Riot ID on one line and packs tags beside the rank before folding extras', () => {
   const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
 

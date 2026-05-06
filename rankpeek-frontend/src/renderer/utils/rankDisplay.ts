@@ -113,11 +113,37 @@ function formatRankTier(queueInfo: QueueInfo): string {
 }
 
 function formatRankRecord(queueInfo: QueueInfo, text: RankDisplayText): string {
-  const wins = readFiniteNumber(queueInfo.wins)
-  const losses = readFiniteNumber(queueInfo.losses)
-  const total = wins + losses
+  const record = normalizeRankRecord(queueInfo)
+  if (!record) {
+    return ''
+  }
+
+  const { wins, losses, total } = record
   const rate = total > 0 ? Math.round((wins / total) * 100) : 0
   return `${rate}% ${text.winRate} (${wins}W ${losses}L)`
+}
+
+function normalizeRankRecord(queueInfo: QueueInfo): { wins: number; losses: number; total: number } | null {
+  const wins = readFiniteNumber(queueInfo.wins)
+  const totalGames = readOptionalFiniteNumber(queueInfo.totalGames) ?? readOptionalFiniteNumber(queueInfo.games)
+  if (totalGames != null && totalGames >= wins) {
+    return {
+      wins,
+      losses: totalGames - wins,
+      total: totalGames
+    }
+  }
+
+  const losses = readOptionalFiniteNumber(queueInfo.losses)
+  if (losses == null || (losses === 0 && wins > 0)) {
+    return null
+  }
+
+  return {
+    wins,
+    losses,
+    total: wins + losses
+  }
 }
 
 function normalizeTier(tier?: string): string {
@@ -134,4 +160,8 @@ function normalizeDivision(division?: string): string {
 
 function readFiniteNumber(value?: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function readOptionalFiniteNumber(value?: number | null): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }

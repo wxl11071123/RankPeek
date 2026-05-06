@@ -24,6 +24,7 @@ import {
   getMatchPerformanceTags,
   type MatchPerformanceTag
 } from '@/utils/matchPerformanceTags'
+import { isRemakeMatch } from '@/utils/matchHistorySampling'
 
 interface MatchLoadoutIconSlot {
   key: string
@@ -67,6 +68,10 @@ const { t } = useI18n()
 const currentPlayer = computed(() => getCurrentPlayer(props.match))
 const currentStats = computed(() => currentPlayer.value?.stats)
 const isWin = computed(() => Boolean(currentStats.value?.win))
+const isRemake = computed(() => isRemakeMatch(props.match))
+const resultText = computed(() =>
+  isRemake.value ? '重开' : isWin.value ? t('common.win') : t('common.loss')
+)
 const blueTeamSlots = computed(() => getTeamChampionSlots(props.match, 100))
 const redTeamSlots = computed(() => getTeamChampionSlots(props.match, 200))
 const currentItemSlots = computed(() => getItemIconSlots(currentStats.value))
@@ -267,13 +272,17 @@ function displayMode(match: MatchHistory): string {
 <template>
   <article
     class="match-history-card"
-    :class="{ win: isWin, loss: !isWin, expanded }"
+    :class="{ remake: isRemake, win: !isRemake && isWin, loss: !isRemake && !isWin, expanded }"
     @click="emit('open-detail', match)"
   >
-    <div class="result-rail" :class="{ win: isWin, loss: !isWin }" aria-hidden="true"></div>
+    <div
+      class="result-rail"
+      :class="{ remake: isRemake, win: !isRemake && isWin, loss: !isRemake && !isWin }"
+      aria-hidden="true"
+    ></div>
 
     <div class="match-meta">
-      <strong class="result-text">{{ isWin ? t('common.win') : t('common.loss') }}</strong>
+      <strong class="result-text">{{ resultText }}</strong>
       <span>{{ displayMode(match) }}</span>
       <span>{{ formatShortDate(match.gameCreation) }} · {{ formatDuration(match.gameDuration) }}</span>
     </div>
@@ -432,6 +441,7 @@ function displayMode(match: MatchHistory): string {
   --team-red: #cb4d5a;
   --win-color: #16865a;
   --loss-color: #c54856;
+  --remake-color: #6b7280;
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 86px) minmax(0, 1fr) auto auto;
@@ -464,6 +474,7 @@ function displayMode(match: MatchHistory): string {
   --team-red: #de6f6f;
   --win-color: #62d49e;
   --loss-color: #ee7a82;
+  --remake-color: #a3aab6;
   box-shadow: none;
 }
 
@@ -479,6 +490,7 @@ function displayMode(match: MatchHistory): string {
   --team-red: #cb4d5a;
   --win-color: #16865a;
   --loss-color: #c54856;
+  --remake-color: #6b7280;
 }
 
 .match-history-card:hover {
@@ -504,6 +516,10 @@ function displayMode(match: MatchHistory): string {
 
 .result-rail.loss {
   background: var(--loss-color);
+}
+
+.result-rail.remake {
+  background: var(--remake-color);
 }
 
 .match-meta {
@@ -538,6 +554,10 @@ function displayMode(match: MatchHistory): string {
 
 .match-history-card.loss .result-text {
   color: var(--loss-color);
+}
+
+.match-history-card.remake .result-text {
+  color: var(--remake-color);
 }
 
 .player-summary {

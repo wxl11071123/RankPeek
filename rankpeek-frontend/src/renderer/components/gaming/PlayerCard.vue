@@ -1,5 +1,15 @@
 <template>
-  <article class="player-card" :class="[teamClass, statusClass, { loading: sessionSummoner.isLoading }]">
+  <article
+    class="player-card"
+    :class="[teamClass, statusClass, { loading: sessionSummoner.isLoading }, { selected }]"
+    role="button"
+    tabindex="0"
+    :aria-pressed="selected ? 'true' : 'false'"
+    :aria-label="cardAriaLabel"
+    @click="onCardSelect"
+    @keydown.enter.prevent="onCardSelect"
+    @keydown.space.prevent="onCardSelect"
+  >
     <div v-if="sessionSummoner.isLoading" class="skeleton">
       <div class="avatar-skeleton"></div>
       <div class="copy-skeleton">
@@ -19,7 +29,7 @@
         </div>
 
         <div class="player-copy">
-          <button class="player-id" type="button" @click="onNameClick">
+          <button class="player-id" type="button" @click.stop="onCardSelect">
             {{ sessionSummoner.summoner.gameName }}#{{ sessionSummoner.summoner.tagLine }}
           </button>
 
@@ -45,7 +55,7 @@
                 >
                   {{ tag.tagName }}
                 </span>
-                <button class="more-chip" type="button" tabindex="-1" data-overflow-measure>
+                <button class="more-chip" type="button" tabindex="-1" data-overflow-measure @click.stop="noop">
                   +{{ overflowMeasureCount }}
                 </button>
               </div>
@@ -62,7 +72,7 @@
                 </span>
               </div>
               <div v-if="hiddenUserTagCount" class="tag-overflow">
-                <button class="more-chip" type="button" :aria-label="`还有 ${hiddenUserTagCount} 个标签`">
+                <button class="more-chip" type="button" :aria-label="`还有 ${hiddenUserTagCount} 个标签`" @click.stop="noop">
                   +{{ hiddenUserTagCount }}
                 </button>
                 <div class="hidden-tags-popover">
@@ -141,10 +151,11 @@ const props = defineProps<{
   sessionSummoner: SessionSummoner
   team?: 'blue' | 'red'
   isGameInProgress?: boolean
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
-  navigateToPlayer: [gameName: string, tagLine: string]
+  selectPlayer: []
 }>()
 
 const tierIconMap: Record<string, string> = {
@@ -188,6 +199,16 @@ const recordStatusMeta = computed(() => {
 const userTags = computed<RankTag[]>(() =>
   (props.sessionSummoner.userTag?.tag || []).filter((tag): tag is RankTag => Boolean(tag?.tagName?.trim()))
 )
+const selected = computed(() => props.selected === true)
+const cardAriaLabel = computed(() => {
+  const summoner = props.sessionSummoner.summoner
+  const gameName = summoner?.gameName?.trim()
+  if (!gameName) {
+    return '选择玩家'
+  }
+  const tagLine = summoner?.tagLine?.trim()
+  return `查看 ${tagLine ? `${gameName}#${tagLine}` : gameName} 最近战绩`
+})
 const measuredVisibleTagCount = ref<number | null>(null)
 const tagContainerRef = ref<HTMLElement | null>(null)
 const tagMeasureRef = ref<HTMLElement | null>(null)
@@ -502,12 +523,15 @@ const tierText = computed(() => {
   return '未定级'
 })
 
-function onNameClick() {
-  const name = props.sessionSummoner.summoner?.gameName
-  const tag = props.sessionSummoner.summoner?.tagLine
-  if (name && tag) {
-    emit('navigateToPlayer', name, tag)
+function onCardSelect() {
+  if (props.sessionSummoner.isLoading || !props.sessionSummoner.summoner) {
+    return
   }
+  emit('selectPlayer')
+}
+
+function noop() {
+  // Keep nested utility buttons from toggling the card.
 }
 
 </script>
@@ -521,6 +545,21 @@ function onNameClick() {
   border-radius: 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.player-card:focus-visible {
+  outline: none;
+  border-color: rgba(var(--accent-rgb), 0.46);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.16);
+}
+
+.player-card.selected {
+  border-color: rgba(240, 196, 79, 0.48);
+  background: linear-gradient(180deg, rgba(240, 196, 79, 0.1), rgba(255, 255, 255, 0.025)), var(--bg-secondary);
+  box-shadow: 0 0 0 1px rgba(240, 196, 79, 0.14), 0 10px 24px rgba(240, 196, 79, 0.1);
 }
 
 .player-card.team-blue {
@@ -529,6 +568,14 @@ function onNameClick() {
 
 .player-card.team-red {
   border-left: 4px solid rgba(222, 111, 111, 0.7);
+}
+
+.player-card.selected.team-blue {
+  border-left-color: rgba(92, 163, 234, 0.94);
+}
+
+.player-card.selected.team-red {
+  border-left-color: rgba(222, 111, 111, 0.94);
 }
 
 .player-card.status-private,
