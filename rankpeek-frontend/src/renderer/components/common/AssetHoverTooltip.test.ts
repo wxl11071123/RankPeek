@@ -26,3 +26,12 @@ test('asset hover tooltip supports mouse and keyboard activation without browser
   assert.match(source, /暂无详细说明/)
   assert.doesNotMatch(source, /\btitle=/)
 })
+
+test('asset hover tooltip hides empty subtitles and preserves multiline descriptions', () => {
+  const source = readFileSync(new URL('./AssetHoverTooltip.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /v-if="details\.subtitle"/)
+  assert.match(source, /details\.description/)
+  assert.match(source, /white-space:\s*pre-line/)
+  assert.doesNotMatch(source, /asset-hover-tooltip-subtitle">\s*\{\{\s*details\.subtitle\s*\}\}/)
+})

@@ -12,6 +12,8 @@ import {
   getItemIconUrl,
   getItemAssetDetails,
   getItemTooltipDetails,
+  loadGameAssetMetadata,
+  loadLcuGameAssetMetadataOverlay,
   getPerkIconUrl,
   getPerkAssetDetails,
   getPerkTooltipDetails,
@@ -292,7 +294,8 @@ test('renderer startup loads the local game asset manifest without making compon
 
   assert.match(mainSource, /loadGameAssetManifest/)
   assert.match(mainSource, /loadGameAssetMetadata/)
-  assert.match(mainSource, /Promise\.all\(\[loadGameAssetManifest\(\), loadGameAssetMetadata\(\)\]\)[\s\S]*app\.mount\('#app'\)/)
+  assert.match(mainSource, /loadLcuGameAssetMetadataOverlay/)
+  assert.match(mainSource, /Promise\.all\(\[loadGameAssetManifest\(\), loadGameAssetMetadata\(\)\]\)[\s\S]*loadLcuGameAssetMetadataOverlay\(\)[\s\S]*app\.mount\('#app'\)/)
   assert.doesNotMatch(mainSource, /Promise\.race|manifestStartupDeadline|setTimeout\(resolve,\s*500\)/)
   assert.equal(typeof manifest.version, 'string')
   assert.equal(manifest.locale, 'zh_CN')
@@ -415,7 +418,12 @@ test('tooltip details use metadata names, sanitized descriptions, subtitles, and
         id: 3031,
         name: 'Infinity Edge',
         description: '<mainText><stats>70 Attack Damage</stats><br><br>Critical strikes deal &amp; scale bonus.</mainText>',
-        plaintext: 'Critical item.'
+        plaintext: 'Critical item.',
+        gold: {
+          total: 3600,
+          base: 625,
+          sell: 2520
+        }
       }
     },
     perks: {
@@ -443,15 +451,15 @@ test('tooltip details use metadata names, sanitized descriptions, subtitles, and
   assert.equal(item?.kind, 'item')
   assert.equal(item?.id, 3031)
   assert.equal(item?.name, 'Infinity Edge')
-  assert.equal(item?.subtitle, '装备 3031')
+  assert.equal(item?.subtitle, '售价 3600')
   assert.equal(item?.description, '70 Attack Damage\nCritical strikes deal & scale bonus.')
   assert.equal(item?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/item/3031')
   assert.equal(perk?.kind, 'perk')
-  assert.equal(perk?.subtitle, '符文 8005')
+  assert.equal(perk?.subtitle, '')
   assert.equal(perk?.description, 'Hit three times & expose.')
   assert.equal(perk?.iconUrl, './game-assets/perks/8005.png')
   assert.equal(augment?.kind, 'augment')
-  assert.equal(augment?.subtitle, '海克斯强化 1205')
+  assert.equal(augment?.subtitle, '')
   assert.equal(augment?.description, 'Gain adaptive force.')
   assert.equal(augment?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/augment/1205')
   assert.doesNotMatch(item?.description || '', /<[^>]+>|&amp;/)
@@ -466,7 +474,7 @@ test('tooltip details fall back to readable names and no-detail copy when metada
     kind: 'item',
     id: 3031,
     name: '装备 3031',
-    subtitle: '装备 3031',
+    subtitle: '',
     description: '暂无详细说明',
     iconUrl: 'http://127.0.0.1:8080/api/v1/asset/item/3031'
   })
@@ -474,7 +482,7 @@ test('tooltip details fall back to readable names and no-detail copy when metada
     kind: 'perk',
     id: 8005,
     name: '符文 8005',
-    subtitle: '符文 8005',
+    subtitle: '',
     description: '暂无详细说明',
     iconUrl: getAssetPlaceholderUrl()
   })
@@ -513,20 +521,26 @@ test('local game asset metadata resolves screenshot item, augment, and perk tool
 
   assert.equal(typeof metadata.items['6610']?.name, 'string')
   assert.equal(typeof metadata.items['6610']?.description, 'string')
+  assert.equal(typeof metadata.items['6610']?.gold?.total, 'number')
   assert.ok(metadata.items['6610'].description.trim())
   assert.equal(item?.name, metadata.items['6610'].name)
+  assert.match(item?.subtitle || '', /^售价\s+\d+/)
+  assert.doesNotMatch(item?.subtitle || '', /装备 6610/)
   assert.notEqual(item?.name, itemFallback?.name)
   assert.notEqual(item?.description, itemFallback?.description)
   assert.ok(item?.description.trim())
+  assert.notEqual(item?.description, '暂无详细说明')
   assert.doesNotMatch(item?.description || '', /<[^>]+>/)
 
   assert.equal(typeof metadata.augments['2005']?.name, 'string')
   assert.equal(typeof metadata.augments['2005']?.description, 'string')
   assert.ok(metadata.augments['2005'].description.trim())
   assert.equal(augment?.name, metadata.augments['2005'].name)
+  assert.notEqual(augment?.subtitle, '海克斯强化 2005')
   assert.notEqual(augment?.name, augmentFallback?.name)
   assert.notEqual(augment?.description, augmentFallback?.description)
   assert.ok(augment?.description.trim())
+  assert.notEqual(augment?.description, '暂无详细说明')
   assert.doesNotMatch(augment?.description || '', /<[^>]+>/)
 
   assert.equal(typeof metadata.perks['8005']?.name, 'string')
@@ -566,6 +580,140 @@ test('tooltip text cleanup keeps useful item and augment text after game HTML ta
   assert.ok(augment?.description.trim())
   assert.doesNotMatch(item?.description || '', /<[^>]+>/)
   assert.doesNotMatch(augment?.description || '', /<[^>]+>/)
+})
+
+test('tooltip text cleanup preserves client-style line breaks from Riot markup', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      6610: {
+        id: 6610,
+        name: '焚天',
+        description: '<mainText><stats><attention>40</attention>攻击力<br><attention>400</attention>生命值<br><attention>10</attention>技能急速</stats><br><br><passive>光盾打击</passive><br>你对一个英雄打出的第一次攻击会<attention>暴击</attention>并<healing>回复生命值</healing>。</mainText>',
+        gold: { total: 3100 }
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(6610)
+
+  assert.equal(
+    item?.description,
+    '40攻击力\n400生命值\n10技能急速\n光盾打击\n你对一个英雄打出的第一次攻击会暴击并回复生命值。'
+  )
+  assert.equal(item?.subtitle, '售价 3100')
+  assert.equal((item?.description.match(/\n/g) || []).length, 4)
+})
+
+test('LCU metadata overlay overrides local item and augment metadata by id', async () => {
+  resetGameAssetResolverForTest()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string) => ({
+    ok: true,
+    json: async () => url.includes('local')
+      ? {
+          version: 'static',
+          locale: 'zh_CN',
+          items: {
+            6610: {
+              id: 6610,
+              name: 'Static Sundered Sky',
+              description: 'Old DDragon text.',
+              gold: { total: 3000 }
+            }
+          },
+          augments: {
+            2005: {
+              id: 2005,
+              name: 'Static Triggered Inferno',
+              description: 'Old augment text.'
+            }
+          }
+        }
+      : {
+          version: 'lcu',
+          locale: 'zh_CN',
+          items: {
+            6610: {
+              id: 6610,
+              name: '焚天',
+              description: '<stats>40攻击力<br>400生命值</stats>',
+              gold: { total: 3100, base: 900, sell: 2170 }
+            }
+          },
+          augments: {
+            2005: {
+              id: 2005,
+              name: '扳机炼狱',
+              description: '每回合，你要么变大。',
+              rarity: 'gold'
+            }
+          }
+        }
+  })) as unknown as typeof fetch
+
+  try {
+    await loadGameAssetMetadata('http://asset.test/local-metadata.json')
+    assert.equal(getItemTooltipDetails(6610)?.name, 'Static Sundered Sky')
+    assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3000')
+
+    await loadLcuGameAssetMetadataOverlay('http://asset.test/lcu-metadata')
+
+    assert.equal(getItemTooltipDetails(6610)?.name, '焚天')
+    assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3100')
+    assert.equal(getItemTooltipDetails(6610)?.description, '40攻击力\n400生命值')
+    assert.equal(getAugmentTooltipDetails(2005)?.name, '扳机炼狱')
+    assert.notEqual(getAugmentTooltipDetails(2005)?.subtitle, '海克斯强化 2005')
+    assert.equal(getAugmentTooltipDetails(2005)?.description, '每回合，你要么变大。')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('local metadata remains available when LCU metadata overlay cannot be loaded', async () => {
+  resetGameAssetResolverForTest()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string) => {
+    if (url.includes('lcu')) {
+      throw new Error('backend unavailable')
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        version: 'static',
+        locale: 'zh_CN',
+        items: {
+          6610: {
+            id: 6610,
+            name: '焚天',
+            description: 'Static item text.',
+            gold: { total: 3100 }
+          }
+        },
+        augments: {
+          2005: {
+            id: 2005,
+            name: '扳机炼狱',
+            description: 'Static augment text.'
+          }
+        }
+      })
+    }
+  }) as unknown as typeof fetch
+
+  try {
+    await loadGameAssetMetadata('http://asset.test/local-metadata.json')
+    await loadLcuGameAssetMetadataOverlay('http://asset.test/lcu-metadata')
+
+    assert.equal(getItemTooltipDetails(6610)?.name, '焚天')
+    assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3100')
+    assert.equal(getAugmentTooltipDetails(2005)?.name, '扳机炼狱')
+    assert.equal(getAugmentTooltipDetails(2005)?.description, 'Static augment text.')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('local game asset manifest stays selective while including local perk mappings', () => {

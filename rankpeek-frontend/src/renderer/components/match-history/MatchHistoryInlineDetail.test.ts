@@ -2,8 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  getAugmentTooltipDetails,
+  getItemTooltipDetails,
   getObjectiveIconUrl,
-  resetGameAssetResolverForTest
+  resetGameAssetResolverForTest,
+  setGameAssetMetadataForTest
 } from '../../utils/gameAssetUrls.ts'
 
 function readInlineDetailSource(): string {
@@ -120,6 +123,47 @@ test('inline detail uses rich asset tooltips for overview items and trait icons'
   assert.match(source, /:title="slot\.label"/)
   assert.match(overviewBlock, /class="item-row compact" aria-label="items"/)
   assert.match(overviewBlock, /:class="\{ empty: slot\.empty \}"/)
+})
+
+test('inline detail overview and rune tooltip details share price and non-id subtitle rules', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      6610: {
+        id: 6610,
+        name: '焚天',
+        description: '40攻击力',
+        gold: { total: 3100 }
+      }
+    },
+    perks: {
+      8005: {
+        id: 8005,
+        name: '强攻',
+        shortDesc: '连续命中。'
+      }
+    },
+    augments: {
+      2005: {
+        id: 2005,
+        name: '扳机炼狱',
+        description: '每回合，你要么变大。'
+      }
+    }
+  })
+
+  const source = readInlineDetailSource()
+  const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.match(overviewBlock, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
+  assert.match(overviewBlock, /:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(runesBlock, /:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.equal(getItemTooltipDetails(6610)?.subtitle, '售价 3100')
+  assert.doesNotMatch(getItemTooltipDetails(6610)?.subtitle || '', /装备 6610/)
+  assert.notEqual(getAugmentTooltipDetails(2005)?.subtitle, '海克斯强化 2005')
 })
 
 test('chart tab uses an honest empty state when timeline frames are unavailable', () => {

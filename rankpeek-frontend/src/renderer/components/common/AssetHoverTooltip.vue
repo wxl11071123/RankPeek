@@ -143,7 +143,10 @@ onBeforeUnmount(() => {
         <div class="asset-hover-tooltip-title">
           {{ details.name }}
         </div>
-        <div class="asset-hover-tooltip-subtitle">
+        <div
+          v-if="details.subtitle"
+          class="asset-hover-tooltip-subtitle"
+        >
           {{ details.subtitle }}
         </div>
         <p class="asset-hover-tooltip-description">

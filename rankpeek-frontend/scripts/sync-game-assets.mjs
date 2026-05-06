@@ -398,13 +398,19 @@ async function readJsonFromUrl(url) {
 }
 
 function hydrateItemMetadata(entry) {
-  metadata.items[String(entry.id)] = {
+  const itemMetadata = {
     id: entry.id,
     name: textValue(entry.item?.name),
     description: textValue(entry.item?.description),
     plaintext: textValue(entry.item?.plaintext),
     icon: `items/${entry.id}.png`
   }
+  const gold = normalizeGold(entry.item?.gold)
+  if (gold) {
+    itemMetadata.gold = gold
+  }
+
+  metadata.items[String(entry.id)] = itemMetadata
 }
 
 function hydrateAugmentMetadata(augment) {
@@ -668,6 +674,21 @@ function normalizeCdragonAssetPath(value) {
 
 function textValue(value) {
   return typeof value === 'string' ? value : ''
+}
+
+function normalizeGold(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const gold = {}
+  for (const key of ['total', 'base', 'sell']) {
+    if (typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] > 0) {
+      gold[key] = value[key]
+    }
+  }
+
+  return Object.keys(gold).length ? gold : null
 }
 
 function firstText(...values) {

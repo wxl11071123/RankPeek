@@ -1,6 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import {
+  getAugmentTooltipDetails,
+  getItemTooltipDetails,
+  resetGameAssetResolverForTest,
+  setGameAssetMetadataForTest
+} from '../../utils/gameAssetUrls.ts'
 
 test('match history card renders spell loadout, mode-aware traits, and performance tags', () => {
   const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
@@ -88,4 +94,39 @@ test('match history card rich asset tooltips are not only browser title text', (
   assert.match(source, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
   assert.doesNotMatch(source, /:title="getItemSlotLabel\(slot\)"/)
   assert.doesNotMatch(source, /:title="slot\.label"/)
+})
+
+test('match history card item and augment tooltip details use price subtitles instead of id subtitles', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      6610: {
+        id: 6610,
+        name: '焚天',
+        description: '40攻击力',
+        gold: { total: 3100 }
+      }
+    },
+    augments: {
+      2005: {
+        id: 2005,
+        name: '扳机炼狱',
+        description: '每回合，你要么变大。'
+      }
+    }
+  })
+
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+  const item = getItemTooltipDetails(6610)
+  const augment = getAugmentTooltipDetails(2005)
+
+  assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"/)
+  assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && slot\.itemId !== null"/)
+  assert.match(source, /:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(source, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
+  assert.equal(item?.subtitle, '售价 3100')
+  assert.doesNotMatch(item?.subtitle || '', /装备 6610/)
+  assert.notEqual(augment?.subtitle, '海克斯强化 2005')
 })

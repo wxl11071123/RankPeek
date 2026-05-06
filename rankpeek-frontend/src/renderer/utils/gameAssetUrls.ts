@@ -76,10 +76,21 @@ export interface GameAssetMetadataEntry {
   id: number
   name?: string
   description?: string
+  tooltip?: string
   plaintext?: string
   shortDesc?: string
   longDesc?: string
+  rarity?: string
   icon?: string
+  gold?: GameAssetGold
+  total?: number
+  price?: number | GameAssetGold
+}
+
+export interface GameAssetGold {
+  total?: number
+  base?: number
+  sell?: number
 }
 
 export interface GameAssetMetadata {
@@ -268,6 +279,22 @@ export async function loadGameAssetMetadata(url = `${PUBLIC_GAME_ASSET_BASE}/met
   }
 }
 
+export async function loadLcuGameAssetMetadataOverlay(url = `${BACKEND_ASSET_BASE}/metadata`): Promise<void> {
+  if (typeof fetch !== 'function') {
+    return
+  }
+
+  try {
+    const response = await fetch(url, { cache: 'no-cache' })
+    if (!response.ok) {
+      return
+    }
+    mergeGameAssetMetadataOverlay(await response.json() as Partial<GameAssetMetadata>)
+  } catch {
+    // LCU metadata is a freshness overlay. Static local metadata must remain enough for startup and match pages.
+  }
+}
+
 export function recordAssetLoadFailure(url: string): void {
   const normalized = normalizeFailureUrl(url)
   if (normalized) {
@@ -330,6 +357,21 @@ function setGameAssetMetadata(nextMetadata: Partial<GameAssetMetadata>): void {
   })
 }
 
+function mergeGameAssetMetadataOverlay(nextMetadata: Partial<GameAssetMetadata>): void {
+  const overlay = normalizeMetadata({
+    ...EMPTY_METADATA,
+    ...nextMetadata
+  })
+
+  metadata = {
+    version: nextMetadata.version || metadata.version,
+    locale: nextMetadata.locale || metadata.locale,
+    items: mergeMetadataSection(metadata.items, overlay.items),
+    perks: mergeMetadataSection(metadata.perks, overlay.perks),
+    augments: mergeMetadataSection(metadata.augments, overlay.augments)
+  }
+}
+
 function getAssetDetails(kind: 'item' | 'perk' | 'augment', rawId?: number | null): GameAssetMetadataEntry | null {
   const id = normalizeAssetId(rawId)
   if (id === null) {
@@ -357,10 +399,27 @@ function getAssetTooltipDetails(
     kind,
     id,
     name: cleanTooltipText(details?.name) || fallbackName,
-    subtitle: fallbackName,
+    subtitle: getTooltipSubtitle(kind, details),
     description: getTooltipDescription(details),
     iconUrl: getIconUrl(id)
   }
+}
+
+function getTooltipSubtitle(kind: 'item' | 'perk' | 'augment', details: GameAssetMetadataEntry | null): string {
+  if (!details) {
+    return ''
+  }
+
+  if (kind === 'item') {
+    const totalPrice = getItemTotalPrice(details)
+    return totalPrice ? `售价 ${totalPrice}` : ''
+  }
+
+  if (kind === 'augment') {
+    return formatAugmentRarity(details.rarity)
+  }
+
+  return ''
 }
 
 function getMetadataSection(kind: 'item' | 'perk' | 'augment'): Record<string, GameAssetMetadataEntry> {
@@ -394,12 +453,39 @@ function getTooltipDescription(details: GameAssetMetadataEntry | null): string {
 
   const rawDescription = [
     details.description,
+    details.tooltip,
     details.shortDesc,
     details.longDesc,
     details.plaintext
   ].find(value => cleanTooltipText(value))
 
   return cleanTooltipText(rawDescription) || '暂无详细说明'
+}
+
+function getItemTotalPrice(details: GameAssetMetadataEntry): number | null {
+  const priceCandidates = [
+    details.gold?.total,
+    details.total,
+    typeof details.price === 'number' ? details.price : details.price?.total
+  ]
+
+  return priceCandidates.map(normalizePositiveNumber).find(value => value !== null) || null
+}
+
+function formatAugmentRarity(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/^k/, '')
+  const labels: Record<string, string> = {
+    silver: '银色',
+    gold: '金色',
+    golden: '金色',
+    prismatic: '棱彩'
+  }
+
+  return labels[normalized] || ''
 }
 
 function cleanTooltipText(value: unknown): string {
@@ -626,7 +712,89 @@ function normalizeManifestSection(section?: GameAssetManifestSection): GameAsset
 }
 
 function normalizeMetadataSection(section?: Record<string, GameAssetMetadataEntry>): Record<string, GameAssetMetadataEntry> {
-  return section ? { ...section } : {}
+  if (!section) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(section)
+      .map(([key, entry]): [string, GameAssetMetadataEntry | null] => [key, normalizeMetadataEntry(entry)])
+      .filter((entry): entry is [string, GameAssetMetadataEntry] => Boolean(entry[1]))
+  )
+}
+
+function normalizeMetadataEntry(entry: GameAssetMetadataEntry | undefined): GameAssetMetadataEntry | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const id = normalizeAssetId(entry.id)
+  if (id === null) {
+    return null
+  }
+
+  const normalized: GameAssetMetadataEntry = { id }
+  for (const key of ['name', 'description', 'tooltip', 'plaintext', 'shortDesc', 'longDesc', 'rarity', 'icon'] as const) {
+    const value = entry[key]
+    if (typeof value === 'string' && value.trim()) {
+      normalized[key] = value
+    }
+  }
+
+  const gold = normalizeGold(entry.gold)
+  const price = typeof entry.price === 'number' ? normalizePositiveNumber(entry.price) : normalizeGold(entry.price)
+  const total = normalizePositiveNumber(entry.total)
+  if (gold) {
+    normalized.gold = gold
+  }
+  if (price) {
+    normalized.price = price
+  }
+  if (total !== null) {
+    normalized.total = total
+  }
+  return normalized
+}
+
+function normalizeGold(value: unknown): GameAssetGold | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const gold: GameAssetGold = {}
+  const total = normalizePositiveNumber(value.total)
+  const base = normalizePositiveNumber(value.base)
+  const sell = normalizePositiveNumber(value.sell)
+  if (total !== null) {
+    gold.total = total
+  }
+  if (base !== null) {
+    gold.base = base
+  }
+  if (sell !== null) {
+    gold.sell = sell
+  }
+
+  return Object.keys(gold).length ? gold : undefined
+}
+
+function mergeMetadataSection(
+  base: Record<string, GameAssetMetadataEntry>,
+  overlay: Record<string, GameAssetMetadataEntry>
+): Record<string, GameAssetMetadataEntry> {
+  const merged: Record<string, GameAssetMetadataEntry> = { ...base }
+  for (const [key, entry] of Object.entries(overlay)) {
+    merged[key] = {
+      ...(merged[key] || {}),
+      ...entry
+    }
+  }
+
+  return merged
+}
+
+function normalizePositiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
 function uniqueNonEmpty(values: string[]): string[] {

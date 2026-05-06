@@ -2016,7 +2016,12 @@
       "name": "焚天",
       "description": "<mainText><stats><attention>40</attention>攻击力<br><attention>400</attention>生命值<br><attention>10</attention>技能急速</stats><br><br><passive>光盾打击</passive><br>你对一个英雄打出的第一次攻击会<attention>暴击</attention>并<healing>回复生命值</healing>。</mainText>",
       "plaintext": "",
-      "icon": "items/6610.png"
+      "icon": "items/6610.png",
+      "gold": {
+        "total": 3100,
+        "base": 900,
+        "sell": 2170
+      }
     },
     "6616": {
       "id": 6616,

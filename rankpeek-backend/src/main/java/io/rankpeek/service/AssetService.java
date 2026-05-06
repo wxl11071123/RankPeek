@@ -10,6 +10,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,10 +30,12 @@ public class AssetService {
     private final Map<Long, Champion> championCache = new ConcurrentHashMap<>();
     // 装备缓存 (id -> iconPath)
     private final Map<Long, String> itemIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, ItemMetadata> itemMetadataCache = new ConcurrentHashMap<>();
     // 召唤师技能缓存 (id -> iconPath)
     private final Map<Long, String> spellIconPathCache = new ConcurrentHashMap<>();
     // 海克斯强化缓存 (id -> iconPath)
     private final Map<Long, String> augmentIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, AugmentMetadata> augmentMetadataCache = new ConcurrentHashMap<>();
     // 海克斯强化稀有度缓存 (id -> rarity)
     private final Map<Long, String> augmentRarityCache = new ConcurrentHashMap<>();
 
@@ -86,8 +89,11 @@ public class AssetService {
             Item[] items = lcuHttpClient.get("lol-game-data/assets/v1/items.json", Item[].class);
             if (items != null) {
                 for (Item item : items) {
-                    if (item.id > 0 && item.iconPath != null && !item.iconPath.isEmpty()) {
-                        itemIconPathCache.put(item.id, item.iconPath);
+                    if (item.id > 0) {
+                        if (item.iconPath != null && !item.iconPath.isEmpty()) {
+                            itemIconPathCache.put(item.id, item.iconPath);
+                        }
+                        itemMetadataCache.put(item.id, toItemMetadata(item));
                     }
                 }
             }
@@ -330,8 +336,12 @@ public class AssetService {
             CherryAugment[] augments = lcuHttpClient.get("lol-game-data/assets/v1/cherry-augments.json", CherryAugment[].class);
             if (augments != null) {
                 for (CherryAugment augment : augments) {
-                    if (augment.id > 0 && augment.augmentSmallIconPath != null && !augment.augmentSmallIconPath.isEmpty()) {
-                        augmentIconPathCache.put(augment.id, augment.augmentSmallIconPath);
+                    if (augment.id > 0) {
+                        String iconPath = firstText(augment.augmentSmallIconPath, augment.iconPath);
+                        if (!iconPath.isEmpty()) {
+                            augmentIconPathCache.put(augment.id, iconPath);
+                        }
+                        augmentMetadataCache.put(augment.id, toAugmentMetadata(augment));
                         // 缓存稀有度
                         if (augment.rarity != null && !augment.rarity.isEmpty()) {
                             augmentRarityCache.put(augment.id, augment.rarity);
@@ -364,6 +374,94 @@ public class AssetService {
         return augmentRarityCache.getOrDefault(id, "");
     }
 
+    public GameAssetMetadata getGameAssetMetadata() {
+        return new GameAssetMetadata(
+                "lcu",
+                "zh_CN",
+                toStringKeyedMap(itemMetadataCache),
+                Map.of(),
+                toStringKeyedMap(augmentMetadataCache)
+        );
+    }
+
+    private <T> Map<String, T> toStringKeyedMap(Map<Long, T> source) {
+        Map<String, T> result = new LinkedHashMap<>();
+        source.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> result.put(String.valueOf(entry.getKey()), entry.getValue()));
+        return result;
+    }
+
+    private ItemMetadata toItemMetadata(Item item) {
+        ItemGold gold = normalizeGold(item.gold, item.priceTotal, item.total, item.price, item.base, item.sell);
+        return new ItemMetadata(
+                item.id,
+                firstText(item.name),
+                firstText(item.description, item.tooltip),
+                firstText(item.plaintext),
+                normalizePublicIcon("items", item.id, item.iconPath),
+                gold,
+                firstPositive(item.total, item.priceTotal),
+                item.price
+        );
+    }
+
+    private AugmentMetadata toAugmentMetadata(CherryAugment augment) {
+        String iconPath = firstText(augment.augmentSmallIconPath, augment.iconPath);
+        return new AugmentMetadata(
+                augment.id,
+                firstText(augment.name, augment.nameTra),
+                firstText(augment.description, augment.descriptionTra),
+                firstText(augment.tooltip),
+                firstText(augment.rarity),
+                normalizePublicIcon("augments", augment.id, iconPath)
+        );
+    }
+
+    private ItemGold normalizeGold(ItemGold gold, Long... fallbacks) {
+        Long total = gold != null ? firstPositive(gold.total(), firstPositive(fallbacks)) : firstPositive(fallbacks);
+        Long base = gold != null ? gold.base() : null;
+        Long sell = gold != null ? gold.sell() : null;
+        return total != null || base != null || sell != null ? new ItemGold(total, base, sell) : null;
+    }
+
+    private Long firstPositive(Long... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Long value : values) {
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private String normalizePublicIcon(String directory, long id, String iconPath) {
+        if (iconPath == null || iconPath.isBlank()) {
+            return "";
+        }
+        String normalized = iconPath.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        String fileName = index >= 0 ? normalized.substring(index + 1) : normalized;
+        if (fileName.isBlank()) {
+            fileName = id + ".png";
+        }
+        return directory + "/" + fileName;
+    }
+
     // ========== 内部模型 ==========
 
     @Data
@@ -391,14 +489,86 @@ public class AssetService {
     public record ChampionOption(long value, String label, String realName, String nickname) {
     }
 
+    public record GameAssetMetadata(
+            String version,
+            String locale,
+            Map<String, ItemMetadata> items,
+            Map<String, GameAssetMetadataEntry> perks,
+            Map<String, AugmentMetadata> augments
+    ) {
+    }
+
+    public record GameAssetMetadataEntry(long id) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ItemGold(
+            @JsonProperty("total") Long total,
+            @JsonProperty("base") Long base,
+            @JsonProperty("sell") Long sell
+    ) {
+    }
+
+    public record ItemMetadata(
+            long id,
+            String name,
+            String description,
+            String plaintext,
+            String icon,
+            ItemGold gold,
+            Long total,
+            Long price
+    ) {
+    }
+
+    public record AugmentMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String rarity,
+            String icon
+    ) {
+    }
+
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Item {
         @JsonProperty("id")
         private long id;
 
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("plaintext")
+        private String plaintext;
+
         @JsonProperty("iconPath")
         private String iconPath;
+
+        @JsonProperty("gold")
+        private ItemGold gold;
+
+        @JsonProperty("total")
+        private Long total;
+
+        @JsonProperty("price")
+        private Long price;
+
+        @JsonProperty("priceTotal")
+        private Long priceTotal;
+
+        @JsonProperty("base")
+        private Long base;
+
+        @JsonProperty("sell")
+        private Long sell;
     }
 
     @Data
@@ -438,6 +608,15 @@ public class AssetService {
 
         @JsonProperty("augmentSmallIconPath")
         private String augmentSmallIconPath;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
 
         @JsonProperty("nameTRA")
         private String nameTra;

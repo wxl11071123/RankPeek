@@ -155,6 +155,11 @@ public class AssetController {
         return ApiResponse.success(rarity);
     }
 
+    @GetMapping("/metadata")
+    public AssetService.GameAssetMetadata getAssetMetadata() {
+        return assetService.getGameAssetMetadata();
+    }
+
     /**
      * 获取段位图标
      * @param tier 段位名称 (iron, bronze, silver, gold, platinum, emerald, diamond, master, grandmaster, challenger, unranked)
