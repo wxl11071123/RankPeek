@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
 import { useI18n } from '@/i18n'
 import type {
   DragonType,
@@ -16,14 +17,18 @@ import type {
 import {
   getAugmentAssetDetails,
   getAugmentIconUrl,
+  getAugmentTooltipDetails,
   getChampionIconUrl,
   getItemAssetDetails,
   getItemIconSlots,
+  getItemTooltipDetails,
   getObjectiveIconUrl,
   getPerkAssetDetails,
   getPerkIconUrl,
+  getPerkTooltipDetails,
   getSummonerSpellIconUrl,
   markAssetLoadFailed,
+  type GameAssetTooltipDetails,
   type ItemIconSlot,
   type ObjectiveIconKind
 } from '@/utils/gameAssetUrls'
@@ -387,6 +392,16 @@ function getTraitSlotLabel(kind: TraitKind, id: number | null): string {
   const name = details?.name || `${fallback} ${id}`
   const description = stripHtml(details?.description || details?.shortDesc || details?.longDesc || details?.plaintext || '')
   return description ? `${name} (${id}) - ${description}` : `${name} (${id})`
+}
+
+function getTraitTooltipDetails(slot: TraitSlot): GameAssetTooltipDetails | null {
+  if (slot.empty || slot.id === null) {
+    return null
+  }
+
+  return slot.kind === 'augment'
+    ? getAugmentTooltipDetails(slot.id)
+    : getPerkTooltipDetails(slot.id)
 }
 
 function isLaneBasedMode(match: MatchHistory | GameDetail | null | undefined): boolean {
@@ -1552,7 +1567,13 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                   :class="[`trait-${slot.kind}`, { empty: slot.empty }]"
                   :title="slot.label"
                 >
-                  <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                  <AssetHoverTooltip
+                    v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                    :details="getTraitTooltipDetails(slot)!"
+                  >
+                    <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                  </AssetHoverTooltip>
+                  <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
                 </span>
               </span>
               <span class="player-copy">
@@ -1640,7 +1661,13 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                 :class="{ empty: slot.empty }"
                 :title="getItemSlotLabel(slot)"
               >
-                <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                <AssetHoverTooltip
+                  v-if="slot.url && !slot.empty && slot.itemId !== null"
+                  :details="getItemTooltipDetails(slot.itemId)!"
+                >
+                  <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                </AssetHoverTooltip>
+                <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
               </span>
             </div>
           </div>
@@ -1688,7 +1715,13 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
               :class="[`trait-${slot.kind}`, { empty: slot.empty }]"
               :title="slot.label"
             >
-              <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+              <AssetHoverTooltip
+                v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                :details="getTraitTooltipDetails(slot)!"
+              >
+                <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+              </AssetHoverTooltip>
+              <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
             </span>
           </div>
         </div>

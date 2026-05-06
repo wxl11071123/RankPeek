@@ -101,6 +101,27 @@ test('runes tab shows perk0 and perkSubStyle for normal matches and playerAugmen
   assert.match(source, /\{ empty: slot\.empty \}/)
 })
 
+test('inline detail uses rich asset tooltips for overview items and trait icons', () => {
+  const source = readInlineDetailSource()
+  const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.match(source, /import AssetHoverTooltip from '@\/components\/common\/AssetHoverTooltip\.vue'/)
+  assert.match(source, /getItemTooltipDetails/)
+  assert.match(source, /getPerkTooltipDetails/)
+  assert.match(source, /getAugmentTooltipDetails/)
+  assert.match(source, /type GameAssetTooltipDetails/)
+  assert.match(source, /function getTraitTooltipDetails\(slot: TraitSlot\): GameAssetTooltipDetails \| null \{[\s\S]*slot\.kind === 'augment'[\s\S]*getAugmentTooltipDetails\(slot\.id\)[\s\S]*getPerkTooltipDetails\(slot\.id\)/)
+
+  assert.match(overviewBlock, /class="trait-pair"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(overviewBlock, /class="item-row compact" aria-label="items"[\s\S]*v-for="slot in getPlayerItemSlots\(player\)"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && slot\.itemId !== null"[\s\S]*:details="getItemTooltipDetails\(slot\.itemId\)!"/)
+  assert.match(runesBlock, /class="trait-list"[\s\S]*<AssetHoverTooltip[\s\S]*v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"[\s\S]*:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(source, /:title="getItemSlotLabel\(slot\)"/)
+  assert.match(source, /:title="slot\.label"/)
+  assert.match(overviewBlock, /class="item-row compact" aria-label="items"/)
+  assert.match(overviewBlock, /:class="\{ empty: slot\.empty \}"/)
+})
+
 test('chart tab uses an honest empty state when timeline frames are unavailable', () => {
   const source = readInlineDetailSource()
 

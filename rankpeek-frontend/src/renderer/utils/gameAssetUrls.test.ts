@@ -292,6 +292,8 @@ test('renderer startup loads the local game asset manifest without making compon
 
   assert.match(mainSource, /loadGameAssetManifest/)
   assert.match(mainSource, /loadGameAssetMetadata/)
+  assert.match(mainSource, /Promise\.all\(\[loadGameAssetManifest\(\), loadGameAssetMetadata\(\)\]\)[\s\S]*app\.mount\('#app'\)/)
+  assert.doesNotMatch(mainSource, /Promise\.race|manifestStartupDeadline|setTimeout\(resolve,\s*500\)/)
   assert.equal(typeof manifest.version, 'string')
   assert.equal(manifest.locale, 'zh_CN')
   assert.deepEqual(Object.keys(manifest).sort(), [
@@ -493,6 +495,77 @@ test('local game asset metadata contains tooltip text for common items, perks, a
   assert.ok(Object.values(metadata.augments || {}).some(entry =>
     typeof entry.description === 'string' && entry.description.length > 0
   ))
+})
+
+test('local game asset metadata resolves screenshot item, augment, and perk tooltip details', () => {
+  const metadata = JSON.parse(readFileSync(new URL('../../../public/game-assets/metadata.json', import.meta.url), 'utf8'))
+
+  resetGameAssetResolverForTest()
+  const itemFallback = getItemTooltipDetails(6610)
+  const augmentFallback = getAugmentTooltipDetails(2005)
+  const perkFallback = getPerkTooltipDetails(8005)
+
+  setGameAssetMetadataForTest(metadata)
+
+  const item = getItemTooltipDetails(6610)
+  const augment = getAugmentTooltipDetails(2005)
+  const perk = getPerkTooltipDetails(8005)
+
+  assert.equal(typeof metadata.items['6610']?.name, 'string')
+  assert.equal(typeof metadata.items['6610']?.description, 'string')
+  assert.ok(metadata.items['6610'].description.trim())
+  assert.equal(item?.name, metadata.items['6610'].name)
+  assert.notEqual(item?.name, itemFallback?.name)
+  assert.notEqual(item?.description, itemFallback?.description)
+  assert.ok(item?.description.trim())
+  assert.doesNotMatch(item?.description || '', /<[^>]+>/)
+
+  assert.equal(typeof metadata.augments['2005']?.name, 'string')
+  assert.equal(typeof metadata.augments['2005']?.description, 'string')
+  assert.ok(metadata.augments['2005'].description.trim())
+  assert.equal(augment?.name, metadata.augments['2005'].name)
+  assert.notEqual(augment?.name, augmentFallback?.name)
+  assert.notEqual(augment?.description, augmentFallback?.description)
+  assert.ok(augment?.description.trim())
+  assert.doesNotMatch(augment?.description || '', /<[^>]+>/)
+
+  assert.equal(typeof metadata.perks['8005']?.name, 'string')
+  assert.equal(perk?.name, metadata.perks['8005'].name)
+  assert.notEqual(perk?.description, perkFallback?.description)
+  assert.ok(perk?.description.trim())
+  assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
+})
+
+test('tooltip text cleanup keeps useful item and augment text after game HTML tags are removed', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      6610: {
+        id: 6610,
+        name: 'Sundered Sky',
+        description: '<mainText><stats><attention>40</attention> Attack Damage</stats><br><passive>Passive</passive> keep text<br><active>Active</active> use text<br><rules>Rule text</rules></mainText>'
+      }
+    },
+    augments: {
+      2005: {
+        id: 2005,
+        name: 'Triggered Inferno',
+        description: '<mainText><attention>Inferno</attention><br><rules>Useful rule text</rules></mainText>'
+      }
+    }
+  })
+
+  const item = getItemTooltipDetails(6610)
+  const augment = getAugmentTooltipDetails(2005)
+
+  assert.equal(item?.description, '40 Attack Damage\nPassive keep text\nActive use text\nRule text')
+  assert.equal(augment?.description, 'Inferno\nUseful rule text')
+  assert.ok(item?.description.trim())
+  assert.ok(augment?.description.trim())
+  assert.doesNotMatch(item?.description || '', /<[^>]+>/)
+  assert.doesNotMatch(augment?.description || '', /<[^>]+>/)
 })
 
 test('local game asset manifest stays selective while including local perk mappings', () => {

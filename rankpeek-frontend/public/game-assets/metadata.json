@@ -5509,7 +5509,7 @@
     "83": {
       "id": 83,
       "name": "窃贼手套",
-      "description": "",
+      "description": "获得<gold>%i:goldCoins%@GoldBonus@金币</gold>并降低所有锻造器的价格。<br><br><attention>棱彩锻造器</attention>：<gold>-%i:goldCoins%@PrismaticCostReduction@金币</gold><br><attention>传说锻造器</attention>：<gold>-%i:goldCoins%@LegendaryCostReduction@金币</gold><br><attention>属性锻造器</attention>：<gold>-%i:goldCoins%@StatCostReduction@金币</gold><br><br><rules>从锻造器中获得的装备的售价降低<gold>%i:goldCoins%500金币</gold>。</rules>",
       "icon": "augments/83.png"
     },
     "84": {
@@ -6151,13 +6151,13 @@
     "306": {
       "id": 306,
       "name": "招架",
-      "description": "",
+      "description": "你每比目标多<speed>10移动速度</speed>，则对其多造成@BonusDamagePerMSDifference*1000@%额外伤害。",
       "icon": "augments/306.png"
     },
     "307": {
       "id": 307,
       "name": "昏睡吹箭",
-      "description": "",
+      "description": "获得<spellName>电刑</spellName>和<spellName>相位猛冲</spellName>基石符文。",
       "icon": "augments/307.png"
     },
     "308": {
@@ -6205,7 +6205,7 @@
     "315": {
       "id": 315,
       "name": "盈能施法者",
-      "description": "",
+      "description": "你的技能可施加{{ Item_Keyword_OnHit }}。",
       "icon": "augments/315.png"
     },
     "316": {
@@ -6277,7 +6277,7 @@
     "328": {
       "id": 328,
       "name": "恶火束链",
-      "description": "",
+      "description": "周期性地在你周围<keywordMajor>自动施放</keywordMajor>一次巨型斩击，造成<physicalDamage>物理伤害</physicalDamage>。<br><br>被外沿命中的敌人会被<status>减速</status>、受到额外<physicalDamage>伤害</physicalDamage>、并<healing>治疗</healing>你。",
       "icon": "augments/328.png"
     },
     "329": {
@@ -6301,7 +6301,7 @@
     "332": {
       "id": 332,
       "name": "鲜血法师",
-      "description": "",
+      "description": "多个卫星环绕于你，对途经的敌人们造成<magicDamage>魔法伤害</magicDamage>。",
       "icon": "augments/332.png"
     },
     "333": {
@@ -6529,7 +6529,7 @@
     "387": {
       "id": 387,
       "name": "大龙能量",
-      "description": "",
+      "description": "获得<spellName>先攻</spellName>和<spellName>黑暗收割</spellName>基石符文。",
       "icon": "augments/387.png"
     },
     "388": {
@@ -6565,115 +6565,115 @@
     "1002": {
       "id": 1002,
       "name": "尖端发明家",
-      "description": "",
+      "description": "获得<scaleBonus>@ItemHaste@装备急速</scaleBonus>(相当于@TooltipCDR@%装备冷却缩减)。<br><br><rules>装备急速可缩减所有装备技能的冷却时间%i:cooldown%。</rules>",
       "icon": "augments/1002.png"
     },
     "1004": {
       "id": 1004,
       "name": "回归基本功",
-      "description": "",
+      "description": "获得提升过的技能伤害、<healing>治疗效果</healing>、<shield>护盾</shield>和<scaleAbilityHaste>技能急速</scaleAbilityHaste>，但你<keywordMajor>不能使用你的终极技能</keywordMajor>。",
       "icon": "augments/1004.png"
     },
     "1006": {
       "id": 1006,
       "name": "利刃华尔兹",
-      "description": "",
+      "description": "获得召唤师技能<spellName>利刃华尔兹</spellName>。<br><br><rules><spellName>利刃华尔兹</spellName>会让你进入不可被选取状态，在此期间对敌人进行反复突进并造成@TotalHits@次伤害。</rules>",
       "icon": "augments/1006.png"
     },
     "1007": {
       "id": 1007,
       "name": "大力",
-      "description": "",
+      "description": "获得%i:scaleAD%<scaleAD>@ADAmp*100@%攻击力</scaleAD>。",
       "icon": "augments/1007.png"
     },
     "1009": {
       "id": 1009,
       "name": "霸符兄弟",
-      "description": "",
+      "description": "你获得<font color = '#f30c1a'>余烬之冠</font>和<font color = '#1542ea'>洞悉之冠</font>。<br><br>为你自己提供技能急速和施法资源回复并使你的攻击对敌方英雄造成<keywordMajor>灼烧</keywordMajor>和<status>减速</status>。",
       "icon": "augments/1009.png"
     },
     "1011": {
       "id": 1011,
       "name": "你摸不到",
-      "description": "",
+      "description": "施放你的<attention>终极技能</attention>会使你进入短时间的<keywordMajor>免疫伤害</keywordMajor>状态。",
       "icon": "augments/1011.png"
     },
     "1013": {
       "id": 1013,
       "name": "星界躯体",
-      "description": "",
+      "description": "获得<scaleHealth>@Health@生命值</scaleHealth>，但你造成的伤害降低@DamageReduction*100@%。",
       "icon": "augments/1013.png"
     },
     "1015": {
       "id": 1015,
       "name": "死亡之环",
-      "description": "",
+      "description": "你造成的<healing>治疗效果</healing>和<healing>生命回复效果</healing>会对相距最近的那个敌方英雄造成一部分治疗数额的<magicDamage>魔法伤害</magicDamage>。",
       "icon": "augments/1015.png"
     },
     "1018": {
       "id": 1018,
       "name": "巨像的勇气",
-      "description": "",
+      "description": "<status>定身</status>或<status>缚地</status>一个敌方英雄后获得<shield>@TotalShield@护盾值</shield>。<br>",
       "icon": "augments/1018.png"
     },
     "1019": {
       "id": 1019,
       "name": "全凭身法",
-      "description": "",
+      "description": "你的冲刺、跳跃、闪烁或传送类技能获得<scaleAbilityHaste>@Haste@技能急速</scaleAbilityHaste>。",
       "icon": "augments/1019.png"
     },
     "1020": {
       "id": 1020,
       "name": "黎明使者的坚决",
-      "description": "",
+      "description": "在通过【不落之志】复活时，亚恒对附近的敌人造成基于目标当前生命值的伤害，并击退所有目标，同时自身不会受到来自生成圆环之外的敌人所造成的伤害并且获得短暂的爆发性移动速度。",
       "icon": "augments/1020.png"
     },
     "1022": {
       "id": 1022,
       "name": "灵巧",
-      "description": "",
+      "description": "获得%i:scaleAS% @AttackSpeed*100@%<speed>攻击速度</speed>。",
       "icon": "augments/1022.png"
     },
     "1023": {
       "id": 1023,
       "name": "魔鬼之舞",
-      "description": "",
+      "description": "获得<spellName>迅捷步法</spellName>和<spellName>不灭之握</spellName>基石符文。<br>",
       "icon": "augments/1023.png"
     },
     "1025": {
       "id": 1025,
       "name": "俯冲轰炸",
-      "description": "",
+      "description": "你的队伍在每回合的第一次阵亡会爆炸，造成<trueDamage>巨额真实伤害</trueDamage>。",
       "icon": "augments/1025.png"
     },
     "1026": {
       "id": 1026,
       "name": "唯快不破",
-      "description": "",
+      "description": "你每比目标多<speed>10移动速度</speed>，则对其多造成@BonusDamagePerMSDifference*1000@%额外伤害。",
       "icon": "augments/1026.png"
     },
     "1027": {
       "id": 1027,
       "name": "大地苏醒",
-      "description": "",
+      "description": "你的冲刺、闪烁或传送类技能会留下一条在1秒后爆炸的轨迹。",
       "icon": "augments/1027.png"
     },
     "1028": {
       "id": 1028,
       "name": "侵蚀",
-      "description": "",
+      "description": "对敌人造成伤害时会施加一层持续@ShredDuration@秒且可叠加的<scaleArmor>护甲</scaleArmor>和<scaleMR>魔法抗性</scaleMR>击碎效果。 ",
       "icon": "augments/1028.png"
     },
     "1029": {
       "id": 1029,
       "name": "虚幻武器",
-      "description": "",
+      "description": "你的技能可施加{{ Item_Keyword_OnHit }}。",
       "icon": "augments/1029.png"
     },
     "1030": {
       "id": 1030,
       "name": "尤里卡",
-      "description": "",
+      "description": "获得相当于<scaleAP>@APToHasteConversion*100@%法术强度</scaleAP>的<scaleAbilityHaste>技能急速</scaleAbilityHaste>。",
       "icon": "augments/1030.png"
     },
     "1032": {
@@ -6691,181 +6691,181 @@
     "1035": {
       "id": 1035,
       "name": "感受燃烧",
-      "description": "",
+      "description": "获得召唤师技能<spellName>感受灼烧</spellName>。<br><br><rules><spellName>感受灼烧</spellName>会对所有附近的敌人们施放<spellName>引燃</spellName>和<spellName>虚弱</spellName>。</rules>",
       "icon": "augments/1035.png"
     },
     "1036": {
       "id": 1036,
       "name": "火上浇油",
-      "description": "",
+      "description": "你的攻击会施加一个可无限叠加的<keywordMajor>灼烧</keywordMajor>{{ Item_Keyword_OnHit }}，持续造成伤害。",
       "icon": "augments/1036.png"
     },
     "1037": {
       "id": 1037,
       "name": "急救用具",
-      "description": "",
+      "description": "获得<healing>@HealShieldAmp*100@%治疗和护盾强度</healing>。",
       "icon": "augments/1037.png"
     },
     "1038": {
       "id": 1038,
       "name": "有始有终",
-      "description": "",
+      "description": "获得<spellName>先攻</spellName>和<spellName>黑暗收割</spellName>基石符文。",
       "icon": "augments/1038.png"
     },
     "1039": {
       "id": 1039,
       "name": "冰霜 幽灵",
-      "description": "",
+      "description": "每@Cooldown@秒，<keywordMajor>自动施放</keywordMajor>@RootDuration@秒<status>禁锢</status>给附近的敌人们。<br>",
       "icon": "augments/1039.png"
     },
     "1041": {
       "id": 1041,
       "name": "歌利亚巨人",
-      "description": "",
+      "description": "体型变大，获得<scaleHealth>@HealthAmp*100@%生命值</scaleHealth>和<scaleAF>@AFAmp*100@%适应之力</scaleAF>。",
       "icon": "augments/1041.png"
     },
     "1042": {
       "id": 1042,
       "name": "恶趣味",
-      "description": "",
+      "description": "<status>定身</status>或<status>缚地</status>敌方英雄时<healing>对你进行治疗</healing>。",
       "icon": "augments/1042.png"
     },
     "1044": {
       "id": 1044,
       "name": "冰寒",
-      "description": "",
+      "description": "你的<status>减速</status>效果可使<speed>移动速度</speed>降低额外的@ExtraSlowAmount@。",
       "icon": "augments/1044.png"
     },
     "1045": {
       "id": 1045,
       "name": "炼狱导管",
-      "description": "",
+      "description": "你的技能会施加一层可无限叠加的<keywordMajor>灼烧</keywordMajor>，持续造成<magicDamage>魔法伤害</magicDamage>。<br><br>你的<keywordMajor>灼烧</keywordMajor>效果会降低你各基础技能的冷却时间。",
       "icon": "augments/1045.png"
     },
     "1046": {
       "id": 1046,
       "name": "炼狱龙魂",
-      "description": "",
+      "description": "你获得炼狱龙魂，使用技能或攻击命中敌人时造成额外伤害。",
       "icon": "augments/1046.png"
     },
     "1047": {
       "id": 1047,
       "name": "关键暴击",
-      "description": "",
+      "description": "获得<crit>%i:scaleCrit%@CritChance*100@%暴击几率</crit>。",
       "icon": "augments/1047.png"
     },
     "1048": {
       "id": 1048,
       "name": "珠光护手",
-      "description": "",
+      "description": "你的技能可以造成<crit>暴击</crit>。<br><br>获得<crit>%i:scaleCrit% @CritGranted@暴击几率</crit>。",
       "icon": "augments/1048.png"
     },
     "1050": {
       "id": 1050,
       "name": "基石法师",
-      "description": "",
+      "description": "获得<spellName>召唤：艾黎</spellName>和<spellName>奥术彗星</spellName>基石符文。",
       "icon": "augments/1050.png"
     },
     "1051": {
       "id": 1051,
       "name": "点亮他们！",
-      "description": "",
+      "description": "每第4次攻击造成额外<magicDamage>魔法伤害</magicDamage>{{ Item_Keyword_OnHit }}。",
       "icon": "augments/1051.png"
     },
     "1052": {
       "id": 1052,
       "name": "闪电打击",
-      "description": "",
+      "description": "获得<attackSpeed>@TotalASValue*100@%总攻击速度</attackSpeed>。<br><br>在@Breakpoint1@<attackSpeed>攻击次数/秒</attackSpeed>时，造成额外的<magicDamage>魔法伤害</magicDamage> {{ Item_Keyword_OnHit }}。",
       "icon": "augments/1052.png"
     },
     "1053": {
       "id": 1053,
       "name": "科学狂人",
-      "description": "",
+      "description": "每回合，你要么变大(<scaleAF>适应之力</scaleAF>和<scaleHealth>生命值</scaleHealth>)要么变小(<scaleAbilityHaste>技能急速</scaleAbilityHaste>和<speed>移动速度</speed>)。",
       "icon": "augments/1053.png"
     },
     "1054": {
       "id": 1054,
       "name": "物法皆修",
-      "description": "",
+      "description": "你的每次攻击为你提供<scaleAP>法术强度</scaleAP>{{ Item_Keyword_OnHit }}，并且你的每次技能为你提供<scaleAD>攻击力</scaleAD>，持续到战斗结束。",
       "icon": "augments/1054.png"
     },
     "1056": {
       "id": 1056,
       "name": "由心及物",
-      "description": "",
+      "description": "使你的<scaleHealth>最大生命值</scaleHealth>提升，数额相当于你一半的<scaleMana>法力值</scaleMana>。",
       "icon": "augments/1056.png"
     },
     "1057": {
       "id": 1057,
       "name": "山脉龙魂",
-      "description": "",
+      "description": "你获得山脉龙魂，在脱离战斗之后获得一个持续一小段时间的<shield>护盾</shield>。",
       "icon": "augments/1057.png"
     },
     "1058": {
       "id": 1058,
       "name": "秘术冲拳",
-      "description": "",
+      "description": "{{ Item_Keyword_OnHit }}使你的各个技能的冷却时间缩减@CooldownRefund@秒%i:scaleCooldown%。",
       "icon": "augments/1058.png"
     },
     "1060": {
       "id": 1060,
       "name": "海洋龙魂",
-      "description": "",
+      "description": "获得【海洋龙魂】，在对敌方英雄造成伤害后提供高额的<healing>生命</healing>和<scaleMana>法力</scaleMana>回复。",
       "icon": "augments/1060.png"
     },
     "1061": {
       "id": 1061,
       "name": "回力OK镖",
-      "description": "",
+      "description": "每@Cooldown@秒朝着一个附近的敌人<keywordMajor>自动施放</keywordMajor>投掷一个回力镖。",
       "icon": "augments/1061.png"
     },
     "1062": {
       "id": 1062,
       "name": "全能龙魂",
-      "description": "",
+      "description": "获得@SoulsToAdd@个随机<attention>龙魂</attention>。",
       "icon": "augments/1062.png"
     },
     "1063": {
       "id": 1063,
       "name": "狂徒豪气",
-      "description": "",
+      "description": "在使用一次冲刺、闪烁或传送之后，你获得<scaleArmor>护甲</scaleArmor>和<scaleMR>魔法抗性</scaleMR>。",
       "icon": "augments/1063.png"
     },
     "1064": {
       "id": 1064,
       "name": "坚韧",
-      "description": "",
+      "description": "获得巨幅提升的<healing>生命回复</healing>，这个数额会在低<scaleHealth>生命值</scaleHealth>时进一步提升。",
       "icon": "augments/1064.png"
     },
     "1066": {
       "id": 1066,
       "name": "量子计算",
-      "description": "",
+      "description": "周期性地在你周围<keywordMajor>自动施放</keywordMajor>一次巨型斩击，造成<physicalDamage>物理伤害</physicalDamage>。<br><br>被外沿命中的敌人会被<status>减速</status>、受到额外<physicalDamage>伤害</physicalDamage>、并<healing>治疗</healing>你。",
       "icon": "augments/1066.png"
     },
     "1067": {
       "id": 1067,
       "name": "古式佳酿",
-      "description": "",
+      "description": "使用一个技能时会回复<healing>@HealAmount@生命值</healing>。",
       "icon": "augments/1067.png"
     },
     "1068": {
       "id": 1068,
       "name": "循环往复",
-      "description": "",
+      "description": "获得@AbilityHaste@技能急速。",
       "icon": "augments/1068.png"
     },
     "1069": {
       "id": 1069,
       "name": "退敌力场",
-      "description": "",
+      "description": "在你跌下@HealthThreshold1*100@%或@HealthThreshold2*100@%生命值时，附近的敌人们会被<status>击退</status>。",
       "icon": "augments/1069.png"
     },
     "1070": {
       "id": 1070,
       "name": "无休回复",
-      "description": "",
+      "description": "你在移动时持续获得<healing>治疗</healing>。",
       "icon": "augments/1070.png"
     },
     "1071": {
@@ -6877,55 +6877,55 @@
     "1072": {
       "id": 1072,
       "name": "炽烈黎明",
-      "description": "",
+      "description": "你的技能会标记敌人，使其在被你的友军的下一个攻击或技能命中时会受到额外<magicDamage>魔法伤害</magicDamage>。",
       "icon": "augments/1072.png"
     },
     "1073": {
       "id": 1073,
       "name": "暗影疾奔",
-      "description": "",
+      "description": "在使用一个冲刺、跳跃、闪烁或传送类技能或离开<stealth>潜行</stealth>状态之后，获得持续@spell.Augment_ShadowRunner:BuffDuration@秒的<speed>@spell.Augment_ShadowRunner:MSAmount@移动速度</speed>。",
       "icon": "augments/1073.png"
     },
     "1074": {
       "id": 1074,
       "name": "缩小射线",
-      "description": "",
+      "description": "你的攻击会将目标的伤害与体型削减@DamageReduction*100@%{{ Item_Keyword_OnHit }}。",
       "icon": "augments/1074.png"
     },
     "1075": {
       "id": 1075,
       "name": "慢炖",
-      "description": "",
+      "description": "每一秒，对附近的敌方英雄们施加一层可无限叠加的<keywordMajor>灼烧</keywordMajor>，这个效果受益于你的<scaleHealth>最大生命值</scaleHealth>。",
       "icon": "augments/1075.png"
     },
     "1076": {
       "id": 1076,
       "name": "天音爆",
-      "description": "",
+      "description": "在为你的友军提供增益效果、<healing>治疗效果</healing>或<shield>护盾效果</shield>时，会对其附近的敌人们造成伤害和<status>减速</status>。",
       "icon": "augments/1076.png"
     },
     "1077": {
       "id": 1077,
       "name": "灵魂虹吸",
-      "description": "",
+      "description": "<crit>暴击</crit><lifeSteal>造成伤害的@HealPercentage*100@%会等额治疗你自身</lifeSteal>。<br><br>获得<crit>%i:scaleCrit% @CritChance*100@%暴击几率</crit>。",
       "icon": "augments/1077.png"
     },
     "1079": {
       "id": 1079,
       "name": "战争交响乐",
-      "description": "",
+      "description": "获得<spellName>致命节奏</spellName>和<spellName>征服者</spellName>基石符文。",
       "icon": "augments/1079.png"
     },
     "1080": {
       "id": 1080,
       "name": "会心防御",
-      "description": "",
+      "description": "你可以使用你的<crit>暴击几率(最大@MaxChance*100@%几率)</crit>来进行<crit>会心防御</crit>，使你有一定几率来使所受伤害降低。<br><br>获得<crit>%i:scaleCrit%@CritChance*100@%暴击几率</crit>。",
       "icon": "augments/1080.png"
     },
     "1081": {
       "id": 1081,
       "name": "踢踏舞",
-      "description": "",
+      "description": "你的攻击会为你提供<speed>@MSPerHit@移动速度</speed> {{ Item_Keyword_OnHit }}。<br><br>获得等同于你<speed>移动速度</speed>@MSToASConversion*10000@%的<attackSpeed>攻击速度</attackSpeed>。",
       "icon": "augments/1081.png"
     },
     "1082": {
@@ -6937,37 +6937,37 @@
     "1084": {
       "id": 1084,
       "name": "穿针引线",
-      "description": "",
+      "description": "获得@PercentPen*100@%<armorPen>%i:scaleAPen%护甲穿透</armorPen>和<magicPen>%i:scaleMPen%法术穿透</magicPen>。",
       "icon": "augments/1084.png"
     },
     "1085": {
       "id": 1085,
       "name": "折磨者",
-      "description": "",
+      "description": "<status>定身</status>或<status>缚地</status>敌方英雄时提供一层<keywordMajor>灼烧</keywordMajor>，这个效果会持续造成伤害并可无限叠加。",
       "icon": "augments/1085.png"
     },
     "1086": {
       "id": 1086,
       "name": "精准奇才",
-      "description": "",
+      "description": "在你从远处对一名敌人造成伤害时，对其发射一道<abilityName>精准弹幕</abilityName>。",
       "icon": "augments/1086.png"
     },
     "1087": {
       "id": 1087,
       "name": "台风",
-      "description": "",
+      "description": "你的攻击会对一个额外目标发射一根弩箭，这个弩箭会造成削减过的伤害并施加{{ Item_Keyword_OnHit }}。",
       "icon": "augments/1087.png"
     },
     "1088": {
       "id": 1088,
       "name": "终极刷新",
-      "description": "",
+      "description": "将<spellName>闪人</spellName>替换成一个随机英雄的<attention>终极技能</attention>。<br><br>在施放这个<attention>终极技能</attention>后，会将它随机替换为另一个<attention>终极技能</attention>。",
       "icon": "augments/1088.png"
     },
     "1092": {
       "id": 1092,
       "name": "易损",
-      "description": "",
+      "description": "你的装备效果和持续伤害效果可以<crit>暴击</crit>。<br><br>获得<crit>%i:scaleCrit% @CritChance*100@%暴击几率</crit>。",
       "icon": "augments/1092.png"
     },
     "1095": {
@@ -6979,37 +6979,37 @@
     "1097": {
       "id": 1097,
       "name": "巫师式思考",
-      "description": "",
+      "description": "获得%i:scaleAP%<scaleAP>@AP@法术强度</scaleAP>。",
       "icon": "augments/1097.png"
     },
     "1098": {
       "id": 1098,
       "name": "急急小子",
-      "description": "",
+      "description": "获得<speed>移动速度</speed>，相当于你的@AbilityHasteToMSConversion*100@%技能急速。",
       "icon": "augments/1098.png"
     },
     "1103": {
       "id": 1103,
       "name": "面包和黄油",
-      "description": "",
+      "description": "你的@spell1KeyBind@获得@QAbilityHaste@技能急速。",
       "icon": "augments/1103.png"
     },
     "1104": {
       "id": 1104,
       "name": "仆从大师",
-      "description": "",
+      "description": "你的召唤物获得@MinionAmp*100@%体型提升、生命值和伤害。",
       "icon": "augments/1104.png"
     },
     "1105": {
       "id": 1105,
       "name": "家园卫士",
-      "description": "",
+      "description": "获得<speed>@spell.Augment_Homeguard:MovementSpeed*100@%移动速度</speed>，在受到伤害后失效@spell.Augment_Homeguard:DisableCooldown@秒。",
       "icon": "augments/1105.png"
     },
     "1107": {
       "id": 1107,
       "name": "接二连三",
-      "description": "",
+      "description": "每@ProcCadence@次攻击，你的{{ Item_Keyword_OnHit }}特效会触发第二次。",
       "icon": "augments/1107.png"
     },
     "1108": {
@@ -7021,37 +7021,37 @@
     "1112": {
       "id": 1112,
       "name": "终极不可阻挡",
-      "description": "",
+      "description": "在你使用你的终极技能后，你获得持续@UnstoppableDuration@秒的<status>控制免疫</status>。 (@Cooldown@秒冷却时间)。",
       "icon": "augments/1112.png"
     },
     "1113": {
       "id": 1113,
       "name": "老练狙神",
-      "description": "",
+      "description": "用一个<keywordMajor>非终极技能</keywordMajor>命中一个远处的敌人时，将这个技能的冷却时间巨幅缩短。 ",
       "icon": "augments/1113.png"
     },
     "1115": {
       "id": 1115,
       "name": "最万用的瞄准镜",
-      "description": "",
+      "description": "获得@MeleeRangeIncrease@攻击距离，如果你是远程英雄则降低至@RangedRangeIncrease@攻击距离。",
       "icon": "augments/1115.png"
     },
     "1116": {
       "id": 1116,
       "name": "闪现向前",
-      "description": "",
+      "description": "你的<spellName>闪现</spellName>有@MaxAmmo@层充能，并且冷却时间为@FlashCooldown@秒。",
       "icon": "augments/1116.png"
     },
     "1118": {
       "id": 1118,
       "name": "会心治疗",
-      "description": "",
+      "description": "你的<healing>治疗</healing>和<shield>护盾</shield>可以<crit>暴击</crit>，造成额外的@CriticalHealCalc@。<br><br>获得<crit>%i:scaleCrit% @CritChance*100@%暴击几率</crit>。 ",
       "icon": "augments/1118.png"
     },
     "1129": {
       "id": 1129,
       "name": "神射法师",
-      "description": "",
+      "description": "你的攻击造成相当于你<scaleAP>@APRatio*100@%法术强度</scaleAP>的额外<physicalDamage>物理伤害</physicalDamage>。",
       "icon": "augments/1129.png"
     },
     "1133": {
@@ -7063,55 +7063,55 @@
     "1134": {
       "id": 1134,
       "name": "亮出你的剑",
-      "description": "",
+      "description": "你现在是近战。<br><br>获得<physicalDamage>攻击力</physicalDamage>、<healing>生命值</healing>、<attackSpeed>攻击速度</attackSpeed>、<lifesteal>生命偷取</lifesteal>和<speed>移动速度</speed> (基于你舍弃的攻击距离)。",
       "icon": "augments/1134.png"
     },
     "1135": {
       "id": 1135,
       "name": "法术苏醒",
-      "description": "",
+      "description": "用技能命中敌人时会从你的位置生成一道通向命中敌人位置的震波，来造成<magicDamage>魔法伤害</magicDamage>。",
       "icon": "augments/1135.png"
     },
     "1136": {
       "id": 1136,
       "name": "扇巴掌",
-      "description": "",
+      "description": "每当你<status>定身</status>或<status>缚地</status>一个敌人时，获得持续到回合结束的<scaleAF>%i:miniAdaptiveForce%@AdaptiveForce@适应之力</scaleAF>。",
       "icon": "augments/1136.png"
     },
     "1138": {
       "id": 1138,
       "name": "渴血",
-      "description": "",
+      "description": "获得<lifeSteal>@Omnivamp*100@%全能吸血</lifeSteal>。",
       "icon": "augments/1138.png"
     },
     "1141": {
       "id": 1141,
       "name": "全心为你",
-      "description": "",
+      "description": "你的<healing>治疗</healing>和<shield>护盾</shield>在用在一个友军身上时会变强。",
       "icon": "augments/1141.png"
     },
     "1149": {
       "id": 1149,
       "name": "不动如山",
-      "description": "",
+      "description": "获<spellName>余震</spellName>和<spellName>冰川增幅</spellName>基石符文。",
       "icon": "augments/1149.png"
     },
     "1150": {
       "id": 1150,
       "name": "面包和果酱",
-      "description": "",
+      "description": "你的@spell2KeyBind@获得@WAbilityHaste@技能急速。",
       "icon": "augments/1150.png"
     },
     "1151": {
       "id": 1151,
       "name": "面包和奶酪",
-      "description": "",
+      "description": "你的@spell3KeyBind@获得@EAbilityHaste@技能急速。",
       "icon": "augments/1151.png"
     },
     "1152": {
       "id": 1152,
       "name": "任务：钢化你心",
-      "description": "",
+      "description": "需求：持有【心之钢】且层数在@StackThreshold@层或以上。<br><br>奖励：将你的心之钢层数乘以@StackMultiplication@。使你的<healing>生命回复</healing>提升@StacktoRegenConversion*100@%x你的【心之钢】层数。",
       "icon": "augments/1152.png"
     },
     "1154": {
@@ -7123,7 +7123,7 @@
     "1156": {
       "id": 1156,
       "name": "任务：沃格勒特的巫师帽",
-      "description": "",
+      "description": "立刻：获得<attention>无用大棒</attention>。<br><br>需求：持有<attention>灭世者的死亡之帽</attention>和<attention>中娅沙漏</attention>。<br><br>奖励:获得<attention>沃格勒特的巫师帽</attention>。",
       "icon": "augments/1156.png"
     },
     "1170": {
@@ -7135,13 +7135,13 @@
     "1180": {
       "id": 1180,
       "name": "超强大脑",
-      "description": "",
+      "description": "在每个回合开始时，每拥有<scaleAP>%i:scaleAP% @AP@法术强度</scaleAP>就会获得<shield> @ShieldBaseTooltip@护盾值</shield>。",
       "icon": "augments/1180.png"
     },
     "1181": {
       "id": 1181,
       "name": "重量级打击手",
-      "description": "",
+      "description": "你的攻击造成相当于你@HealthPercent*100@%<scaleHealth>最大生命值</scaleHealth>的额外<physicalDamage>物理伤害</physicalDamage>。",
       "icon": "augments/1181.png"
     },
     "1187": {
@@ -7153,121 +7153,121 @@
     "1194": {
       "id": 1194,
       "name": "精怪魔法",
-      "description": "",
+      "description": "你的<attention>终极技能</attention>的伤害会对敌人造成持续若干秒的<status>变形</status>效果。",
       "icon": "augments/1194.png"
     },
     "1195": {
       "id": 1195,
       "name": "巨人杀手",
-      "description": "",
+      "description": "体型变小，获得<speed>移动速度</speed>，并基于敌方英雄体型大于你的程度造成额外伤害。",
       "icon": "augments/1195.png"
     },
     "1198": {
       "id": 1198,
       "name": "圣火",
-      "description": "",
+      "description": "你的<healing>治疗</healing>或<shield>护盾</shield>会对一个附近的敌人施加一层无限叠加的<keywordMajor>灼烧</keywordMajor>，在若干秒内持续造成<magicDamage>百分比最大生命值的魔法伤害</magicDamage>。",
       "icon": "augments/1198.png"
     },
     "1204": {
       "id": 1204,
       "name": "叠角龙",
-      "description": "",
+      "description": "在你获得一个技能的永久<keywordMajor>层数</keywordMajor>时，多获得@StackModifier*100@%！",
       "icon": "augments/1204.png"
     },
     "1205": {
       "id": 1205,
       "name": "物理转魔法",
-      "description": "",
+      "description": "将<scaleAD>额外攻击力</scaleAD>转化为<scaleAP>法术强度</scaleAP>。获得<scaleAP>@APAmp*100@%法术强度</scaleAP>。",
       "icon": "augments/1205.png"
     },
     "1206": {
       "id": 1206,
       "name": "魔法转物理",
-      "description": "",
+      "description": "将<scaleAP>法术强度</scaleAP>转化为<scaleAD>额外攻击力</scaleAD>。获得<scaleAD>@ADAmp*100@%攻击力</scaleAD>。",
       "icon": "augments/1206.png"
     },
     "1208": {
       "id": 1208,
       "name": "轨道镭射",
-      "description": "",
+      "description": "将召唤师技能【闪人】替换为<spellName>轨道镭射</spellName>。<br><br><rules>在一阵延迟后，召唤一道轨道镭射光束落下，在@GroundDuration@秒里持续造成<trueDamage>@DamagetoChampions*100@%最大生命值的真实伤害</trueDamage>外加<magicDamage>@TotalDamageOverTimeTooltip@魔法伤害</magicDamage>。</rules>",
       "icon": "augments/1208.png"
     },
     "1211": {
       "id": 1211,
       "name": "杀戮时间到了",
-      "description": "",
+      "description": "在施放你的<keywordMajor>终极技能</keywordMajor>后，将所有敌人打上死亡标记。<br><br>对带标记的敌人造成伤害时，会将一部分已造成伤害储存起来，然后在标记结束时将已储存的伤害引爆。",
       "icon": "augments/1211.png"
     },
     "1214": {
       "id": 1214,
       "name": "旋转至胜",
-      "description": "",
+      "description": "你的旋转类技能获得@SpinHaste@技能急速并且多造成@SpinDamageAmp*100@%伤害！",
       "icon": "augments/1214.png"
     },
     "1220": {
       "id": 1220,
       "name": "连拨击锤",
-      "description": "",
+      "description": "在你攻击时，发射@AdditionalBolts@个箭矢，每个造成<physicalDamage>物理伤害</physicalDamage>并施加你的{{ Item_Keyword_OnHit }}。",
       "icon": "augments/1220.png"
     },
     "1225": {
       "id": 1225,
       "name": "双刀流",
-      "description": "",
+      "description": "在你攻击时，发射一个弩箭，它造成@AttackReduction*100@%伤害并以@OnHitMod*100@%效能施加你的{{ Item_Keyword_OnHit }}。<br><br>获得<attackSpeed>@AttackSpeed*100@% 总攻击速度</attackSpeed>。",
       "icon": "augments/1225.png"
     },
     "1237": {
       "id": 1237,
       "name": "质变：黄金阶",
-      "description": "",
+      "description": "获得1个随机<keywordMajor>%i:Augment%黄金阶强化符文</keywordMajor>。",
       "icon": "augments/1237.png"
     },
     "1238": {
       "id": 1238,
       "name": "质变：棱彩阶",
-      "description": "",
+      "description": "获得1个随机<keywordMajor>%i:Augment%棱彩阶强化符文</keywordMajor>。",
       "icon": "augments/1238.png"
     },
     "1243": {
       "id": 1243,
       "name": "质变：混沌",
-      "description": "",
+      "description": "获得<keywordMajor>@AugmentsToGrantToolTipOnly@个随机%i:Augment%强化符文</keywordMajor>。",
       "icon": "augments/1243.png"
     },
     "1250": {
       "id": 1250,
       "name": "一板一眼",
-      "description": "",
+      "description": "你的<speed>攻击速度</speed>无法超过@StaticRatio@。所有<speed>攻击速度</speed>加成会被转化为<scaleAD>攻击力</scaleAD>。<br>",
       "icon": "augments/1250.png"
     },
     "1301": {
       "id": 1301,
       "name": "神圣干预",
-      "description": "",
+      "description": "战斗开始后的短时间内，召唤一颗护体星星。在它着陆时，你和附近的友军们进入持续若干秒的<keywordMajor>免疫伤害</keywordMajor>状态。<br><br>随后每@BaseCD@秒<keywordMajor>自动施放</keywordMajor>这个效果。",
       "icon": "augments/1301.png"
     },
     "1305": {
       "id": 1305,
       "name": "练腿日",
-      "description": "",
+      "description": "获得<speed>@MovementSpeed@移动速度</speed>和<speed>@SlowResist*100@%减速抗性</speed>。",
       "icon": "augments/1305.png"
     },
     "1308": {
       "id": 1308,
       "name": "火狐",
-      "description": "",
+      "description": "<keywordMajor>自动施放</keywordMajor><br>获得<speed>移动速度</speed>并召唤3道烈焰环绕于你，瞄准距离内相距最近的那个可见英雄并造成<magicDamage>魔法伤害</magicDamage>。",
       "icon": "augments/1308.png"
     },
     "1310": {
       "id": 1310,
       "name": "小丑学院",
-      "description": "",
+      "description": "获得召唤师技能<spellName>欺诈魔术</spellName>。<br><br><spellName>欺诈魔术</spellName>：你传送并变为<keywordStealth>隐形</keywordStealth>。你在<keywordStealth>隐形</keywordStealth>状态下的下一次攻击造成额外<physicalDamage>物理伤害</physicalDamage>。在你阵亡时，生成一个爆炸盒子来对附近的敌人们造成大量<trueDamage>真实伤害</trueDamage>和<status>恐惧</status>。",
       "icon": "augments/1310.png"
     },
     "1311": {
       "id": 1311,
       "name": "溢流",
-      "description": "",
+      "description": "你的<scaleMana>法力</scaleMana>消耗翻倍。<br><br>你的技能的<healing>治疗效果</healing>、<shield>护盾效果</shield>和伤害获得提升，提升幅度基于你的<scaleMana>最大法力值</scaleMana>。",
       "icon": "augments/1311.png"
     },
     "1313": {
@@ -7387,7 +7387,7 @@
     "1332": {
       "id": 1332,
       "name": "不祥契约",
-      "description": "",
+      "description": "立刻提升1级，并且每隔1回合额外提升1级。<br><br>你的等级上限已被移除。<br><br><rules>如果在@RoundCounterForBonus@回合后选取，获得@BonusForLatePick@额外等级。</rules>",
       "icon": "augments/1332.png"
     },
     "1333": {
@@ -7495,7 +7495,7 @@
     "1353": {
       "id": 1353,
       "name": "坦克引擎",
-      "description": "",
+      "description": "在参与击杀时，获得体型提升和<scaleHealth>百分比额外生命值</scaleHealth>。",
       "icon": "augments/1353.png"
     },
     "1356": {
@@ -7585,7 +7585,7 @@
     "1397": {
       "id": 1397,
       "name": "地狱三头犬",
-      "description": "",
+      "description": "获得<spellName>丛刃</spellName>和<spellName>强攻</spellName>基石符文。",
       "icon": "augments/1397.png"
     },
     "1400": {
@@ -7603,19 +7603,19 @@
     "1402": {
       "id": 1402,
       "name": "属性叠属性叠属性！",
-      "description": "",
+      "description": "获得@AmountOfStatAnvils@个%i:StatAnvil%【属性锻造器】！",
       "icon": "augments/1402.png"
     },
     "1403": {
       "id": 1403,
       "name": "属性叠属性！",
-      "description": "",
+      "description": "获得@AmountOfStatAnvils@个%i:StatAnvil%【属性锻造器】！",
       "icon": "augments/1403.png"
     },
     "1404": {
       "id": 1404,
       "name": "属性！",
-      "description": "",
+      "description": "获得@AmountOfStatAnvils@个%i:StatAnvil%【属性锻造器】！",
       "icon": "augments/1404.png"
     },
     "1405": {
@@ -7651,7 +7651,7 @@
     "1414": {
       "id": 1414,
       "name": "卡皮巴拉空投",
-      "description": "",
+      "description": "将召唤师技能【闪人】替换为<spellName>轨道镭射</spellName>。<br><br><rules>在一阵延迟后，召唤一道轨道镭射光束落下，在@GroundDuration@秒里持续造成<trueDamage>@DamagetoChampions*100@%最大生命值的真实伤害</trueDamage>外加<magicDamage>@TotalDamageOverTimeTooltip@魔法伤害</magicDamage>。</rules>",
       "icon": "augments/1414.png"
     },
     "1415": {
@@ -7663,7 +7663,7 @@
     "1416": {
       "id": 1416,
       "name": "海克斯科技龙魂",
-      "description": "",
+      "description": "你获得炼狱龙魂，使用技能或攻击命中敌人时造成额外伤害。",
       "icon": "augments/1416.png"
     },
     "1418": {
@@ -7723,7 +7723,7 @@
     "2005": {
       "id": 2005,
       "name": "扳机炼狱",
-      "description": "",
+      "description": "每回合，你要么变大(<scaleAF>适应之力</scaleAF>和<scaleHealth>生命值</scaleHealth>)要么变小(<scaleAbilityHaste>技能急速</scaleAbilityHaste>和<speed>移动速度</speed>)。",
       "icon": "augments/2005.png"
     },
     "2006": {
@@ -7783,7 +7783,7 @@
     "12317": {
       "id": 12317,
       "name": "潘朵拉的盒子",
-      "description": "",
+      "description": "将你的所有强化符文变为<keywordMajor>随机的棱彩阶%i:Augment%强化符文</keywordMajor>。",
       "icon": "augments/12317.png"
     },
     "33101": {

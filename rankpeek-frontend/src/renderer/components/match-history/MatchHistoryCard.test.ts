@@ -78,3 +78,14 @@ test('match history card exposes inline detail expanded state and chevron afford
   assert.match(source, /@click\.stop="emit\('open-detail', match\)"/)
   assert.match(source, /class="chevron-icon"/)
 })
+
+test('match history card rich asset tooltips are not only browser title text', () => {
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && getTraitTooltipDetails\(slot\)"/)
+  assert.match(source, /<AssetHoverTooltip\s+v-if="slot\.url && !slot\.empty && slot\.itemId !== null"/)
+  assert.match(source, /:details="getTraitTooltipDetails\(slot\)!"/)
+  assert.match(source, /:details="getItemTooltipDetails\(slot\.itemId\)!"/)
+  assert.doesNotMatch(source, /:title="getItemSlotLabel\(slot\)"/)
+  assert.doesNotMatch(source, /:title="slot\.label"/)
+})

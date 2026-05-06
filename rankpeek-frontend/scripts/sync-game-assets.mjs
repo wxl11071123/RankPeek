@@ -342,15 +342,17 @@ async function readAugmentEntries(sourceUrl) {
     return null
   }
 
-  const detailsById = await readArenaAugmentDetails()
+  const arenaDetails = await readArenaAugmentDetails()
   return extractAugments(payload)
     .map(augment => {
-      const details = detailsById.get(String(augment.id))
+      const exactDetails = arenaDetails.byId.get(String(augment.id))
+      const iconDetails = augment.iconPath ? arenaDetails.byIconPath.get(augment.iconPath) : undefined
+      const details = exactDetails || iconDetails
       return details
         ? {
             ...augment,
-            name: firstText(details.name, augment.name),
-            description: firstText(details.description, augment.description)
+            name: firstText(exactDetails?.name, augment.name, iconDetails?.name),
+            description: firstText(exactDetails?.description, augment.description, iconDetails?.description)
           }
         : augment
     })
@@ -611,6 +613,7 @@ function extractAugments(payload) {
       id,
       name: firstText(augment.name, augment.nameTRA, augment.simpleName, augment.simpleNameTRA),
       description: firstText(augment.description, augment.descriptionTRA, augment.tooltip, augment.tooltipTRA),
+      iconPath,
       sourceUrl: `${cdragonRoot}/${iconPath}`
     })
   }
@@ -618,19 +621,33 @@ function extractAugments(payload) {
 }
 
 function extractArenaAugmentDetails(payload) {
-  const unique = new Map()
+  const byId = new Map()
+  const byIconPath = new Map()
   for (const augment of Array.isArray(payload?.augments) ? payload.augments : []) {
     const id = normalizeId(augment?.id)
     if (!id) {
       continue
     }
-    unique.set(String(id), {
+    const details = {
       id,
       name: firstText(augment.name, augment.nameTRA, augment.simpleName, augment.simpleNameTRA),
       description: firstText(augment.desc, augment.tooltip, augment.description, augment.descriptionTRA, augment.tooltipTRA)
-    })
+    }
+    byId.set(String(id), details)
+
+    for (const iconPath of [
+      normalizeCdragonAssetPath(augment.iconSmall),
+      normalizeCdragonAssetPath(augment.iconLarge),
+      normalizeCdragonAssetPath(augment.augmentSmallIconPath),
+      normalizeCdragonAssetPath(augment.augmentLargeIconPath),
+      normalizeCdragonAssetPath(augment.iconPath)
+    ]) {
+      if (iconPath && !byIconPath.has(iconPath)) {
+        byIconPath.set(iconPath, details)
+      }
+    }
   }
-  return unique
+  return { byId, byIconPath }
 }
 
 function normalizeIconPath(value) {

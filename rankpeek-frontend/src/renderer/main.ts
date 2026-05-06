@@ -10,13 +10,6 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 
-const manifestStartupDeadline = new Promise<void>(resolve => {
-  setTimeout(resolve, 500)
-})
-
-void Promise.race([
-  Promise.all([loadGameAssetManifest(), loadGameAssetMetadata()]).then(() => undefined),
-  manifestStartupDeadline
-]).finally(() => {
+void Promise.all([loadGameAssetManifest(), loadGameAssetMetadata()]).finally(() => {
   app.mount('#app')
 })
