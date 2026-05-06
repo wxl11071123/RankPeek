@@ -26,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -238,6 +240,132 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getGameDetailById_sourceSgpUsesLcuParticipantsWhenSgpObjectiveDetailIsNotRenderable() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var sgpDetail = hollowGameDetail(110L);
+        sgpDetail.setQueueId(420);
+        var sgpSummary = teamObjectiveSummary(
+                100,
+                List.of(),
+                1,
+                1,
+                0,
+                null,
+                null,
+                null,
+                Map.of("hextech", 1)
+        );
+        sgpSummary.setObjectiveEvents(List.of(objectiveEvent(
+                "dragon",
+                "hextech",
+                100,
+                1,
+                null,
+                600000L
+        )));
+        sgpDetail.setTeamObjectives(List.of(sgpSummary));
+        var lcuDetail = renderableGameDetail(110L);
+        lcuDetail.setQueueId(420);
+        lcuDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(56, 84),
+                9,
+                9,
+                0,
+                1,
+                3,
+                "hextech",
+                Map.of()
+        )));
+        when(sgpMatchHistoryProvider.fetchGameDetail(110L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(sgpDetail);
+        when(matchHistoryProvider.fetchGameDetail(110L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(110L, MatchHistorySource.SGP);
+
+        assertThat(result).isSameAs(sgpDetail);
+        assertThat(result.getParticipants()).isSameAs(lcuDetail.getParticipants());
+        assertThat(result.getParticipantIdentities()).isSameAs(lcuDetail.getParticipantIdentities());
+        assertThat(result.getTeamObjectives()).hasSize(1);
+        var summary = result.getTeamObjectives().getFirst();
+        assertThat(summary.getDragonKillsByType()).containsOnly(Map.entry("hextech", 1));
+        assertThat(summary.getObjectiveEvents())
+                .extracting(
+                        io.rankpeek.model.GameDetail.TeamObjectiveEvent::getKind,
+                        io.rankpeek.model.GameDetail.TeamObjectiveEvent::getParticipantId,
+                        io.rankpeek.model.GameDetail.TeamObjectiveEvent::getChampionId
+                )
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("dragon", 1, 11));
+        assertThat(summary.getBans()).containsExactly(56, 84);
+        assertThat(summary.getBaronKills()).isEqualTo(1);
+        assertThat(summary.getDragonKills()).isEqualTo(1);
+        assertThat(summary.getHeraldKills()).isEqualTo(1);
+        assertThat(summary.getVoidGrubKills()).isEqualTo(3);
+        verify(sgpMatchHistoryProvider).fetchGameDetail(110L, options(MatchHistorySource.SGP, false));
+        verify(matchHistoryProvider).fetchGameDetail(110L, options(MatchHistorySource.LCU, false));
+    }
+
+    @Test
+    void getGameDetailById_sourceSgpDoesNotUseCachedLcuDetailBeforeProvider() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        var cachedLcuDetail = renderableGameDetail(106L);
+        cachedLcuDetail.setQueueId(420);
+        cachedLcuDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(1, 2),
+                1,
+                3,
+                0,
+                1,
+                3,
+                null,
+                Map.of()
+        )));
+        var sgpDetail = renderableGameDetail(106L);
+        sgpDetail.setQueueId(420);
+        sgpDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(),
+                1,
+                3,
+                0,
+                1,
+                3,
+                null,
+                Map.of("hextech", 1, "mountain", 1, "chemtech", 1)
+        )));
+        lenient().when(cacheRepository.findGameDetail(106L)).thenReturn(Optional.of(cachedLcuDetail));
+        when(sgpMatchHistoryProvider.fetchGameDetail(106L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(sgpDetail);
+
+        var result = sourceAwareService.getGameDetailById(106L, MatchHistorySource.SGP);
+
+        assertThat(result).isSameAs(sgpDetail);
+        assertThat(result.getTeamObjectives().getFirst().getDragonKillsByType()).containsEntry("hextech", 1);
+        verify(sgpMatchHistoryProvider).fetchGameDetail(106L, options(MatchHistorySource.SGP, false));
+        verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameDetailById_sourceSgpDoesNotFallbackToLcuOrCacheWhenProviderFails() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        var cachedLcuDetail = renderableGameDetail(107L);
+        cachedLcuDetail.setQueueId(420);
+        cachedLcuDetail.setTeamObjectives(List.of(teamObjectiveSummary(100, List.of(1), 1, 2, 0)));
+        lenient().when(cacheRepository.findGameDetail(107L)).thenReturn(Optional.of(cachedLcuDetail));
+        when(sgpMatchHistoryProvider.fetchGameDetail(107L, options(MatchHistorySource.SGP, false)))
+                .thenThrow(new RuntimeException("sgp down"));
+
+        assertThatThrownBy(() -> sourceAwareService.getGameDetailById(107L, MatchHistorySource.SGP))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("sgp down");
+
+        verify(sgpMatchHistoryProvider).fetchGameDetail(107L, options(MatchHistorySource.SGP, false));
+        verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
     void getGameDetailById_defaultSourcePrefersSgpWhenReady() {
         MatchHistoryService sourceAwareService = sourceAwareService();
         var detail = renderableGameDetail(100L);
@@ -248,6 +376,250 @@ class MatchHistoryServiceTest {
         assertThat(sourceAwareService.getGameDetailById(100L)).isSameAs(detail);
         verify(sgpMatchHistoryProvider).fetchGameDetail(100L, options(MatchHistorySource.AUTO, false));
         verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameDetailById_defaultSourceMergesMissingTeamObjectivesFromLcuOnly() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var sgpDetail = renderableGameDetail(104L);
+        sgpDetail.setQueueId(420);
+        var lcuDetail = renderableGameDetail(104L);
+        lcuDetail.setQueueId(420);
+        var lcuSummary = teamObjectiveSummary(
+                200,
+                List.of(24, 799),
+                0,
+                3,
+                1,
+                1,
+                3,
+                "hextech",
+                Map.of("hextech", 2, "ocean", 1)
+        );
+        lcuSummary.setObjectiveEvents(List.of(objectiveEvent(
+                "dragon",
+                "hextech",
+                200,
+                6,
+                206,
+                600000L
+        )));
+        lcuDetail.setTeamObjectives(List.of(lcuSummary));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(104L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(matchHistoryProvider.fetchGameDetail(104L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(104L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        assertThat(result.getParticipants()).isSameAs(sgpDetail.getParticipants());
+        assertThat(result.getTeamObjectives()).hasSize(1);
+        assertThat(result.getTeamObjectives().getFirst().getTeamId()).isEqualTo(200);
+        assertThat(result.getTeamObjectives().getFirst().getBans()).containsExactly(24, 799);
+        assertThat(result.getTeamObjectives().getFirst().getDragonKills()).isEqualTo(3);
+        assertThat(result.getTeamObjectives().getFirst().getHeraldKills()).isEqualTo(1);
+        assertThat(result.getTeamObjectives().getFirst().getVoidGrubKills()).isEqualTo(3);
+        assertThat(result.getTeamObjectives().getFirst().getDragonSoulType()).isNull();
+        assertThat(result.getTeamObjectives().getFirst().getDragonKillsByType()).isEmpty();
+        assertThat(result.getTeamObjectives().getFirst().getObjectiveEvents()).isEmpty();
+        verify(sgpMatchHistoryProvider).fetchGameDetail(104L, options(MatchHistorySource.AUTO, false));
+        verify(matchHistoryProvider).fetchGameDetail(104L, options(MatchHistorySource.LCU, false));
+    }
+
+    @Test
+    void getGameDetailById_defaultSourceMergesOnlyFallbackCountsFromLcuWithoutReplacingSgpTotals() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var sgpDetail = renderableGameDetail(105L);
+        sgpDetail.setQueueId(420);
+        var sgpSummary = teamObjectiveSummary(
+                100,
+                List.of(56, 84),
+                1,
+                1,
+                0,
+                null,
+                null,
+                null,
+                Map.of()
+        );
+        sgpSummary.setObjectiveEvents(List.of(objectiveEvent(
+                "baron",
+                null,
+                100,
+                1,
+                11,
+                1200000L
+        )));
+        sgpDetail.setTeamObjectives(List.of(sgpSummary));
+        var lcuDetail = renderableGameDetail(105L);
+        lcuDetail.setQueueId(420);
+        var lcuSummary = teamObjectiveSummary(
+                100,
+                List.of(1, 2),
+                9,
+                9,
+                1,
+                1,
+                3,
+                "hextech",
+                Map.of("ocean", 1)
+        );
+        lcuSummary.setObjectiveEvents(List.of(objectiveEvent(
+                "dragon",
+                "ocean",
+                100,
+                2,
+                12,
+                600000L
+        )));
+        lcuSummary.setTurretKills(6);
+        lcuSummary.setInhibitorKills(1);
+        lcuSummary.setTurretPlateKills(8);
+        lcuDetail.setTeamObjectives(List.of(lcuSummary));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(105L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(matchHistoryProvider.fetchGameDetail(105L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(105L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        assertThat(result.getTeamObjectives()).hasSize(1);
+        var summary = result.getTeamObjectives().getFirst();
+        assertThat(summary.getBans()).containsExactly(56, 84);
+        assertThat(summary.getBaronKills()).isEqualTo(1);
+        assertThat(summary.getDragonKills()).isEqualTo(1);
+        assertThat(summary.getElderDragonKills()).isZero();
+        assertThat(summary.getHeraldKills()).isEqualTo(1);
+        assertThat(summary.getVoidGrubKills()).isEqualTo(3);
+        assertThat(summary.getTurretKills()).isEqualTo(6);
+        assertThat(summary.getInhibitorKills()).isEqualTo(1);
+        assertThat(summary.getTurretPlateKills()).isEqualTo(8);
+        assertThat(summary.getDragonSoulType()).isNull();
+        assertThat(summary.getDragonKillsByType()).isEmpty();
+        assertThat(summary.getObjectiveEvents())
+                .extracting(io.rankpeek.model.GameDetail.TeamObjectiveEvent::getKind)
+                .containsExactly("baron");
+        verify(sgpMatchHistoryProvider).fetchGameDetail(105L, options(MatchHistorySource.AUTO, false));
+        verify(matchHistoryProvider).fetchGameDetail(105L, options(MatchHistorySource.LCU, false));
+    }
+
+    @Test
+    void getGameDetailById_defaultSourceMergesLcuFallbackBansIntoTypedSgpObjectives() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var sgpDetail = renderableGameDetail(108L);
+        sgpDetail.setQueueId(420);
+        sgpDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(),
+                1,
+                3,
+                0,
+                1,
+                3,
+                null,
+                Map.of("hextech", 1, "mountain", 1, "chemtech", 1)
+        )));
+        var lcuDetail = renderableGameDetail(108L);
+        lcuDetail.setQueueId(420);
+        lcuDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(56, 84),
+                9,
+                9,
+                1,
+                2,
+                6,
+                "hextech",
+                Map.of("ocean", 1)
+        )));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(108L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(matchHistoryProvider.fetchGameDetail(108L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(108L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        var summary = result.getTeamObjectives().getFirst();
+        assertThat(summary.getBans()).containsExactly(56, 84);
+        assertThat(summary.getBaronKills()).isEqualTo(1);
+        assertThat(summary.getDragonKills()).isEqualTo(3);
+        assertThat(summary.getElderDragonKills()).isZero();
+        assertThat(summary.getHeraldKills()).isEqualTo(1);
+        assertThat(summary.getVoidGrubKills()).isEqualTo(3);
+        assertThat(summary.getDragonKillsByType()).containsOnly(
+                Map.entry("hextech", 1),
+                Map.entry("mountain", 1),
+                Map.entry("chemtech", 1)
+        );
+        assertThat(summary.getDragonSoulType()).isNull();
+        verify(sgpMatchHistoryProvider).fetchGameDetail(108L, options(MatchHistorySource.AUTO, false));
+        verify(matchHistoryProvider).fetchGameDetail(108L, options(MatchHistorySource.LCU, false));
+    }
+
+    @Test
+    void getGameDetailById_defaultSourceRefreshesRankedCacheWithGenericObjectives() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        var cachedDetail = renderableGameDetail(109L);
+        cachedDetail.setQueueId(420);
+        cachedDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(1, 2),
+                1,
+                3,
+                0,
+                1,
+                3,
+                null,
+                Map.of()
+        )));
+        var sgpDetail = renderableGameDetail(109L);
+        sgpDetail.setQueueId(420);
+        sgpDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(),
+                1,
+                3,
+                0,
+                1,
+                3,
+                null,
+                Map.of("hextech", 1, "mountain", 1, "chemtech", 1)
+        )));
+        var lcuDetail = renderableGameDetail(109L);
+        lcuDetail.setQueueId(420);
+        lcuDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(56, 84),
+                1,
+                3,
+                0,
+                1,
+                3,
+                null,
+                Map.of()
+        )));
+        when(cacheRepository.findGameDetail(109L)).thenReturn(Optional.of(cachedDetail));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(109L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(matchHistoryProvider.fetchGameDetail(109L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(109L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        var summary = result.getTeamObjectives().getFirst();
+        assertThat(summary.getBans()).containsExactly(56, 84);
+        assertThat(summary.getDragonKillsByType()).containsEntry("hextech", 1);
+        verify(sgpMatchHistoryProvider).fetchGameDetail(109L, options(MatchHistorySource.AUTO, false));
+        verify(matchHistoryProvider).fetchGameDetail(109L, options(MatchHistorySource.LCU, false));
+        verify(cacheRepository).saveGameDetail(sgpDetail);
     }
 
     @Test
@@ -275,6 +647,41 @@ class MatchHistoryServiceTest {
         assertThat(sourceAwareService.getGameDetailById(102L, MatchHistorySource.CACHE)).isSameAs(cachedDetail);
         verify(cacheRepository).findGameDetail(102L);
         verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+        verify(sgpMatchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameDetailById_sourceLcuRefreshesRankedCacheMissingTeamObjectives() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        var cachedDetail = renderableGameDetail(103L);
+        cachedDetail.setQueueId(420);
+        var lcuDetail = renderableGameDetail(103L);
+        lcuDetail.setQueueId(420);
+        lcuDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(56, 84),
+                1,
+                2,
+                0,
+                1,
+                6,
+                "infernal",
+                Map.of("infernal", 2)
+        )));
+        when(cacheRepository.findGameDetail(103L)).thenReturn(Optional.of(cachedDetail));
+        when(matchHistoryProvider.fetchGameDetail(103L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(103L, MatchHistorySource.LCU);
+
+        assertThat(result).isSameAs(lcuDetail);
+        assertThat(result.getTeamObjectives()).hasSize(1);
+        assertThat(result.getTeamObjectives().getFirst().getHeraldKills()).isEqualTo(1);
+        assertThat(result.getTeamObjectives().getFirst().getVoidGrubKills()).isEqualTo(6);
+        assertThat(result.getTeamObjectives().getFirst().getDragonSoulType()).isEqualTo("infernal");
+        assertThat(result.getTeamObjectives().getFirst().getDragonKillsByType()).containsEntry("infernal", 2);
+        verify(matchHistoryProvider).fetchGameDetail(103L, options(MatchHistorySource.LCU, false));
+        verify(cacheRepository).saveGameDetail(lcuDetail);
         verify(sgpMatchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
     }
 
@@ -865,6 +1272,67 @@ class MatchHistoryServiceTest {
         identity.setPlayer(player);
         detail.setParticipantIdentities(List.of(identity));
         return detail;
+    }
+
+    private io.rankpeek.model.GameDetail.TeamObjectiveSummary teamObjectiveSummary(
+            int teamId,
+            List<Integer> bans,
+            int baronKills,
+            int dragonKills,
+            int elderDragonKills) {
+        return teamObjectiveSummary(
+                teamId,
+                bans,
+                baronKills,
+                dragonKills,
+                elderDragonKills,
+                null,
+                null,
+                null,
+                Map.of()
+        );
+    }
+
+    private io.rankpeek.model.GameDetail.TeamObjectiveSummary teamObjectiveSummary(
+            int teamId,
+            List<Integer> bans,
+            int baronKills,
+            int dragonKills,
+            int elderDragonKills,
+            Integer heraldKills,
+            Integer voidGrubKills,
+            String dragonSoulType,
+            Map<String, Integer> dragonKillsByType) {
+        io.rankpeek.model.GameDetail.TeamObjectiveSummary summary =
+                new io.rankpeek.model.GameDetail.TeamObjectiveSummary();
+        summary.setTeamId(teamId);
+        summary.setBans(bans);
+        summary.setBaronKills(baronKills);
+        summary.setDragonKills(dragonKills);
+        summary.setElderDragonKills(elderDragonKills);
+        summary.setHeraldKills(heraldKills);
+        summary.setVoidGrubKills(voidGrubKills);
+        summary.setDragonSoulType(dragonSoulType);
+        summary.setDragonKillsByType(new java.util.LinkedHashMap<>(dragonKillsByType));
+        return summary;
+    }
+
+    private io.rankpeek.model.GameDetail.TeamObjectiveEvent objectiveEvent(
+            String kind,
+            String subType,
+            int teamId,
+            int participantId,
+            Integer championId,
+            long timestamp) {
+        io.rankpeek.model.GameDetail.TeamObjectiveEvent event =
+                new io.rankpeek.model.GameDetail.TeamObjectiveEvent();
+        event.setKind(kind);
+        event.setSubType(subType);
+        event.setTeamId(teamId);
+        event.setParticipantId(participantId);
+        event.setChampionId(championId);
+        event.setTimestamp(timestamp);
+        return event;
     }
 
     private io.rankpeek.model.GameDetail hollowGameDetail(long gameId) {

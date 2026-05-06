@@ -5,14 +5,19 @@ import {
   getAssetFallbackClass,
   getAssetPlaceholderUrl,
   getAugmentIconUrl,
+  getAugmentAssetDetails,
   getChampionIconUrl,
   getItemIconSlots,
   getItemIconUrl,
+  getItemAssetDetails,
   getPerkIconUrl,
+  getPerkAssetDetails,
   getProfileIconUrl,
+  getObjectiveIconUrl,
   getSummonerSpellIconUrl,
   recordAssetLoadFailure,
   resetGameAssetResolverForTest,
+  setGameAssetMetadataForTest,
   setGameAssetManifestForTest
 } from './gameAssetUrls.ts'
 
@@ -35,6 +40,120 @@ test('game asset helpers prefer local manifest paths before remote fallbacks', (
   assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
   assert.equal(getAugmentIconUrl(12345), './game-assets/augments/12345.png')
   assert.equal(getProfileIconUrl(29), './game-assets/profile-icons/29.png')
+})
+
+test('objective icon helper prefers local manifest paths then verified CommunityDragon minimap objective icons', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetManifestForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    objectives: {
+      baron: 'objectives/baron.png',
+      infernal: 'objectives/dragon_infernal.png',
+      turret: 'objectives/tower.png'
+    }
+  })
+
+  assert.equal(getObjectiveIconUrl('baron'), './game-assets/objectives/baron.png')
+  assert.equal(getObjectiveIconUrl('infernal'), './game-assets/objectives/dragon_infernal.png')
+  assert.equal(getObjectiveIconUrl('turret'), './game-assets/objectives/tower.png')
+
+  resetGameAssetResolverForTest()
+  assert.equal(getObjectiveIconUrl('baron'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/baron.png')
+  assert.equal(getObjectiveIconUrl('dragon'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon.png')
+  assert.equal(getObjectiveIconUrl('infernal'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_infernal.png')
+  assert.equal(getObjectiveIconUrl('mountain'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_mountain.png')
+  assert.equal(getObjectiveIconUrl('ocean'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_ocean.png')
+  assert.equal(getObjectiveIconUrl('cloud'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_cloud.png')
+  assert.equal(getObjectiveIconUrl('elder'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_elder.png')
+  assert.equal(getObjectiveIconUrl('unknownDragon'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon.png')
+  assert.equal(getObjectiveIconUrl('herald'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/riftherald.png')
+  assert.equal(getObjectiveIconUrl('voidgrub'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/grub.png')
+  assert.equal(getObjectiveIconUrl('hextech'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_hextech.png')
+  assert.equal(getObjectiveIconUrl('chemtech'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_chemtech.png')
+  assert.equal(getObjectiveIconUrl('turret'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/tower.png')
+  assert.equal(getObjectiveIconUrl('turretPlate'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/turret_1plate.png')
+  assert.equal(getObjectiveIconUrl('inhibitor'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/inhibitor.png')
+  assert.equal(getObjectiveIconUrl('soul-infernal'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_infernal.png')
+  assert.equal(getObjectiveIconUrl('soul-mountain'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_mountain.png')
+  assert.equal(getObjectiveIconUrl('soul-ocean'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_ocean.png')
+  assert.equal(getObjectiveIconUrl('soul-cloud'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_cloud.png')
+  assert.equal(getObjectiveIconUrl('soul-hextech'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_hextech.png')
+  assert.equal(getObjectiveIconUrl('soul-chemtech'), 'https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/dragon_chemtech.png')
+  assert.notEqual(getObjectiveIconUrl('hextech'), getObjectiveIconUrl('dragon'))
+  assert.notEqual(getObjectiveIconUrl('chemtech'), getObjectiveIconUrl('dragon'))
+  assert.notEqual(getObjectiveIconUrl('voidgrub'), getObjectiveIconUrl('herald'))
+  assert.notEqual(getObjectiveIconUrl('voidgrub'), getObjectiveIconUrl('baron'))
+})
+
+test('elemental dragon and structure objective icons use verified minimap resource logos', () => {
+  resetGameAssetResolverForTest()
+
+  const urls = {
+    infernal: getObjectiveIconUrl('infernal'),
+    mountain: getObjectiveIconUrl('mountain'),
+    ocean: getObjectiveIconUrl('ocean'),
+    cloud: getObjectiveIconUrl('cloud'),
+    hextech: getObjectiveIconUrl('hextech'),
+    chemtech: getObjectiveIconUrl('chemtech'),
+    elder: getObjectiveIconUrl('elder'),
+    baron: getObjectiveIconUrl('baron'),
+    herald: getObjectiveIconUrl('herald'),
+    voidgrub: getObjectiveIconUrl('voidgrub'),
+    turret: getObjectiveIconUrl('turret'),
+    turretPlate: getObjectiveIconUrl('turretPlate'),
+    inhibitor: getObjectiveIconUrl('inhibitor')
+  }
+
+  for (const url of Object.values(urls)) {
+    assert.ok(url)
+    assert.match(url, /game\/assets\/ux\/minimap\/icons\//)
+    assert.doesNotMatch(url, /plugins\/rcp-fe-lol-match-history\/global\/default/i)
+    assert.doesNotMatch(url, /(?:fire|earth|water|air)-100\.png|dragon_square_(?:hextech|chemtech)|right_icons_grub/i)
+  }
+
+  assert.match(urls.infernal, /dragon_infernal\.png$/)
+  assert.match(urls.mountain, /dragon_mountain\.png$/)
+  assert.match(urls.ocean, /dragon_ocean\.png$/)
+  assert.match(urls.cloud, /dragon_cloud\.png$/)
+  assert.match(urls.hextech, /dragon_hextech\.png$/)
+  assert.match(urls.chemtech, /dragon_chemtech\.png$/)
+  assert.match(urls.voidgrub, /grub\.png$/)
+  assert.match(urls.turret, /tower\.png$/)
+  assert.match(urls.turretPlate, /turret_1plate\.png$/)
+  assert.match(urls.inhibitor, /inhibitor\.png$/)
+  assert.notEqual(urls.voidgrub, getObjectiveIconUrl('herald'))
+  assert.notEqual(urls.voidgrub, getObjectiveIconUrl('baron'))
+  assert.notEqual(urls.voidgrub, getObjectiveIconUrl('dragon'))
+})
+
+test('objective manifest entries keep priority over remote objective fallbacks', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetManifestForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    objectives: {
+      infernal: 'objectives/local-infernal.png',
+      hextech: 'objectives/local-hextech.png',
+      chemtech: 'objectives/local-chemtech.png',
+      voidgrub: 'objectives/local-voidgrub.png',
+      turret: 'objectives/local-turret.png',
+      turretPlate: 'objectives/local-turret-plate.png',
+      inhibitor: 'objectives/local-inhibitor.png',
+      'soul-hextech': 'objectives/local-soul-hextech.png',
+      'soul-chemtech': 'objectives/local-soul-chemtech.png'
+    }
+  })
+
+  assert.equal(getObjectiveIconUrl('infernal'), './game-assets/objectives/local-infernal.png')
+  assert.equal(getObjectiveIconUrl('hextech'), './game-assets/objectives/local-hextech.png')
+  assert.equal(getObjectiveIconUrl('chemtech'), './game-assets/objectives/local-chemtech.png')
+  assert.equal(getObjectiveIconUrl('voidgrub'), './game-assets/objectives/local-voidgrub.png')
+  assert.equal(getObjectiveIconUrl('turret'), './game-assets/objectives/local-turret.png')
+  assert.equal(getObjectiveIconUrl('turretPlate'), './game-assets/objectives/local-turret-plate.png')
+  assert.equal(getObjectiveIconUrl('inhibitor'), './game-assets/objectives/local-inhibitor.png')
+  assert.equal(getObjectiveIconUrl('soul-hextech'), './game-assets/objectives/local-soul-hextech.png')
+  assert.equal(getObjectiveIconUrl('soul-chemtech'), './game-assets/objectives/local-soul-chemtech.png')
 })
 
 test('game asset helpers fall back through local backend before remote URLs', () => {
@@ -140,17 +259,144 @@ test('renderer startup loads the local game asset manifest without making compon
   const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
 
   assert.match(mainSource, /loadGameAssetManifest/)
-  assert.equal(manifest.version, 'seed')
+  assert.match(mainSource, /loadGameAssetMetadata/)
+  assert.equal(typeof manifest.version, 'string')
+  assert.equal(manifest.locale, 'zh_CN')
   assert.deepEqual(Object.keys(manifest).sort(), [
     'augments',
     'champions',
     'items',
     'locale',
+    'objectives',
     'perks',
     'profileIcons',
     'summonerSpells',
     'version'
   ])
+})
+
+test('local game asset manifest contains selective objective icons for normal rendering', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
+  const objectiveKeys = [
+    'turret',
+    'turretPlate',
+    'inhibitor',
+    'baron',
+    'dragon',
+    'infernal',
+    'mountain',
+    'ocean',
+    'cloud',
+    'hextech',
+    'chemtech',
+    'elder',
+    'herald',
+    'voidgrub',
+    'unknownDragon',
+    'soul-infernal',
+    'soul-mountain',
+    'soul-ocean',
+    'soul-cloud',
+    'soul-hextech',
+    'soul-chemtech'
+  ]
+
+  assert.equal(typeof manifest.objectives, 'object')
+  resetGameAssetResolverForTest()
+  setGameAssetManifestForTest(manifest)
+
+  for (const key of objectiveKeys) {
+    assert.equal(typeof manifest.objectives[key], 'string', `missing objective manifest key ${key}`)
+    assert.match(manifest.objectives[key], /^objectives\/.+\.png$/, `objective ${key} must be a local small icon`)
+    assert.match(getObjectiveIconUrl(key), /^\.\/game-assets\/objectives\/.+\.png$/)
+  }
+
+  for (const key of ['infernal', 'mountain', 'ocean', 'cloud']) {
+    assert.doesNotMatch(manifest.objectives[key], /(?:fire|earth|water|air)-100\.png$/)
+  }
+})
+
+test('game asset metadata helpers expose item, perk, and augment text without changing icon lookup', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      3153: {
+        id: 3153,
+        name: 'Blade of the Ruined King',
+        description: 'Deals damage.',
+        plaintext: 'On-hit damage.',
+        icon: 'items/3153.png'
+      }
+    },
+    perks: {
+      8000: {
+        id: 8000,
+        name: 'Precision',
+        description: 'Improved attacks.',
+        icon: 'perks/8000.png'
+      },
+      8005: {
+        id: 8005,
+        name: 'Press the Attack',
+        shortDesc: 'Hit three times.',
+        longDesc: 'Amplifies damage.',
+        icon: 'perks/8005.png'
+      }
+    },
+    augments: {
+      1205: {
+        id: 1205,
+        name: 'ADAPt',
+        description: 'Adaptive force.',
+        icon: 'augments/1205.png'
+      }
+    }
+  })
+
+  assert.equal(getItemAssetDetails(3153)?.name, 'Blade of the Ruined King')
+  assert.equal(getPerkAssetDetails(8000)?.icon, 'perks/8000.png')
+  assert.equal(getPerkAssetDetails(8005)?.shortDesc, 'Hit three times.')
+  assert.equal(getAugmentAssetDetails(1205)?.description, 'Adaptive force.')
+  assert.equal(getPerkAssetDetails(999999), null)
+})
+
+test('local game asset manifest stays selective and avoids non-objective bulk mappings', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
+
+  assert.deepEqual(manifest.items, {})
+  assert.deepEqual(manifest.perks, {})
+  assert.deepEqual(manifest.augments, {})
+  assert.equal(typeof manifest.objectives, 'object')
+  assert.ok(Object.keys(manifest.objectives).length > 0)
+})
+
+test('game asset sync script hydrates item, perk, augment, and metadata selectively', () => {
+  const source = readFileSync(new URL('../../../scripts/sync-game-assets.mjs', import.meta.url), 'utf8')
+
+  assert.match(source, /--all-items/)
+  assert.match(source, /--all-perks/)
+  assert.match(source, /--all-augments/)
+  assert.match(source, /--all-objectives/)
+  assert.match(source, /--with-metadata/)
+  assert.match(source, /metadataPath/)
+  assert.match(source, /readMetadata/)
+  assert.match(source, /writeMetadata/)
+  assert.match(source, /downloadAllItems/)
+  assert.match(source, /runesReforged\.json/)
+  assert.match(source, /downloadAllPerks/)
+  assert.match(source, /downloadAllAugments/)
+  assert.match(source, /downloadAllObjectives/)
+  assert.match(source, /objectiveSources/)
+  assert.match(source, /manifest\.objectives/)
+  assert.match(source, /cherry-augments\.json/)
+  assert.match(source, /manifest\.perks/)
+  assert.match(source, /metadata\.items/)
+  assert.match(source, /metadata\.perks/)
+  assert.match(source, /metadata\.augments/)
+  assert.match(source, /ddragonImageCdn\}\/\$\{icon\}/)
+  assert.doesNotMatch(source, /dragontail/i)
 })
 
 test('match detail and cards hide failed or empty equipment images', () => {

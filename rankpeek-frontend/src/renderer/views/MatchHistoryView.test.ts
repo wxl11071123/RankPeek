@@ -63,7 +63,8 @@ test('match history view delegates each card to MatchHistoryCard', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
 
   assert.match(source, /import MatchHistoryCard from '@\/components\/match-history\/MatchHistoryCard.vue'/)
-  assert.match(source, /<MatchHistoryCard[\s\S]*:match="match"[\s\S]*@open-detail="showMatchDetail"/)
+  assert.match(source, /<MatchHistoryCard[\s\S]*:match="match"[\s\S]*:expanded="expandedGameId === match\.gameId"[\s\S]*@open-detail="toggleInlineDetail"/)
+  assert.match(source, /<MatchHistoryInlineDetail[\s\S]*v-if="expandedGameId === match\.gameId"/)
   assert.doesNotMatch(source, /import MatchRosterCompact/)
   assert.doesNotMatch(source, /function getTeamPlayers/)
   assert.doesNotMatch(source, /function getCurrentPlayer/)
@@ -342,7 +343,7 @@ test('summary tag loading processes the selected match puuids in transport batch
   const loadHistoryFunction = loadHistoryStart >= 0 && summaryStart > loadHistoryStart
     ? source.slice(loadHistoryStart, summaryStart)
     : ''
-  const showDetailFunction = source.match(/async function showMatchDetail\(match: MatchHistory\) \{[\s\S]*?function closeDetailModal/)?.[0] || ''
+  const showDetailFunction = source.match(/async function toggleInlineDetail\(match: MatchHistory\) \{[\s\S]*?function collapseInlineDetail/)?.[0] || ''
   const collectFunction = source.match(/function collectMatchPuuids\(match: MatchHistory\): string\[\] \{[\s\S]*?\n\}/)?.[0] || ''
   const summaryFunction = source.match(/async function loadSelectedMatchUserTagSummaries\(match: MatchHistory, requestId = matchDetailRequestId\) \{[\s\S]*?function chunkUserTagSummaryPuuids/)?.[0] || ''
 
@@ -393,7 +394,7 @@ test('summoner match history panel resets stale player state and ignores old req
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const resetFunction = source.match(/function resetPanelState\(\) \{[\s\S]*?\n\}/)?.[0] || ''
   const refreshFunction = source.match(/async function refreshRemoteMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?\n\}/)?.[0] || ''
-  const detailFunction = source.match(/async function showMatchDetail\(match: MatchHistory\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const detailFunction = source.match(/async function toggleInlineDetail\(match: MatchHistory\) \{[\s\S]*?function collapseInlineDetail/)?.[0] || ''
 
   assert.match(resetFunction, /matchHistoryRequestId \+= 1/)
   assert.match(resetFunction, /matchDetailRequestId \+= 1/)
@@ -402,7 +403,7 @@ test('summoner match history panel resets stale player state and ignores old req
   assert.match(resetFunction, /userTagLoadStatus\.value = 'idle'/)
   assert.match(resetFunction, /matchHistory\.value = \[\]/)
   assert.match(resetFunction, /userTagSummaries\.value = \{\}/)
-  assert.match(resetFunction, /showDetailModal\.value = false/)
+  assert.match(resetFunction, /expandedGameId\.value = null/)
   assert.match(refreshFunction, /const requestId = options\.requestId \?\? matchHistoryRequestId/)
   assert.doesNotMatch(refreshFunction, /\+\+matchHistoryRequestId/)
   assert.match(refreshFunction, /const puuid = currentSummoner\.value\?\.puuid/)
@@ -420,7 +421,7 @@ test('summoner match history panel resets stale player state and ignores old req
   assert.match(detailFunction, /persistMatchDetailToLocalCache/)
   assert.match(detailFunction, /selectedGameDetailStatus\.value = 'error'/)
   assert.match(detailFunction, /isActiveMatchDetailRequest\(requestId, matchId\)/)
-  assert.match(source, /function isActiveMatchDetailRequest\(requestId: number, matchId: string\): boolean \{[\s\S]*requestId === matchDetailRequestId[\s\S]*String\(selectedMatchHistory\.value\?\.gameId\) === matchId[\s\S]*\}/)
+  assert.match(source, /function isActiveMatchDetailRequest\(requestId: number, matchId: string\): boolean \{[\s\S]*requestId === matchDetailRequestId[\s\S]*String\(expandedGameId\.value\) === matchId[\s\S]*String\(selectedMatchHistory\.value\?\.gameId\) === matchId[\s\S]*\}/)
 })
 
 test('match history and summary requests ignore stale responses', () => {

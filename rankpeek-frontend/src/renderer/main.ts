@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import './assets/styles/main.css'
-import { loadGameAssetManifest } from './utils/gameAssetUrls'
+import { loadGameAssetManifest, loadGameAssetMetadata } from './utils/gameAssetUrls'
 
 const app = createApp(App)
 
@@ -14,6 +14,9 @@ const manifestStartupDeadline = new Promise<void>(resolve => {
   setTimeout(resolve, 500)
 })
 
-void Promise.race([loadGameAssetManifest(), manifestStartupDeadline]).finally(() => {
+void Promise.race([
+  Promise.all([loadGameAssetManifest(), loadGameAssetMetadata()]).then(() => undefined),
+  manifestStartupDeadline
+]).finally(() => {
   app.mount('#app')
 })

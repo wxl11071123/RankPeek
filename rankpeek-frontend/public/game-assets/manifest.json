@@ -1,10 +1,33 @@
 {
-  "version": "seed",
+  "version": "15.24.1",
   "locale": "zh_CN",
   "items": {},
   "summonerSpells": {},
   "perks": {},
   "augments": {},
   "champions": {},
-  "profileIcons": {}
+  "profileIcons": {},
+  "objectives": {
+    "turret": "objectives/tower.png",
+    "turretPlate": "objectives/turret_1plate.png",
+    "inhibitor": "objectives/inhibitor.png",
+    "baron": "objectives/baron.png",
+    "dragon": "objectives/dragon.png",
+    "infernal": "objectives/dragon_infernal.png",
+    "mountain": "objectives/dragon_mountain.png",
+    "ocean": "objectives/dragon_ocean.png",
+    "cloud": "objectives/dragon_cloud.png",
+    "hextech": "objectives/dragon_hextech.png",
+    "chemtech": "objectives/dragon_chemtech.png",
+    "elder": "objectives/dragon_elder.png",
+    "herald": "objectives/riftherald.png",
+    "voidgrub": "objectives/grub.png",
+    "unknownDragon": "objectives/dragon.png",
+    "soul-infernal": "objectives/dragon_infernal.png",
+    "soul-mountain": "objectives/dragon_mountain.png",
+    "soul-ocean": "objectives/dragon_ocean.png",
+    "soul-cloud": "objectives/dragon_cloud.png",
+    "soul-hextech": "objectives/dragon_hextech.png",
+    "soul-chemtech": "objectives/dragon_chemtech.png"
+  }
 }

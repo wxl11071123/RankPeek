@@ -4,9 +4,12 @@ import { useI18n } from '@/i18n'
 import type { MatchHistory, Participant, Stats, UserTagSummary } from '@/types/api'
 import {
   getAugmentIconUrl,
+  getAugmentAssetDetails,
   getChampionIconUrl,
   getItemIconSlots,
+  getItemAssetDetails,
   getPerkIconUrl,
+  getPerkAssetDetails,
   getSummonerSpellIconUrl,
   markAssetLoadFailed
 } from '@/utils/gameAssetUrls'
@@ -22,15 +25,28 @@ interface MatchLoadoutIconSlot {
   url: string
 }
 
+type MatchTraitMode = 'perk' | 'augment'
+
+interface MatchTraitIconSlot {
+  key: string
+  kind: MatchTraitMode
+  id: number | null
+  url: string
+  empty: boolean
+  label?: string
+}
+
 const props = withDefaults(defineProps<{
   match: MatchHistory
   currentPuuid?: string
   currentSummonerName?: string
   userTagSummaries?: Record<string, UserTagSummary>
+  expanded?: boolean
 }>(), {
   currentPuuid: '',
   currentSummonerName: '',
-  userTagSummaries: () => ({})
+  userTagSummaries: () => ({}),
+  expanded: false
 })
 
 const emit = defineEmits<{
@@ -47,13 +63,10 @@ const blueTeamSlots = computed(() => getTeamChampionSlots(props.match, 100))
 const redTeamSlots = computed(() => getTeamChampionSlots(props.match, 200))
 const currentItemSlots = computed(() => getItemIconSlots(currentStats.value))
 const currentSpellSlots = computed(() => getSpellSlots(currentPlayer.value))
-const currentPerkSlots = computed(() => getPerkSlots(currentPlayer.value, 1))
-const currentAugmentSlots = computed(() => getAugmentSlots(currentPlayer.value, 1))
-const hasLoadoutIcons = computed(() =>
-  currentSpellSlots.value.length > 0 ||
-  currentPerkSlots.value.length > 0 ||
-  currentAugmentSlots.value.length > 0
+const currentTraitMode = computed<MatchTraitMode>(() =>
+  hasValidAugment(currentPlayer.value) ? 'augment' : 'perk'
 )
+const currentTraitSlots = computed(() => getTraitSlots(currentPlayer.value))
 const performanceTags = computed<MatchPerformanceTag[]>(() =>
   getMatchPerformanceTags(currentPlayer.value, props.match.participants || [])
 )
@@ -101,44 +114,99 @@ function getSpellSlots(participant: Participant | null | undefined): MatchLoadou
     .filter((slot): slot is MatchLoadoutIconSlot => slot !== null)
 }
 
-function getPerkSlots(participant: Participant | null | undefined, limit: number): MatchLoadoutIconSlot[] {
-  return getStatIconSlots(participant, ['perk0'], getPerkIconUrl, 'perk', limit)
+function getTraitSlots(participant: Participant | null | undefined): MatchTraitIconSlot[] {
+  const statsRecord = participant?.stats as unknown as Record<string, unknown> | null | undefined
+  const participantRecord = participant as unknown as Record<string, unknown> | null | undefined
+
+  if (hasValidAugment(participant)) {
+    return buildAugmentTraitSlots(statsRecord, participantRecord)
+  }
+
+  return buildPerkTraitSlots(statsRecord, participantRecord)
 }
 
-function getAugmentSlots(participant: Participant | null | undefined, limit: number): MatchLoadoutIconSlot[] {
-  return getStatIconSlots(
-    participant,
-    ['playerAugment1', 'playerAugment2', 'playerAugment3', 'playerAugment4'],
-    getAugmentIconUrl,
-    'augment',
-    limit
+function hasValidAugment(participant: Participant | null | undefined): boolean {
+  const statsRecord = participant?.stats as unknown as Record<string, unknown> | null | undefined
+  const participantRecord = participant as unknown as Record<string, unknown> | null | undefined
+  return getAugmentKeys().some(key => readTraitId(statsRecord, participantRecord, key) !== null)
+}
+
+function buildPerkTraitSlots(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined
+): MatchTraitIconSlot[] {
+  const primaryId = readTraitId(statsRecord, participantRecord, 'perk0')
+  const secondaryId = readTraitId(statsRecord, participantRecord, 'perkSubStyle') ||
+    readTraitId(statsRecord, participantRecord, 'perkPrimaryStyle') ||
+    readTraitId(statsRecord, participantRecord, 'perk5')
+
+  return [
+    createTraitSlot('perk', 0, primaryId),
+    createTraitSlot('perk', 1, secondaryId)
+  ]
+}
+
+function buildAugmentTraitSlots(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined
+): MatchTraitIconSlot[] {
+  const keys = getAugmentKeys()
+  return Array.from({ length: 6 }, (_, index) =>
+    createTraitSlot('augment', index, readTraitId(statsRecord, participantRecord, keys[index]))
   )
 }
 
-function getStatIconSlots(
-  participant: Participant | null | undefined,
-  keys: string[],
-  resolveUrl: (id?: number | null) => string,
-  kind: MatchLoadoutIconSlot['kind'],
-  limit: number
-): MatchLoadoutIconSlot[] {
-  const statsRecord = participant?.stats as unknown as Record<string, unknown> | null | undefined
-  const participantRecord = participant as unknown as Record<string, unknown> | null | undefined
-  return keys
-    .map(key => {
-      const id = normalizePositiveInteger(statsRecord?.[key] ?? participantRecord?.[key])
-      const url = resolveUrl(id)
-      return id && url
-        ? {
-            key: `${kind}-${key}-${id}`,
-            kind,
-            id,
-            url
-          }
-        : null
-    })
-    .filter((slot): slot is MatchLoadoutIconSlot => slot !== null)
-    .slice(0, limit)
+function createTraitSlot(kind: MatchTraitMode, index: number, id: number | null): MatchTraitIconSlot {
+  const url = id === null
+    ? ''
+    : kind === 'augment'
+      ? getAugmentIconUrl(id)
+      : getPerkIconUrl(id)
+  return {
+    key: `${kind}-${index}-${id || 'empty'}`,
+    kind,
+    id,
+    url,
+    empty: id === null || !url,
+    label: getTraitSlotLabel(kind, id)
+  }
+}
+
+function readTraitId(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined,
+  key: string
+): number | null {
+  const extraFields = statsRecord?.extraFields as Record<string, unknown> | null | undefined
+  return normalizePositiveInteger(statsRecord?.[key] ?? participantRecord?.[key] ?? extraFields?.[key])
+}
+
+function getAugmentKeys(): string[] {
+  return [
+    'playerAugment1',
+    'playerAugment2',
+    'playerAugment3',
+    'playerAugment4',
+    'playerAugment5',
+    'playerAugment6'
+  ]
+}
+
+function getTraitSlotLabel(kind: MatchTraitMode, id: number | null): string {
+  if (id === null) {
+    return kind === 'augment' ? '空强化槽' : '空符文槽'
+  }
+  const details = kind === 'augment' ? getAugmentAssetDetails(id) : getPerkAssetDetails(id)
+  const fallback = kind === 'augment' ? '强化' : '符文'
+  return details?.name ? `${details.name} (${id})` : `${fallback} ${id}`
+}
+
+function getItemSlotLabel(slot: { itemId: number | null, empty: boolean }): string {
+  if (slot.empty || slot.itemId === null) {
+    return '空装备槽'
+  }
+  const details = getItemAssetDetails(slot.itemId)
+  return details?.name ? `${details.name} (${slot.itemId})` : `装备 ${slot.itemId}`
 }
 
 function normalizePositiveInteger(value: unknown): number | null {
@@ -172,7 +240,7 @@ function displayMode(match: MatchHistory): string {
 <template>
   <article
     class="match-history-card"
-    :class="{ win: isWin, loss: !isWin }"
+    :class="{ win: isWin, loss: !isWin, expanded }"
     @click="emit('open-detail', match)"
   >
     <div class="result-rail" :class="{ win: isWin, loss: !isWin }" aria-hidden="true"></div>
@@ -184,19 +252,19 @@ function displayMode(match: MatchHistory): string {
     </div>
 
     <div class="player-summary">
-      <div class="champion-block">
-        <img
-          v-if="getChampionIconUrl(currentPlayer?.championId)"
-          class="champion-avatar"
-          :src="getChampionIconUrl(currentPlayer?.championId)"
-          alt=""
-          @error="markAssetLoadFailed"
-        />
-        <span v-else class="champion-avatar placeholder"></span>
-      </div>
+      <div class="identity-row">
+        <div class="champion-block">
+          <img
+            v-if="getChampionIconUrl(currentPlayer?.championId)"
+            class="champion-avatar"
+            :src="getChampionIconUrl(currentPlayer?.championId)"
+            alt=""
+            @error="markAssetLoadFailed"
+          />
+          <span v-else class="champion-avatar placeholder"></span>
+        </div>
 
-      <div v-if="hasLoadoutIcons" class="loadout-stack" aria-label="summoner spells and runes">
-        <div v-if="currentSpellSlots.length" class="loadout-row spell-row">
+        <div v-if="currentSpellSlots.length" class="loadout-column spell-column" aria-label="summoner spells">
           <span
             v-for="slot in currentSpellSlots"
             :key="slot.key"
@@ -206,50 +274,53 @@ function displayMode(match: MatchHistory): string {
             <img :src="slot.url" alt="" @error="markAssetLoadFailed" />
           </span>
         </div>
-        <div v-if="currentPerkSlots.length || currentAugmentSlots.length" class="loadout-row rune-row">
+
+        <div
+          :class="currentTraitMode === 'augment' ? 'trait-grid' : 'trait-column'"
+          aria-label="runes or augments"
+        >
           <span
-            v-for="slot in currentPerkSlots"
+            v-for="slot in currentTraitSlots"
             :key="slot.key"
-            class="loadout-slot"
-            :class="`loadout-slot-${slot.kind}`"
+            class="loadout-slot trait-slot"
+            :title="slot.label"
+            :class="[
+              `loadout-slot-${slot.kind}`,
+              { empty: slot.empty }
+            ]"
           >
-            <img :src="slot.url" alt="" @error="markAssetLoadFailed" />
+            <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
           </span>
-          <span
-            v-for="slot in currentAugmentSlots"
-            :key="slot.key"
-            class="loadout-slot"
-            :class="`loadout-slot-${slot.kind}`"
-          >
-            <img :src="slot.url" alt="" @error="markAssetLoadFailed" />
-          </span>
+        </div>
+
+        <div class="combat-block">
+          <strong class="kda-line">{{ formatKda(currentStats) }}</strong>
         </div>
       </div>
 
-      <div class="combat-block">
-        <strong class="kda-line">{{ formatKda(currentStats) }}</strong>
-      </div>
+      <div class="build-strip">
+        <div class="item-row" aria-label="items">
+          <span
+            v-for="slot in currentItemSlots"
+            :key="`${match.gameId}-item-${slot.index}`"
+            class="item-slot"
+            :title="getItemSlotLabel(slot)"
+            :class="{ empty: slot.empty }"
+          >
+            <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+          </span>
+        </div>
 
-      <div v-if="performanceTags.length" class="performance-tags" aria-label="performance tags">
-        <span
-          v-for="tag in performanceTags"
-          :key="tag.key"
-          class="performance-tag"
-          :class="`tone-${tag.tone || 'neutral'}`"
-        >
-          {{ tag.label }}
-        </span>
-      </div>
-
-      <div class="item-row" aria-label="items">
-        <span
-          v-for="slot in currentItemSlots"
-          :key="`${match.gameId}-item-${slot.index}`"
-          class="item-slot"
-          :class="{ empty: slot.empty }"
-        >
-          <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
-        </span>
+        <div v-if="performanceTags.length" class="performance-tags" aria-label="performance tags">
+          <span
+            v-for="tag in performanceTags"
+            :key="tag.key"
+            class="performance-tag"
+            :class="`tone-${tag.tone || 'neutral'}`"
+          >
+            {{ tag.label }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -286,6 +357,19 @@ function displayMode(match: MatchHistory): string {
         </span>
       </div>
     </div>
+
+    <button
+      class="detail-chevron"
+      :class="{ expanded }"
+      type="button"
+      :aria-expanded="expanded"
+      :aria-label="expanded ? 'Collapse match detail' : 'Expand match detail'"
+      @click.stop="emit('open-detail', match)"
+    >
+      <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" />
+      </svg>
+    </button>
   </article>
 </template>
 
@@ -304,7 +388,7 @@ function displayMode(match: MatchHistory): string {
   --loss-color: #c54856;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 86px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 86px) minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -357,6 +441,11 @@ function displayMode(match: MatchHistory): string {
   background: var(--card-bg-hover);
 }
 
+.match-history-card.expanded {
+  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
 .result-rail {
   position: absolute;
   inset: 0 auto 0 0;
@@ -406,22 +495,27 @@ function displayMode(match: MatchHistory): string {
 }
 
 .player-summary {
-  display: grid;
-  grid-template-columns: auto auto minmax(66px, 1fr);
-  grid-template-areas:
-    "champ loadout combat"
-    "tags tags tags"
-    "items items items";
-  gap: 6px 10px;
-  align-content: center;
+  --loadout-slot-size: 19px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.identity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   max-width: 100%;
 }
 
 .champion-block {
-  grid-area: champ;
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
@@ -447,45 +541,79 @@ function displayMode(match: MatchHistory): string {
 }
 
 .combat-block {
-  grid-area: combat;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 66px;
   max-width: 100%;
   overflow: hidden;
 }
 
-.loadout-stack {
-  grid-area: loadout;
+.loadout-column {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 3px;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
-.loadout-row {
+.trait-column {
   display: flex;
+  flex-direction: column;
   gap: 3px;
+  flex: 0 0 auto;
   min-width: 0;
+}
+
+.trait-grid {
+  display: grid;
+  grid-template-columns: repeat(3, var(--loadout-slot-size));
+  grid-auto-rows: var(--loadout-slot-size);
+  gap: 3px;
+  flex: 0 0 auto;
+  align-content: center;
 }
 
 .loadout-slot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 19px;
-  height: 19px;
-  flex: 0 0 19px;
+  width: var(--loadout-slot-size);
+  height: var(--loadout-slot-size);
+  flex: 0 0 var(--loadout-slot-size);
   overflow: hidden;
   border: 1px solid var(--slot-border);
   border-radius: 4px;
   background: var(--slot-bg);
 }
 
+.trait-slot {
+  width: var(--loadout-slot-size);
+  height: var(--loadout-slot-size);
+  flex: 0 0 var(--loadout-slot-size);
+}
+
 .loadout-slot-perk {
   border-radius: 50%;
+}
+
+.loadout-slot-augment {
+  border-radius: 4px;
+}
+
+.trait-slot.loadout-slot-perk,
+.trait-slot.loadout-slot-augment {
+  border-radius: 4px;
+}
+
+.loadout-slot.empty,
+.trait-slot.empty {
+  border-color: var(--slot-border);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    var(--slot-bg);
 }
 
 .loadout-slot img {
@@ -504,11 +632,20 @@ function displayMode(match: MatchHistory): string {
   white-space: nowrap;
 }
 
-.performance-tags {
-  grid-area: tags;
+.build-strip {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.performance-tags {
+  display: flex;
+  flex-wrap: nowrap;
   gap: 3px;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -517,6 +654,7 @@ function displayMode(match: MatchHistory): string {
 .performance-tag {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   min-width: 0;
   padding: 2px 5px;
   border: 1px solid rgba(124, 139, 164, 0.18);
@@ -554,12 +692,12 @@ function displayMode(match: MatchHistory): string {
 }
 
 .item-row {
-  grid-area: items;
   display: flex;
   flex-wrap: nowrap;
   gap: 3px;
+  flex: 0 0 172px;
+  width: 172px;
   min-width: 0;
-  max-width: 100%;
   overflow: hidden;
 }
 
@@ -621,9 +759,53 @@ function displayMode(match: MatchHistory): string {
   opacity: 0.55;
 }
 
+.detail-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(124, 139, 164, 0.18);
+  border-radius: 6px;
+  background: rgba(124, 139, 164, 0.08);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.detail-chevron:hover,
+.detail-chevron:focus-visible,
+.detail-chevron.expanded {
+  border-color: rgba(var(--accent-rgb), 0.34);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-color);
+}
+
+.chevron-icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.16s ease;
+}
+
+.detail-chevron.expanded .chevron-icon {
+  transform: rotate(180deg);
+}
+
+.chevron-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 @media (max-width: 1100px) {
   .match-history-card {
-    grid-template-columns: minmax(0, 82px) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 82px) minmax(0, 1fr) auto auto;
     gap: 10px;
   }
 
@@ -636,15 +818,24 @@ function displayMode(match: MatchHistory): string {
 
 @media (max-width: 720px) {
   .match-history-card {
-    grid-template-columns: minmax(0, 68px) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 68px) minmax(0, 1fr) auto auto;
     gap: 8px;
     min-height: 96px;
     padding-right: 10px;
   }
 
   .player-summary {
-    grid-template-columns: auto auto minmax(42px, 1fr);
-    gap: 6px 8px;
+    --loadout-slot-size: 17px;
+    gap: 6px;
+  }
+
+  .identity-row,
+  .build-strip {
+    gap: 6px;
+  }
+
+  .combat-block {
+    min-width: 42px;
   }
 
   .champion-avatar {
@@ -656,10 +847,8 @@ function displayMode(match: MatchHistory): string {
     font-size: 15px;
   }
 
-  .loadout-slot {
-    width: 17px;
-    height: 17px;
-    flex-basis: 17px;
+  .trait-grid {
+    gap: 2px;
   }
 
   .performance-tag {
@@ -669,6 +858,8 @@ function displayMode(match: MatchHistory): string {
 
   .item-row {
     gap: 2px;
+    flex-basis: 138px;
+    width: 138px;
   }
 
   .item-slot {

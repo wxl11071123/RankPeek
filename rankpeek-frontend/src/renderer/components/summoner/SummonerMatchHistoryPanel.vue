@@ -190,33 +190,38 @@
             >
               {{ t('matchHistory.refreshFailedUsingCache') }}
             </div>
-            <MatchHistoryCard
+            <div
               v-for="match in matchHistory"
               :key="match.gameId"
-              :match="match"
-              :current-puuid="currentSummoner.puuid"
-              :current-summoner-name="currentSummonerName"
-              :user-tag-summaries="visibleUserTagSummaries"
-              @open-detail="showMatchDetail"
-              @navigate-to-player="handleNavigateToPlayer"
-            />
+              class="match-list-item"
+            >
+              <MatchHistoryCard
+                :match="match"
+                :expanded="expandedGameId === match.gameId"
+                :current-puuid="currentSummoner.puuid"
+                :current-summoner-name="currentSummonerName"
+                :user-tag-summaries="visibleUserTagSummaries"
+                @open-detail="toggleInlineDetail"
+                @navigate-to-player="handleNavigateToPlayer"
+              />
+
+              <MatchHistoryInlineDetail
+                v-if="expandedGameId === match.gameId"
+                :match-history="match"
+                :game-detail="selectedGameDetail"
+                :current-puuid="currentSummoner.puuid"
+                :current-summoner-name="currentSummonerName"
+                :detail-status="selectedGameDetailStatus"
+                :active-tab="getInlineDetailTab(match.gameId)"
+                @update:active-tab="setInlineDetailTab(match.gameId, $event)"
+                @navigate-to-player="handleNavigateToPlayer"
+              />
+            </div>
           </div>
         </template>
 
       </div>
     </section>
-
-    <MatchDetailModal
-      :visible="showDetailModal"
-      :game-detail="selectedGameDetail"
-      :match-history="selectedMatchHistory"
-      :current-puuid="currentSummoner?.puuid || ''"
-      :current-summoner-name="currentSummonerName"
-      :detail-status="selectedGameDetailStatus"
-      :user-tag-summaries="visibleUserTagSummaries"
-      @close="closeDetailModal"
-      @navigate-to-player="handleNavigateToPlayer"
-    />
   </div>
 </template>
 
@@ -227,7 +232,7 @@ import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import MatchHistoryCard from '@/components/match-history/MatchHistoryCard.vue'
-import MatchDetailModal from '@/components/summoner/MatchDetailModal.vue'
+import MatchHistoryInlineDetail from '@/components/match-history/MatchHistoryInlineDetail.vue'
 import SummonerOverviewPanel from '@/components/summoner/SummonerOverviewPanel.vue'
 import { useI18n } from '@/i18n'
 import {
@@ -296,6 +301,7 @@ interface MatchHistoryLoadOptions {
 
 type UserTagLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 type DetailLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
+type InlineDetailTabKey = 'overview' | 'runes' | 'chart'
 
 interface RecentPerformanceStats {
   sampleCount: number
@@ -478,7 +484,8 @@ const loading = ref(false)
 const refreshing = ref(false)
 const summariesLoading = ref(false)
 const matchRecordStatus = ref<RecordStatus | null>(null)
-const showDetailModal = ref(false)
+const expandedGameId = ref<number | null>(null)
+const activeInlineDetailTabByGameId = ref<Record<string, InlineDetailTabKey>>({})
 const selectedGameDetail = ref<GameDetail | null>(null)
 const selectedMatchHistory = ref<MatchHistory | null>(null)
 const selectedGameDetailStatus = ref<DetailLoadStatus>('idle')
@@ -750,7 +757,8 @@ function resetPanelState() {
   matchRecordStatus.value = null
   userTagSummaries.value = {}
   summariesLoading.value = false
-  showDetailModal.value = false
+  expandedGameId.value = null
+  activeInlineDetailTabByGameId.value = {}
   selectedGameDetail.value = null
   selectedMatchHistory.value = null
   selectedGameDetailStatus.value = 'idle'
@@ -954,6 +962,8 @@ function mergeGameDetailIntoMatchHistory(match: MatchHistory, detail: GameDetail
     queueId: match.queueId || detail.queueId,
     gameDuration: match.gameDuration || detail.gameDuration,
     gameCreation: match.gameCreation || detail.gameCreation,
+    teamObjectives: detail.teamObjectives?.length ? detail.teamObjectives : match.teamObjectives,
+    teamBans: detail.teamBans?.length ? detail.teamBans : match.teamBans,
     participants: detailParticipants.length >= participantCount
       ? detailParticipants.map(toMatchParticipantFromGameDetail)
       : match.participants,
@@ -1591,18 +1601,24 @@ async function handleRefresh() {
   await refreshRemoteMatchHistory({ forceRefresh: true })
 }
 
-async function showMatchDetail(match: MatchHistory) {
+async function toggleInlineDetail(match: MatchHistory) {
+  if (expandedGameId.value === match.gameId) {
+    collapseInlineDetail()
+    return
+  }
+
   const requestId = ++matchDetailRequestId
   const fallbackRegion = getCurrentSummonerFallbackRegion()
   const detailCacheKey = toMatchDetailCacheKey(match, {
     fallbackRegion
   })
   const { matchId } = detailCacheKey
-  showDetailModal.value = true
+  expandedGameId.value = match.gameId
   selectedMatchHistory.value = match
   selectedGameDetail.value = null
   selectedGameDetailStatus.value = 'loading'
   userTagSummaries.value = {}
+  summariesLoading.value = false
   void loadSelectedMatchUserTagSummaries(match, requestId)
 
   let hasCachedDetail = false
@@ -1658,11 +1674,11 @@ async function showMatchDetail(match: MatchHistory) {
   }
 }
 
-function closeDetailModal() {
+function collapseInlineDetail() {
   matchDetailRequestId += 1
   summariesAbortController?.abort()
   summariesAbortController = null
-  showDetailModal.value = false
+  expandedGameId.value = null
   selectedGameDetail.value = null
   selectedMatchHistory.value = null
   selectedGameDetailStatus.value = 'idle'
@@ -1670,15 +1686,26 @@ function closeDetailModal() {
   summariesLoading.value = false
 }
 
+function getInlineDetailTab(gameId: number): InlineDetailTabKey {
+  return activeInlineDetailTabByGameId.value[String(gameId)] || 'overview'
+}
+
+function setInlineDetailTab(gameId: number, tab: InlineDetailTabKey) {
+  activeInlineDetailTabByGameId.value = {
+    ...activeInlineDetailTabByGameId.value,
+    [String(gameId)]: tab
+  }
+}
+
 function isActiveMatchDetailRequest(requestId: number, matchId: string): boolean {
   return requestId === matchDetailRequestId &&
-    showDetailModal.value &&
+    String(expandedGameId.value) === matchId &&
     String(selectedMatchHistory.value?.gameId) === matchId
 }
 
 function isActiveUserTagSummaryRequest(requestId: number, matchId: string): boolean {
   return requestId === matchDetailRequestId &&
-    showDetailModal.value &&
+    String(expandedGameId.value) === matchId &&
     String(selectedMatchHistory.value?.gameId) === matchId
 }
 
@@ -2525,6 +2552,13 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.match-list-item {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   max-width: 100%;
 }

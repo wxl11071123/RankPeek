@@ -85,6 +85,8 @@ export interface MatchHistory {
   remake?: boolean
   participants: Participant[]
   participantIdentities: ParticipantIdentity[]
+  teamObjectives?: TeamObjectiveSummary[]
+  teamBans?: TeamBanSummary[]
 }
 
 export interface MatchHistoryPageResponse {
@@ -158,11 +160,18 @@ export interface Stats {
   minionsKilled?: number
   // 对塔伤害
   damageDealtToTurrets?: number
+  turretKills?: number
+  inhibitorKills?: number
+  turretPlatesTaken?: number
+  turretTakedowns?: number
+  inhibitorTakedowns?: number
   // 海克斯强化
   playerAugment1?: number
   playerAugment2?: number
   playerAugment3?: number
   playerAugment4?: number
+  playerAugment5?: number
+  playerAugment6?: number
   challenges?: Record<string, unknown>
   extraFields?: Record<string, unknown>
 }
@@ -360,6 +369,47 @@ export interface AssetDetails {
 
 // ========== 对局详情 ==========
 
+export type DragonType = 'infernal' | 'mountain' | 'ocean' | 'cloud' | 'hextech' | 'chemtech' | 'unknown'
+export type ObjectiveEventKind =
+  | 'turret'
+  | 'turretPlate'
+  | 'inhibitor'
+  | 'baron'
+  | 'dragon'
+  | 'elderDragon'
+  | 'herald'
+  | 'voidGrub'
+
+export interface TeamBanSummary {
+  teamId: number
+  bans: number[]
+}
+
+export interface TeamObjectiveEvent {
+  kind: ObjectiveEventKind
+  subType?: DragonType | string | null
+  teamId?: number | null
+  participantId?: number | null
+  championId?: number | null
+  timestamp?: number | null
+}
+
+export interface TeamObjectiveSummary {
+  teamId: number
+  bans?: number[]
+  turretKills?: number
+  turretPlateKills?: number
+  inhibitorKills?: number
+  baronKills?: number
+  dragonKills?: number
+  elderDragonKills?: number
+  dragonKillsByType?: Partial<Record<DragonType, number>>
+  heraldKills?: number
+  voidGrubKills?: number
+  dragonSoulType?: DragonType | null
+  objectiveEvents?: TeamObjectiveEvent[]
+}
+
 // 对局详情
 export interface GameDetail {
   gameId: number
@@ -371,6 +421,8 @@ export interface GameDetail {
   gameCreation: number
   participantIdentities: GameParticipantIdentity[]
   participants: GameParticipant[]
+  teamObjectives?: TeamObjectiveSummary[]
+  teamBans?: TeamBanSummary[]
 }
 
 export interface GameParticipantIdentity {
@@ -449,6 +501,11 @@ export interface GameStats {
   minionsKilled?: number
   // 对塔伤害
   damageDealtToTurrets?: number
+  turretKills?: number
+  inhibitorKills?: number
+  turretPlatesTaken?: number
+  turretTakedowns?: number
+  inhibitorTakedowns?: number
   // MVP/SVP
   mvp?: string
   // 伤害占比

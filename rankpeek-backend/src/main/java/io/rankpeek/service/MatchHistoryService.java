@@ -1,5 +1,6 @@
 package io.rankpeek.service;
 
+import io.rankpeek.constant.QueueType;
 import io.rankpeek.cache.MatchHistoryCacheRepository;
 import io.rankpeek.model.GameDetail;
 import io.rankpeek.model.MatchDataScopeCache;
@@ -212,8 +213,22 @@ public class MatchHistoryService {
         return usesDatabaseCache(resolvedSource) || preferredSource == MatchHistorySource.CACHE;
     }
 
+    private boolean shouldReadGameDetailDatabaseBeforeProvider(MatchHistoryQueryOptions options,
+                                                               MatchHistorySource resolvedSource) {
+        MatchHistorySource preferredSource = normalizeSource(options == null ? null : options.preferredSource());
+        if (preferredSource == MatchHistorySource.SGP) {
+            return false;
+        }
+        return shouldReadDatabaseBeforeProvider(options, resolvedSource);
+    }
+
     private boolean isAutoSgpAttempt(MatchHistoryQueryOptions options, MatchHistorySource resolvedSource) {
         return normalizeSource(options == null ? null : options.preferredSource()) == MatchHistorySource.AUTO
+                && resolvedSource == MatchHistorySource.SGP;
+    }
+
+    private boolean isExplicitSgpAttempt(MatchHistoryQueryOptions options, MatchHistorySource resolvedSource) {
+        return normalizeSource(options == null ? null : options.preferredSource()) == MatchHistorySource.SGP
                 && resolvedSource == MatchHistorySource.SGP;
     }
 
@@ -898,28 +913,35 @@ public class MatchHistoryService {
         String cacheKey = gameDetailCacheKey(gameId, options, resolvedProvider.source());
 
         GameDetail memoryDetail = gameDetailCache.getIfPresent(cacheKey);
-        if (isRenderableGameDetail(memoryDetail)) {
+        if (shouldUseCachedGameDetail(memoryDetail, options, resolvedProvider.source())) {
             return memoryDetail;
         }
         if (memoryDetail != null) {
             gameDetailCache.invalidate(cacheKey);
         }
 
-        Optional<GameDetail> databaseDetail = shouldReadDatabaseBeforeProvider(options, resolvedProvider.source())
+        Optional<GameDetail> databaseDetail = shouldReadGameDetailDatabaseBeforeProvider(options, resolvedProvider.source())
                 ? loadCachedGameDetail(gameId)
                 : Optional.empty();
         if (databaseDetail.isPresent()) {
             GameDetail detail = databaseDetail.get();
-            gameDetailCache.put(cacheKey, detail);
-            return detail;
+            if (shouldUseCachedGameDetail(detail, options, resolvedProvider.source())) {
+                gameDetailCache.put(cacheKey, detail);
+                return detail;
+            }
         }
 
         try {
             GameDetail detail = resolvedProvider.provider().fetchGameDetail(gameId, options);
+            detail = hydrateSgpDetailParticipantsFromLcu(gameId, detail, resolvedProvider.source());
             if (!isRenderableGameDetail(detail)) {
                 throw new IllegalStateException("Game detail missing renderable participant stats");
             }
             enrichParticipantStats(detail);
+            hydrateObjectiveEventActors(detail);
+            if (isAutoSgpAttempt(options, resolvedProvider.source())) {
+                detail = mergeLcuObjectiveFallback(gameId, detail);
+            }
             if (usesDatabaseCache(resolvedProvider.source()) && cacheRepository != null) {
                 cacheRepository.saveGameDetail(detail);
             }
@@ -929,8 +951,11 @@ public class MatchHistoryService {
             log.warn("Failed to fetch game detail from {}, gameId={}, error={}",
                     resolvedProvider.source(), gameId, e.getMessage());
             log.debug("{} game-detail failure details", resolvedProvider.source(), e);
+            if (isExplicitSgpAttempt(options, resolvedProvider.source())) {
+                throw e;
+            }
             Optional<GameDetail> fallback = loadCachedGameDetail(gameId);
-            if (fallback.isPresent()) {
+            if (fallback.isPresent() && shouldUseCachedGameDetail(fallback.get(), options, resolvedProvider.source())) {
                 GameDetail detail = fallback.get();
                 gameDetailCache.put(cacheKey, detail);
                 return detail;
@@ -939,8 +964,340 @@ public class MatchHistoryService {
                 log.warn("SGP game detail failed in auto mode, falling back to LCU: gameId={}", gameId);
                 return getGameDetailById(gameId, MatchHistorySource.LCU);
             }
+            if (fallback.isPresent()) {
+                GameDetail detail = fallback.get();
+                gameDetailCache.put(cacheKey, detail);
+                return detail;
+            }
             throw e;
         }
+    }
+
+    private GameDetail hydrateSgpDetailParticipantsFromLcu(Long gameId,
+                                                           GameDetail detail,
+                                                           MatchHistorySource resolvedSource) {
+        if (isRenderableGameDetail(detail) || resolvedSource != MatchHistorySource.SGP || !hasTeamObjectives(detail)) {
+            return detail;
+        }
+        MatchHistoryProvider lcuProvider = matchHistoryProviders.get(MatchHistorySource.LCU);
+        if (lcuProvider == null) {
+            return detail;
+        }
+
+        try {
+            GameDetail lcuDetail = lcuProvider.fetchGameDetail(
+                    gameId,
+                    MatchHistoryQueryOptions.defaultFor(MatchHistorySource.LCU, false)
+            );
+            if (!isRenderableGameDetail(lcuDetail)) {
+                return detail;
+            }
+            hydrateRenderableFields(detail, lcuDetail);
+            hydrateObjectiveEventActors(detail);
+            mergeLcuFallbackObjectiveDetails(detail, lcuDetail);
+        } catch (Exception lcuError) {
+            log.warn("LCU participant backfill for SGP game detail failed: gameId={}, error={}",
+                    gameId, lcuError.getMessage());
+            log.debug("LCU participant backfill failure details", lcuError);
+        }
+        return detail;
+    }
+
+    private void hydrateRenderableFields(GameDetail target, GameDetail source) {
+        if (target == null || source == null) {
+            return;
+        }
+        if (target.getGameId() == null) {
+            target.setGameId(source.getGameId());
+        }
+        if (target.getGameMode() == null || target.getGameMode().isBlank()) {
+            target.setGameMode(source.getGameMode());
+        }
+        if (target.getGameType() == null || target.getGameType().isBlank()) {
+            target.setGameType(source.getGameType());
+        }
+        if (target.getMapId() == null) {
+            target.setMapId(source.getMapId());
+        }
+        if (target.getQueueId() == null) {
+            target.setQueueId(source.getQueueId());
+        }
+        if (target.getGameDuration() == null) {
+            target.setGameDuration(source.getGameDuration());
+        }
+        if (target.getGameCreation() == null) {
+            target.setGameCreation(source.getGameCreation());
+        }
+        target.setParticipantIdentities(source.getParticipantIdentities());
+        target.setParticipants(source.getParticipants());
+    }
+
+    private void hydrateObjectiveEventActors(GameDetail detail) {
+        if (detail == null
+                || detail.getParticipants() == null
+                || detail.getParticipants().isEmpty()
+                || detail.getTeamObjectives() == null
+                || detail.getTeamObjectives().isEmpty()) {
+            return;
+        }
+
+        Map<Integer, GameDetail.GameParticipant> participantById = new HashMap<>();
+        for (GameDetail.GameParticipant participant : detail.getParticipants()) {
+            if (participant == null || participant.getParticipantId() == null) {
+                continue;
+            }
+            participantById.put(participant.getParticipantId(), participant);
+        }
+        if (participantById.isEmpty()) {
+            return;
+        }
+
+        for (GameDetail.TeamObjectiveSummary summary : detail.getTeamObjectives()) {
+            if (summary == null || summary.getObjectiveEvents() == null || summary.getObjectiveEvents().isEmpty()) {
+                continue;
+            }
+            for (GameDetail.TeamObjectiveEvent event : summary.getObjectiveEvents()) {
+                hydrateObjectiveEventActor(summary, event, participantById);
+            }
+        }
+    }
+
+    private void hydrateObjectiveEventActor(
+            GameDetail.TeamObjectiveSummary summary,
+            GameDetail.TeamObjectiveEvent event,
+            Map<Integer, GameDetail.GameParticipant> participantById
+    ) {
+        if (event == null || event.getParticipantId() == null) {
+            return;
+        }
+        GameDetail.GameParticipant actor = participantById.get(event.getParticipantId());
+        if (actor == null || actor.getParticipantId() == null) {
+            return;
+        }
+        if (actor.getTeamId() != null && event.getTeamId() != null && !actor.getTeamId().equals(event.getTeamId())) {
+            return;
+        }
+        if (actor.getTeamId() != null && summary.getTeamId() != null && !actor.getTeamId().equals(summary.getTeamId())) {
+            return;
+        }
+        if (event.getTeamId() == null && actor.getTeamId() != null) {
+            event.setTeamId(actor.getTeamId());
+        }
+        if ((event.getChampionId() == null || event.getChampionId() <= 0)
+                && actor.getChampionId() != null
+                && actor.getChampionId() > 0) {
+            event.setChampionId(actor.getChampionId());
+        }
+    }
+
+    private void mergeLcuFallbackObjectiveDetails(GameDetail target, GameDetail source) {
+        if (target == null || source == null || !hasTeamObjectives(source)) {
+            return;
+        }
+        List<GameDetail.TeamObjectiveSummary> fallbackSummaries = source.getTeamObjectives().stream()
+                .map(this::toLcuFallbackObjectiveSummary)
+                .filter(summary -> summary != null && summary.hasData())
+                .toList();
+        if (fallbackSummaries.isEmpty()) {
+            return;
+        }
+        if (!hasTeamObjectives(target)) {
+            target.setTeamObjectives(fallbackSummaries);
+            return;
+        }
+        target.setTeamObjectives(mergeLcuFallbackObjectiveDetails(
+                target.getTeamObjectives(),
+                fallbackSummaries
+        ));
+    }
+
+    private boolean shouldUseCachedGameDetail(GameDetail detail,
+                                              MatchHistoryQueryOptions options,
+                                              MatchHistorySource resolvedSource) {
+        return isRenderableGameDetail(detail) && hasCompleteRankedObjectiveDetails(detail, options, resolvedSource);
+    }
+
+    private boolean hasCompleteRankedObjectiveDetails(GameDetail detail,
+                                                      MatchHistoryQueryOptions options,
+                                                      MatchHistorySource resolvedSource) {
+        if (detail == null) {
+            return false;
+        }
+        MatchHistorySource preferredSource = normalizeSource(options == null ? null : options.preferredSource());
+        MatchHistorySource effectiveSource = preferredSource == MatchHistorySource.AUTO
+                ? normalizeSource(resolvedSource)
+                : preferredSource;
+        if (effectiveSource == MatchHistorySource.CACHE) {
+            return true;
+        }
+        if (!QueueType.isRanked(detail.getQueueId())) {
+            return true;
+        }
+        if (!hasTeamObjectives(detail)) {
+            return false;
+        }
+        if (effectiveSource == MatchHistorySource.LCU) {
+            return true;
+        }
+        if (hasMissingFallbackObjectiveFields(detail)) {
+            return false;
+        }
+        return hasTypedDragonDetailsWhenDragonsWereKilled(detail);
+    }
+
+    private boolean hasTeamObjectives(GameDetail detail) {
+        return detail != null && detail.getTeamObjectives() != null && !detail.getTeamObjectives().isEmpty();
+    }
+
+    private boolean hasMissingFallbackObjectiveFields(GameDetail detail) {
+        if (!hasTeamObjectives(detail)) {
+            return true;
+        }
+        return detail.getTeamObjectives().stream().anyMatch(summary ->
+                summary == null
+                        || summary.getTeamId() == null
+                        || summary.getBans() == null
+                        || summary.getBans().isEmpty()
+                        || summary.getHeraldKills() == null
+                        || summary.getVoidGrubKills() == null
+        );
+    }
+
+    private boolean hasTypedDragonDetailsWhenDragonsWereKilled(GameDetail detail) {
+        if (!hasTeamObjectives(detail)) {
+            return false;
+        }
+        int dragonKills = detail.getTeamObjectives().stream()
+                .filter(summary -> summary != null)
+                .mapToInt(summary -> Math.max(0, summary.getDragonKills() == null ? 0 : summary.getDragonKills()))
+                .sum();
+        if (dragonKills <= 0) {
+            return true;
+        }
+        int typedDragonKills = detail.getTeamObjectives().stream()
+                .filter(summary -> summary != null && summary.getDragonKillsByType() != null)
+                .flatMap(summary -> summary.getDragonKillsByType().values().stream())
+                .filter(count -> count != null && count > 0)
+                .mapToInt(Integer::intValue)
+                .sum();
+        return typedDragonKills > 0;
+    }
+
+    private GameDetail mergeLcuObjectiveFallback(Long gameId, GameDetail detail) {
+        if (!shouldMergeLcuObjectiveFallback(detail)) {
+            return detail;
+        }
+        MatchHistoryProvider lcuProvider = matchHistoryProviders.get(MatchHistorySource.LCU);
+        if (lcuProvider == null) {
+            return detail;
+        }
+
+        try {
+            GameDetail lcuDetail = lcuProvider.fetchGameDetail(
+                    gameId,
+                    MatchHistoryQueryOptions.defaultFor(MatchHistorySource.LCU, false)
+            );
+            mergeLcuFallbackObjectiveDetails(detail, lcuDetail);
+        } catch (Exception lcuError) {
+            log.warn("LCU team objectives backfill failed: gameId={}, error={}", gameId, lcuError.getMessage());
+            log.debug("LCU team objectives backfill failure details", lcuError);
+        }
+        return detail;
+    }
+
+    private boolean shouldMergeLcuObjectiveFallback(GameDetail detail) {
+        if (detail == null || !QueueType.isRanked(detail.getQueueId())) {
+            return false;
+        }
+        return !hasTeamObjectives(detail) || hasMissingFallbackObjectiveFields(detail);
+    }
+
+    private GameDetail.TeamObjectiveSummary toLcuFallbackObjectiveSummary(GameDetail.TeamObjectiveSummary source) {
+        if (source == null || source.getTeamId() == null) {
+            return null;
+        }
+        GameDetail.TeamObjectiveSummary fallback = new GameDetail.TeamObjectiveSummary();
+        fallback.setTeamId(source.getTeamId());
+        fallback.setBans(source.getBans() == null ? new ArrayList<>() : new ArrayList<>(source.getBans()));
+        fallback.setTurretKills(source.getTurretKills());
+        fallback.setInhibitorKills(source.getInhibitorKills());
+        fallback.setTurretPlateKills(source.getTurretPlateKills());
+        fallback.setBaronKills(source.getBaronKills());
+        fallback.setDragonKills(source.getDragonKills());
+        fallback.setElderDragonKills(source.getElderDragonKills());
+        fallback.setHeraldKills(source.getHeraldKills());
+        fallback.setVoidGrubKills(source.getVoidGrubKills());
+        return fallback;
+    }
+
+    private List<GameDetail.TeamObjectiveSummary> mergeLcuFallbackObjectiveDetails(
+            List<GameDetail.TeamObjectiveSummary> targetSummaries,
+            List<GameDetail.TeamObjectiveSummary> sourceSummaries
+    ) {
+        List<GameDetail.TeamObjectiveSummary> merged = new ArrayList<>(
+                targetSummaries == null ? List.of() : targetSummaries
+        );
+        if (sourceSummaries == null || sourceSummaries.isEmpty()) {
+            return merged;
+        }
+
+        for (GameDetail.TeamObjectiveSummary sourceSummary : sourceSummaries) {
+            if (sourceSummary == null || sourceSummary.getTeamId() == null) {
+                continue;
+            }
+            GameDetail.TeamObjectiveSummary targetSummary = merged.stream()
+                    .filter(summary -> summary != null && sourceSummary.getTeamId().equals(summary.getTeamId()))
+                    .findFirst()
+                    .orElse(null);
+            if (targetSummary == null) {
+                merged.add(sourceSummary);
+                continue;
+            }
+            mergeLcuFallbackObjectiveDetail(targetSummary, sourceSummary);
+        }
+        return merged;
+    }
+
+    private void mergeLcuFallbackObjectiveDetail(
+            GameDetail.TeamObjectiveSummary target,
+            GameDetail.TeamObjectiveSummary source
+    ) {
+        if ((target.getBans() == null || target.getBans().isEmpty())
+                && source.getBans() != null && !source.getBans().isEmpty()) {
+            target.setBans(new ArrayList<>(source.getBans()));
+        }
+        if (shouldMergePositiveFallbackCount(target.getTurretKills(), source.getTurretKills())) {
+            target.setTurretKills(source.getTurretKills());
+        }
+        if (shouldMergePositiveFallbackCount(target.getInhibitorKills(), source.getInhibitorKills())) {
+            target.setInhibitorKills(source.getInhibitorKills());
+        }
+        if (shouldMergePositiveFallbackCount(target.getTurretPlateKills(), source.getTurretPlateKills())) {
+            target.setTurretPlateKills(source.getTurretPlateKills());
+        }
+        if (target.getBaronKills() == null && source.getBaronKills() != null) {
+            target.setBaronKills(source.getBaronKills());
+        }
+        if (target.getDragonKills() == null && source.getDragonKills() != null) {
+            target.setDragonKills(source.getDragonKills());
+        }
+        if (target.getElderDragonKills() == null && source.getElderDragonKills() != null) {
+            target.setElderDragonKills(source.getElderDragonKills());
+        }
+        if (target.getHeraldKills() == null && source.getHeraldKills() != null) {
+            target.setHeraldKills(source.getHeraldKills());
+        }
+        if (target.getVoidGrubKills() == null && source.getVoidGrubKills() != null) {
+            target.setVoidGrubKills(source.getVoidGrubKills());
+        }
+    }
+
+    private boolean shouldMergePositiveFallbackCount(Integer targetValue, Integer sourceValue) {
+        return sourceValue != null && sourceValue > 0 && (targetValue == null || targetValue <= 0);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private Optional<GameDetail> loadCachedGameDetail(Long gameId) {
@@ -955,6 +1312,7 @@ public class MatchHistoryService {
             return Optional.empty();
         }
         enrichParticipantStats(detail);
+        hydrateObjectiveEventActors(detail);
         return Optional.of(detail);
     }
 

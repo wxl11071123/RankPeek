@@ -135,6 +135,9 @@ class MatchHistoryServiceCacheTest {
     @Test
     void getGameDetailById_usesDatabaseBeforeLcu() {
         GameDetail cached = createDetail(99L);
+        GameDetail.TeamObjectiveSummary objectiveSummary = new GameDetail.TeamObjectiveSummary();
+        objectiveSummary.setTeamId(100);
+        cached.setTeamObjectives(List.of(objectiveSummary));
         when(repository.findGameDetail(99L)).thenReturn(Optional.of(cached));
 
         GameDetail result = service.getGameDetailById(99L);

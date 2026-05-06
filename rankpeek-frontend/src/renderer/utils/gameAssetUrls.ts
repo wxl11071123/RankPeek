@@ -1,6 +1,8 @@
 const DATA_DRAGON_VERSION = '15.24.1'
 const DATA_DRAGON_CDN = `https://ddragon.leagueoflegends.com/cdn/${DATA_DRAGON_VERSION}`
-const COMMUNITY_DRAGON_GAME_DATA = 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1'
+const COMMUNITY_DRAGON_RAW = 'https://raw.communitydragon.org/latest'
+const COMMUNITY_DRAGON_GAME_DATA = `${COMMUNITY_DRAGON_RAW}/plugins/rcp-be-lol-game-data/global/default/v1`
+const COMMUNITY_DRAGON_MINIMAP_ICONS = `${COMMUNITY_DRAGON_RAW}/game/assets/ux/minimap/icons`
 const BACKEND_ASSET_BASE = 'http://127.0.0.1:8080/api/v1/asset'
 const PUBLIC_GAME_ASSET_BASE = `${getViteBaseUrl()}game-assets`
 const ASSET_PLACEHOLDER_URL = `data:image/svg+xml,${encodeURIComponent(
@@ -8,9 +10,55 @@ const ASSET_PLACEHOLDER_URL = `data:image/svg+xml,${encodeURIComponent(
 )}`
 
 export type GameAssetKind = 'champion' | 'item' | 'spell' | 'perk' | 'augment' | 'profile'
+export type ObjectiveIconKind =
+  | 'turret'
+  | 'turretPlate'
+  | 'inhibitor'
+  | 'baron'
+  | 'dragon'
+  | 'infernal'
+  | 'mountain'
+  | 'ocean'
+  | 'cloud'
+  | 'hextech'
+  | 'chemtech'
+  | 'elder'
+  | 'herald'
+  | 'voidgrub'
+  | 'soul-infernal'
+  | 'soul-mountain'
+  | 'soul-ocean'
+  | 'soul-cloud'
+  | 'soul-hextech'
+  | 'soul-chemtech'
+  | 'unknownDragon'
 export type GameAssetFallbackState = 'empty' | 'failed'
 type GameAssetManifestSection = Record<string, string>
 type LocalAssetCacheResolver = (kind: GameAssetKind, id: number) => string | null | undefined
+
+const VERIFIED_OBJECTIVE_MINIMAP_FILES: Partial<Record<ObjectiveIconKind, string>> = {
+  turret: 'tower.png',
+  turretPlate: 'turret_1plate.png',
+  inhibitor: 'inhibitor.png',
+  baron: 'baron.png',
+  dragon: 'dragon.png',
+  infernal: 'dragon_infernal.png',
+  mountain: 'dragon_mountain.png',
+  ocean: 'dragon_ocean.png',
+  cloud: 'dragon_cloud.png',
+  hextech: 'dragon_hextech.png',
+  chemtech: 'dragon_chemtech.png',
+  elder: 'dragon_elder.png',
+  herald: 'riftherald.png',
+  voidgrub: 'grub.png',
+  unknownDragon: 'dragon.png',
+  'soul-infernal': 'dragon_infernal.png',
+  'soul-mountain': 'dragon_mountain.png',
+  'soul-ocean': 'dragon_ocean.png',
+  'soul-cloud': 'dragon_cloud.png',
+  'soul-hextech': 'dragon_hextech.png',
+  'soul-chemtech': 'dragon_chemtech.png'
+}
 
 export interface GameAssetManifest {
   version: string
@@ -21,6 +69,25 @@ export interface GameAssetManifest {
   augments: GameAssetManifestSection
   champions: GameAssetManifestSection
   profileIcons?: GameAssetManifestSection
+  objectives?: GameAssetManifestSection
+}
+
+export interface GameAssetMetadataEntry {
+  id: number
+  name?: string
+  description?: string
+  plaintext?: string
+  shortDesc?: string
+  longDesc?: string
+  icon?: string
+}
+
+export interface GameAssetMetadata {
+  version: string
+  locale: string
+  items: Record<string, GameAssetMetadataEntry>
+  perks: Record<string, GameAssetMetadataEntry>
+  augments: Record<string, GameAssetMetadataEntry>
 }
 
 export interface ItemIconSlot {
@@ -38,10 +105,20 @@ const EMPTY_MANIFEST: GameAssetManifest = {
   perks: {},
   augments: {},
   champions: {},
-  profileIcons: {}
+  profileIcons: {},
+  objectives: {}
+}
+
+const EMPTY_METADATA: GameAssetMetadata = {
+  version: 'seed',
+  locale: 'zh_CN',
+  items: {},
+  perks: {},
+  augments: {}
 }
 
 let manifest: GameAssetManifest = normalizeManifest(EMPTY_MANIFEST)
+let metadata: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 let localAssetCacheResolver: LocalAssetCacheResolver | null = null
 const failedAssetUrls = new Set<string>()
 const fallbackChains = new Map<string, string[]>()
@@ -68,6 +145,22 @@ export function getAugmentIconUrl(augmentId?: number | null): string {
 
 export function getProfileIconUrl(profileIconId?: number | null): string {
   return resolveAssetUrl('profile', profileIconId)
+}
+
+export function getObjectiveIconUrl(kind: ObjectiveIconKind): string {
+  return getManifestObjectiveIconUrl(kind) || getCommunityDragonObjectiveIconUrl(kind)
+}
+
+export function getItemAssetDetails(itemId?: number | null): GameAssetMetadataEntry | null {
+  return getAssetDetails('item', itemId)
+}
+
+export function getPerkAssetDetails(perkId?: number | null): GameAssetMetadataEntry | null {
+  return getAssetDetails('perk', perkId)
+}
+
+export function getAugmentAssetDetails(augmentId?: number | null): GameAssetMetadataEntry | null {
+  return getAssetDetails('augment', augmentId)
 }
 
 export function getItemIconSlots(stats: unknown): ItemIconSlot[] {
@@ -121,6 +214,22 @@ export async function loadGameAssetManifest(url = `${PUBLIC_GAME_ASSET_BASE}/man
   }
 }
 
+export async function loadGameAssetMetadata(url = `${PUBLIC_GAME_ASSET_BASE}/metadata.json`): Promise<void> {
+  if (typeof fetch !== 'function') {
+    return
+  }
+
+  try {
+    const response = await fetch(url, { cache: 'no-cache' })
+    if (!response.ok) {
+      return
+    }
+    setGameAssetMetadata(await response.json() as Partial<GameAssetMetadata>)
+  } catch {
+    // Local text metadata is optional. Missing metadata must not block app startup.
+  }
+}
+
 export function recordAssetLoadFailure(url: string): void {
   const normalized = normalizeFailureUrl(url)
   if (normalized) {
@@ -150,6 +259,7 @@ export function markAssetLoadFailed(event: Event): void {
 
 export function resetGameAssetResolverForTest(): void {
   manifest = normalizeManifest(EMPTY_MANIFEST)
+  metadata = normalizeMetadata(EMPTY_METADATA)
   localAssetCacheResolver = null
   failedAssetUrls.clear()
   fallbackChains.clear()
@@ -157,6 +267,10 @@ export function resetGameAssetResolverForTest(): void {
 
 export function setGameAssetManifestForTest(nextManifest: Partial<GameAssetManifest>): void {
   setGameAssetManifest(nextManifest)
+}
+
+export function setGameAssetMetadataForTest(nextMetadata: Partial<GameAssetMetadata>): void {
+  setGameAssetMetadata(nextMetadata)
 }
 
 function resolveAssetUrl(kind: GameAssetKind, rawId?: number | null): string {
@@ -169,6 +283,34 @@ function resolveAssetUrl(kind: GameAssetKind, rawId?: number | null): string {
   registerFallbackChain(candidates)
 
   return candidates.find(candidate => !isAssetUrlFailed(candidate)) || ASSET_PLACEHOLDER_URL
+}
+
+function setGameAssetMetadata(nextMetadata: Partial<GameAssetMetadata>): void {
+  metadata = normalizeMetadata({
+    ...EMPTY_METADATA,
+    ...nextMetadata
+  })
+}
+
+function getAssetDetails(kind: 'item' | 'perk' | 'augment', rawId?: number | null): GameAssetMetadataEntry | null {
+  const id = normalizeAssetId(rawId)
+  if (id === null) {
+    return null
+  }
+
+  const section = getMetadataSection(kind)
+  return section[String(id)] || null
+}
+
+function getMetadataSection(kind: 'item' | 'perk' | 'augment'): Record<string, GameAssetMetadataEntry> {
+  switch (kind) {
+    case 'item':
+      return metadata.items
+    case 'perk':
+      return metadata.perks
+    case 'augment':
+      return metadata.augments
+  }
 }
 
 function buildAssetCandidates(kind: GameAssetKind, id: number): string[] {
@@ -207,6 +349,11 @@ function getManifestSection(kind: GameAssetKind): GameAssetManifestSection {
   }
 }
 
+function getManifestObjectiveIconUrl(kind: ObjectiveIconKind): string {
+  const value = manifest.objectives?.[kind]
+  return value ? normalizeManifestAssetPath(value) : ''
+}
+
 function normalizeManifestAssetPath(path: string): string {
   const trimmed = path.trim()
   if (!trimmed) {
@@ -225,6 +372,11 @@ function normalizeManifestAssetPath(path: string): string {
     return `${getViteBaseUrl()}${trimmed.slice(2)}`
   }
   return `${PUBLIC_GAME_ASSET_BASE}/${trimmed.replace(/^\/+/, '')}`
+}
+
+function getCommunityDragonObjectiveIconUrl(kind: ObjectiveIconKind): string {
+  const minimapFileName = VERIFIED_OBJECTIVE_MINIMAP_FILES[kind]
+  return minimapFileName ? `${COMMUNITY_DRAGON_MINIMAP_ICONS}/${minimapFileName}` : ''
 }
 
 function getBackendAssetUrl(kind: GameAssetKind, id: number): string {
@@ -324,11 +476,26 @@ function normalizeManifest(nextManifest: Partial<GameAssetManifest>): GameAssetM
     perks: normalizeManifestSection(nextManifest.perks),
     augments: normalizeManifestSection(nextManifest.augments),
     champions: normalizeManifestSection(nextManifest.champions),
-    profileIcons: normalizeManifestSection(nextManifest.profileIcons)
+    profileIcons: normalizeManifestSection(nextManifest.profileIcons),
+    objectives: normalizeManifestSection(nextManifest.objectives)
+  }
+}
+
+function normalizeMetadata(nextMetadata: Partial<GameAssetMetadata>): GameAssetMetadata {
+  return {
+    version: nextMetadata.version || EMPTY_METADATA.version,
+    locale: nextMetadata.locale || EMPTY_METADATA.locale,
+    items: normalizeMetadataSection(nextMetadata.items),
+    perks: normalizeMetadataSection(nextMetadata.perks),
+    augments: normalizeMetadataSection(nextMetadata.augments)
   }
 }
 
 function normalizeManifestSection(section?: GameAssetManifestSection): GameAssetManifestSection {
+  return section ? { ...section } : {}
+}
+
+function normalizeMetadataSection(section?: Record<string, GameAssetMetadataEntry>): Record<string, GameAssetMetadataEntry> {
   return section ? { ...section } : {}
 }
 

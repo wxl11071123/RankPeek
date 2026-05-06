@@ -128,7 +128,17 @@ const gameDetail: GameDetail = {
   gameDuration: 1800,
   gameCreation: 1710000000000,
   participantIdentities: [],
-  participants: []
+  participants: [],
+  teamObjectives: [
+    {
+      teamId: 100,
+      bans: [56, 84],
+      baronKills: 1,
+      dragonKills: 2,
+      elderDragonKills: 0,
+      dragonKillsByType: {}
+    }
+  ]
 }
 
 test('maps backend match history into match_records payload with current participant stats', () => {
