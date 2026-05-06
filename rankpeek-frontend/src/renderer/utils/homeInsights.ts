@@ -1,5 +1,5 @@
 import type { GameDetail, MatchHistory, Participant } from '@/types/api'
-import { isRanked } from '@/utils/constants'
+import { isRanked } from './constants.ts'
 
 export const MIN_ANALYSIS_MATCHES = 10
 export const MAX_ANALYSIS_MATCHES = 20

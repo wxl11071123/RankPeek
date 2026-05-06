@@ -3,22 +3,23 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 function extractRule(source: string, selector: string) {
-  const start = source.indexOf(selector)
+  const normalizedSource = source.replace(/\r\n/g, '\n')
+  const start = normalizedSource.indexOf(selector)
   assert.notEqual(start, -1, `${selector} should exist`)
 
-  const open = source.indexOf('{', start)
+  const open = normalizedSource.indexOf('{', start)
   assert.notEqual(open, -1, `${selector} should have a body`)
 
   let depth = 0
-  for (let index = open; index < source.length; index += 1) {
-    if (source[index] === '{') {
+  for (let index = open; index < normalizedSource.length; index += 1) {
+    if (normalizedSource[index] === '{') {
       depth += 1
     }
 
-    if (source[index] === '}') {
+    if (normalizedSource[index] === '}') {
       depth -= 1
       if (depth === 0) {
-        return source.slice(open + 1, index)
+        return normalizedSource.slice(open + 1, index)
       }
     }
   }
@@ -87,4 +88,16 @@ test('home rank badges show loading or failure instead of immediate unranked fal
   assert.match(source, /formatRankTierPart\(flexRank, accountRankStatus\)/)
   assert.match(source, /status === 'loading'[\s\S]*t\('overview\.rankLoading'\)/)
   assert.match(source, /status === 'error'[\s\S]*t\('overview\.rankFailed'\)/)
+})
+
+test('home fortune draw uses the stable local-date daily fortune key', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const drawFunction = source.match(/function drawFortune\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.doesNotMatch(drawFunction, /TEMP: disable daily fortune limit/)
+  assert.doesNotMatch(drawFunction, /iterationKey/)
+  assert.doesNotMatch(drawFunction, /new Date\(\)\.toISOString\(\)/)
+  assert.match(drawFunction, /drawDailyFortune\(fortuneRecord\.value\)/)
+  assert.match(source, /:disabled="fortuneRolling \|\| fortuneAlreadyDrawn"/)
+  assert.match(source, /t\('home\.fortuneOnceDaily'\)[\s\S]*t\('home\.fortuneDisclaimer'\)/)
 })

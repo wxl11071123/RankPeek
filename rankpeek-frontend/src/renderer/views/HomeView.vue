@@ -329,11 +329,21 @@ const profileIconUrl = computed(() =>
 )
 
 const fortuneTone = computed(() => currentFortune.value?.tone || 'neutral')
+const fortuneAlreadyDrawn = computed(() => Boolean(currentFortune.value))
 const fortuneButtonText = computed(() => {
   if (fortuneRolling.value) {
     return t('home.fortuneDrawing')
   }
-  return '抽取今日运势'
+  if (fortuneAlreadyDrawn.value) {
+    return t('home.fortuneComeTomorrow')
+  }
+  return t('home.drawFortune')
+})
+const fortuneNoticeText = computed(() => {
+  if (!currentFortune.value) {
+    return ''
+  }
+  return `${t('home.fortuneOnceDaily')} ${t('home.fortuneDisclaimer')}`
 })
 const slotDisplayLabel = computed(() => {
   if (fortuneRolling.value) {
@@ -401,7 +411,7 @@ async function handleRefreshAccount() {
 }
 
 function drawFortune() {
-  if (fortuneRolling.value) {
+  if (fortuneRolling.value || fortuneAlreadyDrawn.value) {
     return
   }
 
@@ -414,9 +424,7 @@ function drawFortune() {
 
   window.setTimeout(() => {
     clearFortuneTimer()
-    // TEMP: disable daily fortune limit for UI iteration
-    const iterationKey = `${new Date().toISOString()}-${Math.random().toString(36).slice(2)}`
-    const result = drawDailyFortune(fortuneRecord.value, iterationKey)
+    const result = drawDailyFortune(fortuneRecord.value)
     fortuneRecord.value = result.record
     currentFortune.value = result.fortune
     rollingFortuneLabel.value = result.fortune.label
@@ -788,15 +796,15 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
           <button
             class="fortune-button control-glow"
             type="button"
-            :disabled="fortuneRolling"
+            :disabled="fortuneRolling || fortuneAlreadyDrawn"
             @pointermove="updateControlGlow"
             @pointerleave="resetControlGlow"
             @click="drawFortune"
           >
             {{ fortuneButtonText }}
           </button>
-          <p v-if="currentFortune" class="fortune-disclaimer">
-            {{ t('home.fortuneDisclaimer') }}
+          <p v-if="fortuneNoticeText" class="fortune-disclaimer">
+            {{ fortuneNoticeText }}
           </p>
         </div>
       </article>
