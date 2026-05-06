@@ -107,6 +107,43 @@ test('sidebar nav icons use independent theme colors across states', () => {
   assert.doesNotMatch(activeIconRule, /color:\s*(currentColor|var\(--text-primary\)|var\(--text-secondary\)|#ffffff);/)
 })
 
+test('sidebar exposes a resize handle wired to persisted width state', () => {
+  const source = readRendererFile('components/layout/Sidebar.vue')
+
+  assert.match(source, /import \{ useResizableSidebar \} from '@\/composables\/useResizableSidebar'/)
+  assert.match(source, /const sidebarElement = ref<HTMLElement \| null>\(null\)/)
+  assert.match(source, /useResizableSidebar\(sidebarElement\)/)
+  assert.match(source, /onBeforeUnmount\(cleanupSidebarResize\)/)
+  assert.match(source, /<aside[\s\S]*ref="sidebarElement"[\s\S]*:style="sidebarStyle"/)
+  assert.match(source, /class="sidebar-resize-handle"/)
+  assert.match(source, /role="separator"/)
+  assert.match(source, /aria-orientation="vertical"/)
+  assert.match(source, /:aria-valuemin="MIN_SIDEBAR_WIDTH"/)
+  assert.match(source, /:aria-valuemax="MAX_SIDEBAR_WIDTH"/)
+  assert.match(source, /:aria-valuenow="sidebarWidth"/)
+  assert.match(source, /@mousedown="startResize"/)
+})
+
+test('sidebar resize handle styling is subtle and keeps mobile navigation compact', () => {
+  const source = readRendererFile('components/layout/Sidebar.vue')
+  const sidebarRule = extractRule(source, '.sidebar')
+  const handleRule = extractRule(source, '.sidebar-resize-handle')
+  const handleLineRule = extractRule(source, '.sidebar-resize-handle::after')
+
+  assert.match(sidebarRule, /width:\s*var\(--sidebar-width,\s*252px\);/)
+  assert.match(sidebarRule, /flex:\s*0 0 var\(--sidebar-width,\s*252px\);/)
+  assert.match(sidebarRule, /min-width:\s*200px;/)
+  assert.match(sidebarRule, /max-width:\s*340px;/)
+  assert.match(handleRule, /cursor:\s*col-resize;/)
+  assert.match(handleRule, /right:\s*-3px;/)
+  assert.match(handleLineRule, /background:\s*var\(--border-subtle\);/)
+  assert.match(source, /:global\(body\.sidebar-resizing\)/)
+  assert.match(source, /user-select:\s*none !important;/)
+  assert.match(source, /cursor:\s*col-resize !important;/)
+  assert.match(source, /@media \(max-width: 760px\)\s*{[\s\S]*\.sidebar\s*{[\s\S]*width:\s*96px;[\s\S]*flex:\s*0 0 96px;/)
+  assert.match(source, /@media \(max-width: 760px\)\s*{[\s\S]*\.sidebar-resize-handle\s*{[\s\S]*display:\s*none;/)
+})
+
 test('new requested sidebar icons are current-color linear svg files', () => {
   const iconRoot = resolve(rendererRoot, 'assets/icons')
   const requestedIcons = ['nav-record-bars.svg', 'nav-gear-five.svg']

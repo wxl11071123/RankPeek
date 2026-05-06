@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { t, type MessageKey } from '@/i18n'
+import { useResizableSidebar } from '@/composables/useResizableSidebar'
+import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '@/utils/sidebarWidth'
 import homeIcon from '@/assets/icons/nav-home.svg'
 import gamingIcon from '@/assets/icons/nav-gamepad.svg'
 import summonerIcon from '@/assets/icons/nav-user-search.svg'
@@ -12,6 +14,7 @@ import sidebarLogo from '@/assets/branding/sidebar-logo.png'
 
 const route = useRoute()
 const router = useRouter()
+const sidebarElement = ref<HTMLElement | null>(null)
 
 const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
   { path: '/', icon: homeIcon, labelKey: 'nav.home' },
@@ -23,6 +26,15 @@ const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
 ]
 
 const currentPath = computed(() => route.path)
+const {
+  cleanupSidebarResize,
+  isResizing,
+  sidebarStyle,
+  sidebarWidth,
+  startResize
+} = useResizableSidebar(sidebarElement)
+
+onBeforeUnmount(cleanupSidebarResize)
 
 function navigateTo(path: string) {
   void router.push(path)
@@ -30,7 +42,12 @@ function navigateTo(path: string) {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside
+    ref="sidebarElement"
+    class="sidebar"
+    :class="{ resizing: isResizing }"
+    :style="sidebarStyle"
+  >
     <div class="sidebar-brand" aria-label="RankPeek">
       <img class="sidebar-logo" :src="sidebarLogo" alt="" aria-hidden="true" />
       <span class="brand-name">RankPeek</span>
@@ -58,18 +75,66 @@ function navigateTo(path: string) {
     <div class="sidebar-footer">
       <div class="version">v1.0.0</div>
     </div>
+
+    <div
+      class="sidebar-resize-handle"
+      role="separator"
+      aria-label="Resize sidebar"
+      aria-orientation="vertical"
+      :aria-valuemin="MIN_SIDEBAR_WIDTH"
+      :aria-valuemax="MAX_SIDEBAR_WIDTH"
+      :aria-valuenow="sidebarWidth"
+      @mousedown="startResize"
+    />
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  width: 252px;
+  position: relative;
+  width: var(--sidebar-width, 252px);
+  flex: 0 0 var(--sidebar-width, 252px);
+  min-width: 200px;
+  max-width: 340px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--border-subtle);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.sidebar-resize-handle:hover::after,
+.sidebar.resizing .sidebar-resize-handle::after {
+  background: rgba(var(--accent-rgb), 0.7);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.18);
+}
+
+:global(body.sidebar-resizing),
+:global(body.sidebar-resizing *) {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .sidebar-brand {
@@ -175,6 +240,10 @@ function navigateTo(path: string) {
   font-size: inherit;
   font-weight: inherit;
   line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-footer {
@@ -194,6 +263,13 @@ function navigateTo(path: string) {
 @media (max-width: 760px) {
   .sidebar {
     width: 96px;
+    flex: 0 0 96px;
+    min-width: 96px;
+    max-width: 96px;
+  }
+
+  .sidebar-resize-handle {
+    display: none;
   }
 
   .sidebar-brand {
