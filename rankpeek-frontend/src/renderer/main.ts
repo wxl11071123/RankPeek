@@ -15,7 +15,7 @@ app.use(createPinia())
 app.use(router)
 
 void Promise.all([loadGameAssetManifest(), loadGameAssetMetadata()])
-  .then(() => loadLcuGameAssetMetadataOverlay())
   .finally(() => {
-  app.mount('#app')
+    app.mount('#app')
+    void loadLcuGameAssetMetadataOverlay()
   })

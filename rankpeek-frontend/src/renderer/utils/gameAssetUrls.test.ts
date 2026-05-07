@@ -317,14 +317,15 @@ test('backend asset details do not advertise DDragon as the primary icon URL', (
   assert.match(source, /\/api\/v1\/asset\/item/)
 })
 
-test('renderer startup loads the local game asset manifest without making components responsible for it', () => {
+test('renderer startup mounts after local game assets without waiting for the backend overlay', () => {
   const mainSource = readFileSync(new URL('../main.ts', import.meta.url), 'utf8')
   const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
 
   assert.match(mainSource, /loadGameAssetManifest/)
   assert.match(mainSource, /loadGameAssetMetadata/)
   assert.match(mainSource, /loadLcuGameAssetMetadataOverlay/)
-  assert.match(mainSource, /Promise\.all\(\[loadGameAssetManifest\(\), loadGameAssetMetadata\(\)\]\)[\s\S]*loadLcuGameAssetMetadataOverlay\(\)[\s\S]*app\.mount\('#app'\)/)
+  assert.match(mainSource, /Promise\.all\(\[loadGameAssetManifest\(\), loadGameAssetMetadata\(\)\]\)[\s\S]*\.finally\(\(\) => \{[\s\S]*app\.mount\('#app'\)[\s\S]*void loadLcuGameAssetMetadataOverlay\(\)[\s\S]*\}\)/)
+  assert.doesNotMatch(mainSource, /\.then\(\(\) => loadLcuGameAssetMetadataOverlay\(\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*app\.mount\('#app'\)/)
   assert.doesNotMatch(mainSource, /Promise\.race|manifestStartupDeadline|setTimeout\(resolve,\s*500\)/)
   assert.equal(typeof manifest.version, 'string')
   assert.equal(manifest.locale, 'zh_CN')

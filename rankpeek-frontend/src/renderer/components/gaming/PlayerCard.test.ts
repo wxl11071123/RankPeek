@@ -17,10 +17,25 @@ test('player card is selectable by click and keyboard while preserving tag hover
   assert.match(source, /@keydown\.space\.prevent="onCardSelect"/)
   assert.match(source, /\{ selected \}/)
   assert.match(source, /function onCardSelect\(\)[\s\S]*emit\('selectPlayer'\)/)
-  assert.match(source, /class="player-id"[\s\S]*@click\.stop="onCardSelect"/)
+  assert.doesNotMatch(source, /class="player-id"[\s\S]{0,180}@click\.stop="onCardSelect"/)
   assert.match(source, /class="more-chip" type="button"[\s\S]*@click\.stop/)
   assert.match(source, /\.tag-overflow:hover \.hidden-tags-popover,/)
   assert.match(source, /\.player-card\.selected/)
+})
+
+test('player id navigates to match lookup without toggling the recent panel', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import \{ useRouter \} from 'vue-router'/)
+  assert.match(source, /import \{ buildSummonerLookupName, createSummonerLookupRoute \} from '@\/utils\/summonerLookupRoute'/)
+  assert.match(source, /const router = useRouter\(\)/)
+  assert.match(source, /const summonerLookupName = computed\(\(\) => buildSummonerLookupName\(props\.sessionSummoner\.summoner\)\)/)
+  assert.match(source, /const canNavigateToSummonerLookup = computed\(\(\) => Boolean\(summonerLookupName\.value\)\)/)
+  assert.match(source, /class="player-id"[\s\S]*@click\.stop="navigateToSummonerLookup"/)
+  assert.match(source, /class="player-id"[\s\S]*@keydown\.enter\.stop/)
+  assert.match(source, /class="player-id"[\s\S]*@keydown\.space\.stop/)
+  assert.match(source, /function navigateToSummonerLookup\(\)[\s\S]*createSummonerLookupRoute\(summonerLookupName\.value\)[\s\S]*router\.push\(route\)/)
+  assert.doesNotMatch(source, /function navigateToSummonerLookup\(\)[\s\S]*emit\('selectPlayer'\)/)
 })
 
 test('shows the Riot ID on one line and packs tags beside the rank before folding extras', () => {
@@ -39,7 +54,9 @@ test('shows the Riot ID on one line and packs tags beside the rank before foldin
   assert.match(source, /class="more-chip"/)
   assert.match(source, /\.name-tags\s*{[\s\S]*flex-wrap:\s*nowrap;/)
   assert.match(source, /class="meta-row"[\s\S]*class="tier-row"[\s\S]*class="name-tags"/)
-  assert.match(source, /{{ sessionSummoner\.summoner\.gameName }}#{{ sessionSummoner\.summoner\.tagLine }}/)
+  assert.match(source, /const summonerLookupName = computed\(\(\) => buildSummonerLookupName\(props\.sessionSummoner\.summoner\)\)/)
+  assert.match(source, /const playerIdText = computed\(\(\) => summonerLookupName\.value \|\|/)
+  assert.match(source, /{{ playerIdText }}/)
 })
 
 test('renders scout tags from sessionSummoner defensively without old label names', () => {

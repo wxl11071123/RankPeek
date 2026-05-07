@@ -4,25 +4,25 @@ import { useRoute, useRouter } from 'vue-router'
 import { t, type MessageKey } from '@/i18n'
 import { useResizableSidebar } from '@/composables/useResizableSidebar'
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '@/utils/sidebarWidth'
-import homeIcon from '@/assets/icons/nav-home.svg'
-import gamingIcon from '@/assets/icons/nav-gamepad.svg'
-import summonerIcon from '@/assets/icons/nav-user-search.svg'
-import matchRecordIcon from '@/assets/icons/nav-record-bars.svg'
-import aiAnalysisIcon from '@/assets/icons/nav-ai-spark.svg'
-import settingsGearIcon from '@/assets/icons/nav-gear-five.svg'
+import homeIconSvg from '@/assets/icons/nav-home.svg?raw'
+import gamingIconSvg from '@/assets/icons/nav-gamepad.svg?raw'
+import summonerIconSvg from '@/assets/icons/nav-user-search.svg?raw'
+import matchRecordIconSvg from '@/assets/icons/nav-record-bars.svg?raw'
+import aiAnalysisIconSvg from '@/assets/icons/nav-ai-spark.svg?raw'
+import settingsGearIconSvg from '@/assets/icons/nav-gear-five.svg?raw'
 import sidebarLogo from '@/assets/branding/sidebar-logo.png'
 
 const route = useRoute()
 const router = useRouter()
 const sidebarElement = ref<HTMLElement | null>(null)
 
-const menuItems: Array<{ path: string; icon: string; labelKey: MessageKey }> = [
-  { path: '/', icon: homeIcon, labelKey: 'nav.home' },
-  { path: '/gaming', icon: gamingIcon, labelKey: 'nav.gaming' },
-  { path: '/summoner', icon: summonerIcon, labelKey: 'nav.summoner' },
-  { path: '/match-history', icon: matchRecordIcon, labelKey: 'nav.matchHistory' },
-  { path: '/ai-analysis', icon: aiAnalysisIcon, labelKey: 'nav.aiAnalysis' },
-  { path: '/settings', icon: settingsGearIcon, labelKey: 'nav.settings' }
+const menuItems: Array<{ path: string; iconSvg: string; labelKey: MessageKey }> = [
+  { path: '/', iconSvg: homeIconSvg, labelKey: 'nav.home' },
+  { path: '/gaming', iconSvg: gamingIconSvg, labelKey: 'nav.gaming' },
+  { path: '/summoner', iconSvg: summonerIconSvg, labelKey: 'nav.summoner' },
+  { path: '/match-history', iconSvg: matchRecordIconSvg, labelKey: 'nav.matchHistory' },
+  { path: '/ai-analysis', iconSvg: aiAnalysisIconSvg, labelKey: 'nav.aiAnalysis' },
+  { path: '/settings', iconSvg: settingsGearIconSvg, labelKey: 'nav.settings' }
 ]
 
 const currentPath = computed(() => route.path)
@@ -65,7 +65,7 @@ function navigateTo(path: string) {
           @click="navigateTo(item.path)"
         >
           <span class="nav-icon" aria-hidden="true">
-            <span class="nav-icon-svg" :style="{ '--nav-icon-url': `url(${item.icon})` }"></span>
+            <span class="nav-icon-svg" v-html="item.iconSvg"></span>
           </span>
           <span class="nav-label">{{ t(item.labelKey) }}</span>
         </li>
@@ -231,9 +231,19 @@ function navigateTo(path: string) {
 .nav-icon-svg {
   width: 25px;
   height: 25px;
-  background: currentColor;
-  mask: var(--nav-icon-url) center / contain no-repeat;
-  -webkit-mask: var(--nav-icon-url) center / contain no-repeat;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  line-height: 0;
+}
+
+.nav-icon-svg :deep(svg) {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: none;
+  stroke: currentColor;
 }
 
 .nav-label {

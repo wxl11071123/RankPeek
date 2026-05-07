@@ -51,9 +51,9 @@ test('AI analysis route, sidebar entry, icon, and locale keys are wired', () => 
   const iconPath = resolve(rendererRoot, 'assets/icons/nav-ai-spark.svg')
 
   assert.match(router, /path:\s*'\/ai-analysis'[\s\S]*name:\s*'AiAnalysis'[\s\S]*import\('@\/views\/AiAnalysisView\.vue'\)[\s\S]*titleKey:\s*'nav\.aiAnalysis'/)
-  assert.match(sidebar, /import aiAnalysisIcon from '@\/assets\/icons\/nav-ai-spark\.svg'/)
+  assert.match(sidebar, /import aiAnalysisIconSvg from '@\/assets\/icons\/nav-ai-spark\.svg\?raw'/)
   assert.match(sidebar, /path:\s*'\/match-history'[\s\S]*path:\s*'\/ai-analysis'[\s\S]*path:\s*'\/settings'/)
-  assert.match(sidebar, /\{ path: '\/ai-analysis', icon: aiAnalysisIcon, labelKey: 'nav\.aiAnalysis' \}/)
+  assert.match(sidebar, /\{ path: '\/ai-analysis', iconSvg: aiAnalysisIconSvg, labelKey: 'nav\.aiAnalysis' \}/)
   assert.match(zhCN, /'nav\.aiAnalysis': 'AI 分析'/)
   assert.match(enUS, /'nav\.aiAnalysis': 'AI Analysis'/)
   assert.match(zhCN, /'aiAnalysis\.dataPrepTitle':/)

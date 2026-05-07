@@ -29,9 +29,19 @@
         </div>
 
         <div class="player-copy">
-          <button class="player-id" type="button" @click.stop="onCardSelect">
-            {{ sessionSummoner.summoner.gameName }}#{{ sessionSummoner.summoner.tagLine }}
+          <button
+            v-if="canNavigateToSummonerLookup"
+            class="player-id"
+            type="button"
+            :title="summonerLookupName"
+            :aria-label="`查询 ${summonerLookupName} 战绩`"
+            @click.stop="navigateToSummonerLookup"
+            @keydown.enter.stop
+            @keydown.space.stop
+          >
+            {{ playerIdText }}
           </button>
+          <span v-else class="player-id player-id-text">{{ playerIdText }}</span>
 
           <div class="meta-row">
             <div class="tier-row">
@@ -132,8 +142,10 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { QueueInfo, RankTag, RecordStatus, SessionSummoner } from '@/types/api'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
+import { buildSummonerLookupName, createSummonerLookupRoute } from '@/utils/summonerLookupRoute'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
 import iron from '@/assets/imgs/tier/iron.png'
@@ -157,6 +169,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectPlayer: []
 }>()
+const router = useRouter()
 
 const tierIconMap: Record<string, string> = {
   unranked,
@@ -200,6 +213,9 @@ const userTags = computed<RankTag[]>(() =>
   (props.sessionSummoner.userTag?.tag || []).filter((tag): tag is RankTag => Boolean(tag?.tagName?.trim()))
 )
 const selected = computed(() => props.selected === true)
+const summonerLookupName = computed(() => buildSummonerLookupName(props.sessionSummoner.summoner))
+const canNavigateToSummonerLookup = computed(() => Boolean(summonerLookupName.value))
+const playerIdText = computed(() => summonerLookupName.value || '未知玩家')
 const cardAriaLabel = computed(() => {
   const summoner = props.sessionSummoner.summoner
   const gameName = summoner?.gameName?.trim()
@@ -530,6 +546,14 @@ function onCardSelect() {
   emit('selectPlayer')
 }
 
+function navigateToSummonerLookup() {
+  const route = createSummonerLookupRoute(summonerLookupName.value)
+  if (!route) {
+    return
+  }
+  void router.push(route)
+}
+
 function noop() {
   // Keep nested utility buttons from toggling the card.
 }
@@ -631,6 +655,7 @@ function noop() {
 }
 
 .player-id {
+  display: block;
   min-width: 0;
   max-width: 100%;
   padding: 0;
@@ -649,6 +674,21 @@ function noop() {
 
 .player-id:hover {
   color: var(--accent-color);
+}
+
+.player-id:focus-visible {
+  outline: none;
+  color: var(--accent-color);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.player-id-text {
+  cursor: default;
+}
+
+.player-id-text:hover {
+  color: var(--text-primary);
 }
 
 .name-tags {
