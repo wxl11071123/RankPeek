@@ -1,6 +1,9 @@
 package io.rankpeek.config;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -15,7 +18,46 @@ import java.util.Locale;
 @Service
 public class LocalDataPathService {
 
+    private static final String APP_DIRECTORY_NAME = "RankPeek";
+    private static final String CACHE_DIRECTORY_NAME = "cache";
+    private static final String USER_STORE_DIRECTORY_NAME = "user-store";
     private static final String USER_STORE_FILE_NAME = "rankpeek-user-store.json";
+    private static final String SIMULATOR_DIRECTORY_NAME = "simulator";
+
+    private final Path localDataRoot;
+    private final String localDataRootSource;
+
+    public LocalDataPathService() {
+        this("", false);
+    }
+
+    @Autowired
+    public LocalDataPathService(
+            @Value("${rankpeek.local-data-root:}") String configuredLocalDataRoot,
+            @Value("${rankpeek.simulator.enabled:false}") boolean simulatorEnabled) {
+        Path configuredRoot = parseConfiguredRoot(configuredLocalDataRoot);
+        if (configuredRoot != null) {
+            this.localDataRoot = configuredRoot;
+            this.localDataRootSource = "rankpeek.local-data-root";
+        } else if (simulatorEnabled) {
+            this.localDataRoot = resolveSimulatorDataRoot();
+            this.localDataRootSource = "rankpeek.simulator.enabled";
+        } else {
+            this.localDataRoot = resolveDefaultDataRoot();
+            this.localDataRootSource = "default";
+        }
+    }
+
+    @PostConstruct
+    public void logLocalDataRoot() {
+        log.info("RankPeek local data root: {} (source={})",
+                localDataRoot.toAbsolutePath(),
+                localDataRootSource);
+    }
+
+    public Path getLocalDataRoot() {
+        return localDataRoot;
+    }
 
     public Path getCacheDatabasePath() {
         Path cacheDirectory = getCacheDirectory();
@@ -42,23 +84,34 @@ public class LocalDataPathService {
     }
 
     private Path getCacheDirectory() {
-        if (isWindows()) {
-            String appData = System.getenv("APPDATA");
-            if (appData != null && !appData.isBlank()) {
-                return Path.of(appData, "RankPeek", "cache");
-            }
-        }
-        return Path.of(System.getProperty("user.home", "."), ".rankpeek", "cache");
+        return localDataRoot.resolve(CACHE_DIRECTORY_NAME);
     }
 
     private Path resolveUserDataDirectory() {
+        return localDataRoot.resolve(USER_STORE_DIRECTORY_NAME);
+    }
+
+    private Path parseConfiguredRoot(String configuredLocalDataRoot) {
+        if (configuredLocalDataRoot == null || configuredLocalDataRoot.isBlank()) {
+            return null;
+        }
+        return Path.of(configuredLocalDataRoot.trim());
+    }
+
+    private Path resolveSimulatorDataRoot() {
+        return Path.of(System.getProperty("java.io.tmpdir", "."),
+                APP_DIRECTORY_NAME,
+                SIMULATOR_DIRECTORY_NAME);
+    }
+
+    private Path resolveDefaultDataRoot() {
         if (isWindows()) {
             String appData = System.getenv("APPDATA");
             if (appData != null && !appData.isBlank()) {
-                return Path.of(appData, "RankPeek", "user-store");
+                return Path.of(appData, APP_DIRECTORY_NAME);
             }
         }
-        return Path.of(System.getProperty("user.home", "."), ".rankpeek", "user-store");
+        return Path.of(System.getProperty("user.home", "."), ".rankpeek");
     }
 
     private boolean isWindows() {

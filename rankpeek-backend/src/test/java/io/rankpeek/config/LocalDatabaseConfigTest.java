@@ -37,4 +37,39 @@ class LocalDatabaseConfigTest {
             hikariDataSource.close();
         }
     }
+
+    @Test
+    void usesSimulatorIsolatedCachePathForEmbeddedH2Url() {
+        String originalTmpDir = System.getProperty("java.io.tmpdir");
+        try {
+            System.setProperty("java.io.tmpdir", tempDir.toString());
+            LocalDataPathService pathService = new LocalDataPathService("", true);
+
+            DataSource dataSource = new LocalDatabaseConfig().dataSource(pathService);
+
+            assertThat(dataSource).isInstanceOf(HikariDataSource.class);
+            HikariDataSource hikariDataSource = (HikariDataSource) dataSource;
+            try {
+                String expectedPath = tempDir.resolve("RankPeek")
+                        .resolve("simulator")
+                        .resolve("cache")
+                        .resolve("rankpeek-cache")
+                        .toAbsolutePath()
+                        .toString()
+                        .replace('\\', '/');
+                assertThat(hikariDataSource.getJdbcUrl())
+                        .startsWith("jdbc:h2:file:")
+                        .contains(expectedPath);
+                String appData = System.getenv("APPDATA");
+                if (appData != null && !appData.isBlank()) {
+                    assertThat(hikariDataSource.getJdbcUrl())
+                            .doesNotContain(Path.of(appData, "RankPeek").toString().replace('\\', '/'));
+                }
+            } finally {
+                hikariDataSource.close();
+            }
+        } finally {
+            System.setProperty("java.io.tmpdir", originalTmpDir);
+        }
+    }
 }
