@@ -129,7 +129,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { apiClient } from '@/api/httpClient'
+import { getGamingSessionData } from '@/api/sessionDataAdapter'
 import { wsClient } from '@/api/websocketClient'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
@@ -196,6 +196,8 @@ const phaseCn = computed(() => {
     InProgress: 'gaming.phase.InProgress',
     PreEndOfGame: 'gaming.phase.PreEndOfGame',
     EndOfGame: 'gaming.phase.EndOfGame',
+    PostGame: 'gaming.phase.EndOfGame',
+    POST_GAME: 'gaming.phase.EndOfGame',
     Lobby: 'gaming.phase.Lobby',
     Matchmaking: 'gaming.phase.Matchmaking',
     ReadyCheck: 'gaming.phase.ReadyCheck',
@@ -214,7 +216,7 @@ const phaseClass = computed(() => {
   if (!phase || phase === 'None') return 'phase-idle'
   if (phase === 'InProgress' || phase === 'GameStart') return 'phase-playing'
   if (phase === 'ChampSelect') return 'phase-select'
-  if (phase === 'EndOfGame' || phase === 'PreEndOfGame') return 'phase-ended'
+  if (phase === 'EndOfGame' || phase === 'PreEndOfGame' || phase === 'PostGame' || phase === 'POST_GAME') return 'phase-ended'
   return ''
 })
 
@@ -359,7 +361,7 @@ async function fetchSessionData(options: { showLoading?: boolean } = {}) {
   sessionFetchInFlight = true
   if (showLoading) loading.value = true
   try {
-    const data = await apiClient.getSessionData()
+    const data = await getGamingSessionData()
     sessionData.value = data
     failCount.value = 0
   } catch (e) {

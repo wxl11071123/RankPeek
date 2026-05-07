@@ -32,18 +32,20 @@ test('gaming page applies the home-style cursor glow to panels, buttons, and pla
   assert.match(source, /\.gaming-player-card\.surface-glow/)
 })
 
-test('uses compact team panels and keeps session fetch mode-free', () => {
+test('uses compact team panels and reads session data through the gaming adapter', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
   const headerIndex = source.indexOf('class="gaming-header surface-glow"')
   const teamsIndex = source.indexOf('class="teams-container"')
 
+  assert.match(source, /import \{ getGamingSessionData \} from '@\/api\/sessionDataAdapter'/)
   assert.match(source, /class="gaming-header surface-glow"/)
   assert.match(source, /class="team-panel team-blue surface-glow"/)
   assert.match(source, /class="team-panel team-red surface-glow"/)
   assert.match(source, /class="team-analysis-btn team-analysis-btn-blue control-glow"/)
   assert.match(source, /class="team-analysis-btn team-analysis-btn-red control-glow"/)
   assert.match(source, /<PlayerCard[\s\S]*class="gaming-player-card surface-glow"[\s\S]*:session-summoner="player"[\s\S]*:selected="isParticipantExpanded\(player\)"[\s\S]*@select-player="toggleParticipantRecentMatches\(player\)"/)
-  assert.match(source, /const data = await apiClient\.getSessionData\(\)/)
+  assert.match(source, /const data = await getGamingSessionData\(\)/)
+  assert.doesNotMatch(source, /apiClient\.getSessionData\(\)/)
   assert.doesNotMatch(source, /DEFAULT_ANALYSIS_QUEUE_MODE/)
   assert.doesNotMatch(source, /apiClient\.getSessionData\([^)]*mode/)
   assert.equal(headerIndex > -1 && teamsIndex > -1 && headerIndex < teamsIndex, true)
@@ -64,8 +66,20 @@ test('subscribes to cache update events and refreshes only relevant current-sess
   assert.match(source, /for \(const player of sessionData\.value\.teamTwo \|\| \[\]\)/)
   assert.match(source, /const puuid = player\?\.summoner\?\.puuid/)
   assert.match(source, /return currentPuuids\.has\(event\.puuid\)/)
-  assert.match(source, /apiClient\.getSessionData\(\)/)
+  assert.match(source, /getGamingSessionData\(\)/)
+  assert.doesNotMatch(source, /apiClient\.getSessionData\(\)/)
   assert.doesNotMatch(source, /DEFAULT_ANALYSIS_QUEUE_MODE/)
+})
+
+test('gaming phase labels include simulator post-game variants', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const phaseMap = source.match(/const phaseMap: Record<string, MessageKey> = \{[\s\S]*?\n\s*\}/)?.[0] || ''
+  const phaseClass = source.match(/const phaseClass = computed\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+
+  assert.match(phaseMap, /PostGame:\s*'gaming\.phase\.EndOfGame'/)
+  assert.match(phaseMap, /POST_GAME:\s*'gaming\.phase\.EndOfGame'/)
+  assert.match(phaseClass, /phase === 'PostGame'/)
+  assert.match(phaseClass, /phase === 'POST_GAME'/)
 })
 
 test('throttles cache update refreshes and respects paused refresh state', () => {

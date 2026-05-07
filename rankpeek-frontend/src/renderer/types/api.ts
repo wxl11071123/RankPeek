@@ -561,4 +561,17 @@ export interface SessionData {
   queueId: number
   teamOne: SessionSummoner[]
   teamTwo: SessionSummoner[]
+  source?: string
+  simulatorPhase?: string
+  roundIndex?: number
+  matchId?: string
+  step?: number
+  currentSummoner?: Summoner
+  lobby?: Lobby | null
+  teammates?: SessionSummoner[]
+  opponents?: SessionSummoner[]
+  championSelect?: Record<string, unknown> | null
+  loadingScreen?: Record<string, unknown> | null
+  endOfGame?: Record<string, unknown> | null
+  matchSummary?: Record<string, unknown> | null
 }
