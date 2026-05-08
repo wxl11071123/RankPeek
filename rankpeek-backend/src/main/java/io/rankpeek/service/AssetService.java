@@ -25,6 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class AssetService {
 
+    private static final long LCU_PERK_METADATA_REFRESH_INTERVAL_MS = 30_000L;
+
     private final LcuHttpClient lcuHttpClient;
 
     // 英雄缓存
@@ -35,6 +37,9 @@ public class AssetService {
     // 召唤师技能缓存 (id -> iconPath)
     private final Map<Long, String> spellIconPathCache = new ConcurrentHashMap<>();
     private final Map<Long, SpellMetadata> spellMetadataCache = new ConcurrentHashMap<>();
+    private final Map<Long, String> perkIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, PerkMetadata> perkMetadataCache = new ConcurrentHashMap<>();
+    private volatile long lastPerkMetadataRefreshAttemptAt = 0L;
     // 海克斯强化缓存 (id -> iconPath)
     private final Map<Long, String> augmentIconPathCache = new ConcurrentHashMap<>();
     private final Map<Long, AugmentMetadata> augmentMetadataCache = new ConcurrentHashMap<>();
@@ -56,6 +61,7 @@ public class AssetService {
             loadChampions();
             loadItems();
             loadSpells();
+            loadPerks();
             loadAugments();
             log.info("资源加载完成，英雄: {}, 装备: {}, 技能: {}, 海克斯: {}",
                     championCache.size(), itemIconPathCache.size(), spellIconPathCache.size(), augmentIconPathCache.size());
@@ -130,6 +136,48 @@ public class AssetService {
     /**
      * 加载内置英雄数据（备用）
      */
+    private synchronized void loadPerks() {
+        lastPerkMetadataRefreshAttemptAt = System.currentTimeMillis();
+        loadPerkEntries();
+        loadPerkStyles();
+        log.info("Perks loaded: {}", perkIconPathCache.size());
+    }
+
+    private void loadPerkEntries() {
+        try {
+            Perk[] perks = lcuHttpClient.get("lol-game-data/assets/v1/perks.json", Perk[].class);
+            if (perks != null) {
+                for (Perk perk : perks) {
+                    if (perk.id > 0) {
+                        if (perk.iconPath != null && !perk.iconPath.isEmpty()) {
+                            perkIconPathCache.put(perk.id, perk.iconPath);
+                        }
+                        perkMetadataCache.put(perk.id, toPerkMetadata(perk));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load perks: {}", e.getMessage());
+        }
+    }
+
+    private void loadPerkStyles() {
+        try {
+            PerkStylePayload payload = lcuHttpClient.get("lol-game-data/assets/v1/perkstyles.json", PerkStylePayload.class);
+            List<PerkStyle> styles = payload != null && payload.styles != null ? payload.styles : List.of();
+            for (PerkStyle style : styles) {
+                if (style.id > 0) {
+                    if (style.iconPath != null && !style.iconPath.isEmpty()) {
+                        perkIconPathCache.put(style.id, style.iconPath);
+                    }
+                    perkMetadataCache.put(style.id, toPerkMetadata(style));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load perk styles: {}", e.getMessage());
+        }
+    }
+
     private void loadBuiltInChampions() {
         // 常用英雄数据
         Map<Long, Champion> builtIn = Map.ofEntries(
@@ -334,6 +382,18 @@ public class AssetService {
     }
 
     /**
+     * Get perk icon path from LCU metadata.
+     */
+    public String getPerkIconPath(long id) {
+        String path = perkIconPathCache.get(id);
+        if (path == null || path.isEmpty()) {
+            ensurePerkMetadataFresh();
+            path = perkIconPathCache.get(id);
+        }
+        return path;
+    }
+
+    /**
      * 加载海克斯强化列表 (cherry-augments)
      */
     private void loadAugments() {
@@ -380,14 +440,24 @@ public class AssetService {
     }
 
     public GameAssetMetadata getGameAssetMetadata() {
+        ensurePerkMetadataFresh();
         return new GameAssetMetadata(
                 "lcu",
                 "zh_CN",
                 toStringKeyedMap(itemMetadataCache),
                 toStringKeyedMap(spellMetadataCache),
-                Map.of(),
+                toStringKeyedMap(perkMetadataCache),
                 toStringKeyedMap(augmentMetadataCache)
         );
+    }
+
+    private void ensurePerkMetadataFresh() {
+        long now = System.currentTimeMillis();
+        boolean hasPerkMetadata = !perkMetadataCache.isEmpty();
+        if (hasPerkMetadata && now - lastPerkMetadataRefreshAttemptAt < LCU_PERK_METADATA_REFRESH_INTERVAL_MS) {
+            return;
+        }
+        loadPerks();
     }
 
     private <T> Map<String, T> toStringKeyedMap(Map<Long, T> source) {
@@ -430,6 +500,30 @@ public class AssetService {
                 firstText(augment.tooltipTra),
                 firstText(augment.rarity),
                 normalizePublicIcon("augments", augment.id, iconPath)
+        );
+    }
+
+    private PerkMetadata toPerkMetadata(Perk perk) {
+        return new PerkMetadata(
+                perk.id,
+                firstText(perk.name),
+                firstText(perk.description, perk.longDesc, perk.shortDesc, perk.tooltip),
+                firstText(perk.tooltip),
+                firstText(perk.shortDesc),
+                firstText(perk.longDesc),
+                firstText(perk.iconPath)
+        );
+    }
+
+    private PerkMetadata toPerkMetadata(PerkStyle style) {
+        return new PerkMetadata(
+                style.id,
+                firstText(style.name),
+                firstText(style.tooltip),
+                firstText(style.tooltip),
+                "",
+                "",
+                firstText(style.iconPath)
         );
     }
 
@@ -541,7 +635,7 @@ public class AssetService {
             String locale,
             Map<String, ItemMetadata> items,
             Map<String, SpellMetadata> summonerSpells,
-            Map<String, GameAssetMetadataEntry> perks,
+            Map<String, PerkMetadata> perks,
             Map<String, AugmentMetadata> augments
     ) {
     }
@@ -579,6 +673,17 @@ public class AssetService {
             String description,
             String tooltip,
             String plaintext,
+            String icon
+    ) {
+    }
+
+    public record PerkMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String shortDesc,
+            String longDesc,
             String icon
     ) {
     }
@@ -664,6 +769,54 @@ public class AssetService {
 
         @JsonProperty("plaintext")
         private String plaintext;
+
+        @JsonProperty("iconPath")
+        private String iconPath;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Perk {
+        @JsonProperty("id")
+        private long id;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("shortDesc")
+        private String shortDesc;
+
+        @JsonProperty("longDesc")
+        private String longDesc;
+
+        @JsonProperty("iconPath")
+        private String iconPath;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PerkStylePayload {
+        @JsonProperty("styles")
+        private List<PerkStyle> styles;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PerkStyle {
+        @JsonProperty("id")
+        private long id;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
 
         @JsonProperty("iconPath")
         private String iconPath;

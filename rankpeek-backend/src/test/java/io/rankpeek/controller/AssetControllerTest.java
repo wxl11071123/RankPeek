@@ -61,7 +61,15 @@ class AssetControllerTest {
                         "",
                         "summoner-spells/4.png"
                 )),
-                Map.of(),
+                Map.of("8992", new AssetService.PerkMetadata(
+                        8992,
+                        "冥火之触",
+                        "用一个技能对一名英雄造成伤害时，会灼烧其造成自适应伤害。",
+                        "用一个技能对一名英雄造成伤害时，会持续灼烧该英雄。",
+                        "用一个技能对一名英雄造成伤害时，会持续灼烧该英雄。",
+                        "用一个技能对一名英雄造成伤害时，会灼烧其造成自适应伤害。",
+                        "/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg"
+                )),
                 Map.of("2005", new AssetService.AugmentMetadata(
                         2005,
                         "扳机炼狱",
@@ -90,6 +98,22 @@ class AssetControllerTest {
                 .andExpect(jsonPath("$.summonerSpells.4.name").value("闪现"))
                 .andExpect(jsonPath("$.summonerSpells.4.icon").value("summoner-spells/4.png"))
                 .andExpect(jsonPath("$.augments.2005.name").value("扳机炼狱"))
+                .andExpect(jsonPath("$.perks.8992.name").value("冥火之触"))
+                .andExpect(jsonPath("$.perks.8992.longDesc").value("用一个技能对一名英雄造成伤害时，会灼烧其造成自适应伤害。"))
+                .andExpect(jsonPath("$.perks.8992.icon").value("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg"))
                 .andExpect(jsonPath("$.augments.2005.rarity").value("gold"));
+    }
+
+    @Test
+    void perkIconEndpointProxiesLcuPerkIconPath() throws Exception {
+        byte[] image = new byte[]{1, 2, 3};
+        String iconPath = "/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg";
+        when(assetService.getPerkIconPath(8992L)).thenReturn(iconPath);
+        when(lcuHttpClient.getBytes(iconPath)).thenReturn(image);
+
+        mockMvc.perform(get("/api/v1/asset/perk/8992"))
+                .andExpect(status().isOk())
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsByteArray()).isEqualTo(image))
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentType()).isEqualTo("image/jpeg"));
     }
 }

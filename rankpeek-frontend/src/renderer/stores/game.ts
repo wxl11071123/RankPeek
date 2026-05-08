@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
+import { loadLcuGameAssetMetadataOverlay } from '@/utils/gameAssetUrls'
 import type { GameState, Summoner, Rank, QueueInfo, MatchHistory } from '@/types/api'
 
 export const useGameStore = defineStore('game', () => {
@@ -14,6 +15,9 @@ export const useGameStore = defineStore('game', () => {
   const rankError = ref<string | null>(null)
   const matchHistory = ref<MatchHistory[]>([])
   let rankRequestId = 0
+  let lastAssetMetadataOverlayRefreshAt = 0
+  let assetMetadataOverlayRefreshPromise: Promise<void> | null = null
+  const assetMetadataOverlayRefreshIntervalMs = 60_000
 
   // 计算属性
   const isConnected = computed(() => connected.value)
@@ -39,6 +43,7 @@ export const useGameStore = defineStore('game', () => {
       const stillConnected = await apiClient.checkConnection()
       if (stillConnected) {
         connected.value = true
+        refreshLcuGameAssetMetadataOverlay()
         if (state.phase) {
           gamePhase.value = state.phase
         }
@@ -60,6 +65,7 @@ export const useGameStore = defineStore('game', () => {
       return
     }
 
+    refreshLcuGameAssetMetadataOverlay()
     currentSummoner.value = state.summoner ?? currentSummoner.value
 
     if (state.summoner?.puuid) {
@@ -99,6 +105,7 @@ export const useGameStore = defineStore('game', () => {
         return
       }
 
+      refreshLcuGameAssetMetadataOverlay()
       const state = await apiClient.getGameState()
       await applyGameState(state, { confirmDisconnect: false })
     } catch {
@@ -107,6 +114,7 @@ export const useGameStore = defineStore('game', () => {
       if (!connectedNow) {
         clearConnectedSessionState()
       } else if (!currentSummoner.value) {
+        refreshLcuGameAssetMetadataOverlay()
         void refreshSummoner()
       }
     }
@@ -119,6 +127,7 @@ export const useGameStore = defineStore('game', () => {
     try {
       const summoner = await apiClient.getMySummoner()
       connected.value = true
+      refreshLcuGameAssetMetadataOverlay()
       currentSummoner.value = summoner
       await fetchRank(summoner.puuid)
     } catch (error) {
@@ -164,7 +173,20 @@ export const useGameStore = defineStore('game', () => {
   function clearConnectedSessionState() {
     gamePhase.value = ''
     currentSummoner.value = null
+    lastAssetMetadataOverlayRefreshAt = 0
     clearRankState()
+  }
+
+  function refreshLcuGameAssetMetadataOverlay() {
+    const now = Date.now()
+    if (assetMetadataOverlayRefreshPromise) return
+    if (now - lastAssetMetadataOverlayRefreshAt < assetMetadataOverlayRefreshIntervalMs) return
+
+    lastAssetMetadataOverlayRefreshAt = now
+    assetMetadataOverlayRefreshPromise = loadLcuGameAssetMetadataOverlay()
+      .finally(() => {
+        assetMetadataOverlayRefreshPromise = null
+      })
   }
 
   /**

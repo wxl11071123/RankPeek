@@ -102,6 +102,82 @@ class AssetServiceTest {
     }
 
     @Test
+    void loadPerksCachesLcuMetadataAndStyleIconsForFrontendTooltips() {
+        AssetService.Perk perk = new AssetService.Perk();
+        perk.setId(8992);
+        perk.setName("冥火之触");
+        perk.setTooltip("用一个技能对一名英雄造成伤害时，会持续灼烧该英雄。");
+        perk.setShortDesc("用一个技能对一名英雄造成伤害时，会持续灼烧该英雄。");
+        perk.setLongDesc("用一个技能对一名英雄造成伤害时，会灼烧其造成自适应伤害。");
+        perk.setIconPath("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg");
+
+        AssetService.PerkStylePayload stylePayload = new AssetService.PerkStylePayload();
+        AssetService.PerkStyle style = new AssetService.PerkStyle();
+        style.setId(8200);
+        style.setName("巫术");
+        style.setTooltip("强化技能和资源控制");
+        style.setIconPath("/lol-game-data/assets/v1/perk-images/Styles/7202_Sorcery.png");
+        stylePayload.setStyles(List.of(style));
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/perks.json"), eq(AssetService.Perk[].class)))
+                .thenReturn(new AssetService.Perk[]{perk});
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/perkstyles.json"), eq(AssetService.PerkStylePayload.class)))
+                .thenReturn(stylePayload);
+
+        ReflectionTestUtils.invokeMethod(service, "loadPerks");
+
+        AssetService.GameAssetMetadata metadata = service.getGameAssetMetadata();
+        AssetService.PerkMetadata perkEntry = metadata.perks().get("8992");
+        AssetService.PerkMetadata styleEntry = metadata.perks().get("8200");
+
+        assertThat(perkEntry).isNotNull();
+        assertThat(perkEntry.id()).isEqualTo(8992);
+        assertThat(perkEntry.name()).isEqualTo("冥火之触");
+        assertThat(perkEntry.shortDesc()).contains("灼烧");
+        assertThat(perkEntry.longDesc()).contains("自适应伤害");
+        assertThat(perkEntry.tooltip()).contains("灼烧");
+        assertThat(perkEntry.icon()).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg");
+        assertThat(service.getPerkIconPath(8992)).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg");
+
+        assertThat(styleEntry).isNotNull();
+        assertThat(styleEntry.name()).isEqualTo("巫术");
+        assertThat(styleEntry.description()).isEqualTo("强化技能和资源控制");
+        assertThat(styleEntry.icon()).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/7202_Sorcery.png");
+        assertThat(service.getPerkIconPath(8200)).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/7202_Sorcery.png");
+    }
+
+    @Test
+    void getGameAssetMetadataRefreshesPerksAfterStartupLcuFailure() {
+        AssetService.Perk futurePerk = new AssetService.Perk();
+        futurePerk.setId(999991);
+        futurePerk.setName("Future LCU Perk");
+        futurePerk.setTooltip("Future tooltip from LCU.");
+        futurePerk.setShortDesc("Future short text.");
+        futurePerk.setLongDesc("Future long description from LCU.");
+        futurePerk.setIconPath("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/Fake.jpg");
+
+        AssetService.PerkStylePayload emptyStyles = new AssetService.PerkStylePayload();
+        emptyStyles.setStyles(List.of());
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/perks.json"), eq(AssetService.Perk[].class)))
+                .thenThrow(new RuntimeException("LCU unavailable"))
+                .thenReturn(new AssetService.Perk[]{futurePerk});
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/perkstyles.json"), eq(AssetService.PerkStylePayload.class)))
+                .thenReturn(emptyStyles);
+
+        ReflectionTestUtils.invokeMethod(service, "loadPerks");
+
+        AssetService.GameAssetMetadata metadata = service.getGameAssetMetadata();
+        AssetService.PerkMetadata entry = metadata.perks().get("999991");
+
+        assertThat(entry).isNotNull();
+        assertThat(entry.name()).isEqualTo("Future LCU Perk");
+        assertThat(entry.longDesc()).isEqualTo("Future long description from LCU.");
+        assertThat(entry.icon()).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/Fake.jpg");
+        assertThat(service.getPerkIconPath(999991)).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/Fake.jpg");
+    }
+
+    @Test
     void loadAugmentsCachesLcuMetadataForFrontendTooltips() {
         AssetService.CherryAugment augment = new AssetService.CherryAugment();
         augment.setId(2005);

@@ -906,7 +906,14 @@ function getMetadataAssetUrl(kind: GameAssetKind, id: number): string {
   const value = kind === 'spell'
     ? metadata.summonerSpells[String(id)]?.icon
     : metadata.perks[String(id)]?.icon
+  if (kind === 'perk' && isLcuGameDataAssetPath(value)) {
+    return getBackendAssetUrl(kind, id)
+  }
   return value ? normalizeManifestAssetPath(value) : ''
+}
+
+function isLcuGameDataAssetPath(value: unknown): boolean {
+  return typeof value === 'string' && /^\/?lol-game-data\/assets\//i.test(value.trim())
 }
 
 function getManifestObjectiveIconUrl(kind: ObjectiveIconKind): string {
@@ -952,7 +959,7 @@ function getBackendAssetUrl(kind: GameAssetKind, id: number): string {
     case 'profile':
       return `${BACKEND_ASSET_BASE}/profile/${id}`
     case 'perk':
-      return ''
+      return `${BACKEND_ASSET_BASE}/perk/${id}`
   }
 }
 

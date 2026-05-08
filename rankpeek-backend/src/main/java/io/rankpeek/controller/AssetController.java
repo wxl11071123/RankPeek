@@ -125,12 +125,11 @@ public class AssetController {
     }
 
     /**
-     * 获取符文/海克斯强化图标
+     * Get perk icon from the current LCU asset path.
      */
     @GetMapping("/perk/{id}")
     public ResponseEntity<byte[]> getPerkIcon(@PathVariable Long id) {
-        // 海克斯强化使用 augment 端点获取
-        String iconPath = assetService.getAugmentIconPath(id);
+        String iconPath = assetService.getPerkIconPath(id);
         if (iconPath == null || iconPath.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -138,7 +137,7 @@ public class AssetController {
         byte[] imageData = lcuHttpClient.getBytes(iconPath);
         if (imageData != null && imageData.length > 0) {
             HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_PNG);
+            headers.setContentType(mediaTypeForIconPath(iconPath));
             headers.setCacheControl("public, max-age=86400");
             return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
         }
@@ -149,6 +148,17 @@ public class AssetController {
     /**
      * 获取海克斯强化稀有度
      */
+    private MediaType mediaTypeForIconPath(String iconPath) {
+        String normalized = iconPath == null ? "" : iconPath.toLowerCase();
+        if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) {
+            return MediaType.IMAGE_JPEG;
+        }
+        if (normalized.endsWith(".svg")) {
+            return MediaType.valueOf("image/svg+xml");
+        }
+        return MediaType.IMAGE_PNG;
+    }
+
     @GetMapping("/augment/{id}/rarity")
     public ApiResponse<String> getAugmentRarity(@PathVariable Long id) {
         String rarity = assetService.getAugmentRarity(id);

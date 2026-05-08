@@ -182,7 +182,7 @@ test('game asset helpers fall back through local backend before remote URLs', ()
   assert.equal(getSummonerSpellIconUrl(4), 'http://127.0.0.1:8080/api/v1/asset/spell/4')
   assert.equal(getProfileIconUrl(29), 'http://127.0.0.1:8080/api/v1/asset/profile/29')
   assert.equal(getAugmentIconUrl(12345), 'http://127.0.0.1:8080/api/v1/asset/augment/12345')
-  assert.equal(getPerkIconUrl(8005), getAssetPlaceholderUrl())
+  assert.equal(getPerkIconUrl(8005), 'http://127.0.0.1:8080/api/v1/asset/perk/8005')
   assert.doesNotMatch(getPerkIconUrl(8005), /raw\.communitydragon\.org\/latest\/plugins\/rcp-be-lol-game-data\/global\/default\/v1\/perks\/8005\.png/)
 })
 
@@ -204,6 +204,78 @@ test('perk icon helper uses metadata local icon paths when manifest is missing',
   assert.equal(getPerkIconUrl(8135), './game-assets/perks/8135.png')
   assert.equal(getPerkAssetDetails(8135)?.name, 'Treasure Hunter')
   assert.doesNotMatch(getPerkIconUrl(8135), /raw\.communitydragon\.org\/latest\/plugins\/rcp-be-lol-game-data\/global\/default\/v1\/perks\/8135\.png/)
+})
+
+test('perk icon helper uses backend proxy for LCU metadata icon paths when manifest is missing', () => {
+  resetGameAssetResolverForTest()
+  setGameAssetMetadataForTest({
+    version: 'lcu',
+    locale: 'zh_CN',
+    perks: {
+      8992: {
+        id: 8992,
+        name: 'Deathfire Touch',
+        shortDesc: 'Damaging a champion with an ability burns them.',
+        longDesc: 'Damaging a champion with an ability burns them for adaptive damage.',
+        icon: '/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg'
+      }
+    }
+  })
+
+  const iconUrl = getPerkIconUrl(8992)
+  const tooltip = getPerkTooltipDetails(8992)
+
+  assert.equal(iconUrl, 'http://127.0.0.1:8080/api/v1/asset/perk/8992')
+  assert.notEqual(iconUrl, getAssetPlaceholderUrl())
+  assert.equal(tooltip?.name, 'Deathfire Touch')
+  assert.match(tooltip?.description || '', /burns them/i)
+  assert.notEqual(tooltip?.description, '暂无详细说明')
+  assert.equal(tooltip?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/perk/8992')
+})
+
+test('LCU metadata overlay supports future perks that are absent from static assets', async () => {
+  resetGameAssetResolverForTest()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string) => ({
+    ok: true,
+    json: async () => url.includes('local')
+      ? {
+          version: 'static',
+          locale: 'zh_CN',
+          perks: {}
+        }
+      : {
+          version: 'lcu',
+          locale: 'zh_CN',
+          perks: {
+            999991: {
+              id: 999991,
+              name: 'Future LCU Perk',
+              tooltip: '<mainText>Future tooltip from LCU.</mainText>',
+              longDesc: '<mainText>Future <font color="#fff">long</font><br>description from LCU.</mainText>',
+              icon: '/lol-game-data/assets/v1/perk-images/Styles/Sorcery/Fake.jpg'
+            }
+          }
+        }
+  })) as unknown as typeof fetch
+
+  try {
+    await loadGameAssetMetadata('http://asset.test/local-metadata.json')
+    assert.equal(getPerkAssetDetails(999991), null)
+
+    await loadLcuGameAssetMetadataOverlay('http://asset.test/lcu-metadata')
+
+    const iconUrl = getPerkIconUrl(999991)
+    const tooltip = getPerkTooltipDetails(999991)
+    assert.equal(iconUrl, 'http://127.0.0.1:8080/api/v1/asset/perk/999991')
+    assert.doesNotMatch(iconUrl, /game-assets\/lol-game-data\/assets/i)
+    assert.equal(tooltip?.name, 'Future LCU Perk')
+    assert.match(tooltip?.description || '', /Future.*description from LCU/s)
+    assert.doesNotMatch(tooltip?.description || '', /<br|<font|<mainText/i)
+    assert.equal(tooltip?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/perk/999991')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('invalid asset ids do not create broken image URLs', () => {
@@ -558,7 +630,7 @@ test('tooltip details fall back to readable names and no-detail copy when metada
     name: '符文 8005',
     subtitle: '',
     description: '暂无详细说明',
-    iconUrl: getAssetPlaceholderUrl()
+    iconUrl: 'http://127.0.0.1:8080/api/v1/asset/perk/8005'
   })
   assert.deepEqual(getSummonerSpellTooltipDetails(4), {
     kind: 'spell',
@@ -581,6 +653,13 @@ test('local game asset metadata contains tooltip text for common items, perks, a
   assert.equal(typeof metadata.perks['8005']?.name, 'string')
   assert.equal(typeof metadata.perks['8100']?.name, 'string')
   assert.equal(typeof metadata.perks['8135']?.name, 'string')
+  assert.equal(typeof metadata.perks['8992']?.name, 'string')
+  assert.ok([
+    metadata.perks['8992']?.description,
+    metadata.perks['8992']?.shortDesc,
+    metadata.perks['8992']?.longDesc,
+    metadata.perks['8992']?.tooltip
+  ].some(value => typeof value === 'string' && value.trim()))
   assert.equal(typeof metadata.summonerSpells?.['4']?.name, 'string')
   assert.equal(typeof metadata.summonerSpells?.['4']?.description, 'string')
   assert.equal(typeof metadata.summonerSpells?.['4']?.icon, 'string')
