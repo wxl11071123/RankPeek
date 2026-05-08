@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createContext, runInContext } from 'node:vm'
+import * as ts from 'typescript'
 import {
   getAugmentRarityClass,
   getAugmentTooltipDetails,
@@ -47,6 +49,70 @@ function assertOrdered(source: string, snippets: string[]): void {
     `missing ordered snippet index: ${indexes.join(', ')}`
   )
   assert.deepEqual([...indexes].sort((left, right) => left - right), indexes)
+}
+
+interface ObjectiveCountHarness {
+  readStructureObjectiveCount: (teamId: number, summary: Record<string, unknown>, sourceKey: string) => number | null
+  formatObjectiveTitle: (label: string, count: number | null) => string
+  getObjectiveCountText: (item: { count: number | null }) => string
+}
+
+function createObjectiveCountHarness(gameDetail: Record<string, unknown>): ObjectiveCountHarness {
+  const source = readInlineDetailSource()
+  const script = `
+    const STRUCTURE_OBJECTIVE_SOURCES = {
+      turret: {
+        summaryKey: 'turretKills',
+        eventKind: 'turret',
+        directStatKeys: ['turretKills'],
+        lastFallbackStatKeys: ['turretTakedowns']
+      },
+      inhibitor: {
+        summaryKey: 'inhibitorKills',
+        eventKind: 'inhibitor',
+        directStatKeys: ['inhibitorKills'],
+        lastFallbackStatKeys: ['inhibitorTakedowns']
+      },
+      turretPlate: {
+        summaryKey: 'turretPlateKills',
+        summaryKeys: ['turretPlateKills', 'turretPlatesTaken'],
+        eventKind: 'turretPlate',
+        directStatKeys: ['turretPlatesTaken'],
+        lastFallbackStatKeys: []
+      }
+    }
+    const displayGameDetail = { value: gameDetail }
+    const allPlayers = { value: gameDetail.participants || [] }
+    ${readFunctionBlock(source, 'function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSummary, sourceKey: StructureObjectiveSourceKey): number | null')}
+    ${readFunctionBlock(source, 'function readStructureSummaryObjectiveCount(summary: TeamObjectiveSummary, source: StructureObjectiveSource): number | null')}
+    ${readFunctionBlock(source, "function countObjectiveEvents(summary: TeamObjectiveSummary, teamId: number, kind: TeamObjectiveEvent['kind']): number | null")}
+    ${readFunctionBlock(source, 'function sumTeamParticipantObjectiveStats(teamId: number, fieldKeys: string[]): number | null')}
+    ${readFunctionBlock(source, 'function readParticipantObjectiveStat(player: MatchDetailParticipant, fieldKeys: string[]): number | null')}
+    ${readFunctionBlock(source, 'function readParticipantObjectiveField(player: MatchDetailParticipant, key: string): number | null')}
+    ${readFunctionBlock(source, 'function matchesObjectiveEvent(')}
+    ${readFunctionBlock(source, 'function getObjectiveEventOwnerTeamId(event: TeamObjectiveEvent): number | null')}
+    ${readFunctionBlock(source, 'function getObjectiveCountText(item: ObjectiveDisplayItem): string')}
+    ${readFunctionBlock(source, 'function formatObjectiveTitle(label: string, count: number | null): string')}
+    ${readFunctionBlock(source, 'function readNullableObjectiveCount(value: unknown): number | null')}
+    ${readFunctionBlock(source, 'function readStatNumber(player: MatchDetailParticipant, key: string): number | null')}
+    ${readFunctionBlock(source, 'function normalizePositiveInteger(value: unknown): number | null')}
+    ${readFunctionBlock(source, 'function normalizeTeamId(value: unknown): number | null')}
+    ${readFunctionBlock(source, 'function normalizeFiniteNumber(value: unknown): number | null')}
+    globalThis.__objectiveCountHarness = {
+      readStructureObjectiveCount,
+      formatObjectiveTitle,
+      getObjectiveCountText
+    }
+  `
+  const compiled = ts.transpileModule(script, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText
+  const context = createContext({ gameDetail })
+  runInContext(compiled, context)
+  return (context as { __objectiveCountHarness: ObjectiveCountHarness }).__objectiveCountHarness
 }
 
 test('inline match detail exposes compact overview, rune, and chart tabs', () => {
@@ -544,13 +610,18 @@ test('turret plate counts read summary aliases before falling back to participan
   assert.match(source, /summaryKeys\?: StructureObjectiveSummaryKey\[\]/)
   assert.match(source, /turretPlate:[\s\S]*summaryKey: 'turretPlateKills'[\s\S]*summaryKeys: \['turretPlateKills', 'turretPlatesTaken'\]/)
   assert.match(summaryBlock, /const keys = source\.summaryKeys \?\? \[source\.summaryKey\]/)
+  assert.match(summaryBlock, /let knownZeroCount: number \| null = null/)
   assert.match(summaryBlock, /readNullableObjectiveCount\(summary\[key\]\)/)
+  assert.match(summaryBlock, /if \(count !== null && count > 0\) \{[\s\S]*return count/)
+  assert.match(summaryBlock, /return knownZeroCount/)
   assert.match(countBlock, /const summaryCount = readStructureSummaryObjectiveCount\(summary, source\)/)
-  assert.match(countBlock, /if \(sourceKey === 'turretPlate' && summaryCount !== null\) \{[\s\S]*return summaryCount[\s\S]*\}/)
+  assert.match(countBlock, /if \(sourceKey === 'turretPlate'\) \{[\s\S]*summaryCount !== null && summaryCount > 0[\s\S]*return summaryCount/)
+  assert.doesNotMatch(countBlock, /sourceKey === 'turretPlate' && summaryCount !== null\) \{[\s\S]*return summaryCount/)
   assert.match(countBlock, /const directStatCount = sumTeamParticipantObjectiveStats\(teamId, source\.directStatKeys\)/)
   assert.match(participantFieldBlock, /const statsValue = readStatNumber\(player, key\)/)
   assert.match(participantFieldBlock, /const challengeValue = normalizeFiniteNumber\(challenges\?\.\[key\]\)/)
-  assert.match(countBlock, /if \(sourceKey === 'turretPlate' && eventCount !== null\) \{[\s\S]*return eventCount[\s\S]*\}/)
+  assert.match(countBlock, /directStatCount !== null && directStatCount > 0[\s\S]*return directStatCount/)
+  assert.match(countBlock, /eventCount !== null && eventCount > 0[\s\S]*return eventCount/)
   assert.match(countTextBlock, /return item\.count === null \? '--' : String\(item\.count\)/)
 })
 
@@ -575,6 +646,127 @@ test('missing turret plate fields stay unknown instead of rendering a synthetic 
   assert.doesNotMatch(headerBlock, /\{\{ item\.count \}\}/)
   assert.match(source, /function readNullableObjectiveCount\(value: unknown\): number \| null/)
   assert.match(source, /turretPlate:[\s\S]*summaryKeys: \['turretPlateKills', 'turretPlatesTaken'\][\s\S]*directStatKeys: \['turretPlatesTaken'\][\s\S]*lastFallbackStatKeys: \[\]/)
+})
+
+test('turret plate display uses participant stat total when summary zero is less trustworthy', () => {
+  const gameDetail = {
+    participants: [
+      { participantId: 1, teamId: 100, stats: { turretPlatesTaken: 2 } },
+      { participantId: 2, teamId: 100, stats: { turretPlatesTaken: 1 } },
+      { participantId: 3, teamId: 100, stats: { turretPlatesTaken: 3 } },
+      { participantId: 6, teamId: 200, stats: { turretPlatesTaken: 4 } }
+    ],
+    teamObjectives: [
+      {
+        teamId: 100,
+        turretPlateKills: 0
+      }
+    ]
+  }
+  const summary = (gameDetail.teamObjectives[0] as unknown) as Record<string, unknown>
+  const harness = createObjectiveCountHarness(gameDetail)
+
+  const count = harness.readStructureObjectiveCount(100, summary, 'turretPlate')
+
+  assert.equal(count, 6)
+  assert.equal(harness.formatObjectiveTitle('plate', count), 'plate x6')
+})
+
+test('turret plate display uses a positive summary alias before treating another alias zero as final', () => {
+  const gameDetail = {
+    participants: [
+      { participantId: 1, teamId: 100, stats: {} }
+    ],
+    teamObjectives: [
+      {
+        teamId: 100,
+        turretPlateKills: 0,
+        turretPlatesTaken: 6
+      }
+    ]
+  }
+  const summary = (gameDetail.teamObjectives[0] as unknown) as Record<string, unknown>
+  const harness = createObjectiveCountHarness(gameDetail)
+
+  const count = harness.readStructureObjectiveCount(100, summary, 'turretPlate')
+
+  assert.equal(count, 6)
+  assert.equal(harness.formatObjectiveTitle('plate', count), 'plate x6')
+})
+
+test('turret plate display prefers positive timeline events over a known zero summary', () => {
+  const gameDetail = {
+    participants: [
+      { participantId: 1, teamId: 100, stats: {} }
+    ],
+    teamObjectives: [
+      {
+        teamId: 100,
+        turretPlateKills: 0,
+        objectiveEvents: [
+          { kind: 'turretPlate', teamId: 100 },
+          { kind: 'turretPlate', teamId: 100 },
+          { kind: 'turretPlate', teamId: 100 }
+        ]
+      }
+    ]
+  }
+  const summary = (gameDetail.teamObjectives[0] as unknown) as Record<string, unknown>
+  const harness = createObjectiveCountHarness(gameDetail)
+
+  const count = harness.readStructureObjectiveCount(100, summary, 'turretPlate')
+
+  assert.equal(count, 3)
+  assert.equal(harness.formatObjectiveTitle('plate', count), 'plate x3')
+})
+
+test('turret plate display falls back to objective events when summary and participant stats are unknown', () => {
+  const gameDetail = {
+    participants: [
+      { participantId: 1, teamId: 100, stats: {} },
+      { participantId: 2, teamId: 100, stats: {} },
+      { participantId: 3, teamId: 100, stats: {} }
+    ],
+    teamObjectives: [
+      {
+        teamId: 100,
+        turretPlateKills: null,
+        objectiveEvents: [
+          { kind: 'turretPlate', teamId: 100 },
+          { kind: 'turretPlate', teamId: 100 },
+          { kind: 'turretPlate', teamId: 100 }
+        ]
+      }
+    ]
+  }
+  const summary = (gameDetail.teamObjectives[0] as unknown) as Record<string, unknown>
+  const harness = createObjectiveCountHarness(gameDetail)
+
+  const count = harness.readStructureObjectiveCount(100, summary, 'turretPlate')
+
+  assert.equal(count, 3)
+  assert.equal(harness.formatObjectiveTitle('plate', count), 'plate x3')
+})
+
+test('turret plate display keeps all unknown sources as an unknown count', () => {
+  const gameDetail = {
+    participants: [
+      { participantId: 1, teamId: 100, stats: {} },
+      { participantId: 2, teamId: 100, stats: {} }
+    ],
+    teamObjectives: [
+      {
+        teamId: 100
+      }
+    ]
+  }
+  const summary = (gameDetail.teamObjectives[0] as unknown) as Record<string, unknown>
+  const harness = createObjectiveCountHarness(gameDetail)
+
+  const count = harness.readStructureObjectiveCount(100, summary, 'turretPlate')
+
+  assert.equal(count, null)
+  assert.equal(harness.getObjectiveCountText({ count }), '--')
 })
 
 test('structure objective tooltips use actor ownership before event team id and fall back to participant stats', () => {

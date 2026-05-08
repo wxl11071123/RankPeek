@@ -592,17 +592,32 @@ function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSumma
   const lastFallbackStatCount = sumTeamParticipantObjectiveStats(teamId, source.lastFallbackStatKeys)
   const eventCount = countObjectiveEvents(summary, teamId, source.eventKind)
 
-  if (sourceKey === 'turretPlate' && summaryCount !== null) {
-    return summaryCount
-  }
-  if (sourceKey === 'turretPlate' && directStatCount !== null) {
-    return directStatCount
-  }
-  if (sourceKey === 'turretPlate' && lastFallbackStatCount !== null) {
-    return lastFallbackStatCount
-  }
-  if (sourceKey === 'turretPlate' && eventCount !== null) {
-    return eventCount
+  if (sourceKey === 'turretPlate') {
+    if (summaryCount !== null && summaryCount > 0) {
+      return summaryCount
+    }
+    if (directStatCount !== null && directStatCount > 0) {
+      return directStatCount
+    }
+    if (eventCount !== null && eventCount > 0) {
+      return eventCount
+    }
+    if (lastFallbackStatCount !== null && lastFallbackStatCount > 0) {
+      return lastFallbackStatCount
+    }
+    if (summaryCount !== null) {
+      return summaryCount
+    }
+    if (directStatCount !== null) {
+      return directStatCount
+    }
+    if (eventCount !== null) {
+      return eventCount
+    }
+    if (lastFallbackStatCount !== null) {
+      return lastFallbackStatCount
+    }
+    return null
   }
 
   if (eventCount !== null && eventCount > 0) {
@@ -637,13 +652,17 @@ function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSumma
 
 function readStructureSummaryObjectiveCount(summary: TeamObjectiveSummary, source: StructureObjectiveSource): number | null {
   const keys = source.summaryKeys ?? [source.summaryKey]
+  let knownZeroCount: number | null = null
   for (const key of keys) {
     const count = readNullableObjectiveCount(summary[key])
-    if (count !== null) {
+    if (count !== null && count > 0) {
       return count
     }
+    if (count !== null && knownZeroCount === null) {
+      knownZeroCount = count
+    }
   }
-  return null
+  return knownZeroCount
 }
 
 function countObjectiveEvents(summary: TeamObjectiveSummary, teamId: number, kind: TeamObjectiveEvent['kind']): number | null {

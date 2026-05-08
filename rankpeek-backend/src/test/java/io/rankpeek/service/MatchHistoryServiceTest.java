@@ -508,6 +508,57 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getGameDetailById_defaultSourceMergesPositiveLcuTurretPlateFallbackOverSgpZero() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var sgpDetail = renderableGameDetail(111L);
+        sgpDetail.setQueueId(420);
+        var sgpSummary = teamObjectiveSummary(
+                100,
+                List.of(),
+                1,
+                1,
+                0,
+                null,
+                null,
+                null,
+                Map.of()
+        );
+        sgpSummary.setTurretPlateKills(0);
+        sgpDetail.setTeamObjectives(List.of(sgpSummary));
+        var lcuDetail = renderableGameDetail(111L);
+        lcuDetail.setQueueId(420);
+        var lcuSummary = teamObjectiveSummary(
+                100,
+                List.of(56, 84),
+                1,
+                1,
+                0,
+                1,
+                3,
+                null,
+                Map.of()
+        );
+        lcuSummary.setTurretPlateKills(6);
+        lcuDetail.setTeamObjectives(List.of(lcuSummary));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(111L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(matchHistoryProvider.fetchGameDetail(111L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(lcuDetail);
+
+        var result = sourceAwareService.getGameDetailById(111L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        var summary = result.getTeamObjectives().getFirst();
+        assertThat(summary.getTurretPlateKills()).isEqualTo(6);
+        assertThat(summary.getBans()).containsExactly(56, 84);
+        assertThat(summary.getHeraldKills()).isEqualTo(1);
+        assertThat(summary.getVoidGrubKills()).isEqualTo(3);
+        verify(sgpMatchHistoryProvider).fetchGameDetail(111L, options(MatchHistorySource.AUTO, false));
+        verify(matchHistoryProvider).fetchGameDetail(111L, options(MatchHistorySource.LCU, false));
+    }
+
+    @Test
     void getGameDetailById_defaultSourceMergesLcuFallbackBansIntoTypedSgpObjectives() {
         MatchHistoryService sourceAwareService = sourceAwareService();
         var sgpDetail = renderableGameDetail(108L);

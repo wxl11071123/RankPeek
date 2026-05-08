@@ -309,6 +309,52 @@ class SgpGameDetailMapperTest {
     }
 
     @Test
+    void mapGameDetails_keepsMissingNestedTurretPlateObjectiveNullInsteadOfDefaultZero() {
+        ObjectNode response = objectMapper.createObjectNode();
+        ObjectNode game = gameNode(300019L, true);
+        game.put("queueId", 420);
+        ArrayNode teams = game.putArray("teams");
+        ObjectNode blue = teams.addObject();
+        blue.put("teamId", 100);
+        blue.putObject("objectives").putObject("baron").put("kills", 1);
+        response.set("game", game);
+
+        GameDetail detail = mapper.mapGameDetails(response);
+
+        GameDetail.TeamObjectiveSummary blueSummary = detail.getTeamObjectives().getFirst();
+        assertThat(blueSummary.getTeamId()).isEqualTo(100);
+        assertThat(blueSummary.getBaronKills()).isEqualTo(1);
+        assertThat(blueSummary.getTurretPlateKills()).isNull();
+    }
+
+    @Test
+    void mapGameDetails_mapsPositiveTurretPlateCountFromTeamObjectiveAliases() {
+        ObjectNode response = objectMapper.createObjectNode();
+        ObjectNode game = gameNode(300020L, true);
+        game.put("queueId", 420);
+        ArrayNode teams = game.putArray("teams");
+        ObjectNode blue = teams.addObject();
+        blue.put("teamId", 100);
+        blue.put("turretPlatesTaken", 6);
+        ObjectNode red = teams.addObject();
+        red.put("teamId", 200);
+        red.putObject("objectives").putObject("plates").put("kills", 4);
+        response.set("game", game);
+
+        GameDetail detail = mapper.mapGameDetails(response);
+
+        assertThat(detail.getTeamObjectives())
+                .extracting(
+                        GameDetail.TeamObjectiveSummary::getTeamId,
+                        GameDetail.TeamObjectiveSummary::getTurretPlateKills
+                )
+                .containsExactly(
+                        tuple(100, 6),
+                        tuple(200, 4)
+                );
+    }
+
+    @Test
     void mapGameDetails_countsEliteMonsterTimelineEventsByTeamAndDragonSubtype() {
         ObjectNode response = objectMapper.createObjectNode();
         ObjectNode game = gameNode(300008L, true);
@@ -529,6 +575,34 @@ class SgpGameDetailMapperTest {
                         GameDetail.TeamObjectiveEvent::getTimestamp
                 )
                 .containsExactly(tuple("turret", 200, 6, 206, 1500000L));
+    }
+
+    @Test
+    void mapGameDetails_countsTurretPlateDestroyedByKillerIdActorTeamInsteadOfEventTeamId() {
+        ObjectNode response = objectMapper.createObjectNode();
+        ObjectNode game = gameNode(300021L, true);
+        ArrayNode events = game.putArray("frames").addObject().putArray("events");
+        events.addObject()
+                .put("type", "TURRET_PLATE_DESTROYED")
+                .put("timestamp", 180000L)
+                .put("killerId", 6)
+                .put("teamId", 100);
+        response.set("game", game);
+
+        GameDetail detail = mapper.mapGameDetails(response);
+
+        GameDetail.TeamObjectiveSummary redSummary = detail.getTeamObjectives().getFirst();
+        assertThat(redSummary.getTeamId()).isEqualTo(200);
+        assertThat(redSummary.getTurretPlateKills()).isEqualTo(1);
+        assertThat(redSummary.getObjectiveEvents())
+                .extracting(
+                        GameDetail.TeamObjectiveEvent::getKind,
+                        GameDetail.TeamObjectiveEvent::getTeamId,
+                        GameDetail.TeamObjectiveEvent::getParticipantId,
+                        GameDetail.TeamObjectiveEvent::getChampionId,
+                        GameDetail.TeamObjectiveEvent::getTimestamp
+                )
+                .containsExactly(tuple("turretPlate", 200, 6, 206, 180000L));
     }
 
     @Test
