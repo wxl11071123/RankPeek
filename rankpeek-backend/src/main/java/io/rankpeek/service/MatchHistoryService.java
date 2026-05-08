@@ -413,7 +413,7 @@ public class MatchHistoryService {
         FetchedMatchHistory fetched = loadMatchHistory(puuid, queryOptions);
         List<MatchHistory> matches = fetched.result().getMatches();
         List<MatchHistory> sliced = sliceMatches(matches, begIndex, endIndex);
-        return ensureRosterForVisibleMatches(puuid, matches, sliced, fetched.source());
+        return ensureRosterForVisibleMatches(puuid, matches, sliced, fetched.source(), false);
     }
 
     /**
@@ -443,7 +443,7 @@ public class MatchHistoryService {
         FetchedMatchHistory fetched = loadMatchHistory(puuid, forceRefresh, source);
         List<MatchHistory> matches = fetched.result().getMatches();
         List<MatchHistory> sliced = sliceMatches(matches, begIndex, endIndex);
-        return ensureRosterForVisibleMatches(puuid, matches, sliced, fetched.source());
+        return ensureRosterForVisibleMatches(puuid, matches, sliced, fetched.source(), false);
     }
 
     /**
@@ -521,7 +521,7 @@ public class MatchHistoryService {
                 );
             }
         }
-        pageMatches = ensureRosterForVisibleMatches(puuid, allMatches, pageMatches, fetched.source());
+        pageMatches = ensureRosterForVisibleMatches(puuid, allMatches, pageMatches, fetched.source(), false);
 
         return MatchHistoryPageResponse.builder()
                 .matches(pageMatches)
@@ -1390,7 +1390,7 @@ public class MatchHistoryService {
         if (maxResults > 0 && sliced.size() > maxResults) {
             sliced = new ArrayList<>(sliced.subList(0, maxResults));
         }
-        return ensureRosterForVisibleMatches(puuid, allMatches, sliced, fetched.source());
+        return ensureRosterForVisibleMatches(puuid, allMatches, sliced, fetched.source(), false);
     }
 
     private List<MatchHistory> filterMatches(List<MatchHistory> matches,
@@ -1433,8 +1433,21 @@ public class MatchHistoryService {
                                                              List<MatchHistory> cachedMatches,
                                                              List<MatchHistory> visibleMatches,
                                                              MatchHistorySource source) {
+        return ensureRosterForVisibleMatches(puuid, cachedMatches, visibleMatches, source, true);
+    }
+
+    private List<MatchHistory> ensureRosterForVisibleMatches(String puuid,
+                                                             List<MatchHistory> cachedMatches,
+                                                             List<MatchHistory> visibleMatches,
+                                                             MatchHistorySource source,
+                                                             boolean allowRemoteDetailFetch) {
         long completeBefore = visibleMatches.stream().filter(match -> hasRenderableRoster(match, puuid)).count();
-        List<MatchHistory> hydratedMatches = ensureRosterForVisibleMatches(puuid, visibleMatches, source);
+        List<MatchHistory> hydratedMatches = ensureRosterForVisibleMatches(
+                puuid,
+                visibleMatches,
+                source,
+                allowRemoteDetailFetch
+        );
         long completeAfter = hydratedMatches.stream().filter(match -> hasRenderableRoster(match, puuid)).count();
 
         if (completeAfter > completeBefore && cacheRepository != null && cachedMatches != null && !cachedMatches.isEmpty()) {
@@ -1455,6 +1468,13 @@ public class MatchHistoryService {
     private List<MatchHistory> ensureRosterForVisibleMatches(String puuid,
                                                              List<MatchHistory> matches,
                                                              MatchHistorySource source) {
+        return ensureRosterForVisibleMatches(puuid, matches, source, true);
+    }
+
+    private List<MatchHistory> ensureRosterForVisibleMatches(String puuid,
+                                                             List<MatchHistory> matches,
+                                                             MatchHistorySource source,
+                                                             boolean allowRemoteDetailFetch) {
         if (matches == null || matches.isEmpty()) {
             return List.of();
         }
@@ -1462,6 +1482,11 @@ public class MatchHistoryService {
         List<MatchHistory> hydratedMatches = new ArrayList<>(matches.size());
         for (MatchHistory match : matches) {
             if (match == null || match.getGameId() == null || hasRenderableVisibleMatch(match, puuid, source)) {
+                hydratedMatches.add(match);
+                continue;
+            }
+
+            if (!allowRemoteDetailFetch) {
                 hydratedMatches.add(match);
                 continue;
             }

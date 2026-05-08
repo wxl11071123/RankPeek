@@ -225,6 +225,28 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getMatchHistory_sourceSgpDoesNotFetchRemoteDetailWhenSummaryCannotRenderCurrentParticipant() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", options(MatchHistorySource.SGP, false)))
+                .thenReturn(resultWithMatches(nonRenderableCurrentOnlyMatch(77L, 420)));
+
+        List<MatchHistory> result = sourceAwareService.getMatchHistory(
+                "puuid-1",
+                0,
+                0,
+                false,
+                MatchHistorySource.SGP
+        );
+
+        assertThat(result).extracting(MatchHistory::getGameId).containsExactly(77L);
+        verify(sgpMatchHistoryProvider).fetchMatchHistory("puuid-1", options(MatchHistorySource.SGP, false));
+        verify(sgpMatchHistoryProvider, never())
+                .fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+        verify(sgpMatchHistoryProvider, after(300).never())
+                .fetchGameTimeline(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
     void getGameDetailById_sourceSgpUsesSgpProvider() {
         MatchHistoryService sourceAwareService = sourceAwareService();
         var detail = renderableGameDetail(99L);
@@ -233,6 +255,18 @@ class MatchHistoryServiceTest {
 
         assertThat(sourceAwareService.getGameDetailById(99L, MatchHistorySource.SGP)).isSameAs(detail);
         verify(sgpMatchHistoryProvider).fetchGameDetail(99L, options(MatchHistorySource.SGP, false));
+        verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameDetailById_stringSourceSgpStillFetchesProviderDetail() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var detail = renderableGameDetail(120L);
+        when(sgpMatchHistoryProvider.fetchGameDetail(120L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(detail);
+
+        assertThat(sourceAwareService.getGameDetailById(120L, "sgp")).isSameAs(detail);
+        verify(sgpMatchHistoryProvider).fetchGameDetail(120L, options(MatchHistorySource.SGP, false));
         verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
     }
 
@@ -810,6 +844,35 @@ class MatchHistoryServiceTest {
         assertThat(response.getMatches()).extracting(MatchHistory::getGameId).containsExactly(77L);
         verify(sgpMatchHistoryProvider, never())
                 .fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getMatchHistoryPage_sourceSgpDoesNotFetchRemoteDetailWhenSummaryCannotRenderCurrentParticipant() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.SGP, false, 21)))
+                .thenReturn(resultWithMatches(nonRenderableCurrentOnlyMatch(77L, 420)));
+        when(matchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.LCU, false, 21)))
+                .thenReturn(resultWithMatches(match(44L, 420, "puuid-1", 11)));
+
+        MatchHistoryPageResponse response = sourceAwareService.getMatchHistoryPage(
+                "puuid-1",
+                1,
+                20,
+                "sgp",
+                null,
+                null,
+                false,
+                null
+        );
+
+        assertThat(response.getMatches()).extracting(MatchHistory::getGameId).containsExactly(44L);
+        assertThat(response.getSource()).isEqualTo("lcu");
+        verify(sgpMatchHistoryProvider).fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.SGP, false, 21));
+        verify(matchHistoryProvider).fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.LCU, false, 21));
+        verify(sgpMatchHistoryProvider, never())
+                .fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+        verify(sgpMatchHistoryProvider, after(300).never())
+                .fetchGameTimeline(any(Long.class), any(MatchHistoryQueryOptions.class));
     }
 
     @Test
