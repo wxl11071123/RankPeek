@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 test('match history list hydrates loadout fields from cached and opened game details', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /hydrateMatchHistoryFromLocalDetailIfAvailable\(match, puuid\) \?\? match/)
+  assert.match(source, /const hydratedMatch = await hydrateMatchHistoryFromLocalDetailIfAvailable\(match, puuid, requestId\)[\s\S]*renderableMatches\.push\(hydratedMatch \?\? match\)/)
   assert.match(source, /function applyGameDetailToVisibleMatchHistory\(match: MatchHistory, detail: GameDetail\)/)
   assert.match(source, /mergeGameDetailIntoMatchHistory\(existingMatch, detail\)/)
   assert.match(source, /selectedMatchHistory\.value = mergedMatch/)
@@ -53,7 +53,6 @@ test('lookup rank summary is requested with the viewed summoner puuid', () => {
   const watcherBlock = setupBlock.match(/watch\(\s*\(\) => currentSummoner\.value\?\.puuid[\s\S]*?\{ immediate: true \}\s*\)/)?.[0] || ''
   const refreshFunction = setupBlock.match(/async function refreshRemoteMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?async function handleRemoteMatchHistoryFailure/)?.[0] || ''
   const rankFunction = setupBlock.match(/async function loadRankSummary\(puuid: string, requestId: number\) \{[\s\S]*?\n\}/)?.[0] || ''
-  const sgpRecordFunction = setupBlock.match(/async function loadSgpRankedRecords\(puuid: string, requestId: number, forceRefresh: boolean\) \{[\s\S]*?function calculateSgpRankedRecords/)?.[0] || ''
 
   assert.match(setupBlock, /const currentSummoner = computed\(\(\) => props\.summoner\)/)
   assert.doesNotMatch(setupBlock, /useGameStore/)
@@ -61,12 +60,11 @@ test('lookup rank summary is requested with the viewed summoner puuid', () => {
   assert.match(watcherBlock, /void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
   assert.match(refreshFunction, /const puuid = currentSummoner\.value\?\.puuid/)
   assert.match(refreshFunction, /void loadRankSummary\(puuid, requestId\)/)
-  assert.match(refreshFunction, /void loadSgpRankedRecords\(puuid, requestId, options\.forceRefresh === true\)/)
+  assert.doesNotMatch(refreshFunction, /loadSgpRankedRecords|getRankedWinRates/)
   assert.match(rankFunction, /apiClient\.getRank\(puuid\)/)
-  assert.match(source, /:ranked-records="sgpRankedRecords"/)
-  assert.match(sgpRecordFunction, /apiClient\.getMatchHistoryPage\(puuid, \{[\s\S]*pageSize:\s*200[\s\S]*source:\s*'sgp'/)
-  assert.match(sgpRecordFunction, /currentSummoner\.value\?\.puuid !== puuid/)
-  assert.match(setupBlock, /function getRankedQueueKey\(queueId\?: number\): RankedQueueKey \| null[\s\S]*queueId === 420[\s\S]*'RANKED_SOLO_5x5'[\s\S]*queueId === 440[\s\S]*'RANKED_FLEX_SR'/)
+  assert.doesNotMatch(source, /:ranked-records="sgpRankedRecords"/)
+  assert.doesNotMatch(setupBlock, /sgpRankedRecords|loadSgpRankedRecords|calculateSgpRankedRecords|getRankedQueueKey/)
+  assert.doesNotMatch(setupBlock, /apiClient\.getMatchHistoryPage\(puuid, \{[\s\S]*pageSize:\s*200[\s\S]*source:\s*'sgp'/)
 })
 
 test('inline detail toggle folds the same match and keeps only one expanded game active', () => {

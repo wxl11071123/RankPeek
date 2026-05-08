@@ -522,7 +522,6 @@ public class MatchHistoryService {
             }
         }
         pageMatches = ensureRosterForVisibleMatches(puuid, allMatches, pageMatches, fetched.source());
-        scheduleSgpTimelineBackfill(pageMatches, fetched);
 
         return MatchHistoryPageResponse.builder()
                 .matches(pageMatches)

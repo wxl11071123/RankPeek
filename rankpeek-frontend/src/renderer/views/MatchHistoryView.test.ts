@@ -84,10 +84,11 @@ test('match history card layout avoids fixed-width overflow traps', () => {
 
 test('loadMatchHistory requests the first page with the selected list limit', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
 
   assert.match(loadFunction, /const puuid = currentSummoner\.value\?\.puuid/)
-  assert.match(loadFunction, /getMatchHistoryPage\(puuid, \{[\s\S]*page: 1,[\s\S]*pageSize: selectedLimit\.value,[\s\S]*source: options\.source \?\? 'auto'[\s\S]*forceRefresh: options\.forceRefresh === true/)
+  assert.match(loadFunction, /const requestedSource = options\.source \?\? 'auto'[\s\S]*const pageSize = selectedLimit\.value/)
+  assert.match(loadFunction, /getMatchHistoryPage\(puuid, \{[\s\S]*page: 1,[\s\S]*pageSize,[\s\S]*source: requestedSource[\s\S]*forceRefresh: options\.forceRefresh === true/)
   assert.match(loadFunction, /matchRecordStatus\.value = response\.recordStatus/)
   assert.doesNotMatch(loadFunction, /currentPage/)
 })
@@ -166,7 +167,7 @@ test('my match history overview loads lightweight summary tags from prefetched l
 
 test('summary tag loading is tracked separately from match history loading', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
   const summaryFunction = source.match(/async function loadSelectedMatchUserTagSummaries\(match: MatchHistory, requestId = matchDetailRequestId\) \{[\s\S]*?function chunkUserTagSummaryPuuids/)?.[0] || ''
 
   assert.match(source, /const summariesLoading = ref\(false\)/)
@@ -182,7 +183,7 @@ test('refresh button uses remote refresh state instead of shared list loading', 
   const resetFunction = source.match(/function resetPanelState\(\) \{[\s\S]*?\n\}/)?.[0] || ''
   const beginFunction = source.match(/function beginMatchHistoryRequest\(\): number \{[\s\S]*?\n\}/)?.[0] || ''
   const refreshFunction = source.match(/async function refreshRemoteMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?async function handleRemoteMatchHistoryFailure/)?.[0] || ''
-  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?async function loadSelectedMatchUserTagSummaries/)?.[0] || ''
+  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
 
   assert.match(source, /const loading = ref\(false\)/)
   assert.match(source, /const refreshing = ref\(false\)/)
@@ -250,13 +251,16 @@ test('overview tags come from the summary API without blocking match history loa
   assert.doesNotMatch(source, /async function loadUserTagForPanel|apiClient\.getUserTagByPuuid/)
   assert.doesNotMatch(source, /function buildOverviewUserTagFromMatches|function createRecentDataFromMatches/)
   assert.doesNotMatch(source, /loadRankedWinRatesForPanel|rankedWinRates|getRankedWinRates/)
+  assert.doesNotMatch(source, /sgpRankedRecords|loadSgpRankedRecords|calculateSgpRankedRecords/)
+  assert.doesNotMatch(source, /:ranked-records=/)
+  assert.doesNotMatch(source, /apiClient\.getMatchHistoryPage\(puuid, \{[\s\S]*pageSize:\s*200[\s\S]*source:\s*'sgp'/)
 })
 
 test('overview tag summary uses unfiltered local fifty-game cache regardless of visible limit', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const localFunction = source.match(/async function readOverviewLookbackFromLocalCache\(puuid: string\): Promise<MatchHistory\[\]> \{[\s\S]*?async function readOverviewLookbackFromBackend/)?.[0] || ''
-  const backendFunction = source.match(/async function readOverviewLookbackFromBackend\([\s\S]*?async function hydrateOverviewLookbackMatches/)?.[0] || ''
-  const hydrateFunction = source.match(/async function hydrateOverviewLookbackMatches\([\s\S]*?async function resolveOverviewUserTagMatches/)?.[0] || ''
+  const localFunction = source.match(/async function readOverviewLookbackFromLocalCache\(puuid: string\): Promise<MatchHistory\[\]> \{[\s\S]*?(?=async function readOverviewLookbackFromBackend)/)?.[0] || ''
+  const backendFunction = source.match(/async function readOverviewLookbackFromBackend\([\s\S]*?(?=async function hydrateOverviewLookbackMatches)/)?.[0] || ''
+  const hydrateFunction = source.match(/async function hydrateOverviewLookbackMatches\([\s\S]*?(?=async function refreshRemoteMatchHistory)/)?.[0] || ''
   const resolveFunction = source.match(/async function resolveOverviewUserTagMatches\(puuid: string, requestId: number\): Promise<MatchHistory\[\]> \{[\s\S]*?async function loadOverviewUserTagSummaryFromMatches/)?.[0] || ''
 
   assert.match(source, /const TAG_OVERVIEW_LOOKBACK_LIMIT = 50/)
@@ -289,7 +293,7 @@ test('my match history gates local and remote loading behind LCU connection', ()
   assert.match(source, /async function refreshLcuConnectionStatus\(\): Promise<boolean> \{[\s\S]*apiClient\.checkConnection\(\)/)
   assert.doesNotMatch(source, /apiClient\.isConnected\(\)/)
   assert.match(watcher, /const connected = await refreshLcuConnectionStatus\(\)[\s\S]*if \(!connected \|\| requestId !== matchHistoryRequestId\) \{[\s\S]*return[\s\S]*\}/)
-  assert.match(refreshFunction, /const connected = await refreshLcuConnectionStatus\(\)[\s\S]*if \(!connected\) \{[\s\S]*return[\s\S]*\}/)
+  assert.match(refreshFunction, /connected = await refreshLcuConnectionStatus\(\)[\s\S]*if \(!connected\) \{[\s\S]*return[\s\S]*\}/)
   assert.match(source, /v-if="lcuConnectionChecked && !lcuConnected"/)
 })
 
@@ -332,7 +336,7 @@ test('remote match refresh tries SGP, falls back to LCU, then retries SGP once',
   assert.match(refreshFunction, /await loadMatchHistoryFromSource\('sgp', options, requestId\)/)
   assert.match(refreshFunction, /catch \(sgpErr\)[\s\S]*await loadMatchHistoryFromSource\('lcu', options, requestId\)/)
   assert.match(refreshFunction, /catch \(lcuErr\)[\s\S]*await loadMatchHistoryFromSource\('sgp', options, requestId\)/)
-  assert.match(source, /async function loadMatchHistoryFromSource\(source: 'sgp' \| 'lcu', options: MatchHistoryLoadOptions, requestId: number\)/)
+  assert.match(source, /async function loadMatchHistoryFromSource\(\s*source: 'sgp' \| 'lcu',\s*options: MatchHistoryLoadOptions,\s*requestId: number\s*\): Promise<MatchHistoryLoadResult \| undefined>/)
 })
 
 test('summary tag loading processes the selected match puuids in transport batches', () => {
@@ -426,7 +430,7 @@ test('summoner match history panel resets stale player state and ignores old req
 
 test('match history and summary requests ignore stale responses', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
   const summaryFunction = source.match(/async function loadSelectedMatchUserTagSummaries\(match: MatchHistory, requestId = matchDetailRequestId\) \{[\s\S]*?function chunkUserTagSummaryPuuids/)?.[0] || ''
 
   assert.match(source, /let matchHistoryRequestId = 0/)
@@ -442,7 +446,7 @@ test('match history and summary requests ignore stale responses', () => {
 
 test('my match history hydrates from local cache and persists remote matches before display refresh', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
   const failureFunction = source.match(/async function handleRemoteMatchHistoryFailure\(requestId: number, err: unknown\) \{[\s\S]*?\n\}/)?.[0] || ''
   const watcher = source.match(/watch\(\s*\(\) => currentSummoner\.value\?\.puuid,[\s\S]*?\{ immediate: true \}/)?.[0] || ''
 
@@ -464,7 +468,7 @@ test('my match history hydrates from local cache and persists remote matches bef
 
 test('remote match results are persisted then local cache is rehydrated for display', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
 
   assert.match(loadFunction, /await persistMatchHistoryToLocalCache\(renderableMatches\)/)
   assert.match(loadFunction, /await hydrateMatchHistoryFromLocalCache\(requestId\)/)
@@ -474,11 +478,10 @@ test('remote match results are persisted then local cache is rehydrated for disp
 test('remote match results must include the current player before persistence', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /function assertRenderableMatchHistory\(matches: MatchHistory\[\], puuid: string\)/)
-  assert.match(source, /async function assertRenderableMatchHistory\(matches: MatchHistory\[\], puuid: string\): Promise<MatchHistory\[\]>/)
+  assert.match(source, /async function assertRenderableMatchHistory\(\s*matches: MatchHistory\[\],\s*puuid: string,\s*requestId = matchHistoryRequestId\s*\): Promise<MatchHistory\[\]>/)
   assert.match(source, /console\.warn\(`Match history response is missing current player stats for game/)
   assert.doesNotMatch(source, /throw new Error\(`Match history response is missing current player stats for game/)
-  assert.match(source, /const renderableMatches = await assertRenderableMatchHistory\(matches, puuid\)[\s\S]*matchRecordStatus\.value = response\.recordStatus[\s\S]*await persistMatchHistoryToLocalCache\(renderableMatches\)/)
+  assert.match(source, /const renderableMatches = await assertRenderableMatchHistory\(matches, puuid, requestId\)[\s\S]*matchRecordStatus\.value = response\.recordStatus[\s\S]*await persistMatchHistoryToLocalCache\(renderableMatches\)/)
 })
 
 test('my match history rehydrates local data when backend reports match-history cache updates', () => {

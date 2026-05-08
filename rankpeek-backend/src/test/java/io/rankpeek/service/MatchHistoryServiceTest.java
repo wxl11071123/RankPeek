@@ -1,12 +1,9 @@
 package io.rankpeek.service;
 
 import io.rankpeek.cache.MatchHistoryCacheRepository;
-import io.rankpeek.model.MatchDataScopeCache;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
 import io.rankpeek.model.MatchHistoryPageResponse;
-import io.rankpeek.model.MatchTimeline;
-import io.rankpeek.model.MatchTimelineFetchResult;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.RecordStatus;
 import io.rankpeek.service.matchhistory.MatchHistoryProvider;
@@ -816,23 +813,18 @@ class MatchHistoryServiceTest {
     }
 
     @Test
-    void getMatchHistoryPage_sourceSgpSavesRawSummaryAndBackfillsTimelineAsync() {
+    void getMatchHistoryPage_sourceSgpSavesRawSummaryWithoutTimelineBackfill() {
         MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
-        MatchHistory match = renderableCurrentOnlyMatch(78L, 420, "puuid-1", 11);
+        List<MatchHistory> matches = new java.util.ArrayList<>();
+        Map<Long, String> rawSummaries = new java.util.LinkedHashMap<>();
+        for (long gameId = 78L; gameId <= 83L; gameId++) {
+            matches.add(renderableCurrentOnlyMatch(gameId, 420, "puuid-1", 11));
+            rawSummaries.put(gameId, "{\"gameId\":" + gameId + "}");
+        }
         when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.SGP, false, 21)))
                 .thenReturn(MatchHistoryFetchResult.builder()
-                        .matches(List.of(match))
-                        .rawSummaryJsonByGameId(Map.of(78L, "{\"gameId\":78}"))
-                        .build());
-        MatchTimeline timeline = new MatchTimeline();
-        timeline.setGameId(78L);
-        when(sgpMatchHistoryProvider.fetchGameTimeline(78L, pageOptions(MatchHistorySource.SGP, false, 21)))
-                .thenReturn(MatchTimelineFetchResult.builder()
-                        .gameId(78L)
-                        .timeline(timeline)
-                        .rawDetailJson("{\"json\":{\"gameId\":78,\"frames\":[]}}")
-                        .rawTimelineJson("{\"json\":{\"gameId\":78,\"frames\":[]}}")
-                        .status("FETCHED")
+                        .matches(matches)
+                        .rawSummaryJsonByGameId(rawSummaries)
                         .build());
 
         MatchHistoryPageResponse response = sourceAwareService.getMatchHistoryPage(
@@ -846,27 +838,24 @@ class MatchHistoryServiceTest {
                 null
         );
 
-        assertThat(response.getMatches()).extracting(MatchHistory::getGameId).containsExactly(78L);
+        assertThat(response.getMatches()).extracting(MatchHistory::getGameId)
+                .containsExactly(78L, 79L, 80L, 81L, 82L, 83L);
+        assertThat(response.getSource()).isEqualTo("sgp");
+        assertThat(response.getRecordStatus()).isEqualTo(RecordStatus.NORMAL);
         verify(sgpMatchHistoryProvider, never())
                 .fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
-        verify(cacheRepository, timeout(1000)).saveSgpRawSummaries(Map.of(78L, "{\"gameId\":78}"));
-        verify(sgpMatchHistoryProvider, timeout(1000))
-                .fetchGameTimeline(78L, pageOptions(MatchHistorySource.SGP, false, 21));
-        verify(cacheRepository, timeout(1000))
-                .saveSgpRawDetail(78L, "{\"json\":{\"gameId\":78,\"frames\":[]}}", "FETCHED", null);
-        verify(cacheRepository, timeout(1000))
-                .saveSgpTimeline(78L, timeline, "{\"json\":{\"gameId\":78,\"frames\":[]}}", "FETCHED", null);
+        verify(cacheRepository, timeout(1000)).saveSgpRawSummaries(rawSummaries);
+        verify(cacheRepository, never()).findMatchDataScope(any(Long.class));
+        verify(sgpMatchHistoryProvider, after(300).never())
+                .fetchGameTimeline(any(Long.class), any(MatchHistoryQueryOptions.class));
+        verify(cacheRepository, never()).saveSgpRawDetail(any(Long.class), any(), any(), any());
+        verify(cacheRepository, never()).saveSgpTimeline(any(Long.class), any(), any(), any(), any());
     }
 
     @Test
-    void getMatchHistoryPage_sourceSgpSkipsTimelineBackfillWhenScopeIsTerminal() {
+    void getMatchHistoryPage_sourceSgpDoesNotConsultTimelineBackfillScopeOnListPage() {
         MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
         MatchHistory match = renderableCurrentOnlyMatch(78L, 420, "puuid-1", 11);
-        MatchDataScopeCache scope = new MatchDataScopeCache();
-        scope.setGameId(78L);
-        scope.setDetailStatus("FETCHED");
-        scope.setTimelineStatus("FETCHED");
-        when(cacheRepository.findMatchDataScope(78L)).thenReturn(Optional.of(scope));
         when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.SGP, false, 21)))
                 .thenReturn(MatchHistoryFetchResult.builder()
                         .matches(List.of(match))
@@ -885,8 +874,9 @@ class MatchHistoryServiceTest {
         );
 
         assertThat(response.getMatches()).extracting(MatchHistory::getGameId).containsExactly(78L);
+        verify(cacheRepository, never()).findMatchDataScope(any(Long.class));
         verify(sgpMatchHistoryProvider, after(300).never())
-                .fetchGameTimeline(78L, pageOptions(MatchHistorySource.SGP, false, 21));
+                .fetchGameTimeline(any(Long.class), any(MatchHistoryQueryOptions.class));
     }
 
     @Test
@@ -1045,10 +1035,6 @@ class MatchHistoryServiceTest {
         for (long gameId = 2001; gameId <= 2020; gameId++) {
             sgpMatches.add(renderableCurrentOnlyMatch(gameId, 420, "puuid-1", 11));
         }
-        MatchDataScopeCache terminalScope = new MatchDataScopeCache();
-        terminalScope.setDetailStatus("FETCHED");
-        terminalScope.setTimelineStatus("FETCHED");
-        when(cacheRepository.findMatchDataScope(any(Long.class))).thenReturn(Optional.of(terminalScope));
         when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, true, 21))).thenReturn(true);
         when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, true, 21)))
                 .thenReturn(resultWithMatches(sgpMatches.toArray(MatchHistory[]::new)));

@@ -155,7 +155,6 @@
             :user-tag="overviewUserTag"
             :solo-rank="soloRank"
             :flex-rank="flexRank"
-            :ranked-records="sgpRankedRecords"
             :rank-status="rankLoadStatus"
             :fallback-stats="visibleMatchStats"
             :user-tag-status="userTagLoadStatus"
@@ -253,7 +252,7 @@ import {
   isRenderableMatchForPuuid
 } from '../../../shared/matchQuality.ts'
 import { getDefaultMatchQueueMode } from '@/utils/matchPreferences'
-import type { RankedQueueKey, RankLoadStatus } from '@/utils/rankDisplay'
+import type { RankLoadStatus } from '@/utils/rankDisplay'
 import type {
   CacheUpdateEvent,
   ChampionOption,
@@ -269,8 +268,7 @@ import type {
   Summoner,
   Stats,
   UserTag,
-  UserTagSummary,
-  WinRate
+  UserTagSummary
 } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -299,6 +297,18 @@ interface MatchHistoryLoadOptions {
   source?: 'auto' | 'sgp' | 'lcu' | 'cache'
   throwOnError?: boolean
   requestId?: number
+}
+
+interface MatchHistoryLoadResult {
+  requestedSource: MatchHistoryLoadOptions['source']
+  responseSource: unknown
+  recordStatus: RecordStatus | null
+  responseMatches: number
+  renderableMatches: number
+  persistedToLocalCache: boolean
+  hydratedFromCacheAfterPersist: boolean
+  visibleListUpdated: boolean
+  visibleMatchesAfterLoad: number
 }
 
 type UserTagLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
@@ -468,7 +478,6 @@ function handleWindowPointerOut(event: PointerEvent) {
 const matchHistory = ref<MatchHistory[]>([])
 const overviewLookbackMatches = ref<MatchHistory[]>([])
 const rank = ref<Rank | null>(null)
-const sgpRankedRecords = ref<Partial<Record<RankedQueueKey, WinRate>>>({})
 const rankLoadStatus = ref<RankLoadStatus>('loading')
 const overviewUserTag = ref<UserTag | null>(null)
 const userTagLoadStatus = ref<UserTagLoadStatus>('idle')
@@ -752,7 +761,6 @@ function resetPanelState() {
   summariesAbortController?.abort()
   summariesAbortController = null
   rank.value = null
-  sgpRankedRecords.value = {}
   rankLoadStatus.value = 'loading'
   overviewUserTag.value = null
   overviewLookbackMatches.value = []
@@ -882,16 +890,21 @@ function getParticipantByPuuid(match: MatchHistory, puuid: string): Participant 
   ) || null
 }
 
-async function assertRenderableMatchHistory(matches: MatchHistory[], puuid: string): Promise<MatchHistory[]> {
+async function assertRenderableMatchHistory(
+  matches: MatchHistory[],
+  puuid: string,
+  requestId = matchHistoryRequestId
+): Promise<MatchHistory[]> {
   const renderableMatches: MatchHistory[] = []
 
   for (const match of matches) {
     if (isRenderableMatchForPuuid(match, puuid)) {
-      renderableMatches.push(await hydrateMatchHistoryFromLocalDetailIfAvailable(match, puuid) ?? match)
+      const hydratedMatch = await hydrateMatchHistoryFromLocalDetailIfAvailable(match, puuid, requestId)
+      renderableMatches.push(hydratedMatch ?? match)
       continue
     }
 
-    const hydratedMatch = await hydrateMatchHistoryFromLocalDetailIfAvailable(match, puuid)
+    const hydratedMatch = await hydrateMatchHistoryFromLocalDetailIfAvailable(match, puuid, requestId)
     if (hydratedMatch && isRenderableMatchForPuuid(hydratedMatch, puuid)) {
       renderableMatches.push(hydratedMatch)
       continue
@@ -905,8 +918,10 @@ async function assertRenderableMatchHistory(matches: MatchHistory[], puuid: stri
 
 async function hydrateMatchHistoryFromLocalDetailIfAvailable(
   match: MatchHistory,
-  puuid: string
+  puuid: string,
+  requestId = matchHistoryRequestId
 ): Promise<MatchHistory | null> {
+  void requestId
   if (!match.gameId || !shouldUseLocalMatchCache()) {
     return null
   }
@@ -1135,7 +1150,9 @@ async function hydrateMatchHistoryFromLocalCache(requestId = matchHistoryRequest
     return false
   }
 
-  if (shouldUseLocalMatchCache()) {
+  const localCacheEnabled = shouldUseLocalMatchCache()
+
+  if (localCacheEnabled) {
     const cachedMatches = await readMatchHistoryFromLocalCache({
       accountPuuid: puuid,
       options: getLocalCacheListOptions()
@@ -1153,7 +1170,8 @@ async function hydrateMatchHistoryFromLocalCache(requestId = matchHistoryRequest
     }
   }
 
-  return hydrateMatchHistoryFromBackendCache(requestId)
+  const hydratedFromBackendCache = await hydrateMatchHistoryFromBackendCache(requestId)
+  return hydratedFromBackendCache
 }
 
 async function hydrateMatchHistoryFromBackendCache(requestId: number): Promise<boolean> {
@@ -1170,7 +1188,7 @@ async function hydrateMatchHistoryFromBackendCache(requestId: number): Promise<b
       championId: filterChampionId.value > 0 ? filterChampionId.value : undefined,
       queueId: filterQueueId.value > 0 ? filterQueueId.value : undefined
     })
-    const matches = await assertRenderableMatchHistory(response.matches ?? [], puuid)
+    const matches = await assertRenderableMatchHistory(response.matches ?? [], puuid, requestId)
 
     if (requestId !== matchHistoryRequestId || matches.length === 0) {
       return false
@@ -1225,7 +1243,8 @@ async function readOverviewLookbackFromLocalCache(puuid: string): Promise<MatchH
 
 async function readOverviewLookbackFromBackend(
   puuid: string,
-  options: OverviewLookbackLoadOptions = {}
+  options: OverviewLookbackLoadOptions = {},
+  requestId = matchHistoryRequestId
 ): Promise<MatchHistory[]> {
   try {
     const response = await apiClient.getMatchHistoryPage(puuid, {
@@ -1234,7 +1253,7 @@ async function readOverviewLookbackFromBackend(
       source: options.source ?? 'cache',
       forceRefresh: options.forceRefresh === true
     })
-    return assertRenderableMatchHistory(response.matches ?? [], puuid)
+    return assertRenderableMatchHistory(response.matches ?? [], puuid, requestId)
   } catch (err) {
     console.warn('Failed to hydrate overview lookback matches', err)
     return []
@@ -1262,7 +1281,7 @@ async function hydrateOverviewLookbackMatches(
     return true
   }
 
-  const backendMatches = await readOverviewLookbackFromBackend(puuid, options)
+  const backendMatches = await readOverviewLookbackFromBackend(puuid, options, requestId)
   if (requestId !== matchHistoryRequestId) {
     return false
   }
@@ -1301,7 +1320,6 @@ async function refreshRemoteMatchHistory(options: MatchHistoryLoadOptions = {}) 
   const refreshRunId = startRefreshing(requestId)
   rankLoadStatus.value = 'loading'
   void loadRankSummary(puuid, requestId)
-  void loadSgpRankedRecords(puuid, requestId, options.forceRefresh === true)
   void loadOverviewUserTagSummary(puuid, requestId)
 
   try {
@@ -1352,8 +1370,12 @@ async function handleRemoteMatchHistoryFailure(requestId: number, err: unknown) 
   }
 }
 
-async function loadMatchHistoryFromSource(source: 'sgp' | 'lcu', options: MatchHistoryLoadOptions, requestId: number) {
-  await loadMatchHistory({
+async function loadMatchHistoryFromSource(
+  source: 'sgp' | 'lcu',
+  options: MatchHistoryLoadOptions,
+  requestId: number
+): Promise<MatchHistoryLoadResult | undefined> {
+  return loadMatchHistory({
     ...options,
     requestId,
     source,
@@ -1377,76 +1399,6 @@ async function loadRankSummary(puuid: string, requestId: number) {
     rank.value = null
     rankLoadStatus.value = 'error'
   }
-}
-
-async function loadSgpRankedRecords(puuid: string, requestId: number, forceRefresh: boolean) {
-  try {
-    const response = await apiClient.getMatchHistoryPage(puuid, {
-      page: 1,
-      pageSize: 200,
-      source: 'sgp',
-      forceRefresh
-    })
-    if (requestId !== matchHistoryRequestId || currentSummoner.value?.puuid !== puuid) {
-      return
-    }
-
-    sgpRankedRecords.value = calculateSgpRankedRecords(response.matches ?? [], puuid)
-  } catch (err) {
-    if (requestId !== matchHistoryRequestId || currentSummoner.value?.puuid !== puuid) {
-      return
-    }
-    console.warn('Failed to load SGP ranked records', err)
-    sgpRankedRecords.value = {}
-  }
-}
-
-function calculateSgpRankedRecords(matches: MatchHistory[], puuid: string): Partial<Record<RankedQueueKey, WinRate>> {
-  const records: Record<RankedQueueKey, { wins: number; losses: number }> = {
-    RANKED_SOLO_5x5: { wins: 0, losses: 0 },
-    RANKED_FLEX_SR: { wins: 0, losses: 0 }
-  }
-
-  for (const match of matches) {
-    const queueKey = getRankedQueueKey(match.queueId)
-    if (!queueKey) {
-      continue
-    }
-
-    const participant = getParticipantByPuuid(match, puuid)
-    if (!participant || !hasCompleteParticipantStats(participant.stats)) {
-      continue
-    }
-
-    if (participant.stats.win) {
-      records[queueKey].wins += 1
-    } else {
-      records[queueKey].losses += 1
-    }
-  }
-
-  return Object.fromEntries(
-    Object.entries(records)
-      .filter(([, record]) => record.wins + record.losses > 0)
-      .map(([queueKey, record]) => [
-        queueKey,
-        {
-          wins: record.wins,
-          losses: record.losses,
-          winRate: Math.round((record.wins / (record.wins + record.losses)) * 100)
-        }
-      ])
-  ) as Partial<Record<RankedQueueKey, WinRate>>
-}
-
-function getRankedQueueKey(queueId?: number): RankedQueueKey | null {
-  if (queueId === 420) {
-    return 'RANKED_SOLO_5x5'
-  }
-  if (queueId === 440) {
-    return 'RANKED_FLEX_SR'
-  }
-  return null
 }
 
 async function resolveOverviewUserTagMatches(puuid: string, requestId: number): Promise<MatchHistory[]> {
@@ -1524,30 +1476,35 @@ async function loadOverviewUserTagSummary(puuid: string, requestId = matchHistor
   }
 }
 
-async function loadMatchHistory(options: MatchHistoryLoadOptions = {}) {
+async function loadMatchHistory(options: MatchHistoryLoadOptions = {}): Promise<MatchHistoryLoadResult | undefined> {
   const puuid = currentSummoner.value?.puuid
   if (!puuid) {
     return
   }
 
   const requestId = options.requestId ?? matchHistoryRequestId
+  const requestedSource = options.source ?? 'auto'
+  const pageSize = selectedLimit.value
+  const queueId = filterQueueId.value > 0 ? filterQueueId.value : undefined
+  const championId = filterChampionId.value > 0 ? filterChampionId.value : undefined
   startListLoading(requestId)
   try {
     const response = await apiClient.getMatchHistoryPage(puuid, {
       page: 1,
-      pageSize: selectedLimit.value,
-      source: options.source ?? 'auto',
-      championId: filterChampionId.value > 0 ? filterChampionId.value : undefined,
-      queueId: filterQueueId.value > 0 ? filterQueueId.value : undefined,
+      pageSize,
+      source: requestedSource,
+      championId,
+      queueId,
       forceRefresh: options.forceRefresh === true
     })
+    const responseSource = (response as { source?: unknown }).source
     const matches = response.matches ?? []
 
     if (requestId !== matchHistoryRequestId) {
       return
     }
 
-    const renderableMatches = await assertRenderableMatchHistory(matches, puuid)
+    const renderableMatches = await assertRenderableMatchHistory(matches, puuid, requestId)
     if (requestId !== matchHistoryRequestId) {
       return
     }
@@ -1556,20 +1513,33 @@ async function loadMatchHistory(options: MatchHistoryLoadOptions = {}) {
     userTagSummaries.value = {}
     const persisted = await persistMatchHistoryToLocalCache(renderableMatches)
     const hydrated = persisted ? await hydrateMatchHistoryFromLocalCache(requestId) : false
+    let visibleListUpdated = hydrated
     if (!hydrated) {
       matchHistory.value = [...renderableMatches]
+      visibleListUpdated = true
     }
     if (requestId !== matchHistoryRequestId) {
       return
     }
     await hydrateOverviewLookbackMatches(requestId, {
-      source: options.source ?? 'auto',
+      source: requestedSource,
       forceRefresh: options.forceRefresh === true
     })
     if (requestId !== matchHistoryRequestId) {
       return
     }
     void loadOverviewUserTagSummary(puuid, requestId)
+    return {
+      requestedSource,
+      responseSource,
+      recordStatus: response.recordStatus ?? null,
+      responseMatches: matches.length,
+      renderableMatches: renderableMatches.length,
+      persistedToLocalCache: persisted,
+      hydratedFromCacheAfterPersist: hydrated,
+      visibleListUpdated,
+      visibleMatchesAfterLoad: matchHistory.value.length
+    }
   } catch (err) {
     if (requestId !== matchHistoryRequestId) {
       return

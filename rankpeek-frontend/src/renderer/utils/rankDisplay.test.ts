@@ -36,16 +36,38 @@ test('maps ranked queue keys to their queue entries', () => {
   assert.equal(getRankQueueInfo(rank, 'RANKED_FLEX_SR'), flex)
 })
 
-test('formats ranked tier, division, league points, and win rate from queue info', () => {
+test('formats ranked tier, division, league points, and wins-only copy from queue info', () => {
   const display = buildRankDisplay(queueInfo(), 'loaded')
 
   assert.equal(display.tierText, '黄金 II 63LP')
-  assert.equal(display.recordText, '56% 胜率 (28W 22L)')
+  assert.equal(display.recordText, '28胜')
   assert.equal(display.state, 'ranked')
   assert.equal(display.iconTier, 'gold')
 })
 
-test('formats rank record from explicit wins and losses without forcing 100 percent', () => {
+test('formats wins-only rank record from LCU wins without reliable losses or games', () => {
+  const display = buildRankDisplay(
+    queueInfo({
+      wins: 75,
+      losses: null,
+      games: null,
+      totalGames: null
+    }),
+    'loaded',
+    {
+      loading: 'Loading rank',
+      error: 'Failed to load rank',
+      unranked: 'Unranked',
+      noData: 'No ranked data',
+      wins: count => `${count}W`
+    }
+  )
+
+  assert.equal(display.recordText, '75W')
+  assert.doesNotMatch(display.recordText, /75W\s+72L|Win Rate|胜率/)
+})
+
+test('formats rank record from explicit wins and losses without showing losses or win rate', () => {
   const display = buildRankDisplay(queueInfo({
     tier: 'PLATINUM',
     division: 'III',
@@ -55,10 +77,11 @@ test('formats rank record from explicit wins and losses without forcing 100 perc
   }), 'loaded')
 
   assert.equal(display.tierText, '铂金 III 12LP')
-  assert.equal(display.recordText, '49% 胜率 (292W 308L)')
+  assert.equal(display.recordText, '292胜')
+  assert.doesNotMatch(display.recordText, /308L|胜率|%/)
 })
 
-test('derives rank losses from games when the rank payload omits losses', () => {
+test('does not derive rank losses from games when the rank payload omits losses', () => {
   const display = buildRankDisplay(queueInfo({
     tier: 'PLATINUM',
     division: 'III',
@@ -68,10 +91,11 @@ test('derives rank losses from games when the rank payload omits losses', () => 
     games: 600
   }), 'loaded')
 
-  assert.equal(display.recordText, '49% 胜率 (292W 308L)')
+  assert.equal(display.recordText, '292胜')
+  assert.doesNotMatch(display.recordText, /308L|胜率|%/)
 })
 
-test('does not render a fake perfect rank record when losses are zero and total games are unavailable', () => {
+test('renders wins-only rank record when losses are zero and total games are unavailable', () => {
   const display = buildRankDisplay(queueInfo({
     tier: 'PLATINUM',
     division: 'III',
@@ -83,7 +107,7 @@ test('does not render a fake perfect rank record when losses are zero and total 
   }), 'loaded')
 
   assert.equal(display.tierText, '铂金 III 12LP')
-  assert.equal(display.recordText, '')
+  assert.equal(display.recordText, '292胜')
 })
 
 test('does not show fake unranked records while rank data is loading', () => {
@@ -124,7 +148,7 @@ test('one missing queue is unranked without hiding the other ranked queue', () =
   const flexDisplay = buildRankDisplay(null, 'loaded')
 
   assert.equal(soloDisplay.tierText, '翡翠 IV 35LP')
-  assert.equal(soloDisplay.recordText, '56% 胜率 (28W 22L)')
+  assert.equal(soloDisplay.recordText, '28胜')
   assert.equal(flexDisplay.tierText, '未定级')
   assert.equal(flexDisplay.recordText, '暂无排位数据')
 })
