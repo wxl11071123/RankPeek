@@ -335,6 +335,21 @@ const USER_TAG_SUMMARY_BATCH_SIZE = 40
 const TAG_OVERVIEW_LOOKBACK_LIMIT = 50
 const TAG_ANALYSIS_MODE = 0
 const REFRESHING_INDICATOR_MAX_MS = 30000
+const LOADOUT_STAT_KEYS = [
+  'item0', 'item1', 'item2', 'item3', 'item4', 'item5', 'item6',
+  'perk0', 'perk1', 'perk2', 'perk3', 'perk4', 'perk5',
+  'perkPrimaryStyle', 'perkSubStyle',
+  'playerAugment1', 'playerAugment2', 'playerAugment3',
+  'playerAugment4', 'playerAugment5', 'playerAugment6'
+] as const
+const PARTICIPANT_LOADOUT_ID_KEYS = ['championId', 'spell1Id', 'spell2Id'] as const
+const PARTICIPANT_POSITION_KEYS = [
+  'teamPosition',
+  'individualPosition',
+  'selectedPosition',
+  'lane',
+  'role'
+] as const
 
 function isDisabledControl(target: HTMLElement) {
   if (
@@ -974,6 +989,9 @@ function mergeGameDetailIntoMatchHistory(match: MatchHistory, detail: GameDetail
   const identityCount = match.participantIdentities?.length ?? 0
   const detailParticipants = Array.isArray(detail.participants) ? detail.participants : []
   const detailIdentities = Array.isArray(detail.participantIdentities) ? detail.participantIdentities : []
+  const existingParticipantsById = new Map(
+    (match.participants || []).map(participant => [participant.participantId, participant])
+  )
   return {
     ...match,
     gameMode: match.gameMode || detail.gameMode,
@@ -984,11 +1002,121 @@ function mergeGameDetailIntoMatchHistory(match: MatchHistory, detail: GameDetail
     teamObjectives: detail.teamObjectives?.length ? detail.teamObjectives : match.teamObjectives,
     teamBans: detail.teamBans?.length ? detail.teamBans : match.teamBans,
     participants: detailParticipants.length >= participantCount
-      ? detailParticipants.map(toMatchParticipantFromGameDetail)
+      ? detailParticipants.map(participant => {
+          const nextParticipant = toMatchParticipantFromGameDetail(participant)
+          const existingParticipant = existingParticipantsById.get(nextParticipant.participantId)
+          return mergeParticipantLoadout(existingParticipant, nextParticipant)
+        })
       : match.participants,
     participantIdentities: detailIdentities.length >= identityCount
       ? detailIdentities.map(toMatchParticipantIdentityFromGameDetail)
       : match.participantIdentities
+  }
+}
+
+function mergeParticipantLoadout(
+  existingParticipant: Participant | undefined,
+  nextParticipant: Participant
+): Participant {
+  if (!existingParticipant) {
+    return nextParticipant
+  }
+
+  const existingRecord = existingParticipant as unknown as Record<string, unknown>
+  const nextRecord = nextParticipant as unknown as Record<string, unknown>
+  const mergedRecord: Record<string, unknown> = { ...existingRecord }
+  mergeDefinedRecordValues(mergedRecord, nextRecord)
+
+  for (const key of PARTICIPANT_LOADOUT_ID_KEYS) {
+    const nextValue = normalizePositiveInteger(nextRecord[key])
+    const existingValue = normalizePositiveInteger(existingRecord[key])
+    if (nextValue !== null) {
+      mergedRecord[key] = nextValue
+    } else if (existingValue !== null) {
+      mergedRecord[key] = existingValue
+    }
+  }
+
+  for (const key of PARTICIPANT_POSITION_KEYS) {
+    const nextValue = normalizeNonEmptyString(nextRecord[key])
+    const existingValue = normalizeNonEmptyString(existingRecord[key])
+    if (nextValue !== null) {
+      mergedRecord[key] = nextValue
+    } else if (existingValue !== null) {
+      mergedRecord[key] = existingValue
+    }
+  }
+
+  const mergedStats = mergeParticipantStatsLoadout(existingParticipant.stats, nextParticipant.stats)
+  if (mergedStats) {
+    mergedRecord.stats = mergedStats
+  }
+
+  return mergedRecord as unknown as Participant
+}
+
+function mergeParticipantStatsLoadout(
+  existingStats: Stats | undefined,
+  nextStats: Stats | undefined
+): Stats | undefined {
+  if (!existingStats) {
+    return nextStats
+  }
+  if (!nextStats) {
+    return existingStats
+  }
+
+  const existingRecord = existingStats as unknown as Record<string, unknown>
+  const nextRecord = nextStats as unknown as Record<string, unknown>
+  const mergedRecord: Record<string, unknown> = { ...existingRecord }
+  mergeDefinedRecordValues(mergedRecord, nextRecord)
+  mergeChallengesRecord(mergedRecord, existingRecord, nextRecord)
+
+  for (const key of LOADOUT_STAT_KEYS) {
+    const nextValue = normalizePositiveInteger(nextRecord[key])
+    const existingValue = normalizePositiveInteger(existingRecord[key])
+    if (nextValue !== null) {
+      mergedRecord[key] = nextValue
+    } else if (existingValue !== null) {
+      mergedRecord[key] = existingValue
+    }
+  }
+
+  if (!isRecord(nextRecord.perks) && isRecord(existingRecord.perks)) {
+    mergedRecord.perks = existingRecord.perks
+  }
+  if (!isRecord(nextRecord.extraFields) && isRecord(existingRecord.extraFields)) {
+    mergedRecord.extraFields = existingRecord.extraFields
+  }
+
+  return mergedRecord as unknown as Stats
+}
+
+function mergeDefinedRecordValues(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+) {
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && value !== null) {
+      target[key] = value
+    }
+  }
+}
+
+function mergeChallengesRecord(
+  target: Record<string, unknown>,
+  existingRecord: Record<string, unknown>,
+  nextRecord: Record<string, unknown>
+) {
+  const existingChallenges = existingRecord.challenges
+  const nextChallenges = nextRecord.challenges
+  if (!isRecord(existingChallenges) && !isRecord(nextChallenges)) {
+    return
+  }
+
+  target.challenges = {
+    ...(isRecord(existingChallenges) ? existingChallenges : {}),
+    ...(isRecord(nextChallenges) ? nextChallenges : {})
   }
 }
 
@@ -1028,7 +1156,8 @@ function toMatchStatsFromGameDetail(stats: GameDetail['participants'][number]['s
     return undefined
   }
 
-  return {
+  const sourceRecord = stats as unknown as Record<string, unknown>
+  const matchStats = {
     ...createDefaultMatchStats(),
     win: stats.win,
     kills: readDetailStatNumber(stats?.kills),
@@ -1065,6 +1194,25 @@ function toMatchStatsFromGameDetail(stats: GameDetail['participants'][number]['s
     playerAugment3: stats?.playerAugment3,
     playerAugment4: stats?.playerAugment4
   }
+  const matchStatsRecord = matchStats as unknown as Record<string, unknown>
+
+  for (const key of LOADOUT_STAT_KEYS) {
+    if (sourceRecord[key] !== undefined) {
+      matchStatsRecord[key] = sourceRecord[key]
+    }
+  }
+
+  if (isRecord(sourceRecord.perks)) {
+    matchStatsRecord.perks = sourceRecord.perks
+  }
+  if (isRecord(sourceRecord.extraFields)) {
+    matchStatsRecord.extraFields = sourceRecord.extraFields
+  }
+  if (isRecord(sourceRecord.challenges)) {
+    matchStatsRecord.challenges = sourceRecord.challenges
+  }
+
+  return matchStats as Stats
 }
 
 function createDefaultMatchStats(): Stats {
@@ -1091,6 +1239,30 @@ function createDefaultMatchStats(): Stats {
 
 function readDetailStatNumber(value: number | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (/^\d+$/.test(trimmed)) {
+      const parsed = Number(trimmed)
+      return parsed > 0 ? parsed : null
+    }
+  }
+
+  return null
+}
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
 }
 
 function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail {

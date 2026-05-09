@@ -152,20 +152,18 @@ test('inline overview renders two compact team tables without changing detail lo
   assert.match(source, /emit\('navigateToPlayer', player\.gameName, player\.tagLine\)/)
 })
 
-test('runes tab shows perk0 and perkSubStyle for normal matches and playerAugment1-6 for augment matches', () => {
+test('runes tab renders LCU-style primary and secondary rune columns', () => {
   const source = readInlineDetailSource()
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
 
   assert.match(source, /activeTabValue === 'runes'/)
+  assert.match(source, /interface RuneStyleColumn/)
+  assert.match(source, /function getPlayerRuneColumns/)
+  assert.match(source, /function getPrimaryRuneSlots/)
+  assert.match(source, /function getSecondaryRuneSlots/)
+  assert.match(source, /function getRuneStyleSlot/)
   assert.match(source, /function getPlayerTraitSlots/)
   assert.match(source, /function getPerkTraitSlots/)
-  assert.match(source, /readTraitId\(player, 'perk0'\)/)
-  assert.match(source, /readTraitId\(player, 'perkSubStyle'\)/)
-  assert.match(source, /readTraitId\(player, 'perkPrimaryStyle'\)/)
-  assert.match(source, /readTraitId\(player, 'perk5'\)/)
-  assert.match(source, /perk1/)
-  assert.match(source, /perk2/)
-  assert.match(source, /perk3/)
-  assert.match(source, /perk4/)
   assert.match(source, /function getAugmentTraitSlots/)
   assert.match(source, /playerAugment1/)
   assert.match(source, /playerAugment6/)
@@ -173,6 +171,214 @@ test('runes tab shows perk0 and perkSubStyle for normal matches and playerAugmen
   assert.match(source, /getAugmentAssetDetails/)
   assert.match(source, /:aria-label="slot\.label"/)
   assert.match(source, /\{ empty: slot\.empty \}/)
+  assert.match(runesBlock, /class="rune-columns"/)
+  assert.match(runesBlock, /class="rune-column"/)
+  assert.match(runesBlock, /class="rune-column-header"/)
+  assert.match(runesBlock, /v-if="!hasValidAugment\(player\)"/)
+  assert.match(runesBlock, /v-else[\s\S]*getRuneDetailSlots\(player\)/)
+  assert.match(source, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/)
+})
+
+test('rune columns use perks.styles selections instead of rendering style ids as rune cards', () => {
+  const source = readInlineDetailSource()
+  const perkSlotsBlock = readFunctionBlock(
+    source,
+    'function getPerkTraitSlots(player: MatchDetailParticipant): TraitSlot[]'
+  )
+  const primarySlotsBlock = readFunctionBlock(
+    source,
+    'function getPrimaryRuneSlots(player: MatchDetailParticipant): TraitSlot[]'
+  )
+  const secondarySlotsBlock = readFunctionBlock(
+    source,
+    'function getSecondaryRuneSlots(player: MatchDetailParticipant): TraitSlot[]'
+  )
+  const styleSlotBlock = readFunctionBlock(
+    source,
+    'function getRuneStyleSlot(player: MatchDetailParticipant, styleIndex: number): TraitSlot | null'
+  )
+
+  assert.match(source, /readPerkStyles\(player\)/)
+  assert.match(source, /styles\[0\]/)
+  assert.match(source, /selections/)
+  assert.match(source, /perkPrimaryStyle/)
+  assert.match(source, /perkSubStyle/)
+  assert.match(source, /perk0/)
+  assert.match(source, /perk1/)
+  assert.match(source, /perk2/)
+  assert.match(source, /perk3/)
+  assert.match(source, /perk4/)
+  assert.match(source, /perk5/)
+  assert.doesNotMatch(perkSlotsBlock, /perkPrimaryStyle|perkSubStyle/)
+  assert.doesNotMatch(primarySlotsBlock, /perkPrimaryStyle|perkSubStyle/)
+  assert.doesNotMatch(secondarySlotsBlock, /perkPrimaryStyle|perkSubStyle/)
+  assert.match(styleSlotBlock, /perkPrimaryStyle/)
+  assert.match(styleSlotBlock, /perkSubStyle/)
+})
+
+test('runes tab auto-expands current player and lets another player card expand', () => {
+  const source = readInlineDetailSource()
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.match(source, /expandedRuneParticipantKey/)
+  assert.match(source, /function getRuneParticipantKey/)
+  assert.match(source, /function ensureCurrentRuneParticipantExpanded/)
+  assert.match(source, /function isRuneParticipantExpanded/)
+  assert.match(source, /function toggleRuneParticipant/)
+  assert.match(source, /activeTabValue\.value === 'runes'/)
+  assert.match(source, /props\.currentPuuid/)
+  assert.match(runesBlock, /@click="toggleRuneParticipant\(player\)"/)
+  assert.match(runesBlock, /@keydown\.enter\.prevent="toggleRuneParticipant\(player\)"/)
+  assert.match(runesBlock, /@keydown\.space\.prevent="toggleRuneParticipant\(player\)"/)
+  assert.match(runesBlock, /isRuneParticipantExpanded\(player\)/)
+})
+
+test('rune detail items render icon left and text right', () => {
+  const source = readInlineDetailSource()
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+  const itemRule = source.match(/\.rune-detail-item \{[\s\S]*?\n\}/)?.[0] || ''
+  const contentRule = source.match(/\.rune-detail-content \{[\s\S]*?\n\}/)?.[0] || ''
+  const iconWrapRule = source.match(/\.rune-detail-icon-wrap \{[\s\S]*?\n\}/)?.[0] || ''
+  const textRule = source.match(/\.rune-detail-text \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(runesBlock, /class="rune-detail-panel"/)
+  assert.match(runesBlock, /class="rune-detail-item"/)
+  assert.match(runesBlock, /class="rune-detail-content"/)
+  assert.match(runesBlock, /class="rune-detail-icon-wrap/)
+  assert.match(runesBlock, /class="rune-detail-icon"/)
+  assert.match(runesBlock, /class="rune-detail-text"/)
+  assert.match(runesBlock, /class="rune-detail-name"/)
+  assert.match(contentRule, /display:\s*flex/)
+  assert.match(contentRule, /align-items:\s*flex-start/)
+  assert.match(iconWrapRule, /flex:\s*0 0 28px/)
+  assert.doesNotMatch(itemRule, /text-align:\s*center/)
+  assert.doesNotMatch(contentRule, /justify-content:\s*center/)
+  assert.doesNotMatch(textRule, /align-items:\s*center/)
+})
+
+test('rune descriptions only appear through tooltip', () => {
+  const source = readInlineDetailSource()
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+  const runeItemBlock = runesBlock.match(/class="rune-detail-item"[\s\S]*?<\/article>/)?.[0] || ''
+
+  assert.match(runesBlock, /AssetHoverTooltip/)
+  assert.match(runesBlock, /getTraitTooltipDetails\(slot\)/)
+  assert.match(source, /function getRuneDisplayName\(slot: TraitSlot\): string/)
+  assert.match(runesBlock, /class="rune-detail-content"/)
+  assert.doesNotMatch(runesBlock, /class="rune-description"|class="rune-detail-desc"|class="rune-detail-description"/)
+  assert.doesNotMatch(runeItemBlock, /details\.description|tooltip\.description|longDesc|shortDesc/)
+  assert.doesNotMatch(runeItemBlock, /getTraitSlotLabel\(slot\.kind, slot\.id\)|getTraitDetailDescription\(slot\)/)
+})
+
+test('rune stat definitions support candidate var keys and hide zero by default', () => {
+  const source = readInlineDetailSource()
+
+  assert.match(source, /interface RuneStatDefinition/)
+  assert.match(source, /valueKeys/)
+  assert.match(source, /showZero/)
+  assert.match(source, /function readRuneStatDefinitionValue/)
+  assert.match(source, /value > 0/)
+  assert.match(source, /definition\.showZero/)
+  assert.match(source, /return null/)
+})
+
+test('conqueror stat uses positive value and does not render zero healing', () => {
+  const source = readInlineDetailSource()
+  const conquerorBlock = source.match(/8010:\s*\[[\s\S]*?\n {2}\]/)?.[0] || ''
+
+  assert.match(conquerorBlock, /8010/)
+  assert.match(conquerorBlock, /valueKeys: \['var1', 'var2', 'var3'\]/)
+  assert.match(conquerorBlock, /已回复/)
+  assert.match(conquerorBlock, /生命值/)
+  assert.doesNotMatch(conquerorBlock, /var2:\s*value\s*=>/)
+})
+
+test('cash back and bone plating have stat mappings', () => {
+  const source = readInlineDetailSource()
+
+  assert.match(source, /8321/)
+  assert.match(source, /已返还/)
+  assert.match(source, /金币/)
+  assert.match(source, /8473/)
+  assert.match(source, /已减免/)
+  assert.match(source, /伤害/)
+})
+
+test('rune stat rows prefer metadata end-of-game descriptions', () => {
+  const source = readInlineDetailSource()
+  const statRowsBlock = readFunctionBlock(
+    source,
+    'function getRuneStatDisplayRows('
+  )
+
+  assert.match(source, /function getMetadataRuneStatRows/)
+  assert.match(source, /function getPerkEndOfGameStatDescriptions/)
+  assert.match(source, /endOfGameStatDescs/)
+  assert.match(source, /endOfGameStatDesc/)
+  assert.match(source, /getPerkAssetDetails/)
+  assert.match(source, /@eogvar1@/)
+  assert.match(source, /@eogvar2@/)
+  assert.match(source, /@eogvar3@/)
+  assert.match(source, /function getDefinedRuneStatRows/)
+  assert.match(statRowsBlock, /metadataRows\.length/)
+  assertOrdered(statRowsBlock, [
+    'const metadataRows = getMetadataRuneStatRows(slot.id, selection)',
+    'if (metadataRows.length) {',
+    'return getDefinedRuneStatRows(slot.id, selection)'
+  ])
+})
+
+test('metadata rune stat descriptions replace eog vars and reject unresolved placeholders', () => {
+  const source = readInlineDetailSource()
+
+  assert.match(source, /function formatPerkEndOfGameStatDescription/)
+  assert.match(source, /\{\{\s*var1\s*\}\}/)
+  assert.match(source, /\{var1\}/)
+  assert.match(source, /function normalizeRuneStatDescriptionText/)
+  assert.match(source, /@eogvar/)
+  assert.match(source, /return ''/)
+})
+
+test('zero-only metadata rune stats are hidden', () => {
+  const source = readInlineDetailSource()
+
+  assert.match(source, /function hasPositiveRuneStatValue/)
+  assert.match(source, /value > 0/)
+  assert.match(source, /return \[\]/)
+  assert.match(source, /selection\.var1/)
+  assert.match(source, /selection\.var2/)
+  assert.match(source, /selection\.var3/)
+})
+
+test('generic and empty stat labels are not rendered', () => {
+  const source = readInlineDetailSource()
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.match(source, /RUNE_STAT_DEFINITIONS/)
+  assert.match(source, /function getRuneStatDisplayRows/)
+  assert.match(source, /function getRuneSelectionRecord/)
+  assert.match(runesBlock, /v-if="getRuneStatDisplayRows\(player, slot\)\.length"/)
+  assert.match(runesBlock, /class="rune-stat-line"/)
+  assert.doesNotMatch(source, /收益 1|收益1|收益 2|收益2|收益 3|收益3/)
+  assert.doesNotMatch(source, /暂无符文统计|暂无收益数据|RUNE_STATS_EMPTY_TEXT/)
+  assert.doesNotMatch(runesBlock, /class="rune-stat-empty"|matchDetail\.runeStatsEmpty/)
+  assert.doesNotMatch(runesBlock, />\s*var1\s*<|>\s*var2\s*<|>\s*var3\s*</)
+  assert.doesNotMatch(source, /label:\s*['"`]var[123]['"`]|text:\s*['"`]var[123]['"`]/)
+})
+
+test('common rune stat definitions use sentence text', () => {
+  const source = readInlineDetailSource()
+
+  assert.match(source, /RUNE_STAT_DEFINITIONS/)
+  assert.match(source, /9111/)
+  assert.match(source, /8010/)
+  assert.match(source, /8014/)
+  assert.match(source, /已回复/)
+  assert.match(source, /已获得/)
+  assert.match(source, /已造成/)
+  assert.match(source, /生命值/)
+  assert.match(source, /金币/)
+  assert.match(source, /额外伤害/)
 })
 
 test('inline detail uses rich asset tooltips for overview items and trait icons', () => {

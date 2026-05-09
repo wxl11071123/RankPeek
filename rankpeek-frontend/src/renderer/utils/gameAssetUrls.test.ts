@@ -481,6 +481,8 @@ test('game asset metadata helpers expose item, perk, augment, and summoner spell
         name: 'Press the Attack',
         shortDesc: 'Hit three times.',
         longDesc: 'Amplifies damage.',
+        endOfGameStatDescs: ['Damage dealt: @eogvar1@'],
+        endOfGameStatDesc: 'Bonus damage: @eogvar2@',
         icon: 'perks/8005.png'
       }
     },
@@ -509,6 +511,8 @@ test('game asset metadata helpers expose item, perk, augment, and summoner spell
   assert.equal(getPerkAssetDetails(8000)?.icon, 'perks/8000.png')
   assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
   assert.equal(getPerkAssetDetails(8005)?.shortDesc, 'Hit three times.')
+  assert.deepEqual(getPerkAssetDetails(8005)?.endOfGameStatDescs, ['Damage dealt: @eogvar1@'])
+  assert.equal(getPerkAssetDetails(8005)?.endOfGameStatDesc, 'Bonus damage: @eogvar2@')
   assert.equal(getAugmentAssetDetails(1205)?.description, 'Adaptive force.')
   assert.equal(getSummonerSpellAssetDetails(4)?.name, 'Flash')
   assert.equal(getSummonerSpellAssetDetails(4)?.icon, 'summoner-spells/4.png')

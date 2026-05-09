@@ -109,6 +109,7 @@ class AssetServiceTest {
         perk.setTooltip("用一个技能对一名英雄造成伤害时，会持续灼烧该英雄。");
         perk.setShortDesc("用一个技能对一名英雄造成伤害时，会持续灼烧该英雄。");
         perk.setLongDesc("用一个技能对一名英雄造成伤害时，会灼烧其造成自适应伤害。");
+        ReflectionTestUtils.setField(perk, "endOfGameStatDescs", List.of("Damage dealt: @eogvar1@"));
         perk.setIconPath("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg");
 
         AssetService.PerkStylePayload stylePayload = new AssetService.PerkStylePayload();
@@ -136,12 +137,14 @@ class AssetServiceTest {
         assertThat(perkEntry.shortDesc()).contains("灼烧");
         assertThat(perkEntry.longDesc()).contains("自适应伤害");
         assertThat(perkEntry.tooltip()).contains("灼烧");
+        assertThat(perkEntry).extracting("endOfGameStatDescs").isEqualTo(List.of("Damage dealt: @eogvar1@"));
         assertThat(perkEntry.icon()).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg");
         assertThat(service.getPerkIconPath(8992)).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg");
 
         assertThat(styleEntry).isNotNull();
         assertThat(styleEntry.name()).isEqualTo("巫术");
         assertThat(styleEntry.description()).isEqualTo("强化技能和资源控制");
+        assertThat(styleEntry).extracting("endOfGameStatDescs").isEqualTo(List.of());
         assertThat(styleEntry.icon()).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/7202_Sorcery.png");
         assertThat(service.getPerkIconPath(8200)).isEqualTo("/lol-game-data/assets/v1/perk-images/Styles/7202_Sorcery.png");
     }

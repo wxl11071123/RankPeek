@@ -166,3 +166,18 @@ test('match history card item and augment tooltip details use structured price a
   assert.doesNotMatch(item?.priceText || '', /装备 6610/)
   assert.notEqual(augment?.rarityLabel || augment?.subtitle, '海克斯强化 2005')
 })
+
+test('match history card falls back to nested rune styles for compact perk slots', () => {
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /function readNestedPerkStyleId/)
+  assert.match(source, /function readNestedPerkSelectionId/)
+  assert.match(source, /const primaryId =\s*readTraitId\(statsRecord, participantRecord, 'perk0'\)\s*\|\|\s*readNestedPerkSelectionId\(statsRecord, participantRecord, 0\)/)
+  assert.match(source, /readTraitId\(statsRecord, participantRecord, 'perkSubStyle'\)\s*\|\|\s*readNestedPerkPropertyId\(statsRecord, participantRecord,[\s\S]*readNestedPerkStyleId\(statsRecord, participantRecord, 1\)[\s\S]*readTraitId\(statsRecord, participantRecord, 'perk5'\)/)
+  assert.match(source, /typeof value === 'string'[\s\S]*trim\(\)[\s\S]*\/\^\\d\+\$\/[\s\S]*Number\(/)
+  assert.match(source, /function readNestedPerkPropertyId/)
+  assert.match(source, /'perkSubStyle'[\s\S]*'subStyle'[\s\S]*'secondaryStyle'[\s\S]*'secondaryStyleId'/)
+  assert.match(source, /'perkStyle'[\s\S]*'primaryStyle'[\s\S]*'primaryStyleId'/)
+  assert.match(source, /function readNestedPerkId/)
+  assert.match(source, /perkIds/)
+})

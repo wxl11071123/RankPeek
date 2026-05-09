@@ -511,6 +511,7 @@ public class AssetService {
                 firstText(perk.tooltip),
                 firstText(perk.shortDesc),
                 firstText(perk.longDesc),
+                normalizeTextList(perk.endOfGameStatDescs),
                 firstText(perk.iconPath)
         );
     }
@@ -523,6 +524,7 @@ public class AssetService {
                 firstText(style.tooltip),
                 "",
                 "",
+                List.of(),
                 firstText(style.iconPath)
         );
     }
@@ -588,6 +590,20 @@ public class AssetService {
             }
         }
         return "";
+    }
+
+    private static List<String> normalizeTextList(Object value) {
+        if (value instanceof String text) {
+            return text.isBlank() ? List.of() : List.of(text);
+        }
+        if (value instanceof List<?> values) {
+            return values.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(text -> !text.isBlank())
+                    .toList();
+        }
+        return List.of();
     }
 
     private String normalizePublicIcon(String directory, long id, String iconPath) {
@@ -684,8 +700,20 @@ public class AssetService {
             String tooltip,
             String shortDesc,
             String longDesc,
+            List<String> endOfGameStatDescs,
             String icon
     ) {
+        public PerkMetadata(
+                long id,
+                String name,
+                String description,
+                String tooltip,
+                String shortDesc,
+                String longDesc,
+                String icon
+        ) {
+            this(id, name, description, tooltip, shortDesc, longDesc, List.of(), icon);
+        }
     }
 
     public record AugmentMetadata(
@@ -794,6 +822,14 @@ public class AssetService {
 
         @JsonProperty("longDesc")
         private String longDesc;
+
+        private List<String> endOfGameStatDescs = List.of();
+
+        @JsonProperty("endOfGameStatDescs")
+        @JsonAlias({"endOfGameStatDesc", "endOfGameStats", "endOfGameStatDescriptions"})
+        public void setEndOfGameStatDescs(Object endOfGameStatDescs) {
+            this.endOfGameStatDescs = normalizeTextList(endOfGameStatDescs);
+        }
 
         @JsonProperty("iconPath")
         private String iconPath;

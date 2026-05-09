@@ -148,10 +148,30 @@ function buildPerkTraitSlots(
   statsRecord: Record<string, unknown> | null | undefined,
   participantRecord: Record<string, unknown> | null | undefined
 ): MatchTraitIconSlot[] {
-  const primaryId = readTraitId(statsRecord, participantRecord, 'perk0')
+  const primaryId = readTraitId(statsRecord, participantRecord, 'perk0') ||
+    readNestedPerkSelectionId(statsRecord, participantRecord, 0) ||
+    readNestedPerkId(statsRecord, participantRecord, 0)
   const secondaryId = readTraitId(statsRecord, participantRecord, 'perkSubStyle') ||
+    readNestedPerkPropertyId(statsRecord, participantRecord, [
+      'perkSubStyle',
+      'subStyle',
+      'secondaryStyle',
+      'secondaryStyleId'
+    ]) ||
+    readNestedPerkStyleId(statsRecord, participantRecord, 1) ||
+    readTraitId(statsRecord, participantRecord, 'perk5') ||
+    readNestedPerkSelectionId(statsRecord, participantRecord, 5) ||
+    readNestedPerkId(statsRecord, participantRecord, 5) ||
+    readTraitId(statsRecord, participantRecord, 'perk4') ||
+    readNestedPerkSelectionId(statsRecord, participantRecord, 4) ||
+    readNestedPerkId(statsRecord, participantRecord, 4) ||
     readTraitId(statsRecord, participantRecord, 'perkPrimaryStyle') ||
-    readTraitId(statsRecord, participantRecord, 'perk5')
+    readNestedPerkPropertyId(statsRecord, participantRecord, [
+      'perkStyle',
+      'primaryStyle',
+      'primaryStyleId'
+    ]) ||
+    readNestedPerkStyleId(statsRecord, participantRecord, 0)
 
   return [
     createTraitSlot('perk', 0, primaryId),
@@ -203,6 +223,113 @@ function readTraitId(
   return normalizePositiveInteger(statsRecord?.[key] ?? participantRecord?.[key] ?? extraFields?.[key])
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readNestedPerkStyleId(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined,
+  styleIndex: number
+): number | null {
+  const style = readNestedPerkStyles(statsRecord, participantRecord)?.[styleIndex]
+  return isRecord(style) ? normalizePositiveInteger(style.style) : null
+}
+
+function readNestedPerkPropertyId(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined,
+  keys: string[]
+): number | null {
+  for (const perks of readNestedPerkRecords(statsRecord, participantRecord)) {
+    for (const key of keys) {
+      const id = normalizePositiveInteger(perks[key])
+      if (id !== null) {
+        return id
+      }
+    }
+  }
+
+  return null
+}
+
+function readNestedPerkId(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined,
+  perkIndex: number
+): number | null {
+  for (const perks of readNestedPerkRecords(statsRecord, participantRecord)) {
+    if (!Array.isArray(perks.perkIds)) {
+      continue
+    }
+
+    const id = normalizePositiveInteger(perks.perkIds[perkIndex])
+    if (id !== null) {
+      return id
+    }
+  }
+
+  return null
+}
+
+function readNestedPerkSelectionId(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined,
+  selectionIndex: number
+): number | null {
+  const styles = readNestedPerkStyles(statsRecord, participantRecord)
+  if (!styles) {
+    return null
+  }
+
+  let currentIndex = 0
+  for (const style of styles) {
+    if (!isRecord(style) || !Array.isArray(style.selections)) {
+      continue
+    }
+
+    for (const selection of style.selections) {
+      if (currentIndex === selectionIndex) {
+        return isRecord(selection) ? normalizePositiveInteger(selection.perk) : null
+      }
+      currentIndex += 1
+    }
+  }
+
+  return null
+}
+
+function readNestedPerkStyles(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined
+): unknown[] | null {
+  for (const perks of readNestedPerkRecords(statsRecord, participantRecord)) {
+    if (Array.isArray(perks.styles)) {
+      return perks.styles
+    }
+  }
+
+  return null
+}
+
+function readNestedPerkRecords(
+  statsRecord: Record<string, unknown> | null | undefined,
+  participantRecord: Record<string, unknown> | null | undefined
+): Record<string, unknown>[] {
+  const statsExtraFieldsValue = statsRecord?.extraFields
+  const participantExtraFieldsValue = participantRecord?.extraFields
+  const statsExtraFields = isRecord(statsExtraFieldsValue) ? statsExtraFieldsValue : null
+  const participantExtraFields = isRecord(participantExtraFieldsValue) ? participantExtraFieldsValue : null
+  const perkSources = [
+    statsRecord?.perks,
+    participantRecord?.perks,
+    statsExtraFields?.perks,
+    participantExtraFields?.perks
+  ]
+
+  return perkSources.filter((perks): perks is Record<string, unknown> => isRecord(perks))
+}
+
 function getAugmentKeys(): string[] {
   return [
     'playerAugment1',
@@ -242,7 +369,19 @@ function getItemSlotLabel(slot: { itemId: number | null, empty: boolean }): stri
 }
 
 function normalizePositiveInteger(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (/^\d+$/.test(trimmed)) {
+      const parsed = Number(trimmed)
+      return parsed > 0 ? parsed : null
+    }
+  }
+
+  return null
 }
 
 function formatDuration(seconds?: number): string {

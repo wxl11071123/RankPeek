@@ -13,6 +13,22 @@ test('match history list hydrates loadout fields from cached and opened game det
   assert.match(source, /applyGameDetailToVisibleMatchHistory\(match, gameDetail\)/)
 })
 
+test('game detail merge preserves summary loadout stats when detail omits them', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const mergeFunction = source.match(/function mergeGameDetailIntoMatchHistory\(match: MatchHistory, detail: GameDetail\): MatchHistory \{[\s\S]*?function toMatchParticipantFromGameDetail/)?.[0] || ''
+
+  assert.match(source, /const LOADOUT_STAT_KEYS = \[/)
+  assert.match(source, /'item0'[\s\S]*'item6'/)
+  assert.match(source, /'perk0'[\s\S]*'perk4'[\s\S]*'perk5'/)
+  assert.match(source, /'perkPrimaryStyle'[\s\S]*'perkSubStyle'/)
+  assert.match(source, /'playerAugment5'[\s\S]*'playerAugment6'/)
+  assert.match(source, /function mergeParticipantStatsLoadout/)
+  assert.match(source, /function mergeParticipantLoadout/)
+  assert.match(mergeFunction, /const existingParticipantsById = new Map/)
+  assert.match(mergeFunction, /mergeParticipantLoadout\(existingParticipant, nextParticipant\)/)
+  assert.doesNotMatch(mergeFunction, /participants: detailParticipants\.length >= participantCount\s*\?\s*detailParticipants\.map\(toMatchParticipantFromGameDetail\)\s*:\s*match\.participants/)
+})
+
 test('opened game detail keeps draft and objective summaries on visible match history', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const mergeFunction = source.match(/function mergeGameDetailIntoMatchHistory\(match: MatchHistory, detail: GameDetail\): MatchHistory \{[\s\S]*?\n\}/)?.[0] || ''

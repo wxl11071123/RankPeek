@@ -85,6 +85,8 @@ export interface GameAssetMetadataEntry {
   descriptionTRA?: string
   tooltipTra?: string
   tooltipTRA?: string
+  endOfGameStatDescs?: string[]
+  endOfGameStatDesc?: string
   rarity?: string
   icon?: string
   gold?: GameAssetGold
@@ -1118,6 +1120,7 @@ function normalizeMetadataEntry(entry: GameAssetMetadataEntry | undefined): Game
     'descriptionTRA',
     'tooltipTra',
     'tooltipTRA',
+    'endOfGameStatDesc',
     'rarity',
     'icon'
   ] as const) {
@@ -1125,6 +1128,11 @@ function normalizeMetadataEntry(entry: GameAssetMetadataEntry | undefined): Game
     if (typeof value === 'string' && value.trim()) {
       normalized[key] = value
     }
+  }
+
+  const endOfGameStatDescs = normalizeStringArray(entry.endOfGameStatDescs)
+  if (endOfGameStatDescs.length) {
+    normalized.endOfGameStatDescs = endOfGameStatDescs
   }
 
   const gold = normalizeGold(entry.gold)
@@ -1158,6 +1166,15 @@ function normalizeMetadataEntry(entry: GameAssetMetadataEntry | undefined): Game
 function normalizeAssetIdArray(value: unknown): number[] {
   return Array.isArray(value)
     ? value.map(item => normalizeAssetId(typeof item === 'string' ? Number(item) : item)).filter((item): item is number => item !== null)
+    : []
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === 'string')
+        .map(item => item.trim())
+        .filter(Boolean)
     : []
 }
 

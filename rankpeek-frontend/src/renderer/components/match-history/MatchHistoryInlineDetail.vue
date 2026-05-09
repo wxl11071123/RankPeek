@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
 import { useI18n } from '@/i18n'
 import type {
@@ -31,6 +31,7 @@ import {
   getSummonerSpellTooltipDetails,
   markAssetLoadFailed,
   normalizeRiotTooltipText,
+  type GameAssetMetadataEntry,
   type GameAssetTooltipDetails,
   type ItemIconSlot,
   type ObjectiveIconKind
@@ -65,6 +66,19 @@ interface TraitSlot {
   empty: boolean
   label: string
   rarityClass?: string
+}
+
+interface RuneStyleColumn {
+  key: 'primary' | 'secondary'
+  styleId: number | null
+  styleSlot: TraitSlot | null
+  title: string
+  slots: TraitSlot[]
+}
+
+interface RuneStatDisplayRow {
+  key: string
+  text: string
 }
 
 interface TeamSection {
@@ -207,6 +221,153 @@ const STRUCTURE_OBJECTIVE_SOURCES: Record<StructureObjectiveSourceKey, Structure
   }
 }
 
+type RuneStatVarKey = 'var1' | 'var2' | 'var3'
+
+interface RuneStatDefinition {
+  key: string
+  valueKeys: RuneStatVarKey[]
+  text: (value: number) => string
+  showZero?: boolean
+}
+
+const RUNE_STYLE_NAMES: Record<number, string> = {
+  8000: '精密',
+  8100: '主宰',
+  8200: '巫术',
+  8300: '启迪',
+  8400: '坚决'
+}
+const RUNE_STAT_DEFINITIONS: Record<number, RuneStatDefinition[]> = {
+  8005: [
+    {
+      key: 'damage',
+      valueKeys: ['var1'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 额外伤害`
+    }
+  ],
+  8010: [
+    {
+      key: 'healing',
+      valueKeys: ['var1', 'var2', 'var3'],
+      text: value => `已回复 ${formatRuneStatValue(value)} 生命值`
+    }
+  ],
+  8014: [
+    {
+      key: 'damage',
+      valueKeys: ['var1'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 额外伤害`
+    }
+  ],
+  8128: [
+    {
+      key: 'souls',
+      valueKeys: ['var1'],
+      text: value => `已收集 ${formatRuneStatValue(value)} 灵魂`
+    },
+    {
+      key: 'damage',
+      valueKeys: ['var2'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 额外伤害`
+    }
+  ],
+  8214: [
+    {
+      key: 'damage',
+      valueKeys: ['var1'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 伤害`
+    },
+    {
+      key: 'shield',
+      valueKeys: ['var2'],
+      text: value => `已提供 ${formatRuneStatValue(value)} 护盾`
+    }
+  ],
+  8226: [
+    {
+      key: 'mana',
+      valueKeys: ['var1'],
+      text: value => `已回复 ${formatRuneStatValue(value)} 法力值`
+    }
+  ],
+  8237: [
+    {
+      key: 'damage',
+      valueKeys: ['var1'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 伤害`
+    }
+  ],
+  8304: [
+    {
+      key: 'gold-saved',
+      valueKeys: ['var1'],
+      text: value => `已节省 ${formatRuneStatValue(value)} 金币`
+    }
+  ],
+  8321: [
+    {
+      key: 'gold',
+      valueKeys: ['var1', 'var2', 'var3'],
+      text: value => `已返还 ${formatRuneStatValue(value)} 金币`
+    }
+  ],
+  8345: [
+    {
+      key: 'health',
+      valueKeys: ['var1'],
+      text: value => `已回复 ${formatRuneStatValue(value)} 生命值`
+    },
+    {
+      key: 'mana',
+      valueKeys: ['var2'],
+      text: value => `已回复 ${formatRuneStatValue(value)} 法力值`
+    }
+  ],
+  8437: [
+    {
+      key: 'damage',
+      valueKeys: ['var1'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 伤害`
+    },
+    {
+      key: 'healing',
+      valueKeys: ['var2'],
+      text: value => `已回复 ${formatRuneStatValue(value)} 生命值`
+    },
+    {
+      key: 'max-health',
+      valueKeys: ['var3'],
+      text: value => `已获得 ${formatRuneStatValue(value)} 最大生命值`
+    }
+  ],
+  8463: [
+    {
+      key: 'turret-damage',
+      valueKeys: ['var1'],
+      text: value => `已造成 ${formatRuneStatValue(value)} 防御塔伤害`
+    }
+  ],
+  8473: [
+    {
+      key: 'damage-reduced',
+      valueKeys: ['var1', 'var2', 'var3'],
+      text: value => `已减免 ${formatRuneStatValue(value)} 伤害`
+    }
+  ],
+  9111: [
+    {
+      key: 'healing',
+      valueKeys: ['var1'],
+      text: value => `已回复 ${formatRuneStatValue(value)} 生命值`
+    },
+    {
+      key: 'gold',
+      valueKeys: ['var2'],
+      text: value => `已获得 ${formatRuneStatValue(value)} 金币`
+    }
+  ]
+}
+
 const props = withDefaults(defineProps<{
   matchHistory: MatchHistory
   gameDetail: GameDetail | null
@@ -254,6 +415,7 @@ const showDraftAndObjectiveSummary = computed(() => isRankedMode(props.matchHist
 const hasTimelineData = computed(() => false)
 const staticTeamGoldDiff = computed(() => blueTeamTotals.value.goldEarned - redTeamTotals.value.goldEarned)
 const failedObjectiveIconKeys = ref(new Set<string>())
+const expandedRuneParticipantKey = ref('')
 
 const detailTabs = computed<Array<{ key: InlineDetailTabKey; label: string }>>(() => [
   { key: 'overview', label: t('matchDetail.overviewTab') },
@@ -275,6 +437,18 @@ const detailNotice = computed(() => {
   }
   return ''
 })
+
+watch(
+  () => [activeTabValue.value, props.matchHistory.gameId, props.currentPuuid, allPlayers.value.length],
+  () => {
+    if (activeTabValue.value === 'runes') {
+      ensureCurrentRuneParticipantExpanded()
+      return
+    }
+    expandedRuneParticipantKey.value = ''
+  },
+  { immediate: true }
+)
 
 function selectTab(tab: InlineDetailTabKey): void {
   activeTabValue.value = tab
@@ -338,24 +512,137 @@ function getItemSlotLabel(slot: ItemIconSlot): string {
   return details?.name ? `${details.name} (${slot.itemId})` : `${t('matchDetail.itemLabel')} ${slot.itemId}`
 }
 
+function getRuneParticipantKey(player: MatchDetailParticipant): string {
+  return `${props.matchHistory.gameId}-${player.participantId}`
+}
+
+function getCurrentRuneParticipant(): MatchDetailParticipant | null {
+  const currentPlayer = allPlayers.value.find(player => {
+    const playerRecord = player as unknown as Record<string, unknown>
+    return player.isCurrentPlayer || playerRecord.puuid === props.currentPuuid
+  })
+  return currentPlayer || null
+}
+
+function ensureCurrentRuneParticipantExpanded(): void {
+  if (activeTabValue.value !== 'runes') {
+    return
+  }
+
+  const expandedPlayerExists = allPlayers.value.some(player =>
+    getRuneParticipantKey(player) === expandedRuneParticipantKey.value
+  )
+  if (expandedRuneParticipantKey.value && expandedPlayerExists) {
+    return
+  }
+
+  const currentPlayer = getCurrentRuneParticipant()
+  if (currentPlayer) {
+    expandedRuneParticipantKey.value = getRuneParticipantKey(currentPlayer)
+  }
+}
+
+function isRuneParticipantExpanded(player: MatchDetailParticipant): boolean {
+  return expandedRuneParticipantKey.value === getRuneParticipantKey(player)
+}
+
+function toggleRuneParticipant(player: MatchDetailParticipant): void {
+  expandedRuneParticipantKey.value = getRuneParticipantKey(player)
+}
+
 function getPlayerTraitSlots(player: MatchDetailParticipant): TraitSlot[] {
   return hasValidAugment(player) ? getAugmentTraitSlots(player) : getPerkTraitSlots(player)
 }
 
 function getPerkTraitSlots(player: MatchDetailParticipant): TraitSlot[] {
-  const primaryId = readTraitId(player, 'perk0')
-  const secondaryId = readTraitId(player, 'perkSubStyle') ||
-    readTraitId(player, 'perkPrimaryStyle') ||
-    readTraitId(player, 'perk5')
-  const coreSlots = [
-    createTraitSlot('perk', 'perk0', primaryId),
-    createTraitSlot('perk', 'perkSubStyle', secondaryId)
-  ]
-  const minorSlots = ['perk1', 'perk2', 'perk3', 'perk4', 'perk5']
-    .map(key => createTraitSlot('perk', key, readTraitId(player, key)))
-    .filter(slot => slot.id !== null)
+  return [...getPrimaryRuneSlots(player), ...getSecondaryRuneSlots(player)]
+}
 
-  return [...coreSlots, ...minorSlots]
+function getRuneDetailSlots(player: MatchDetailParticipant): TraitSlot[] {
+  return getPlayerTraitSlots(player).filter(slot => !slot.empty && slot.id !== null)
+}
+
+function getPlayerRuneColumns(player: MatchDetailParticipant): RuneStyleColumn[] {
+  const primaryStyleSlot = getRuneStyleSlot(player, 0)
+  const secondaryStyleSlot = getRuneStyleSlot(player, 1)
+  return [
+    {
+      key: 'primary',
+      styleId: primaryStyleSlot?.id ?? null,
+      styleSlot: primaryStyleSlot,
+      title: getRuneStyleTitle('primary', primaryStyleSlot),
+      slots: getPrimaryRuneSlots(player)
+    },
+    {
+      key: 'secondary',
+      styleId: secondaryStyleSlot?.id ?? null,
+      styleSlot: secondaryStyleSlot,
+      title: getRuneStyleTitle('secondary', secondaryStyleSlot),
+      slots: getSecondaryRuneSlots(player)
+    }
+  ]
+}
+
+function getPrimaryRuneSlots(player: MatchDetailParticipant): TraitSlot[] {
+  const styles = readPerkStyles(player)
+  const nestedSlots = getRuneSlotsFromStyleSelections(styles[0], 'primary')
+  if (nestedSlots.length) {
+    return nestedSlots
+  }
+
+  return ['perk0', 'perk1', 'perk2', 'perk3']
+    .map((key, index) => createTraitSlot('perk', key, readTraitId(player, key) || readNestedPerkId(player, index)))
+    .filter(isFilledTraitSlot)
+}
+
+function getSecondaryRuneSlots(player: MatchDetailParticipant): TraitSlot[] {
+  const styles = readPerkStyles(player)
+  const nestedSlots = getRuneSlotsFromStyleSelections(styles[1], 'secondary')
+  if (nestedSlots.length) {
+    return nestedSlots
+  }
+
+  return ['perk4', 'perk5']
+    .map((key, index) => createTraitSlot('perk', key, readTraitId(player, key) || readNestedPerkId(player, index + 4)))
+    .filter(isFilledTraitSlot)
+}
+
+function getRuneStyleSlot(player: MatchDetailParticipant, styleIndex: number): TraitSlot | null {
+  const fallbackKey = styleIndex === 0 ? 'perkPrimaryStyle' : 'perkSubStyle'
+  const styleId = readNestedPerkStyleId(player, styleIndex) || readTraitId(player, fallbackKey)
+  return styleId === null ? null : createTraitSlot('perk', `${styleIndex === 0 ? 'primary' : 'secondary'}-style`, styleId)
+}
+
+function getRuneSlotsFromStyleSelections(style: unknown, columnKey: RuneStyleColumn['key']): TraitSlot[] {
+  if (!isRecord(style) || !Array.isArray(style.selections)) {
+    return []
+  }
+
+  return style.selections
+    .map((selection, index) => {
+      if (!isRecord(selection)) {
+        return null
+      }
+
+      return createTraitSlot('perk', `${columnKey}-${index}`, normalizePositiveInteger(selection.perk))
+    })
+    .filter((slot): slot is TraitSlot => slot !== null && isFilledTraitSlot(slot))
+}
+
+function getRuneStyleTitle(key: RuneStyleColumn['key'], styleSlot: TraitSlot | null): string {
+  if (styleSlot?.id && RUNE_STYLE_NAMES[styleSlot.id]) {
+    return RUNE_STYLE_NAMES[styleSlot.id]
+  }
+
+  if (styleSlot?.id) {
+    return getPerkAssetDetails(styleSlot.id)?.name || getTraitDetailName(styleSlot)
+  }
+
+  return key === 'primary' ? '主系' : '副系'
+}
+
+function isFilledTraitSlot(slot: TraitSlot): boolean {
+  return !slot.empty && slot.id !== null
 }
 
 function getAugmentTraitSlots(player: MatchDetailParticipant): TraitSlot[] {
@@ -421,6 +708,290 @@ function getTraitTooltipDetails(slot: TraitSlot): GameAssetTooltipDetails | null
   return slot.kind === 'augment'
     ? getAugmentTooltipDetails(slot.id)
     : getPerkTooltipDetails(slot.id)
+}
+
+function getTraitDetailName(slot: TraitSlot): string {
+  if (slot.id === null) {
+    return slot.label
+  }
+
+  const details = slot.kind === 'augment' ? getAugmentAssetDetails(slot.id) : getPerkAssetDetails(slot.id)
+  return details?.name || slot.label
+}
+
+function getRuneDisplayName(slot: TraitSlot): string {
+  if (slot.id === null) {
+    return slot.label
+  }
+
+  const details = slot.kind === 'augment' ? getAugmentAssetDetails(slot.id) : getPerkAssetDetails(slot.id)
+  return details?.name || slot.label.split(' - ')[0] || slot.label
+}
+
+function getRuneSelectionRecord(
+  player: MatchDetailParticipant,
+  perkId: number
+): Record<string, unknown> | null {
+  return readPerkSelections(player).find(selection =>
+    normalizePositiveInteger(selection.perk) === perkId
+  ) || null
+}
+
+function getRuneStatDisplayRows(
+  player: MatchDetailParticipant,
+  slot: TraitSlot
+): RuneStatDisplayRow[] {
+  if (slot.kind !== 'perk' || slot.id === null) {
+    return []
+  }
+
+  const selection = getRuneSelectionRecord(player, slot.id)
+  if (!selection) {
+    return []
+  }
+
+  const metadataRows = getMetadataRuneStatRows(slot.id, selection)
+  if (metadataRows.length) {
+    return metadataRows
+  }
+
+  return getDefinedRuneStatRows(slot.id, selection)
+}
+
+function getDefinedRuneStatRows(
+  perkId: number,
+  selection: Record<string, unknown>
+): RuneStatDisplayRow[] {
+  const definitions = RUNE_STAT_DEFINITIONS[perkId] || []
+  if (!definitions.length) {
+    return []
+  }
+
+  return definitions
+    .map(definition => {
+      const value = readRuneStatDefinitionValue(selection, definition)
+      return value === null
+        ? null
+        : {
+            key: `${perkId}-${definition.key}`,
+            text: definition.text(value)
+          }
+    })
+    .filter((row): row is RuneStatDisplayRow => row !== null)
+}
+
+function getMetadataRuneStatRows(
+  perkId: number,
+  selection: Record<string, unknown>
+): RuneStatDisplayRow[] {
+  const descriptions = getPerkEndOfGameStatDescriptions(perkId)
+  if (!descriptions.length) {
+    return []
+  }
+
+  return descriptions
+    .map((description, index) => {
+      const valueKeys = getRuneStatDescriptionVarKeys(description)
+      if (!hasPositiveRuneStatValue(selection, valueKeys)) {
+        return null
+      }
+
+      const text = formatPerkEndOfGameStatDescription(description, selection)
+      return text
+        ? {
+            key: `${perkId}-metadata-${index}`,
+            text
+          }
+        : null
+    })
+    .filter((row): row is RuneStatDisplayRow => row !== null)
+}
+
+function getPerkEndOfGameStatDescriptions(perkId: number): string[] {
+  const details = getPerkAssetDetails(perkId) as (GameAssetMetadataEntry & {
+    endOfGameStatDescs?: unknown
+    endOfGameStatDesc?: unknown
+  }) | null
+  if (!details) {
+    return []
+  }
+
+  const descriptions = [
+    ...(Array.isArray(details.endOfGameStatDescs) ? details.endOfGameStatDescs : []),
+    details.endOfGameStatDesc
+  ]
+    .map(normalizeRuneStatDescriptionText)
+    .filter(Boolean)
+
+  return Array.from(new Set(descriptions))
+}
+
+// LCU end-of-game descriptions can use @eogvar1@, @eogvar2@, @eogvar3@, {{var1}}, or {var1}.
+function formatPerkEndOfGameStatDescription(
+  description: string,
+  selection: Record<string, unknown>
+): string {
+  let text = normalizeRuneStatDescriptionText(description)
+  const valueKeys = getRuneStatDescriptionVarKeys(text)
+  for (const key of valueKeys) {
+    const value = normalizeFiniteNumber(selection[key])
+    if (value === null) {
+      return ''
+    }
+
+    const formattedValue = formatRuneStatValue(value)
+    const keyNumber = key.replace('var', '')
+    text = text
+      .replace(new RegExp(`@eogvar${keyNumber}@`, 'g'), formattedValue)
+      .replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), formattedValue)
+      .replace(new RegExp(`\\{${key}\\}`, 'g'), formattedValue)
+  }
+
+  text = normalizeRuneStatDescriptionText(text)
+  if (!text || /@[^@\s]+@|\{\{|\}\}|\{var/.test(text) || /^[\d.,+\-\s%]+$/.test(text)) {
+    return ''
+  }
+
+  return text
+}
+
+function getRuneStatDescriptionVarKeys(description: string): RuneStatVarKey[] {
+  return (['var1', 'var2', 'var3'] as const).filter(key => {
+    const keyNumber = key.replace('var', '')
+    return new RegExp(`@eogvar${keyNumber}@|\\{\\{\\s*${key}\\s*\\}\\}|\\{${key}\\}`).test(description)
+  })
+}
+
+function hasPositiveRuneStatValue(
+  selection: Record<string, unknown>,
+  keys?: RuneStatVarKey[]
+): boolean {
+  const values = keys?.length
+    ? keys.map(key => selection[key])
+    : [selection.var1, selection.var2, selection.var3]
+
+  return values.some(rawValue => {
+    const value = normalizeFiniteNumber(rawValue)
+    return value !== null && value > 0
+  })
+}
+
+function normalizeRuneStatDescriptionText(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|ul|ol|tr|table|maintext|stats|rules)>/gi, '\n')
+    .replace(/<li(?:\s[^>]*)?>/gi, '\n')
+    .replace(/%i:[^%\s]+%?/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/ *\n+ */g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function readRuneStatDefinitionValue(
+  selection: Record<string, unknown>,
+  definition: RuneStatDefinition
+): number | null {
+  for (const key of definition.valueKeys) {
+    if (!Object.prototype.hasOwnProperty.call(selection, key)) {
+      continue
+    }
+
+    const value = normalizeFiniteNumber(selection[key])
+    if (value === null) {
+      continue
+    }
+
+    if (definition.showZero ? value >= 0 : value > 0) {
+      return value
+    }
+  }
+
+  return null
+}
+
+function readPerkStyles(player: MatchDetailParticipant): unknown[] {
+  for (const perks of readPerkRecords(player)) {
+    if (Array.isArray(perks.styles)) {
+      return perks.styles
+    }
+  }
+
+  return []
+}
+
+function readPerkSelections(player: MatchDetailParticipant): Record<string, unknown>[] {
+  const selections: Record<string, unknown>[] = []
+  for (const style of readPerkStyles(player)) {
+    if (!isRecord(style) || !Array.isArray(style.selections)) {
+      continue
+    }
+
+    for (const selection of style.selections) {
+      if (isRecord(selection)) {
+        selections.push(selection)
+      }
+    }
+  }
+  return selections
+}
+
+function readNestedPerkStyleId(player: MatchDetailParticipant, styleIndex: number): number | null {
+  const style = readPerkStyles(player)[styleIndex]
+  return isRecord(style) ? normalizePositiveInteger(style.style) : null
+}
+
+function readNestedPerkId(player: MatchDetailParticipant, perkIndex: number): number | null {
+  for (const perks of readPerkRecords(player)) {
+    if (!Array.isArray(perks.perkIds)) {
+      continue
+    }
+
+    const id = normalizePositiveInteger(perks.perkIds[perkIndex])
+    if (id !== null) {
+      return id
+    }
+  }
+
+  return null
+}
+
+function readPerkRecords(player: MatchDetailParticipant): Record<string, unknown>[] {
+  const statsRecord = player.stats as unknown as Record<string, unknown> | null | undefined
+  const playerRecord = player as unknown as Record<string, unknown>
+  const statsExtraFieldsValue = statsRecord?.extraFields
+  const playerExtraFieldsValue = playerRecord.extraFields
+  const statsExtraFields = isRecord(statsExtraFieldsValue) ? statsExtraFieldsValue : null
+  const playerExtraFields = isRecord(playerExtraFieldsValue) ? playerExtraFieldsValue : null
+  const perkSources = [
+    statsRecord?.perks,
+    statsExtraFields?.perks,
+    playerRecord.perks,
+    playerExtraFields?.perks
+  ]
+
+  return perkSources.filter((perks): perks is Record<string, unknown> => isRecord(perks))
+}
+
+function formatRuneStatValue(value: unknown): string {
+  const normalizedValue = normalizeFiniteNumber(value)
+  if (normalizedValue === null) {
+    return ''
+  }
+
+  return Number.isInteger(normalizedValue) ? String(normalizedValue) : String(Number(normalizedValue.toFixed(2)))
 }
 
 function isLaneBasedMode(match: MatchHistory | GameDetail | null | undefined): boolean {
@@ -1178,6 +1749,10 @@ function readStatNumber(player: MatchDetailParticipant, key: string): number | n
   return normalizeFiniteNumber(statsRecord?.[key] ?? playerRecord?.[key] ?? extraFields?.[key])
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function normalizePositiveInteger(value: unknown): number | null {
   const numberValue = normalizeFiniteNumber(value)
   return numberValue !== null && Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null
@@ -1773,8 +2348,12 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
           v-for="player in allPlayers"
           :key="`runes-${player.participantId}`"
           class="rune-player-row"
-          :class="{ me: player.isCurrentPlayer, clickable: canNavigatePlayer(player) }"
-          @click="handlePlayerClick(player)"
+          :class="{ me: player.isCurrentPlayer, expanded: isRuneParticipantExpanded(player), clickable: true }"
+          role="button"
+          tabindex="0"
+          @click="toggleRuneParticipant(player)"
+          @keydown.enter.prevent="toggleRuneParticipant(player)"
+          @keydown.space.prevent="toggleRuneParticipant(player)"
         >
           <div class="player-cell">
             <span class="champion-wrap">
@@ -1823,6 +2402,183 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
               </AssetHoverTooltip>
               <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
             </span>
+          </div>
+
+          <div
+            v-if="isRuneParticipantExpanded(player)"
+            class="rune-detail-panel"
+          >
+            <div
+              v-if="!hasValidAugment(player)"
+              class="rune-columns"
+            >
+              <section
+                v-for="column in getPlayerRuneColumns(player)"
+                :key="column.key"
+                class="rune-column"
+              >
+                <header class="rune-column-header">
+                  <span
+                    v-if="column.styleSlot"
+                    class="rune-style-icon trait-detail-slot"
+                    :class="[`trait-${column.styleSlot.kind}`, column.styleSlot.rarityClass, { empty: column.styleSlot.empty }]"
+                    :aria-label="column.styleSlot.label"
+                  >
+                    <AssetHoverTooltip
+                      v-if="column.styleSlot.url && !column.styleSlot.empty && getTraitTooltipDetails(column.styleSlot)"
+                      :details="getTraitTooltipDetails(column.styleSlot)!"
+                    >
+                      <img
+                        v-if="column.styleSlot.url"
+                        :src="column.styleSlot.url"
+                        alt=""
+                        @error="markAssetLoadFailed"
+                      >
+                    </AssetHoverTooltip>
+                    <img
+                      v-else-if="column.styleSlot.url"
+                      :src="column.styleSlot.url"
+                      alt=""
+                      @error="markAssetLoadFailed"
+                    >
+                  </span>
+                  <strong>{{ column.title }}</strong>
+                </header>
+
+                <div class="rune-column-list">
+                  <article
+                    v-for="slot in column.slots"
+                    :key="`detail-${column.key}-${slot.key}`"
+                    class="rune-detail-item"
+                  >
+                    <AssetHoverTooltip
+                      v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                      :details="getTraitTooltipDetails(slot)!"
+                    >
+                      <div class="rune-detail-content">
+                        <span
+                          class="rune-detail-icon-wrap trait-detail-slot"
+                          :class="[`trait-${slot.kind}`, slot.rarityClass]"
+                          :aria-label="slot.label"
+                        >
+                          <img
+                            v-if="slot.url"
+                            class="rune-detail-icon"
+                            :src="slot.url"
+                            alt=""
+                            @error="markAssetLoadFailed"
+                          >
+                        </span>
+                        <div class="rune-detail-text">
+                          <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
+                          <div
+                            v-if="getRuneStatDisplayRows(player, slot).length"
+                            class="rune-stat-list"
+                          >
+                            <span
+                              v-for="row in getRuneStatDisplayRows(player, slot)"
+                              :key="row.key"
+                              class="rune-stat-line"
+                            >
+                              {{ row.text }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </AssetHoverTooltip>
+                    <div
+                      v-else
+                      class="rune-detail-content"
+                    >
+                      <span
+                        class="rune-detail-icon-wrap trait-detail-slot"
+                        :class="[`trait-${slot.kind}`, slot.rarityClass]"
+                        :aria-label="slot.label"
+                      >
+                        <img
+                          v-if="slot.url"
+                          class="rune-detail-icon"
+                          :src="slot.url"
+                          alt=""
+                          @error="markAssetLoadFailed"
+                        >
+                      </span>
+                      <div class="rune-detail-text">
+                        <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
+                        <div
+                          v-if="getRuneStatDisplayRows(player, slot).length"
+                          class="rune-stat-list"
+                        >
+                          <span
+                            v-for="row in getRuneStatDisplayRows(player, slot)"
+                            :key="row.key"
+                            class="rune-stat-line"
+                          >
+                            {{ row.text }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <div
+              v-else
+              class="rune-augment-list"
+            >
+              <article
+                v-for="slot in getRuneDetailSlots(player)"
+                :key="`detail-${slot.key}`"
+                class="rune-detail-item"
+              >
+                <AssetHoverTooltip
+                  v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                  :details="getTraitTooltipDetails(slot)!"
+                >
+                  <div class="rune-detail-content">
+                    <span
+                      class="rune-detail-icon-wrap trait-detail-slot"
+                      :class="[`trait-${slot.kind}`, slot.rarityClass]"
+                      :aria-label="slot.label"
+                    >
+                      <img
+                        v-if="slot.url"
+                        class="rune-detail-icon"
+                        :src="slot.url"
+                        alt=""
+                        @error="markAssetLoadFailed"
+                      >
+                    </span>
+                    <div class="rune-detail-text">
+                      <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
+                    </div>
+                  </div>
+                </AssetHoverTooltip>
+                <div
+                  v-else
+                  class="rune-detail-content"
+                >
+                  <span
+                    class="rune-detail-icon-wrap trait-detail-slot"
+                    :class="[`trait-${slot.kind}`, slot.rarityClass]"
+                    :aria-label="slot.label"
+                  >
+                    <img
+                      v-if="slot.url"
+                      class="rune-detail-icon"
+                      :src="slot.url"
+                      alt=""
+                      @error="markAssetLoadFailed"
+                    >
+                  </span>
+                  <div class="rune-detail-text">
+                    <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
+                  </div>
+                </div>
+              </article>
+            </div>
           </div>
         </div>
       </div>
@@ -2557,6 +3313,17 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   gap: 10px;
   align-items: center;
   min-width: 0;
+  outline: none;
+}
+
+.rune-player-row.expanded {
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.rune-player-row:focus-visible {
+  box-shadow:
+    inset 2px 0 0 var(--accent-color),
+    0 0 0 2px rgba(var(--accent-rgb), 0.16);
 }
 
 .trait-list {
@@ -2564,6 +3331,131 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   flex-wrap: wrap;
   gap: 4px;
   min-width: 0;
+}
+
+.rune-detail-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 6px;
+}
+
+.rune-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.rune-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(124, 139, 164, 0.12);
+  border-radius: 7px;
+  background: rgba(124, 139, 164, 0.055);
+}
+
+.rune-column-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rune-style-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+}
+
+.rune-column-list,
+.rune-augment-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rune-augment-list {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.rune-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(124, 139, 164, 0.12);
+  border-radius: 6px;
+  background: rgba(124, 139, 164, 0.07);
+}
+
+.rune-detail-item :deep(.asset-tooltip-trigger) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.rune-detail-content {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rune-detail-icon-wrap {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+
+.rune-detail-icon {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+}
+
+.rune-detail-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.rune-detail-name {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rune-stat-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.rune-stat-line {
+  display: flex;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .chart-tab {
@@ -2655,6 +3547,12 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
   .item-row.compact {
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  .rune-columns {
+    grid-template-columns: 1fr;
   }
 }
 </style>
