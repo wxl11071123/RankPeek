@@ -232,6 +232,18 @@ public class SummonerController {
     }
 
     /**
+     * 鑾峰彇鍗曞眬鏃堕棿绾?
+     * @param gameId 瀵瑰眬 ID
+     * @return 瀵瑰眬鏃堕棿绾挎姄鍙栫粨鏋?
+     */
+    @GetMapping("/game-timeline/{gameId}")
+    public ApiResponse<MatchTimelineFetchResult> getGameTimeline(
+            @PathVariable Long gameId,
+            @RequestParam(required = false) String source) {
+        return ApiResponse.success(matchHistoryService.getGameTimelineById(gameId, source));
+    }
+
+    /**
      * 调试接口：获取原始段位 JSON
      */
     @GetMapping("/rank-raw/{puuid}")

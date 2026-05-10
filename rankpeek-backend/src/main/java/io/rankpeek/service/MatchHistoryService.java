@@ -893,6 +893,110 @@ public class MatchHistoryService {
     }
 
     /**
+     * Fetch one game timeline.
+     */
+    public MatchTimelineFetchResult getGameTimelineById(Long gameId) {
+        return getGameTimelineById(gameId, MatchHistorySource.AUTO);
+    }
+
+    public MatchTimelineFetchResult getGameTimelineById(Long gameId, String source) {
+        return getGameTimelineById(gameId, MatchHistorySource.fromRequest(source));
+    }
+
+    public MatchTimelineFetchResult getGameTimelineById(Long gameId, MatchHistorySource source) {
+        MatchHistoryQueryOptions options = MatchHistoryQueryOptions.defaultFor(normalizeSource(source), false);
+        Optional<MatchTimelineFetchResult> cachedTimeline = loadCachedGameTimeline(gameId);
+        if (cachedTimeline.isPresent()) {
+            return cachedTimeline.get();
+        }
+        if (normalizeSource(options.preferredSource()) == MatchHistorySource.CACHE) {
+            return unavailableTimelineResult(gameId, "Timeline is not available in cache");
+        }
+
+        ResolvedProvider resolvedProvider;
+        try {
+            resolvedProvider = resolveProvider(options);
+        } catch (Exception e) {
+            log.warn("Timeline provider is unavailable, gameId={}, error={}", gameId, e.getMessage());
+            return unavailableTimelineResult(gameId, e.getMessage());
+        }
+
+        try {
+            MatchTimelineFetchResult result = resolvedProvider.provider().fetchGameTimeline(gameId, options);
+            result = normalizeTimelineFetchResult(gameId, result);
+            if (resolvedProvider.source() == MatchHistorySource.SGP && cacheRepository != null) {
+                cacheRepository.saveSgpRawDetail(
+                        gameId,
+                        result.getRawDetailJson(),
+                        result.getStatus(),
+                        result.getLastError()
+                );
+                cacheRepository.saveSgpTimeline(
+                        gameId,
+                        result.getTimeline(),
+                        result.getRawTimelineJson(),
+                        result.getStatus(),
+                        result.getLastError()
+                );
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to fetch game timeline from {}, gameId={}, error={}",
+                    resolvedProvider.source(), gameId, e.getMessage());
+            log.debug("{} game-timeline failure details", resolvedProvider.source(), e);
+            if (isAutoSgpAttempt(options, resolvedProvider.source())) {
+                return getGameTimelineById(gameId, MatchHistorySource.LCU);
+            }
+            return unavailableTimelineResult(gameId, e.getMessage());
+        }
+    }
+
+    private Optional<MatchTimelineFetchResult> loadCachedGameTimeline(Long gameId) {
+        if (gameId == null || cacheRepository == null) {
+            return Optional.empty();
+        }
+
+        return cacheRepository.findMatchDataScope(gameId)
+                .filter(scope -> isTerminalSgpBackfillStatus(scope.getTimelineStatus()))
+                .map(scope -> MatchTimelineFetchResult.builder()
+                        .gameId(scope.getGameId() == null ? gameId : scope.getGameId())
+                        .timeline(scope.getTimeline())
+                        .rawDetailJson(scope.getRawDetailJson())
+                        .rawTimelineJson(scope.getRawTimelineJson())
+                        .status(scope.getTimelineStatus())
+                        .lastError(scope.getLastError())
+                        .build());
+    }
+
+    private MatchTimelineFetchResult normalizeTimelineFetchResult(Long gameId, MatchTimelineFetchResult result) {
+        if (result == null) {
+            return unavailableTimelineResult(gameId, "Timeline provider returned no result");
+        }
+        if (result.getGameId() == null) {
+            result.setGameId(gameId);
+        }
+        if (result.getStatus() == null || result.getStatus().isBlank()) {
+            result.setStatus(hasTimelineFrames(result) ? "FETCHED" : "EMPTY");
+        }
+        return result;
+    }
+
+    private boolean hasTimelineFrames(MatchTimelineFetchResult result) {
+        return result != null
+                && result.getTimeline() != null
+                && result.getTimeline().getFrames() != null
+                && !result.getTimeline().getFrames().isEmpty();
+    }
+
+    private MatchTimelineFetchResult unavailableTimelineResult(Long gameId, String lastError) {
+        return MatchTimelineFetchResult.builder()
+                .gameId(gameId)
+                .status("UNAVAILABLE")
+                .lastError(lastError)
+                .build();
+    }
+
+    /**
      * Fetch one game detail.
      */
     public GameDetail getGameDetailById(Long gameId) {

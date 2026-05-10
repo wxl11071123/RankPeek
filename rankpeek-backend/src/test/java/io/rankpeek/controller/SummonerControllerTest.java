@@ -3,6 +3,7 @@ package io.rankpeek.controller;
 import io.rankpeek.model.ApiResponse;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryPageResponse;
+import io.rankpeek.model.MatchTimelineFetchResult;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.RecordStatus;
 import io.rankpeek.model.Summoner;
@@ -142,6 +143,20 @@ class SummonerControllerTest {
         when(rankService.getRankByPuuid("puuid-1")).thenReturn(rank);
 
         assertThat(controller.getRank("puuid-1").getData()).isSameAs(rank);
+    }
+
+    @Test
+    void getGameTimeline_passesGameIdAndSourceToService() {
+        MatchTimelineFetchResult result = MatchTimelineFetchResult.builder()
+                .gameId(7001L)
+                .status("FETCHED")
+                .build();
+        when(matchHistoryService.getGameTimelineById(7001L, "sgp")).thenReturn(result);
+
+        ApiResponse<MatchTimelineFetchResult> response = controller.getGameTimeline(7001L, "sgp");
+
+        assertThat(response.getData()).isSameAs(result);
+        verify(matchHistoryService).getGameTimelineById(7001L, "sgp");
     }
 
     @Test

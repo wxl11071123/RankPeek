@@ -4,6 +4,8 @@ import io.rankpeek.cache.MatchHistoryCacheRepository;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
 import io.rankpeek.model.MatchHistoryPageResponse;
+import io.rankpeek.model.MatchTimeline;
+import io.rankpeek.model.MatchTimelineFetchResult;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.RecordStatus;
 import io.rankpeek.service.matchhistory.MatchHistoryProvider;
@@ -267,6 +269,65 @@ class MatchHistoryServiceTest {
 
         assertThat(sourceAwareService.getGameDetailById(120L, "sgp")).isSameAs(detail);
         verify(sgpMatchHistoryProvider).fetchGameDetail(120L, options(MatchHistorySource.SGP, false));
+        verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameTimelineById_sourceSgpReturnsFetchedTimeline() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        MatchTimeline timeline = new MatchTimeline();
+        timeline.setGameId(130L);
+        MatchTimelineFetchResult fetched = MatchTimelineFetchResult.builder()
+                .gameId(130L)
+                .timeline(timeline)
+                .status("FETCHED")
+                .build();
+        when(sgpMatchHistoryProvider.fetchGameTimeline(130L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(fetched);
+
+        MatchTimelineFetchResult result = sourceAwareService.getGameTimelineById(130L, MatchHistorySource.SGP);
+
+        assertThat(result).isSameAs(fetched);
+        assertThat(result.getStatus()).isEqualTo("FETCHED");
+        verify(sgpMatchHistoryProvider).fetchGameTimeline(130L, options(MatchHistorySource.SGP, false));
+        verify(sgpMatchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameTimelineById_sourceSgpReturnsEmptyTimeline() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        MatchTimelineFetchResult empty = MatchTimelineFetchResult.builder()
+                .gameId(131L)
+                .timeline(new MatchTimeline())
+                .status("EMPTY")
+                .build();
+        when(sgpMatchHistoryProvider.fetchGameTimeline(131L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(empty);
+
+        MatchTimelineFetchResult result = sourceAwareService.getGameTimelineById(131L, "sgp");
+
+        assertThat(result.getStatus()).isEqualTo("EMPTY");
+        assertThat(result.getGameId()).isEqualTo(131L);
+        verify(sgpMatchHistoryProvider).fetchGameTimeline(131L, options(MatchHistorySource.SGP, false));
+        verify(sgpMatchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameTimelineById_providerWithoutTimelineReturnsUnavailable() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        MatchTimelineFetchResult unavailable = MatchTimelineFetchResult.builder()
+                .gameId(132L)
+                .status("UNAVAILABLE")
+                .lastError("Timeline is not supported by this match-history provider")
+                .build();
+        when(matchHistoryProvider.fetchGameTimeline(132L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(unavailable);
+
+        MatchTimelineFetchResult result = sourceAwareService.getGameTimelineById(132L, MatchHistorySource.LCU);
+
+        assertThat(result.getStatus()).isEqualTo("UNAVAILABLE");
+        assertThat(result.getLastError()).contains("not supported");
+        verify(matchHistoryProvider).fetchGameTimeline(132L, options(MatchHistorySource.LCU, false));
         verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
     }
 

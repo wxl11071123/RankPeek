@@ -412,6 +412,65 @@ export interface TeamObjectiveSummary {
   objectiveEvents?: TeamObjectiveEvent[]
 }
 
+// ========== 瀵瑰眬鏃堕棿绾? ==========
+
+export type MatchTimelineFetchStatus = 'FETCHED' | 'EMPTY' | 'UNAVAILABLE' | 'FAILED' | string
+
+export interface MatchTimeline {
+  gameId?: number | null
+  events?: TimelineEvent[]
+  frames?: TimelineFrame[]
+}
+
+export interface TimelineFrame {
+  timestamp?: number | null
+  participantFrames?: Record<string, ParticipantFrame>
+  events?: TimelineEvent[]
+  rawFrameJson?: string
+}
+
+export interface ParticipantFrame {
+  participantId?: number | null
+  currentGold?: number | null
+  totalGold?: number | null
+  level?: number | null
+  xp?: number | null
+  minionsKilled?: number | null
+  jungleMinionsKilled?: number | null
+  position?: TimelinePosition | null
+  rawParticipantFrameJson?: string
+}
+
+export interface TimelineEvent {
+  eventType?: string | null
+  timestamp?: number | null
+  participantId?: number | null
+  killerId?: number | null
+  victimId?: number | null
+  assistingParticipantIds?: number[]
+  position?: TimelinePosition | null
+  itemId?: number | null
+  buildingType?: string | null
+  towerType?: string | null
+  monsterType?: string | null
+  teamId?: number | null
+  rawEventJson?: string
+}
+
+export interface TimelinePosition {
+  x?: number | null
+  y?: number | null
+}
+
+export interface MatchTimelineFetchResult {
+  gameId?: number | null
+  timeline?: MatchTimeline | null
+  rawDetailJson?: string | null
+  rawTimelineJson?: string | null
+  status?: MatchTimelineFetchStatus | null
+  lastError?: string | null
+}
+
 // 对局详情
 export interface GameDetail {
   gameId: number

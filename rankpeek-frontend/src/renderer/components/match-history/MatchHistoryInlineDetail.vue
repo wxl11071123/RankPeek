@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { apiClient } from '@/api/httpClient'
 import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
-import { useI18n } from '@/i18n'
+import { useI18n, type MessageKey } from '@/i18n'
 import type {
   DragonType,
   GameDetail,
@@ -10,10 +11,24 @@ import type {
   GameStats,
   GameTimeline,
   MatchHistory,
+  MatchTimeline,
   TeamBanSummary,
   TeamObjectiveEvent,
   TeamObjectiveSummary
 } from '@/types/api'
+import {
+  createGoldDiffDomain,
+  createTimelineChartModel,
+  describeTimelineEventMarker,
+  formatGoldDiff,
+  formatGoldDiffTick,
+  formatTimelineTime,
+  type GoldDiffMetricKey,
+  type GoldDiffPoint,
+  type GoldDiffSeries,
+  type TimelineEventCluster,
+  type TimelineEventMarker
+} from '@/services/matchTimelineChart'
 import {
   getAugmentAssetDetails,
   getAugmentIconUrl,
@@ -141,11 +156,83 @@ interface TimestampedDragonObjectiveEvent {
   dragonType: DragonType
 }
 
+type TimelineLoadStatus = 'idle' | 'loading' | 'loaded' | 'empty' | 'error'
+
+interface GoldDiffMetricOption {
+  key: GoldDiffMetricKey
+  labelKey: MessageKey
+}
+
+interface ChartGridLine {
+  key: string
+  value: number
+  y: number
+  label: string
+  zero: boolean
+}
+
+interface ChartTimeTick {
+  key: string
+  timestamp: number
+  x: number
+  label: string
+}
+
+interface ChartLineSegment {
+  key: string
+  tone: TeamTone
+  d: string
+}
+
+interface LaneMatchupWatermark {
+  key: string
+  tone: TeamTone
+  championId: number
+  iconUrl: string
+  x: number
+  y: number
+  size: number
+}
+
+interface TimelineEventTrack {
+  key: TeamTone | 'neutral'
+  label: string
+  clusters: TimelineEventCluster[]
+}
+
+interface TimelineEventTooltipRow {
+  key: string
+  actorText: string
+  actionText: string
+  targetText: string
+  actorChampionId: number | null
+  targetChampionId: number | null
+}
+
 const LANE_BASED_QUEUE_IDS = new Set([400, 420, 430, 440, 490, 700])
 const NON_LANE_BASED_QUEUE_IDS = new Set([450, 900, 1020, 1700, 1710])
 const LANE_BASED_GAME_MODES = new Set(['CLASSIC'])
 const NON_LANE_BASED_GAME_MODES = new Set(['ARAM', 'CHERRY'])
 const RANKED_QUEUE_IDS = new Set([420, 440])
+const CHART_WIDTH = 680
+const CHART_HEIGHT = 220
+const CHART_PADDING = {
+  top: 22,
+  right: 24,
+  bottom: 34,
+  left: 58
+}
+const CHART_PLOT_WIDTH = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
+const CHART_PLOT_HEIGHT = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
+const LANE_WATERMARK_SIZE = 46
+const goldDiffMetricOptions: GoldDiffMetricOption[] = [
+  { key: 'teamAverage', labelKey: 'matchDetail.timelineMetricTeamAverage' },
+  { key: 'top', labelKey: 'matchDetail.timelineMetricTop' },
+  { key: 'jungle', labelKey: 'matchDetail.timelineMetricJungle' },
+  { key: 'middle', labelKey: 'matchDetail.timelineMetricMiddle' },
+  { key: 'bottom', labelKey: 'matchDetail.timelineMetricBottom' },
+  { key: 'support', labelKey: 'matchDetail.timelineMetricSupport' }
+]
 const LANE_BASED_QUEUE_KEYWORDS = [
   '召唤师峡谷',
   '单排',
@@ -412,7 +499,38 @@ const topTakenValue = computed(() => getTopMetricValue(allPlayers.value, player 
 const topGoldValue = computed(() => getTopMetricValue(allPlayers.value, player => readStatNumber(player, 'goldEarned')))
 const showVisionScoreColumn = computed(() => isRankedMode(props.matchHistory) || isRankedMode(displayGameDetail.value))
 const showDraftAndObjectiveSummary = computed(() => isRankedMode(props.matchHistory) || isRankedMode(displayGameDetail.value))
-const hasTimelineData = computed(() => false)
+const isChartRankedMode = computed(() => isRankedMode(props.matchHistory) || isRankedMode(displayGameDetail.value))
+const currentTimelineGameId = computed(() => normalizeFiniteNumber(props.matchHistory.gameId))
+const selectedGoldDiffMetric = ref<GoldDiffMetricKey>('teamAverage')
+const timelineLoadStatus = ref<TimelineLoadStatus>('idle')
+const timelineRequestedGameId = ref<number | null>(null)
+const timelineData = ref<MatchTimeline | null>(null)
+const timelineLastError = ref('')
+const hoveredGoldDiffPoint = ref<GoldDiffPoint | null>(null)
+const hoveredEventCluster = ref<TimelineEventCluster | null>(null)
+const timelineChartModel = computed(() => createTimelineChartModel(timelineData.value, displayGameDetail.value))
+const selectedGoldDiffSeries = computed<GoldDiffSeries>(() => timelineChartModel.value.seriesByMetric[selectedGoldDiffMetric.value])
+const selectedGoldDiffDomain = computed(() => createGoldDiffDomain(selectedGoldDiffSeries.value.points))
+const chartEventMarkers = computed(() => timelineChartModel.value.eventMarkers)
+const chartEventClusters = computed(() => timelineChartModel.value.eventClusters)
+const timelineMaxTimestamp = computed(() => Math.max(
+  timelineChartModel.value.maxTimestamp,
+  ...selectedGoldDiffSeries.value.points.map(point => point.timestamp),
+  1
+))
+const chartHasAnySeriesData = computed(() => goldDiffMetricOptions.some(
+  option => timelineChartModel.value.seriesByMetric[option.key].points.length > 0
+))
+const hasTimelineData = computed(() => isChartRankedMode.value && timelineLoadStatus.value === 'loaded' && chartHasAnySeriesData.value)
+const selectedGoldDiffSegments = computed<ChartLineSegment[]>(() => createGoldDiffSegments(selectedGoldDiffSeries.value.points))
+const chartGridLines = computed<ChartGridLine[]>(() => createChartGridLines())
+const chartTimeTicks = computed<ChartTimeTick[]>(() => createChartTimeTicks())
+const zeroAxisY = computed(() => getChartY(0))
+const positiveDiffFillHeight = computed(() => Math.max(0, zeroAxisY.value - CHART_PADDING.top))
+const negativeDiffFillHeight = computed(() => Math.max(0, CHART_HEIGHT - CHART_PADDING.bottom - zeroAxisY.value))
+const selectedGoldDiffMetricLabel = computed(() => getGoldDiffMetricLabel(selectedGoldDiffMetric.value))
+const laneMatchupWatermarks = computed<LaneMatchupWatermark[]>(() => createLaneMatchupWatermarks())
+const timelineEventTracks = computed<TimelineEventTrack[]>(() => createTimelineEventTracks())
 const staticTeamGoldDiff = computed(() => blueTeamTotals.value.goldEarned - redTeamTotals.value.goldEarned)
 const failedObjectiveIconKeys = ref(new Set<string>())
 const expandedRuneParticipantKey = ref('')
@@ -450,8 +568,344 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => currentTimelineGameId.value,
+  () => {
+    resetTimelineChartState()
+  }
+)
+
+watch(
+  () => [activeTabValue.value, currentTimelineGameId.value, isChartRankedMode.value],
+  () => {
+    if (activeTabValue.value === 'chart') {
+      void loadTimelineForCurrentGame()
+    }
+  },
+  { immediate: true }
+)
+
 function selectTab(tab: InlineDetailTabKey): void {
   activeTabValue.value = tab
+}
+
+function resetTimelineChartState(): void {
+  timelineLoadStatus.value = 'idle'
+  timelineRequestedGameId.value = null
+  timelineData.value = null
+  timelineLastError.value = ''
+  hoveredGoldDiffPoint.value = null
+  hoveredEventCluster.value = null
+  selectedGoldDiffMetric.value = 'teamAverage'
+}
+
+async function loadTimelineForCurrentGame(): Promise<void> {
+  if (activeTabValue.value !== 'chart') {
+    return
+  }
+  if (!isChartRankedMode.value) {
+    return
+  }
+
+  const gameId = currentTimelineGameId.value
+  if (gameId === null) {
+    timelineLoadStatus.value = 'empty'
+    return
+  }
+  if (timelineRequestedGameId.value === gameId) {
+    return
+  }
+
+  timelineRequestedGameId.value = gameId
+  timelineLoadStatus.value = 'loading'
+  timelineData.value = null
+    timelineLastError.value = ''
+    hoveredGoldDiffPoint.value = null
+    hoveredEventCluster.value = null
+
+  try {
+    const result = await apiClient.getGameTimeline(gameId, { source: 'auto' })
+    if (timelineRequestedGameId.value !== gameId) {
+      return
+    }
+
+    if (result.status === 'FETCHED' && hasRenderableTimeline(result.timeline)) {
+      timelineData.value = result.timeline
+      timelineLoadStatus.value = 'loaded'
+      return
+    }
+
+    timelineLoadStatus.value = 'empty'
+    timelineLastError.value = result.lastError ?? ''
+  } catch (error) {
+    if (timelineRequestedGameId.value !== gameId) {
+      return
+    }
+    timelineLoadStatus.value = 'error'
+    timelineLastError.value = error instanceof Error ? error.message : ''
+  }
+}
+
+function hasRenderableTimeline(timeline: MatchTimeline | null | undefined): timeline is MatchTimeline {
+  return Boolean(timeline?.frames?.length)
+}
+
+function getGoldDiffMetricLabel(metric: GoldDiffMetricKey): string {
+  const option = goldDiffMetricOptions.find(item => item.key === metric)
+  return option ? t(option.labelKey) : ''
+}
+
+function selectGoldDiffMetric(metric: GoldDiffMetricKey): void {
+  selectedGoldDiffMetric.value = metric
+  hoveredGoldDiffPoint.value = null
+}
+
+function createGoldDiffSegments(points: GoldDiffPoint[]): ChartLineSegment[] {
+  const segments: ChartLineSegment[] = []
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]
+    const current = points[index]
+    const previousX = getChartX(previous.timestamp)
+    const previousY = getChartY(previous.diff)
+    const currentX = getChartX(current.timestamp)
+    const currentY = getChartY(current.diff)
+    const previousTone = getGoldDiffTone(previous.diff)
+    const currentTone = getGoldDiffTone(current.diff)
+
+    if (previousTone === currentTone || previous.diff === 0 || current.diff === 0) {
+      const tone = current.diff === 0 ? previousTone : currentTone
+      segments.push(createGoldDiffSegment(`segment-${index}`, tone, previousX, previousY, currentX, currentY))
+      continue
+    }
+
+    const crossingRatio = Math.abs(previous.diff) / (Math.abs(previous.diff) + Math.abs(current.diff))
+    const zeroX = previousX + (currentX - previousX) * crossingRatio
+    const zeroY = zeroAxisY.value
+    segments.push(createGoldDiffSegment(`segment-${index}-a`, previousTone, previousX, previousY, zeroX, zeroY))
+    segments.push(createGoldDiffSegment(`segment-${index}-b`, currentTone, zeroX, zeroY, currentX, currentY))
+  }
+  return segments
+}
+
+function createGoldDiffSegment(
+  key: string,
+  tone: TeamTone,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number
+): ChartLineSegment {
+  return {
+    key,
+    tone,
+    d: `M ${startX.toFixed(2)} ${startY.toFixed(2)} L ${endX.toFixed(2)} ${endY.toFixed(2)}`
+  }
+}
+
+function getGoldDiffTone(diff: number): TeamTone {
+  return diff >= 0 ? 'blue' : 'red'
+}
+
+function createChartGridLines(): ChartGridLine[] {
+  const domain = selectedGoldDiffDomain.value
+  return domain.ticks.map(value => ({
+    key: `grid-${value}`,
+    value,
+    y: getChartY(value),
+    label: formatGoldDiffTick(value),
+    zero: value === 0
+  }))
+}
+
+function createChartTimeTicks(): ChartTimeTick[] {
+  const maxTimestamp = timelineMaxTimestamp.value
+  return Array.from({ length: 5 }, (_item, index) => {
+    const timestamp = Math.round(maxTimestamp * index / 4)
+    return {
+      key: `tick-${index}-${timestamp}`,
+      timestamp,
+      x: getChartX(timestamp),
+      label: formatTimelineTime(timestamp)
+    }
+  })
+}
+
+function getChartX(timestamp: number): number {
+  const maxTimestamp = Math.max(timelineMaxTimestamp.value, 1)
+  const ratio = Math.max(0, Math.min(1, timestamp / maxTimestamp))
+  return CHART_PADDING.left + ratio * CHART_PLOT_WIDTH
+}
+
+function getChartY(diff: number): number {
+  const domain = selectedGoldDiffDomain.value
+  const range = Math.max(1, domain.max - domain.min)
+  const ratio = (domain.max - diff) / range
+  return CHART_PADDING.top + Math.max(0, Math.min(1, ratio)) * CHART_PLOT_HEIGHT
+}
+
+function createLaneMatchupWatermarks(): LaneMatchupWatermark[] {
+  const metric = selectedGoldDiffMetric.value
+  if (metric === 'teamAverage') {
+    return []
+  }
+
+  const matchup = timelineChartModel.value.laneMatchups[metric]
+  if (!matchup) {
+    return []
+  }
+
+  const centerX = CHART_PADDING.left + CHART_PLOT_WIDTH / 2
+  const offset = LANE_WATERMARK_SIZE * 0.58
+  const blueY = Math.max(CHART_PADDING.top + LANE_WATERMARK_SIZE / 2, zeroAxisY.value - offset)
+  const redY = Math.min(CHART_HEIGHT - CHART_PADDING.bottom - LANE_WATERMARK_SIZE / 2, zeroAxisY.value + offset)
+  const watermarks: LaneMatchupWatermark[] = []
+
+  if (matchup.blue?.championId) {
+    watermarks.push(createLaneMatchupWatermark('blue', matchup.blue.championId, centerX, blueY))
+  }
+  if (matchup.red?.championId) {
+    watermarks.push(createLaneMatchupWatermark('red', matchup.red.championId, centerX, redY))
+  }
+  return watermarks
+}
+
+function createLaneMatchupWatermark(
+  tone: TeamTone,
+  championId: number,
+  x: number,
+  y: number
+): LaneMatchupWatermark {
+  return {
+    key: `${selectedGoldDiffMetric.value}-${tone}-${championId}`,
+    tone,
+    championId,
+    iconUrl: getChampionIconUrl(championId),
+    x,
+    y,
+    size: LANE_WATERMARK_SIZE
+  }
+}
+
+function getLaneMatchupWatermarkTransform(watermark: LaneMatchupWatermark): string {
+  const x = watermark.x - watermark.size / 2
+  const y = watermark.y - watermark.size / 2
+  return `translate(${x.toFixed(2)} ${y.toFixed(2)})`
+}
+
+function getChartTooltipStyle(point: GoldDiffPoint): Record<string, string> {
+  const xRatio = getChartX(point.timestamp) / CHART_WIDTH * 100
+  const yRatio = getChartY(point.diff) / CHART_HEIGHT * 100
+  const translateY = yRatio > 66 ? 'calc(-100% - 8px)' : yRatio < 28 ? '8px' : '-50%'
+  const style: Record<string, string> = {
+    top: `${yRatio.toFixed(3)}%`
+  }
+
+  if (xRatio > 62) {
+    style.right = `${(100 - xRatio).toFixed(3)}%`
+    style.transform = `translate(-10px, ${translateY})`
+  } else {
+    style.left = `${xRatio.toFixed(3)}%`
+    style.transform = `translate(10px, ${translateY})`
+  }
+  return style
+}
+
+function getTimelineClusterStyle(cluster: TimelineEventCluster): Record<string, string> {
+  const ratio = Math.max(0, Math.min(1, cluster.timestamp / Math.max(timelineMaxTimestamp.value, 1)))
+  return {
+    left: `${Math.max(0.8, Math.min(99.2, ratio * 100)).toFixed(3)}%`,
+    '--cluster-size': `${cluster.markerSize}px`
+  }
+}
+
+function getTimelineEventTooltipStyle(cluster: TimelineEventCluster): Record<string, string> {
+  const ratio = Math.max(0, Math.min(1, cluster.timestamp / Math.max(timelineMaxTimestamp.value, 1)))
+  const left = Math.max(8, Math.min(92, ratio * 100))
+  return {
+    left: `${left.toFixed(3)}%`,
+    transform: ratio > 0.58 ? 'translateX(-100%)' : 'translateX(0)'
+  }
+}
+
+function createTimelineEventTracks(): TimelineEventTrack[] {
+  const clusters = chartEventClusters.value
+  const blueClusters = clusters.filter(cluster => cluster.teamId === 100)
+  const redClusters = clusters.filter(cluster => cluster.teamId === 200)
+  const neutralClusters = clusters.filter(cluster => cluster.teamId !== 100 && cluster.teamId !== 200)
+  const tracks: TimelineEventTrack[] = [
+    { key: 'blue', label: t('common.blueTeam'), clusters: blueClusters },
+    { key: 'red', label: t('common.redTeam'), clusters: redClusters }
+  ]
+  if (neutralClusters.length) {
+    tracks.push({ key: 'neutral', label: t('matchDetail.chartTab'), clusters: neutralClusters })
+  }
+  return tracks
+}
+
+function getTimelineClusterLabel(cluster: TimelineEventCluster): string {
+  return cluster.count > 1
+    ? `${formatTimelineTime(cluster.timestamp)} ${cluster.count}`
+    : t(getTimelineEventLabelKey(cluster.type))
+}
+
+function getTimelineClusterShortLabel(cluster: TimelineEventCluster): string {
+  return cluster.count > 1 ? String(cluster.count) : t(getTimelineEventShortLabelKey(cluster.type))
+}
+
+function getTimelineEventLabelKey(type: TimelineEventMarker['type']): MessageKey {
+  switch (type) {
+    case 'kill':
+      return 'matchDetail.timelineEventKill'
+    case 'turret':
+      return 'matchDetail.timelineEventTurret'
+    case 'dragon':
+      return 'matchDetail.timelineEventDragon'
+    case 'baron':
+      return 'matchDetail.timelineEventBaron'
+    case 'herald':
+      return 'matchDetail.timelineEventHerald'
+    case 'voidgrub':
+      return 'matchDetail.timelineEventVoidgrub'
+  }
+}
+
+function getTimelineEventShortLabelKey(type: TimelineEventMarker['type']): MessageKey {
+  switch (type) {
+    case 'kill':
+      return 'matchDetail.timelineEventKillShort'
+    case 'turret':
+      return 'matchDetail.timelineEventTurretShort'
+    case 'dragon':
+      return 'matchDetail.timelineEventDragonShort'
+    case 'baron':
+      return 'matchDetail.timelineEventBaronShort'
+    case 'herald':
+      return 'matchDetail.timelineEventHeraldShort'
+    case 'voidgrub':
+      return 'matchDetail.timelineEventVoidgrubShort'
+  }
+}
+
+function getTimelineClusterTooltipRows(cluster: TimelineEventCluster): TimelineEventTooltipRow[] {
+  return cluster.items.map(marker => {
+    const description = describeTimelineEventMarker(marker)
+    return {
+      key: marker.key,
+      actorText: description.actorText,
+      actionText: description.actionText,
+      targetText: description.targetText,
+      actorChampionId: description.actorChampionId,
+      targetChampionId: description.targetChampionId
+    }
+  })
+}
+
+function getChartPointKey(point: GoldDiffPoint, index: number): string {
+  return `${selectedGoldDiffMetric.value}-${point.timestamp}-${index}`
+}
+
+function formatGoldValue(value: number): string {
+  return Math.round(value).toLocaleString('en-US')
 }
 
 function createTeamSection(
@@ -2584,10 +3038,282 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
       </div>
 
       <div v-else-if="activeTabValue === 'chart'" class="chart-tab">
-        <div v-if="hasTimelineData" class="timeline-host"></div>
+        <div v-if="!isChartRankedMode" class="timeline-empty">
+          <strong>{{ t('matchDetail.timelineRankedOnly') }}</strong>
+        </div>
+        <div v-else-if="timelineLoadStatus === 'loading' || timelineLoadStatus === 'idle'" class="timeline-empty">
+          <strong>{{ t('matchDetail.timelineLoading') }}</strong>
+        </div>
+        <div v-else-if="hasTimelineData" class="timeline-chart-shell">
+          <div class="timeline-chart-panel">
+            <header class="timeline-chart-heading">
+              <div class="timeline-chart-title">
+                <span class="timeline-chart-title-chevron" aria-hidden="true"></span>
+                <strong>{{ selectedGoldDiffMetricLabel }}</strong>
+              </div>
+              <div class="timeline-chart-toolbar" role="tablist" aria-label="gold diff filters">
+                <button
+                  v-for="option in goldDiffMetricOptions"
+                  :key="option.key"
+                  type="button"
+                  class="timeline-chart-filter"
+                  :class="{ active: selectedGoldDiffMetric === option.key }"
+                  @click="selectGoldDiffMetric(option.key)"
+                >
+                  {{ t(option.labelKey) }}
+                </button>
+              </div>
+            </header>
+
+            <div v-if="selectedGoldDiffSeries.points.length" class="timeline-chart-stage">
+              <svg
+                class="timeline-chart-svg"
+                :viewBox="`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`"
+                role="img"
+                :aria-label="selectedGoldDiffMetricLabel"
+              >
+                <defs>
+                  <linearGradient id="timeline-positive-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="#4aa8ff" stop-opacity="0.16" />
+                    <stop offset="100%" stop-color="#4aa8ff" stop-opacity="0.02" />
+                  </linearGradient>
+                  <linearGradient id="timeline-negative-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="#f05f72" stop-opacity="0.02" />
+                    <stop offset="100%" stop-color="#f05f72" stop-opacity="0.16" />
+                  </linearGradient>
+                </defs>
+                <rect
+                  class="timeline-chart-fill positive"
+                  :x="CHART_PADDING.left"
+                  :y="CHART_PADDING.top"
+                  :width="CHART_PLOT_WIDTH"
+                  :height="positiveDiffFillHeight"
+                  fill="url(#timeline-positive-fill)"
+                />
+                <rect
+                  class="timeline-chart-fill negative"
+                  :x="CHART_PADDING.left"
+                  :y="zeroAxisY"
+                  :width="CHART_PLOT_WIDTH"
+                  :height="negativeDiffFillHeight"
+                  fill="url(#timeline-negative-fill)"
+                />
+                <g class="timeline-chart-grid">
+                  <line
+                    v-for="line in chartGridLines"
+                    :key="line.key"
+                    :class="{ zero: line.zero }"
+                    :x1="CHART_PADDING.left"
+                    :x2="CHART_WIDTH - CHART_PADDING.right"
+                    :y1="line.y"
+                    :y2="line.y"
+                  />
+                  <text
+                    v-for="line in chartGridLines"
+                    :key="`${line.key}-label`"
+                    :x="CHART_PADDING.left - 10"
+                    :y="line.y + 4"
+                    text-anchor="end"
+                  >
+                    {{ line.label }}
+                  </text>
+                </g>
+                <line
+                  class="timeline-zero-axis"
+                  :x1="CHART_PADDING.left"
+                  :x2="CHART_WIDTH - CHART_PADDING.right"
+                  :y1="zeroAxisY"
+                  :y2="zeroAxisY"
+                />
+                <g class="timeline-chart-time-axis">
+                  <line
+                    v-for="tick in chartTimeTicks"
+                    :key="tick.key"
+                    :x1="tick.x"
+                    :x2="tick.x"
+                    :y1="CHART_PADDING.top"
+                    :y2="CHART_HEIGHT - CHART_PADDING.bottom"
+                  />
+                  <text
+                    v-for="tick in chartTimeTicks"
+                    :key="`${tick.key}-label`"
+                    :x="tick.x"
+                    :y="CHART_HEIGHT - 10"
+                    text-anchor="middle"
+                  >
+                    {{ tick.label }}
+                  </text>
+                </g>
+                <g
+                  v-if="selectedGoldDiffMetric !== 'teamAverage' && laneMatchupWatermarks.length"
+                  class="lane-matchup-watermarks"
+                  pointer-events="none"
+                >
+                  <g
+                    v-for="watermark in laneMatchupWatermarks"
+                    :key="watermark.key"
+                    class="lane-matchup-watermark"
+                    :class="`watermark-${watermark.tone}`"
+                    :transform="getLaneMatchupWatermarkTransform(watermark)"
+                    pointer-events="none"
+                  >
+                    <circle
+                      class="lane-matchup-watermark-halo"
+                      :cx="watermark.size / 2"
+                      :cy="watermark.size / 2"
+                      :r="watermark.size / 2 - 1"
+                    />
+                    <image
+                      class="lane-matchup-watermark-image"
+                      :href="getChampionIconUrl(watermark.championId)"
+                      x="0"
+                      y="0"
+                      :width="watermark.size"
+                      :height="watermark.size"
+                      preserveAspectRatio="xMidYMid slice"
+                      pointer-events="none"
+                    />
+                  </g>
+                </g>
+                <path
+                  v-for="segment in selectedGoldDiffSegments"
+                  :key="`${segment.key}-glow`"
+                  class="timeline-gold-line-glow"
+                  :class="`segment-${segment.tone}`"
+                  :d="segment.d"
+                />
+                <path
+                  v-for="segment in selectedGoldDiffSegments"
+                  :key="segment.key"
+                  class="timeline-gold-line"
+                  :class="`segment-${segment.tone}`"
+                  :d="segment.d"
+                />
+                <line
+                  v-if="hoveredGoldDiffPoint"
+                  class="timeline-chart-crosshair"
+                  :x1="getChartX(hoveredGoldDiffPoint.timestamp)"
+                  :x2="getChartX(hoveredGoldDiffPoint.timestamp)"
+                  :y1="CHART_PADDING.top"
+                  :y2="CHART_HEIGHT - CHART_PADDING.bottom"
+                />
+                <circle
+                  v-for="(point, index) in selectedGoldDiffSeries.points"
+                  :key="getChartPointKey(point, index)"
+                  class="timeline-chart-hit-area"
+                  :cx="getChartX(point.timestamp)"
+                  :cy="getChartY(point.diff)"
+                  r="9"
+                  fill="transparent"
+                  opacity="0"
+                  @mouseenter="hoveredGoldDiffPoint = point"
+                  @mouseleave="hoveredGoldDiffPoint = null"
+                />
+              </svg>
+
+              <div
+                v-if="hoveredGoldDiffPoint"
+                class="timeline-chart-tooltip"
+                :style="getChartTooltipStyle(hoveredGoldDiffPoint)"
+              >
+                <strong>{{ formatTimelineTime(hoveredGoldDiffPoint.timestamp) }}</strong>
+                <span>{{ selectedGoldDiffMetricLabel }}</span>
+                <span>{{ t('matchDetail.timelineBlueValue') }} {{ formatGoldValue(hoveredGoldDiffPoint.blueValue) }}</span>
+                <span>{{ t('matchDetail.timelineRedValue') }} {{ formatGoldValue(hoveredGoldDiffPoint.redValue) }}</span>
+                <span>{{ t('matchDetail.timelineDiffValue') }} {{ formatGoldDiff(hoveredGoldDiffPoint.diff) }}</span>
+              </div>
+            </div>
+
+            <div v-else class="timeline-chart-metric-empty">
+              {{ t('matchDetail.timelineMetricEmpty') }}
+            </div>
+          </div>
+
+          <div class="timeline-axis-panel">
+            <div class="timeline-axis-ruler">
+              <span
+                v-for="tick in chartTimeTicks"
+                :key="`${tick.key}-axis`"
+                class="timeline-axis-tick"
+                :style="{ left: `${((tick.timestamp / Math.max(timelineMaxTimestamp, 1)) * 100).toFixed(3)}%` }"
+              >
+                {{ tick.label }}
+              </span>
+            </div>
+            <div
+              v-for="track in timelineEventTracks"
+              :key="track.key"
+              class="timeline-event-track"
+              :class="`track-${track.key}`"
+            >
+              <span class="timeline-event-track-label">{{ track.label }}</span>
+              <div class="timeline-axis-track">
+                <button
+                  v-for="cluster in track.clusters"
+                  :key="cluster.key"
+                  type="button"
+                  class="timeline-event-marker timeline-event-cluster"
+                  :class="[`event-${cluster.type}`, `team-${track.key}`, { clustered: cluster.count > 1 }]"
+                  :style="getTimelineClusterStyle(cluster)"
+                  :aria-label="`${formatTimelineTime(cluster.timestamp)} ${getTimelineClusterLabel(cluster)}`"
+                  @mouseenter="hoveredEventCluster = cluster"
+                  @mouseleave="hoveredEventCluster = null"
+                >
+                  <span
+                    class="timeline-event-marker-core"
+                    :data-label="getTimelineClusterShortLabel(cluster)"
+                    aria-hidden="true"
+                  ></span>
+                  <span
+                    v-if="cluster.count > 1"
+                    class="timeline-event-cluster-count"
+                    aria-hidden="true"
+                  >
+                    {{ cluster.count }}
+                  </span>
+                </button>
+              </div>
+            </div>
+            <div
+              v-if="hoveredEventCluster"
+              class="timeline-event-tooltip"
+              :style="getTimelineEventTooltipStyle(hoveredEventCluster)"
+            >
+              <strong>{{ formatTimelineTime(hoveredEventCluster.timestamp) }}</strong>
+              <div class="timeline-event-tooltip-list">
+                <div
+                  v-for="row in getTimelineClusterTooltipRows(hoveredEventCluster)"
+                  :key="row.key"
+                  class="timeline-event-tooltip-row"
+                >
+                  <span class="timeline-event-tooltip-actor">
+                    <img
+                      v-if="row.actorChampionId !== null"
+                      class="timeline-event-tooltip-avatar"
+                      :src="getChampionIconUrl(row.actorChampionId)"
+                      :alt="row.actorText"
+                      @error="markAssetLoadFailed"
+                    />
+                    <span v-else>{{ row.actorText }}</span>
+                  </span>
+                  <span class="timeline-event-tooltip-action">{{ row.actionText }}</span>
+                  <span class="timeline-event-tooltip-target">
+                    <img
+                      v-if="row.targetChampionId !== null"
+                      class="timeline-event-tooltip-avatar"
+                      :src="getChampionIconUrl(row.targetChampionId)"
+                      :alt="row.targetText"
+                      @error="markAssetLoadFailed"
+                    />
+                    <span v-else>{{ row.targetText }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div v-else class="timeline-empty">
-          <strong>{{ t('matchDetail.timelineEmptyTitle') }}</strong>
-          <span>{{ t('matchDetail.timelineEmptyBody') }}</span>
+          <strong>{{ t('matchDetail.timelineUnavailable') }}</strong>
           <small>{{ t('matchDetail.staticGoldDiff') }} {{ formatSignedNumber(staticTeamGoldDiff) }}</small>
         </div>
       </div>
@@ -3460,6 +4186,457 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 .chart-tab {
   min-height: 136px;
+}
+
+.timeline-chart-shell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 9px;
+  overflow: visible;
+}
+
+.timeline-chart-panel {
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+  border: 1px solid rgba(111, 147, 170, 0.22);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(9, 34, 48, 0.86), rgba(6, 14, 27, 0.9)),
+    rgba(7, 18, 31, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 32px rgba(0, 0, 0, 0.18);
+}
+
+.timeline-chart-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px 8px;
+  border-bottom: 1px solid rgba(188, 150, 82, 0.2);
+  background: linear-gradient(90deg, rgba(14, 45, 61, 0.72), rgba(10, 25, 38, 0.42));
+}
+
+.timeline-chart-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: #cda765;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow: 0 0 12px rgba(205, 167, 101, 0.2);
+}
+
+.timeline-chart-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-chart-title-chevron {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  transform: rotate(45deg);
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  opacity: 0.9;
+}
+
+.timeline-chart-toolbar {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.timeline-chart-filter {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(111, 147, 170, 0.22);
+  border-radius: 4px;
+  background: rgba(5, 16, 27, 0.44);
+  color: rgba(208, 222, 234, 0.72);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.timeline-chart-filter.active {
+  border-color: rgba(205, 167, 101, 0.55);
+  background: rgba(34, 54, 55, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(205, 167, 101, 0.08);
+  color: #e4c178;
+}
+
+.timeline-chart-stage {
+  position: relative;
+  min-width: 0;
+  background:
+    linear-gradient(180deg, rgba(14, 58, 72, 0.38), rgba(6, 15, 28, 0.28)),
+    rgba(6, 17, 29, 0.66);
+  overflow: visible;
+}
+
+.timeline-chart-svg {
+  display: block;
+  width: 100%;
+  min-height: 224px;
+}
+
+.timeline-chart-fill {
+  pointer-events: none;
+}
+
+.timeline-chart-grid line,
+.timeline-chart-time-axis line {
+  stroke: rgba(140, 178, 188, 0.13);
+  stroke-width: 1;
+}
+
+.timeline-chart-grid line.zero {
+  stroke: rgba(229, 219, 184, 0.48);
+  stroke-width: 1.4;
+}
+
+.timeline-chart-grid text,
+.timeline-chart-time-axis text {
+  fill: rgba(198, 214, 224, 0.58);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.timeline-zero-axis {
+  stroke: rgba(229, 219, 184, 0.7);
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 5px rgba(229, 219, 184, 0.12));
+}
+
+.lane-matchup-watermarks,
+.lane-matchup-watermark,
+.lane-matchup-watermark-image {
+  pointer-events: none;
+}
+
+.lane-matchup-watermark {
+  opacity: 0.24;
+}
+
+.lane-matchup-watermark-halo {
+  fill: rgba(3, 10, 18, 0.28);
+  stroke-width: 1.4;
+}
+
+.lane-matchup-watermark.watermark-blue .lane-matchup-watermark-halo {
+  stroke: rgba(74, 168, 255, 0.58);
+}
+
+.lane-matchup-watermark.watermark-red .lane-matchup-watermark-halo {
+  stroke: rgba(240, 95, 114, 0.58);
+}
+
+.lane-matchup-watermark-image {
+  clip-path: circle(50% at 50% 50%);
+}
+
+.timeline-gold-line-glow {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 8;
+}
+
+.timeline-gold-line-glow.segment-blue {
+  stroke: rgba(74, 168, 255, 0.26);
+}
+
+.timeline-gold-line-glow.segment-red {
+  stroke: rgba(240, 95, 114, 0.24);
+}
+
+.timeline-gold-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
+.timeline-gold-line.segment-blue {
+  stroke: #4aa8ff;
+}
+
+.timeline-gold-line.segment-red {
+  stroke: #f05f72;
+}
+
+.timeline-chart-crosshair {
+  stroke: rgba(230, 222, 190, 0.46);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.timeline-chart-hit-area {
+  cursor: crosshair;
+  pointer-events: all;
+}
+
+.timeline-chart-tooltip {
+  position: absolute;
+  z-index: 100;
+  display: grid;
+  gap: 3px;
+  min-width: 150px;
+  max-width: min(236px, calc(100% - 22px));
+  padding: 8px 10px;
+  border: 1px solid rgba(205, 167, 101, 0.28);
+  border-radius: 6px;
+  background: rgba(5, 12, 22, 0.9);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  color: rgba(213, 226, 236, 0.78);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.timeline-chart-tooltip strong,
+.timeline-event-tooltip strong {
+  color: #f0d390;
+  font-size: 12px;
+}
+
+.timeline-chart-metric-empty {
+  display: flex;
+  min-height: 210px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(124, 139, 164, 0.2);
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.timeline-axis-panel {
+  position: relative;
+  z-index: 8;
+  min-width: 0;
+  min-height: 100px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(111, 147, 170, 0.18);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(9, 31, 43, 0.7), rgba(6, 15, 27, 0.82)),
+    rgba(7, 18, 31, 0.82);
+  overflow: visible;
+}
+
+.timeline-axis-ruler {
+  position: relative;
+  height: 17px;
+  margin-left: 60px;
+  margin-right: 4px;
+}
+
+.timeline-axis-track {
+  position: relative;
+  height: 18px;
+  border-top: 1px solid rgba(140, 178, 188, 0.2);
+  overflow: visible;
+}
+
+.timeline-axis-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  color: rgba(198, 214, 224, 0.48);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.timeline-event-track {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  height: 25px;
+}
+
+.timeline-event-track-label {
+  overflow: hidden;
+  color: rgba(198, 214, 224, 0.62);
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-event-track.track-blue .timeline-event-track-label {
+  color: rgba(111, 190, 255, 0.82);
+}
+
+.timeline-event-track.track-red .timeline-event-track-label {
+  color: rgba(255, 126, 142, 0.78);
+}
+
+.timeline-event-marker {
+  position: absolute;
+  top: 0;
+  width: var(--cluster-size, 10px);
+  height: var(--cluster-size, 10px);
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(236, 243, 248, 0.2);
+  border-radius: 50%;
+  background: rgba(7, 14, 24, 0.9);
+  box-shadow: 0 0 0 2px rgba(7, 14, 24, 0.36);
+  cursor: pointer;
+  font-size: 0;
+  line-height: 1;
+}
+
+.timeline-event-marker.clustered {
+  border-color: rgba(241, 211, 142, 0.42);
+  box-shadow:
+    0 0 0 2px rgba(7, 14, 24, 0.38),
+    0 0 12px rgba(241, 211, 142, 0.12);
+}
+
+.timeline-event-marker-core {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
+.timeline-event-marker.event-kill {
+  color: rgba(230, 235, 239, 0.86);
+}
+
+.timeline-event-marker.event-turret {
+  color: #d8ad5d;
+  border-radius: 3px;
+}
+
+.timeline-event-marker.event-turret .timeline-event-marker-core {
+  transform: rotate(45deg) scale(0.78);
+  border-radius: 3px;
+}
+
+.timeline-event-marker.event-dragon,
+.timeline-event-marker.event-baron,
+.timeline-event-marker.event-herald,
+.timeline-event-marker.event-voidgrub {
+  color: #63c8d6;
+}
+
+.timeline-event-marker.event-baron {
+  color: #caa2ff;
+}
+
+.timeline-event-marker.event-herald,
+.timeline-event-marker.event-voidgrub {
+  color: #73d2a6;
+}
+
+.timeline-event-marker.team-blue.event-kill {
+  color: #69baff;
+}
+
+.timeline-event-marker.team-red.event-kill {
+  color: #ff7383;
+}
+
+.timeline-event-marker:hover,
+.timeline-event-marker:focus-visible {
+  z-index: 20;
+  border-color: rgba(241, 211, 142, 0.86);
+  box-shadow:
+    0 0 0 2px rgba(7, 14, 24, 0.42),
+    0 0 12px rgba(241, 211, 142, 0.22);
+}
+
+.timeline-event-cluster-count {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(5, 12, 22, 0.92);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.timeline-event-tooltip {
+  position: absolute;
+  right: auto;
+  top: auto;
+  bottom: 8px;
+  z-index: 999;
+  display: grid;
+  gap: 4px;
+  min-width: 154px;
+  max-width: min(260px, calc(100% - 20px));
+  padding: 8px 10px;
+  border: 1px solid rgba(205, 167, 101, 0.28);
+  border-radius: 6px;
+  background: rgba(5, 12, 22, 0.92);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
+  color: rgba(213, 226, 236, 0.78);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.timeline-event-tooltip-list {
+  display: grid;
+  gap: 6px;
+}
+
+.timeline-event-tooltip-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: rgba(225, 235, 242, 0.86);
+  white-space: nowrap;
+}
+
+.timeline-event-tooltip-actor,
+.timeline-event-tooltip-target {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.timeline-event-tooltip-action {
+  color: #f0d390;
+  font-weight: 800;
+}
+
+.timeline-event-tooltip-avatar {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(205, 167, 101, 0.28);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.timeline-event-tooltip-avatar[data-asset-failed='true'] {
+  display: none;
 }
 
 .timeline-empty {

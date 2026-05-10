@@ -13,6 +13,7 @@ import type {
   Lobby,
   MatchHistory,
   MatchHistoryPageResponse,
+  MatchTimelineFetchResult,
   Rank,
   SessionData,
   Summoner,
@@ -455,6 +456,18 @@ class ApiClient {
   /**
    * 获取完整会话数据（包含双方队伍所有玩家信息）
    */
+  /**
+   * 鑾峰彇鍗曞眬鏃堕棿绾?
+   */
+  async getGameTimeline(
+    gameId: number,
+    options: { source?: 'auto' | 'sgp' | 'lcu' | 'cache' } = {}
+  ): Promise<MatchTimelineFetchResult> {
+    return this.get<MatchTimelineFetchResult>(`/summoner/game-timeline/${gameId}`, {
+      source: options.source ?? 'auto'
+    })
+  }
+
   async getSessionData(mode?: number): Promise<SessionData> {
     return this.get<SessionData>('/session/data', mode != null ? { mode } : undefined)
   }

@@ -132,6 +132,108 @@ test('inline match detail exposes compact overview, rune, and chart tabs', () =>
   assert.match(en, /'matchDetail\.chartTab': 'Chart'/)
 })
 
+test('chart tab renders timeline chart UI instead of a placeholder', () => {
+  const source = readInlineDetailSource()
+  const chartBlock = source.match(/<div v-else-if="activeTabValue === 'chart'"[\s\S]*?<\/div>\s*<\/section>/)?.[0] || ''
+
+  assert.doesNotMatch(source, /const hasTimelineData = computed\(\(\) => false\)/)
+  assert.match(source, /import \{ apiClient \} from '@\/api\/httpClient'/)
+  assert.match(source, /createTimelineChartModel/)
+  assert.match(chartBlock, /class="timeline-chart-shell"/)
+  assert.match(chartBlock, /class="timeline-chart-panel"/)
+  assert.match(chartBlock, /class="timeline-chart-heading"/)
+  assert.match(chartBlock, /class="timeline-chart-svg"/)
+  assert.match(chartBlock, /class="timeline-event-track"/)
+})
+
+test('non-ranked chart tab shows ranked-only empty state and does not request timeline', () => {
+  const source = readInlineDetailSource()
+
+  assert.match(source, /const isChartRankedMode = computed\(\(\) => isRankedMode\(props\.matchHistory\) \|\| isRankedMode\(displayGameDetail\.value\)\)/)
+  assert.match(source, /matchDetail\.timelineRankedOnly/)
+  assert.match(source, /if \(!isChartRankedMode\.value\) \{[\s\S]*return[\s\S]*\}/)
+})
+
+test('chart tab lazy-loads timeline only after chart is selected', () => {
+  const source = readInlineDetailSource()
+  const loaderBlock = readFunctionBlock(source, 'async function loadTimelineForCurrentGame()')
+
+  assert.match(source, /watch\([\s\S]*activeTabValue\.value[\s\S]*loadTimelineForCurrentGame/)
+  assert.match(loaderBlock, /activeTabValue\.value !== 'chart'/)
+  assert.match(loaderBlock, /apiClient\.getGameTimeline\(gameId,[\s\S]*source: 'auto'/)
+  assert.match(loaderBlock, /timelineRequestedGameId\.value === gameId/)
+})
+
+test('chart tab renders gold diff filters, svg line chart, and event markers with timeline data', () => {
+  const source = readInlineDetailSource()
+  const zh = readFileSync(new URL('../../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
+  const en = readFileSync(new URL('../../i18n/locales/en-US.ts', import.meta.url), 'utf8')
+  const chartBlock = source.match(/<div v-else-if="activeTabValue === 'chart'"[\s\S]*?<\/div>\s*<\/section>/)?.[0] || ''
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const markerButtonBlock = source.match(/class="timeline-event-marker timeline-event-cluster"[\s\S]*?<\/button>/)?.[0] || ''
+  const axisPanelBlock = source.match(/<div class="timeline-axis-panel">[\s\S]*?<div v-else class="timeline-empty">/)?.[0] || ''
+  const eventTooltipRule = source.match(/\.timeline-event-tooltip \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /type GoldDiffMetricKey/)
+  assert.match(source, /selectedGoldDiffMetric/)
+  assert.match(chartBlock, /v-for="option in goldDiffMetricOptions"/)
+  assert.match(source, /matchDetail\.timelineMetricTeamAverage/)
+  assert.match(source, /matchDetail\.timelineMetricTop/)
+  assert.match(source, /matchDetail\.timelineMetricJungle/)
+  assert.match(source, /matchDetail\.timelineMetricMiddle/)
+  assert.match(source, /matchDetail\.timelineMetricBottom/)
+  assert.match(source, /matchDetail\.timelineMetricSupport/)
+  assert.match(zh, /'matchDetail\.timelineMetricTeamAverage': '团队总经济差'/)
+  assert.doesNotMatch(zh, /团队平均经济差/)
+  assert.match(en, /'matchDetail\.timelineMetricTeamAverage': 'Team Gold Diff'/)
+  assert.doesNotMatch(en, /Team Avg Gold Diff/)
+  assert.match(chartBlock, /class="timeline-chart-hit-area"/)
+  assert.match(chartBlock, /fill="transparent"/)
+  assert.match(chartBlock, /opacity="0"/)
+  assert.doesNotMatch(chartBlock, /class="timeline-gold-point"|class="timeline-chart-point"/)
+  assert.match(chartBlock, /v-for="track in timelineEventTracks"/)
+  assert.match(chartBlock, /v-for="cluster in track\.clusters"/)
+  assert.match(chartBlock, /class="timeline-event-cluster-count"/)
+  assert.match(chartStageBlock, /class="lane-matchup-watermark"/)
+  assert.match(chartStageBlock, /selectedGoldDiffMetric !== 'teamAverage'/)
+  assert.match(chartStageBlock, /pointer-events="none"/)
+  assert.match(source, /getChampionIconUrl\(watermark\.championId\)/)
+  assert.match(chartBlock, /class="timeline-chart-crosshair"/)
+  assert.match(chartBlock, /class="timeline-event-tooltip"/)
+  assert.match(chartBlock, /class="timeline-event-tooltip-row"/)
+  assert.match(chartBlock, /v-for="row in getTimelineClusterTooltipRows\(hoveredEventCluster\)"/)
+  assert.match(markerButtonBlock, /class="timeline-event-marker-core"/)
+  assert.doesNotMatch(markerButtonBlock, /<img|champion|Champion|getChampionIconUrl/)
+  assert.doesNotMatch(markerButtonBlock, /:title|title=/)
+  assert.doesNotMatch(axisPanelBlock, /AssetHoverTooltip/)
+  assert.match(source, /formatGoldDiffTick\(value\)/)
+  assert.doesNotMatch(source, /label: formatGoldDiff\(value\)/)
+  assert.match(eventTooltipRule, /z-index:\s*(?:[1-9]\d{2,}|999)/)
+  assert.doesNotMatch(source, /formatGoldDiffTick[\s\S]*千|formatGoldDiffTick[\s\S]*万/)
+})
+
+test('timeline API types and client method are defined without touching game-detail API', () => {
+  const apiSource = readApiSource()
+  const clientSource = readFileSync(new URL('../../api/httpClient.ts', import.meta.url), 'utf8')
+
+  assert.match(apiSource, /export interface MatchTimeline/)
+  assert.match(apiSource, /export interface TimelineFrame/)
+  assert.match(apiSource, /export interface ParticipantFrame/)
+  assert.match(apiSource, /export interface TimelineEvent/)
+  assert.match(apiSource, /export interface MatchTimelineFetchResult/)
+  assert.match(clientSource, /async getGameTimeline\(/)
+  assert.match(clientSource, /\/summoner\/game-timeline\/\$\{gameId\}/)
+  assert.match(clientSource, /async getGameDetail\(/)
+})
+
+test('timeline chart work stays out of HomeChart and home chart entries', () => {
+  const homeChart = readFileSync(new URL('../HomeChart.vue', import.meta.url), 'utf8')
+  const homeChartEntries = readFileSync(new URL('../../services/homeChartEntries.ts', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(homeChart, /getGameTimeline|MatchTimeline|timelineRankedOnly|timeline-chart-shell/)
+  assert.doesNotMatch(homeChartEntries, /getGameTimeline|MatchTimeline|timelineRankedOnly|timeline-chart-shell/)
+})
+
 test('inline overview renders two compact team tables without changing detail loading', () => {
   const source = readInlineDetailSource()
 
@@ -524,9 +626,10 @@ test('chart tab uses an honest empty state when timeline frames are unavailable'
   const source = readInlineDetailSource()
 
   assert.match(source, /activeTabValue === 'chart'/)
-  assert.match(source, /const hasTimelineData = computed\(\(\) => false\)/)
-  assert.match(source, /matchDetail\.timelineEmptyTitle/)
-  assert.match(source, /matchDetail\.timelineEmptyBody/)
+  assert.doesNotMatch(source, /const hasTimelineData = computed\(\(\) => false\)/)
+  assert.match(source, /matchDetail\.timelineUnavailable/)
+  assert.match(source, /matchDetail\.timelineLoading/)
+  assert.match(source, /matchDetail\.timelineRankedOnly/)
   assert.match(source, /staticTeamGoldDiff/)
   assert.doesNotMatch(source, /polyline|fakeTimeline|mockTimeline|sampleTimeline/)
 })
