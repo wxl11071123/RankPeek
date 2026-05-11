@@ -108,13 +108,19 @@ test('lookup rank summary is requested with the viewed summoner puuid', () => {
 test('inline detail toggle folds the same match and keeps only one expanded game active', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const toggleFunction = source.match(/async function toggleInlineDetail\(match: MatchHistory\) \{[\s\S]*?function collapseInlineDetail/)?.[0] || ''
+  const collapseFunction = source.match(/function collapseInlineDetail\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
   assert.match(toggleFunction, /if \(expandedGameId\.value === match\.gameId\) \{[\s\S]*collapseInlineDetail\(\)[\s\S]*return/)
+  assert.match(toggleFunction, /const previousExpandedGameId = expandedGameId\.value/)
+  assert.match(toggleFunction, /clearInlineDetailTab\(previousExpandedGameId\)/)
   assert.match(toggleFunction, /expandedGameId\.value = match\.gameId/)
   assert.match(toggleFunction, /selectedMatchHistory\.value = match/)
   assert.match(toggleFunction, /selectedGameDetail\.value = null/)
   assert.match(toggleFunction, /selectedGameDetailStatus\.value = 'loading'/)
   assert.match(source, /function collapseInlineDetail\(\) \{[\s\S]*expandedGameId\.value = null[\s\S]*selectedGameDetail\.value = null[\s\S]*selectedMatchHistory\.value = null[\s\S]*selectedGameDetailStatus\.value = 'idle'/)
+  assert.match(collapseFunction, /const collapsedGameId = expandedGameId\.value/)
+  assert.match(collapseFunction, /clearInlineDetailTab\(collapsedGameId\)/)
+  assert.match(source, /function clearInlineDetailTab\(gameId: number \| null\): void \{[\s\S]*delete nextTabs\[String\(gameId\)\][\s\S]*activeInlineDetailTabByGameId\.value = nextTabs[\s\S]*\}/)
   assert.match(source, /function isActiveMatchDetailRequest\(requestId: number, matchId: string\): boolean \{[\s\S]*requestId === matchDetailRequestId[\s\S]*String\(expandedGameId\.value\) === matchId[\s\S]*\}/)
   assert.match(source, /function isActiveUserTagSummaryRequest\(requestId: number, matchId: string\): boolean \{[\s\S]*String\(expandedGameId\.value\) === matchId/)
 })

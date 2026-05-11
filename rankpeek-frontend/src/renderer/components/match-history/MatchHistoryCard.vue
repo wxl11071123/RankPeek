@@ -406,13 +406,29 @@ function formatKda(stats?: Stats): string {
 function displayMode(match: MatchHistory): string {
   return match.queueName || match.gameMode || t('common.unknownMode')
 }
+
+function handleCardClick(event: MouseEvent): void {
+  if (isInteractiveCardClickTarget(event.target)) {
+    return
+  }
+
+  emit('open-detail', props.match)
+}
+
+function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false
+  }
+
+  return target.closest('button, a, input, select, textarea, [role="button"], [data-card-click-ignore], .asset-tooltip-trigger') !== null
+}
 </script>
 
 <template>
   <article
     class="match-history-card"
     :class="{ remake: isRemake, win: !isRemake && isWin, loss: !isRemake && !isWin, expanded }"
-    @click="emit('open-detail', match)"
+    @click="handleCardClick"
   >
     <div
       class="result-rail"

@@ -1824,6 +1824,11 @@ async function toggleInlineDetail(match: MatchHistory) {
     return
   }
 
+  const previousExpandedGameId = expandedGameId.value
+  if (previousExpandedGameId !== null) {
+    clearInlineDetailTab(previousExpandedGameId)
+  }
+
   const requestId = ++matchDetailRequestId
   const fallbackRegion = getCurrentSummonerFallbackRegion()
   const detailCacheKey = toMatchDetailCacheKey(match, {
@@ -1892,15 +1897,27 @@ async function toggleInlineDetail(match: MatchHistory) {
 }
 
 function collapseInlineDetail() {
+  const collapsedGameId = expandedGameId.value
   matchDetailRequestId += 1
   summariesAbortController?.abort()
   summariesAbortController = null
+  clearInlineDetailTab(collapsedGameId)
   expandedGameId.value = null
   selectedGameDetail.value = null
   selectedMatchHistory.value = null
   selectedGameDetailStatus.value = 'idle'
   userTagSummaries.value = {}
   summariesLoading.value = false
+}
+
+function clearInlineDetailTab(gameId: number | null): void {
+  if (gameId === null) {
+    return
+  }
+
+  const nextTabs = { ...activeInlineDetailTabByGameId.value }
+  delete nextTabs[String(gameId)]
+  activeInlineDetailTabByGameId.value = nextTabs
 }
 
 function getInlineDetailTab(gameId: number): InlineDetailTabKey {
