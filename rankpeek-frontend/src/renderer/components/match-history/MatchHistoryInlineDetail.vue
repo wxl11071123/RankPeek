@@ -95,6 +95,12 @@ interface RuneStatDisplayRow {
   text: string
 }
 
+interface RuneTeamSection {
+  key: TeamTone
+  teamId: number
+  players: MatchDetailParticipant[]
+}
+
 interface TeamSection {
   key: TeamTone
   teamId: number
@@ -509,6 +515,10 @@ const displayGameDetail = computed<GameDetail | null>(() => {
 const blueTeamPlayers = computed(() => getTeamParticipants(displayGameDetail.value, 100, props.currentPuuid))
 const redTeamPlayers = computed(() => getTeamParticipants(displayGameDetail.value, 200, props.currentPuuid))
 const allPlayers = computed(() => [...blueTeamPlayers.value, ...redTeamPlayers.value])
+const runeTeamSections = computed<RuneTeamSection[]>(() => [
+  { key: 'blue', teamId: 100, players: blueTeamPlayers.value },
+  { key: 'red', teamId: 200, players: redTeamPlayers.value }
+].filter(section => section.players.length > 0))
 const blueTeamTotals = computed(() => sumTeamStats(blueTeamPlayers.value))
 const redTeamTotals = computed(() => sumTeamStats(redTeamPlayers.value))
 const maxChampionDamage = computed(() => maxPlayerMetric(player => readStatNumber(player, 'totalDamageDealtToChampions')))
@@ -1276,7 +1286,10 @@ function isRuneParticipantExpanded(player: MatchDetailParticipant): boolean {
 }
 
 function toggleRuneParticipant(player: MatchDetailParticipant): void {
-  expandedRuneParticipantKey.value = getRuneParticipantKey(player)
+  const participantKey = getRuneParticipantKey(player)
+  expandedRuneParticipantKey.value = expandedRuneParticipantKey.value === participantKey
+    ? ''
+    : participantKey
 }
 
 function getPlayerTraitSlots(player: MatchDetailParticipant): TraitSlot[] {
@@ -3073,17 +3086,32 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
       </div>
 
       <div v-else-if="activeTabValue === 'runes'" class="runes-tab">
-        <div
-          v-for="player in allPlayers"
-          :key="`runes-${player.participantId}`"
-          class="rune-player-row"
-          :class="{ me: player.isCurrentPlayer, expanded: isRuneParticipantExpanded(player), clickable: true }"
-          role="button"
-          tabindex="0"
-          @click="toggleRuneParticipant(player)"
-          @keydown.enter.prevent="toggleRuneParticipant(player)"
-          @keydown.space.prevent="toggleRuneParticipant(player)"
+        <template
+          v-for="(team, teamIndex) in runeTeamSections"
+          :key="`rune-team-${team.key}`"
         >
+          <div
+            v-if="teamIndex > 0"
+            class="rune-team-divider rune-team-divider--between-teams rune-team-divider--interactive"
+            aria-hidden="true"
+          />
+          <div
+            v-for="(player, playerIndex) in team.players"
+            :key="`runes-${player.participantId}`"
+            class="rune-player-row"
+            :class="{
+              me: player.isCurrentPlayer,
+              expanded: isRuneParticipantExpanded(player),
+              clickable: true,
+              'rune-player-row--team-end': teamIndex < runeTeamSections.length - 1 && playerIndex === team.players.length - 1
+            }"
+            data-card-click-ignore
+            role="button"
+            tabindex="0"
+            @click="toggleRuneParticipant(player)"
+            @keydown.enter.prevent="toggleRuneParticipant(player)"
+            @keydown.space.prevent="toggleRuneParticipant(player)"
+          >
           <div class="player-cell">
             <span class="champion-wrap">
               <img
@@ -3136,6 +3164,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
           <div
             v-if="isRuneParticipantExpanded(player)"
             class="rune-detail-panel"
+            @click.stop
           >
             <div
               v-if="!hasValidAugment(player)"
@@ -3310,6 +3339,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
             </div>
           </div>
         </div>
+        </template>
       </div>
 
       <div v-else-if="activeTabValue === 'chart'" class="chart-tab">
@@ -4016,6 +4046,98 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 .participant-row:last-child,
 .rune-player-row:last-child {
   border-bottom: 0;
+}
+
+.rune-player-row--team-end {
+  border-bottom-color: transparent;
+}
+
+.rune-team-divider {
+  --rune-team-divider-edge: rgba(245, 190, 90, 0.05);
+  --rune-team-divider-mid: rgba(245, 190, 90, 0.44);
+  --rune-team-divider-core: rgba(245, 190, 90, 0.72);
+  --rune-team-divider-glow: rgba(245, 190, 90, 0.2);
+  position: relative;
+  z-index: 1;
+  height: 4px;
+  margin: -2px 10px;
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.rune-team-divider::before,
+.rune-team-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
+}
+
+.rune-team-divider::before {
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--rune-team-divider-edge) 12%,
+    var(--rune-team-divider-mid) 32%,
+    var(--rune-team-divider-core) 50%,
+    var(--rune-team-divider-mid) 68%,
+    var(--rune-team-divider-edge) 88%,
+    transparent 100%
+  );
+  opacity: 0.82;
+  box-shadow: 0 0 5px var(--rune-team-divider-glow);
+}
+
+.rune-team-divider::after {
+  left: 24%;
+  right: 24%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--rune-team-divider-mid) 28%,
+    var(--rune-team-divider-core) 50%,
+    var(--rune-team-divider-mid) 72%,
+    transparent 100%
+  );
+  opacity: 0.38;
+  filter: blur(0.2px);
+  box-shadow: 0 0 8px var(--rune-team-divider-glow);
+}
+
+.rune-team-divider--between-teams {
+  cursor: default;
+}
+
+.rune-team-divider--interactive:hover::before {
+  opacity: 1;
+  box-shadow:
+    0 0 6px var(--rune-team-divider-glow),
+    0 0 12px var(--rune-team-divider-glow);
+}
+
+.rune-team-divider--interactive:hover::after {
+  opacity: 0.78;
+  box-shadow:
+    0 0 9px var(--rune-team-divider-glow),
+    0 0 18px var(--rune-team-divider-glow);
+}
+
+:global([data-theme="light"] .rune-team-divider) {
+  --rune-team-divider-edge: rgba(70, 140, 230, 0.06);
+  --rune-team-divider-mid: rgba(70, 140, 230, 0.36);
+  --rune-team-divider-core: rgba(70, 140, 230, 0.66);
+  --rune-team-divider-glow: rgba(70, 140, 230, 0.22);
 }
 
 .participant-row.clickable,

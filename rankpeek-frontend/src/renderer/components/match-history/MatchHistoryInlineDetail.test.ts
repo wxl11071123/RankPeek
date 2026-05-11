@@ -74,6 +74,39 @@ interface ChartTooltipHarness {
   formatChartTooltipMetricLine: (label: string, point: { diff: number | null }) => string
 }
 
+interface RuneToggleHarness {
+  expandedRuneParticipantKey: { value: string }
+  getRuneParticipantKey: (player: { participantId: number }) => string
+  isRuneParticipantExpanded: (player: { participantId: number }) => boolean
+  toggleRuneParticipant: (player: { participantId: number }) => void
+}
+
+function createRuneToggleHarness(gameId = 2468): RuneToggleHarness {
+  const source = readInlineDetailSource()
+  const script = `
+    const props = { matchHistory: { gameId: ${gameId} } }
+    const expandedRuneParticipantKey = { value: '' }
+    ${readFunctionBlock(source, 'function getRuneParticipantKey(player: MatchDetailParticipant): string')}
+    ${readFunctionBlock(source, 'function isRuneParticipantExpanded(player: MatchDetailParticipant): boolean')}
+    ${readFunctionBlock(source, 'function toggleRuneParticipant(player: MatchDetailParticipant): void')}
+    globalThis.__runeToggleHarness = {
+      expandedRuneParticipantKey,
+      getRuneParticipantKey,
+      isRuneParticipantExpanded,
+      toggleRuneParticipant
+    }
+  `
+  const compiled = ts.transpileModule(script, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText
+  const context = createContext({})
+  runInContext(compiled, context)
+  return (context as { __runeToggleHarness: RuneToggleHarness }).__runeToggleHarness
+}
+
 function createChartTooltipHarness(): ChartTooltipHarness {
   const source = readInlineDetailSource()
   const script = `
@@ -632,6 +665,50 @@ test('runes tab renders LCU-style primary and secondary rune columns', () => {
   assert.match(source, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/)
 })
 
+test('runes tab groups teams explicitly and renders a divider only between blue and red teams', () => {
+  const source = readInlineDetailSource()
+  const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+  const chartBlock = source.match(/<div v-else-if="activeTabValue === 'chart'"[\s\S]*?<\/div>\s*<\/section>/)?.[0] || ''
+  const dividerRule = source.match(/\.rune-team-divider \{[\s\S]*?\n\}/)?.[0] || ''
+  const dividerBeforeRule = source.match(/\.rune-team-divider::before \{[\s\S]*?\n\}/)?.[0] || ''
+  const dividerAfterRule = (source.match(/\.rune-team-divider::after \{[\s\S]*?\n\}/g) || [])
+    .find(rule => /height:\s*2px/.test(rule)) || ''
+  const lightThemeRule = source.match(/:global\(\[data-theme="light"\] \.rune-team-divider\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const hoverRule = source.match(/\.rune-team-divider--interactive:hover::before[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /interface RuneTeamSection \{/)
+  assert.match(source, /const runeTeamSections = computed<RuneTeamSection\[\]>/)
+  assert.match(source, /key: 'blue'[\s\S]*teamId: 100[\s\S]*players: blueTeamPlayers\.value/)
+  assert.match(source, /key: 'red'[\s\S]*teamId: 200[\s\S]*players: redTeamPlayers\.value/)
+  assert.match(source, /\.filter\(section => section\.players\.length > 0\)/)
+  assert.match(runesBlock, /v-for="\(\s*team,\s*teamIndex\s*\) in runeTeamSections"/)
+  assert.match(runesBlock, /v-if="teamIndex > 0"/)
+  assert.match(runesBlock, /class="rune-team-divider rune-team-divider--between-teams rune-team-divider--interactive"/)
+  assert.match(runesBlock, /v-for="\(\s*player,\s*playerIndex\s*\) in team\.players"/)
+  assertOrdered(runesBlock, [
+    'v-if="teamIndex > 0"',
+    'class="rune-team-divider rune-team-divider--between-teams rune-team-divider--interactive"',
+    'v-for="(player, playerIndex) in team.players"'
+  ])
+  assert.match(runesBlock, /'rune-player-row--team-end': teamIndex < runeTeamSections\.length - 1 && playerIndex === team\.players\.length - 1/)
+  assert.doesNotMatch(runesBlock, /v-for="player in allPlayers"/)
+  assert.doesNotMatch(overviewBlock, /rune-team-divider/)
+  assert.doesNotMatch(chartBlock, /rune-team-divider/)
+  assert.match(source, /\.rune-team-divider \{/)
+  assert.match(source, /\.rune-team-divider--between-teams \{/)
+  assert.match(source, /\.rune-team-divider--interactive:hover::before/)
+  assert.match(source, /\.rune-team-divider--interactive:hover::after/)
+  assert.match(dividerRule, /height:\s*4px/)
+  assert.match(dividerRule, /margin:\s*-2px 10px/)
+  assert.doesNotMatch(dividerRule, /height:\s*(?:8|10|12|16)px/)
+  assert.match(dividerRule, /rgba\(245, 190, 90/)
+  assert.match(dividerBeforeRule, /linear-gradient/)
+  assert.match(dividerAfterRule, /height:\s*2px/)
+  assert.match(lightThemeRule, /rgba\(70, 140, 230/)
+  assert.match(hoverRule, /box-shadow/)
+})
+
 test('rune columns use perks.styles selections instead of rendering style ids as rune cards', () => {
   const source = readInlineDetailSource()
   const perkSlotsBlock = readFunctionBlock(
@@ -684,6 +761,49 @@ test('runes tab auto-expands current player and lets another player card expand'
   assert.match(runesBlock, /@keydown\.enter\.prevent="toggleRuneParticipant\(player\)"/)
   assert.match(runesBlock, /@keydown\.space\.prevent="toggleRuneParticipant\(player\)"/)
   assert.match(runesBlock, /isRuneParticipantExpanded\(player\)/)
+})
+
+test('rune detail panel toggles open and closed for blue and red participants', () => {
+  const harness = createRuneToggleHarness(9876)
+  const bluePlayer = { participantId: 5 }
+  const redPlayer = { participantId: 8 }
+
+  assert.equal(harness.isRuneParticipantExpanded(bluePlayer), false)
+
+  harness.toggleRuneParticipant(bluePlayer)
+  assert.equal(harness.expandedRuneParticipantKey.value, '9876-5')
+  assert.equal(harness.isRuneParticipantExpanded(bluePlayer), true)
+
+  harness.toggleRuneParticipant(bluePlayer)
+  assert.equal(harness.expandedRuneParticipantKey.value, '')
+  assert.equal(harness.isRuneParticipantExpanded(bluePlayer), false)
+
+  harness.toggleRuneParticipant(redPlayer)
+  assert.equal(harness.expandedRuneParticipantKey.value, '9876-8')
+  assert.equal(harness.isRuneParticipantExpanded(redPlayer), true)
+
+  harness.toggleRuneParticipant(redPlayer)
+  assert.equal(harness.expandedRuneParticipantKey.value, '')
+  assert.equal(harness.isRuneParticipantExpanded(redPlayer), false)
+
+  harness.toggleRuneParticipant(bluePlayer)
+  harness.toggleRuneParticipant(redPlayer)
+  assert.equal(harness.isRuneParticipantExpanded(bluePlayer), false)
+  assert.equal(harness.isRuneParticipantExpanded(redPlayer), true)
+
+  harness.toggleRuneParticipant(redPlayer)
+  assert.equal(harness.expandedRuneParticipantKey.value, '')
+  assert.equal(harness.isRuneParticipantExpanded(redPlayer), false)
+})
+
+test('rune detail panel visibility is DOM-driven and panel clicks do not bubble to the row toggle', () => {
+  const source = readInlineDetailSource()
+  const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.match(runesBlock, /v-if="isRuneParticipantExpanded\(player\)"[\s\S]*class="rune-detail-panel"[\s\S]*@click\.stop/)
+  assert.match(runesBlock, /@click="toggleRuneParticipant\(player\)"/)
+  assert.match(runesBlock, /class="trait-detail-slot"/)
+  assert.match(runesBlock, /<AssetHoverTooltip/)
 })
 
 test('rune detail items render icon left and text right', () => {
