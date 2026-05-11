@@ -63,6 +63,28 @@ test('inline detail is not passed user tag summaries while history cards keep th
   assert.doesNotMatch(inlineBlock, /user-tag-summaries/)
 })
 
+test('match history page header stays in normal flow above overview and controls', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const templateBlock = source.match(/<template>[\s\S]*?<\/template>/)?.[0] || ''
+  const pageShellBlock = templateBlock.match(/<section[\s\S]*class="page-shell surface-glow"[\s\S]*?<\/section>/)?.[0] || ''
+  const pageShellRule = source.match(/\.page-shell \{[\s\S]*?\n\}/)?.[0] || ''
+  const pageShellSurfaceRule = source.match(/\.page-shell\.surface-glow \{[\s\S]*?\n\}/)?.[0] || ''
+  const pageShellStyles = `${pageShellRule}\n${pageShellSurfaceRule}`
+
+  assert.match(pageShellBlock, /<h1>\{\{ panelTitle \}\}<\/h1>/)
+  assert.match(source, /: t\('matchHistory\.title'\)/)
+  assert.match(pageShellBlock, /v-model\.number="selectedLimit"/)
+  assert.match(pageShellBlock, /v-model\.number="filterChampionId"/)
+  assert.match(pageShellBlock, /v-model\.number="filterQueueId"/)
+  assert.match(pageShellBlock, /<RefreshIconButton[\s\S]*@click="handleRefresh"/)
+  assert.doesNotMatch(pageShellBlock, /sticky|fixed|floating|is-sticky|match-history-sticky/)
+  assert.doesNotMatch(pageShellStyles, /position:\s*(?:sticky|fixed)/)
+  assert.doesNotMatch(pageShellStyles, /top:\s*[^;]+;/)
+  assert.doesNotMatch(pageShellStyles, /z-index:\s*80/)
+  assert.ok(templateBlock.indexOf('class="page-shell surface-glow"') < templateBlock.indexOf('<SummonerOverviewPanel'))
+  assert.ok(templateBlock.indexOf('<SummonerOverviewPanel') < templateBlock.indexOf('<MatchHistoryInlineDetail'))
+})
+
 test('lookup rank summary is requested with the viewed summoner puuid', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const setupBlock = source.match(/<script setup lang="ts">[\s\S]*?<\/script>/)?.[0] || ''

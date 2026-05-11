@@ -57,6 +57,68 @@ interface ObjectiveCountHarness {
   getObjectiveCountText: (item: { count: number | null }) => string
 }
 
+interface TimelineAxisClusterHarness {
+  clusterTimelineAxisMarkers: (
+    clusters: Array<Record<string, unknown>>,
+    teamId: number,
+    options?: { windowMs?: number }
+  ) => Array<{
+    count: number
+    markerSize: number
+    teamId: number | null
+    items: Array<{ teamId: number; timestamp: number }>
+  }>
+}
+
+interface ChartTooltipHarness {
+  formatChartTooltipMetricLine: (label: string, point: { diff: number | null }) => string
+}
+
+function createChartTooltipHarness(): ChartTooltipHarness {
+  const source = readInlineDetailSource()
+  const script = `
+    ${readFunctionBlock(source, 'function formatChartTooltipMetricLine')}
+    ${readFunctionBlock(source, 'function formatGoldDiffMagnitude')}
+    globalThis.__chartTooltipHarness = {
+      formatChartTooltipMetricLine
+    }
+  `
+  const compiled = ts.transpileModule(script, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText
+  const context = createContext({})
+  runInContext(compiled, context)
+  return (context as { __chartTooltipHarness: ChartTooltipHarness }).__chartTooltipHarness
+}
+
+function createTimelineAxisClusterHarness(): TimelineAxisClusterHarness {
+  const source = readInlineDetailSource()
+  const script = `
+    const TIMELINE_AXIS_CLUSTER_WINDOW_MS = 60000
+    ${readFunctionBlock(source, 'function clusterTimelineAxisMarkers(')}
+    ${readFunctionBlock(source, 'function createTimelineAxisCluster(')}
+    ${readFunctionBlock(source, 'function getTimelineAxisClusterCount(')}
+    ${readFunctionBlock(source, 'function getTimelineAxisClusterTimestamp(')}
+    ${readFunctionBlock(source, 'function getTimelineAxisClusterMarkerSize(')}
+    ${readFunctionBlock(source, 'function createTimelineAxisClusterKey(')}
+    globalThis.__timelineAxisClusterHarness = {
+      clusterTimelineAxisMarkers
+    }
+  `
+  const compiled = ts.transpileModule(script, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText
+  const context = createContext({})
+  runInContext(compiled, context)
+  return (context as { __timelineAxisClusterHarness: TimelineAxisClusterHarness }).__timelineAxisClusterHarness
+}
+
 function createObjectiveCountHarness(gameDetail: Record<string, unknown>): ObjectiveCountHarness {
   const source = readInlineDetailSource()
   const script = `
@@ -170,7 +232,7 @@ test('chart tab renders gold diff filters, svg line chart, and event markers wit
   const en = readFileSync(new URL('../../i18n/locales/en-US.ts', import.meta.url), 'utf8')
   const chartBlock = source.match(/<div v-else-if="activeTabValue === 'chart'"[\s\S]*?<\/div>\s*<\/section>/)?.[0] || ''
   const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
-  const markerButtonBlock = source.match(/class="timeline-event-marker timeline-event-cluster"[\s\S]*?<\/button>/)?.[0] || ''
+  const markerButtonBlock = source.match(/class="timeline-axis-marker[\s\S]*?<\/button>/)?.[0] || ''
   const axisPanelBlock = source.match(/<div class="timeline-axis-panel">[\s\S]*?<div v-else class="timeline-empty">/)?.[0] || ''
   const eventTooltipRule = source.match(/\.timeline-event-tooltip \{[\s\S]*?\n\}/)?.[0] || ''
 
@@ -193,16 +255,26 @@ test('chart tab renders gold diff filters, svg line chart, and event markers wit
   assert.doesNotMatch(chartBlock, /class="timeline-gold-point"|class="timeline-chart-point"/)
   assert.match(chartBlock, /v-for="track in timelineEventTracks"/)
   assert.match(chartBlock, /v-for="cluster in track\.clusters"/)
-  assert.match(chartBlock, /class="timeline-event-cluster-count"/)
+  assert.doesNotMatch(chartBlock, /class="timeline-event-cluster-count"/)
   assert.match(chartStageBlock, /class="lane-matchup-watermark"/)
-  assert.match(chartStageBlock, /selectedGoldDiffMetric !== 'teamAverage'/)
+  assert.match(chartStageBlock, /selectedGoldDiffMetric !== 'teamAverage' && laneMatchupWatermarks\.length/)
+  assert.match(chartStageBlock, /selectedGoldDiffMetric === 'teamAverage' && teamAverageWatermarkGroups\.length/)
+  assert.match(chartStageBlock, /class="team-average-watermarks"/)
+  assert.match(chartStageBlock, /team-average-watermark-row--blue/)
+  assert.match(chartStageBlock, /team-average-watermark-row--red/)
+  assert.match(chartStageBlock, /class="team-watermark"/)
+  assert.match(chartStageBlock, /class="team-champion-watermark"/)
+  assert.match(chartStageBlock, /class="lane-matchup-watermarks lane-matchup-watermark--vertical"/)
+  assert.match(chartStageBlock, /lane-matchup-watermark-avatar--blue/)
+  assert.match(chartStageBlock, /lane-matchup-watermark-avatar--red/)
   assert.match(chartStageBlock, /pointer-events="none"/)
   assert.match(source, /getChampionIconUrl\(watermark\.championId\)/)
   assert.match(chartBlock, /class="timeline-chart-crosshair"/)
-  assert.match(chartBlock, /class="timeline-event-tooltip"/)
+  assert.match(chartBlock, /class="timeline-event-tooltip timeline-axis-tooltip--bubble"/)
+  assert.match(chartBlock, /class="timeline-chart-tooltip timeline-chart-tooltip--bubble"/)
   assert.match(chartBlock, /class="timeline-event-tooltip-row"/)
   assert.match(chartBlock, /v-for="row in getTimelineClusterTooltipRows\(hoveredEventCluster\)"/)
-  assert.match(markerButtonBlock, /class="timeline-event-marker-core"/)
+  assert.match(markerButtonBlock, /class="timeline-axis-marker/)
   assert.doesNotMatch(markerButtonBlock, /<img|champion|Champion|getChampionIconUrl/)
   assert.doesNotMatch(markerButtonBlock, /:title|title=/)
   assert.doesNotMatch(axisPanelBlock, /AssetHoverTooltip/)
@@ -210,6 +282,285 @@ test('chart tab renders gold diff filters, svg line chart, and event markers wit
   assert.doesNotMatch(source, /label: formatGoldDiff\(value\)/)
   assert.match(eventTooltipRule, /z-index:\s*(?:[1-9]\d{2,}|999)/)
   assert.doesNotMatch(source, /formatGoldDiffTick[\s\S]*千|formatGoldDiffTick[\s\S]*万/)
+})
+
+test('chart line tooltip uses a pointerless bubble with an arrow', () => {
+  const source = readInlineDetailSource()
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const hitAreaBlock = source.match(/class="timeline-chart-hit-area"[\s\S]*?\/>/)?.[0] || ''
+  const tooltipRule = source.match(/\.timeline-chart-tooltip \{[\s\S]*?\n\}/)?.[0] || ''
+  const bubbleRule = source.match(/\.timeline-chart-tooltip--bubble \{[\s\S]*?\n\}/)?.[0] || ''
+  const arrowRule = source.match(/\.timeline-chart-tooltip-arrow \{[\s\S]*?\n\}/)?.[0] || ''
+  const tooltipStyleFunction = readFunctionBlock(source, 'function getChartTooltipStyle')
+  const showTooltipFunction = readFunctionBlock(source, 'function showGoldDiffTooltip')
+
+  assert.match(chartStageBlock, /class="timeline-chart-tooltip timeline-chart-tooltip--bubble"/)
+  assert.match(chartStageBlock, /class="timeline-chart-tooltip-arrow"/)
+  assert.match(hitAreaBlock, /@pointerenter="showGoldDiffTooltip\(\$event, point\)"/)
+  assert.match(hitAreaBlock, /@pointermove="moveGoldDiffTooltip\(\$event, point\)"/)
+  assert.match(hitAreaBlock, /@pointerleave="hideGoldDiffTooltip"/)
+  assert.match(tooltipRule, /pointer-events:\s*none/)
+  assert.match(bubbleRule, /transform:\s*translate\(-50%,\s*calc\(-100% - var\(--timeline-chart-tooltip-gap/)
+  assert.match(arrowRule, /left:\s*var\(--timeline-chart-tooltip-arrow-left/)
+  assert.match(arrowRule, /rotate\(45deg\)/)
+  assert.match(arrowRule, /background:\s*var\(--timeline-chart-tooltip-bg/)
+  assert.match(tooltipStyleFunction, /'--timeline-chart-tooltip-arrow-left'/)
+  assert.match(tooltipStyleFunction, /hoveredGoldDiffTooltipAnchor\.value/)
+  assert.match(showTooltipFunction, /getChartPointerAnchor\(event,\s*point\)/)
+})
+
+test('chart line tooltip renders time and absolute metric diff only', () => {
+  const source = readInlineDetailSource()
+  const harness = createChartTooltipHarness()
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const chartTooltipBlock = chartStageBlock.match(/<div[\s\S]*class="timeline-chart-tooltip timeline-chart-tooltip--bubble"[\s\S]*?<\/div>/)?.[0] || ''
+
+  assert.match(chartTooltipBlock, /formatTimelineTime\(hoveredGoldDiffPoint\.timestamp\)/)
+  assert.match(chartTooltipBlock, /formatChartTooltipMetricLine\(selectedGoldDiffMetricLabel,\s*hoveredGoldDiffPoint\)/)
+  assert.doesNotMatch(chartTooltipBlock, /timelineBlueValue|timelineRedValue|timelineDiffValue|formatGoldValue|formatGoldDiff/)
+  assert.equal(harness.formatChartTooltipMetricLine('团队总经济差', { diff: -598 }), '团队总经济差(598)')
+  assert.equal(harness.formatChartTooltipMetricLine('上路经济差', { diff: 1245 }), '上路经济差(1,245)')
+  assert.equal(harness.formatChartTooltipMetricLine('团队总经济差', { diff: null }), '团队总经济差(--)')
+  assert.doesNotMatch(harness.formatChartTooltipMetricLine('团队总经济差', { diff: -598 }), /[+-]/)
+})
+
+test('timeline axis hover synchronizes chart crosshair without showing chart tooltip', () => {
+  const source = readInlineDetailSource()
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const crosshairBlock = chartStageBlock.match(/<line[\s\S]*class="timeline-chart-crosshair"[\s\S]*?\/>/)?.[0] || ''
+  const chartTooltipBlock = chartStageBlock.match(/<div[\s\S]*class="timeline-chart-tooltip timeline-chart-tooltip--bubble"[\s\S]*?<\/div>/)?.[0] || ''
+  const activeTimestampComputed = source.match(/const activeChartCrosshairTimestamp = computed[\s\S]*?\)\n/)?.[0] || ''
+  const showAxisFunction = readFunctionBlock(source, 'function showTimelineEventTooltip')
+  const hideAxisFunction = readFunctionBlock(source, 'function hideTimelineEventTooltip')
+
+  assert.match(source, /type ChartHoverSource = 'chart' \| 'axis'/)
+  assert.match(activeTimestampComputed, /chartHoverSource\.value === 'axis'/)
+  assert.match(activeTimestampComputed, /hoveredEventCluster\.value\?\.timestamp/)
+  assert.match(activeTimestampComputed, /chartHoverSource\.value === 'chart'/)
+  assert.match(crosshairBlock, /v-if="activeChartCrosshairTimestamp !== null"/)
+  assert.match(crosshairBlock, /getChartX\(activeChartCrosshairTimestamp\)/)
+  assert.match(showAxisFunction, /chartHoverSource\.value = 'axis'/)
+  assert.match(showAxisFunction, /hoveredGoldDiffPoint\.value = null/)
+  assert.match(hideAxisFunction, /chartHoverSource\.value === 'axis'/)
+  assert.match(hideAxisFunction, /chartHoverSource\.value = null/)
+  assert.match(chartTooltipBlock, /v-if="chartHoverSource === 'chart' && hoveredGoldDiffPoint"/)
+})
+
+test('chart timeline axis omits team labels and keeps time ticks aligned', () => {
+  const source = readInlineDetailSource()
+  const chartBlock = source.match(/<div v-else-if="activeTabValue === 'chart'"[\s\S]*?<\/div>\s*<\/section>/)?.[0] || ''
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const tracksFunction = readFunctionBlock(source, 'function createTimelineEventTracks')
+  const clusterStyleFunction = readFunctionBlock(source, 'function getTimelineClusterStyle')
+  const axisXFunction = readFunctionBlock(source, 'function getTimelineAxisX')
+  const chartStageRule = source.match(/\.timeline-chart-stage \{[\s\S]*?\n\}/)?.[0] || ''
+  const axisLayerRule = source.match(/\.timeline-chart-axis-layer \{[\s\S]*?\n\}/)?.[0] || ''
+  const blueTrackRule = source.match(/\.timeline-event-track\.track-blue \{[\s\S]*?\n\}/)?.[0] || ''
+  const redTrackRule = source.match(/\.timeline-event-track\.track-red \{[\s\S]*?\n\}/)?.[0] || ''
+  const trackRule = source.match(/\.timeline-event-track \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(chartStageBlock, /class="timeline-chart-time-axis"/)
+  assert.match(chartStageBlock, /v-for="tick in chartTimeTicks"/)
+  assert.match(chartStageBlock, /class="timeline-chart-axis-layer/)
+  assertOrdered(chartStageBlock, [
+    'class="timeline-chart-svg"',
+    'class="timeline-chart-time-axis"',
+    'class="timeline-chart-axis-layer'
+  ])
+  assert.match(chartStageRule, /--timeline-chart-event-axis-height:/)
+  assert.match(chartStageRule, /padding-bottom:\s*var\(--timeline-chart-event-axis-height\)/)
+  assert.match(axisLayerRule, /bottom:\s*0/)
+  assert.match(axisLayerRule, /height:\s*var\(--timeline-chart-event-axis-height\)/)
+  assert.match(blueTrackRule, /bottom:\s*var\(--timeline-chart-event-axis-blue-bottom\)/)
+  assert.match(redTrackRule, /bottom:\s*var\(--timeline-chart-event-axis-red-bottom\)/)
+  assert.doesNotMatch(chartBlock, /<\/div>\s*<\/div>\s*<div class="timeline-axis-panel">/)
+  assert.doesNotMatch(chartStageBlock, /timeline-event-track-label|\{\{\s*track\.label\s*\}\}/)
+  assert.doesNotMatch(tracksFunction, /label:\s*t\('common\.(?:blueTeam|redTeam)'\)|neutral/)
+  assert.match(clusterStyleFunction, /getTimelineAxisX\(cluster\.timestamp\)/)
+  assert.match(axisXFunction, /getChartX\(/)
+  assert.match(axisXFunction, /timelineMaxTimestamp\.value/)
+  assert.doesNotMatch(clusterStyleFunction, /Math\.max\(0\.8,\s*Math\.min\(99\.2/)
+  assert.doesNotMatch(trackRule, /grid-template-columns|gap:/)
+})
+
+test('chart timeline axis renders team-isolated blue and red dot markers', () => {
+  const source = readInlineDetailSource()
+  const tracksFunction = readFunctionBlock(source, 'function createTimelineEventTracks')
+  const markerButtonBlock = source.match(/class="timeline-axis-marker[\s\S]*?<\/button>/)?.[0] || ''
+
+  assert.match(tracksFunction, /clusterTimelineAxisMarkers\(clusters,\s*100\)/)
+  assert.match(tracksFunction, /clusterTimelineAxisMarkers\(clusters,\s*200\)/)
+  assert.match(tracksFunction, /\{ key: 'blue', clusters: blueClusters \}/)
+  assert.match(tracksFunction, /\{ key: 'red', clusters: redClusters \}/)
+  assert.doesNotMatch(tracksFunction, /teamId !== 100 && cluster\.teamId !== 200|neutral/)
+  assert.match(markerButtonBlock, /track\.key === 'blue'\s*\?\s*'timeline-axis-marker--blue'\s*:\s*'timeline-axis-marker--red'/)
+  assert.doesNotMatch(markerButtonBlock, /`event-\$\{cluster\.type\}`|`team-\$\{track\.key\}`/)
+})
+
+test('chart timeline axis aggregates nearby same-team markers with a bottom-axis window', () => {
+  const source = readInlineDetailSource()
+  const harness = createTimelineAxisClusterHarness()
+  const createCluster = (teamId: number, timestamp: number, key: string) => ({
+    key,
+    timestamp,
+    endTimestamp: timestamp,
+    teamId,
+    type: 'kill',
+    items: [{ key: `${key}-item`, timestamp, teamId }],
+    count: 1,
+    markerSize: 11
+  })
+
+  const clusters = [
+    createCluster(100, 60_000, 'blue-1'),
+    createCluster(200, 75_000, 'red-1'),
+    createCluster(100, 120_000, 'blue-2'),
+    createCluster(100, 195_000, 'blue-outside-60s'),
+    createCluster(100, 310_000, 'blue-far')
+  ]
+  const blueClusters = harness.clusterTimelineAxisMarkers(clusters, 100)
+
+  assert.match(source, /const TIMELINE_AXIS_CLUSTER_WINDOW_MS = 60_000/)
+  assert.doesNotMatch(source, /TIMELINE_AXIS_CLUSTER_WINDOW_MS = 90000|TIMELINE_AXIS_CLUSTER_WINDOW_MS = 90_000/)
+  assert.equal(blueClusters.length, 3)
+  assert.equal(blueClusters[0]?.count, 2)
+  assert.equal(JSON.stringify(blueClusters[0]?.items.map(item => item.teamId)), '[100,100]')
+  assert.ok(blueClusters[0]?.markerSize > blueClusters[1]?.markerSize)
+})
+
+test('chart timeline axis aggregation never mixes blue and red teams', () => {
+  const harness = createTimelineAxisClusterHarness()
+  const createCluster = (teamId: number, timestamp: number, key: string) => ({
+    key,
+    timestamp,
+    endTimestamp: timestamp,
+    teamId,
+    type: 'kill',
+    items: [{ key: `${key}-item`, timestamp, teamId }],
+    count: 1,
+    markerSize: 11
+  })
+
+  const clusters = [
+    createCluster(100, 100_000, 'blue-1'),
+    createCluster(200, 105_000, 'red-1'),
+    createCluster(100, 130_000, 'blue-2'),
+    createCluster(200, 140_000, 'red-2')
+  ]
+  const blueClusters = harness.clusterTimelineAxisMarkers(clusters, 100)
+  const redClusters = harness.clusterTimelineAxisMarkers(clusters, 200)
+
+  assert.equal(blueClusters.length, 1)
+  assert.equal(redClusters.length, 1)
+  assert.equal(JSON.stringify(blueClusters[0]?.items.map(item => item.teamId)), '[100,100]')
+  assert.equal(JSON.stringify(redClusters[0]?.items.map(item => item.teamId)), '[200,200]')
+})
+
+test('chart timeline axis markers are plain dots without icons or numeric badges', () => {
+  const source = readInlineDetailSource()
+  const markerButtonBlock = source.match(/class="timeline-axis-marker[\s\S]*?<\/button>/)?.[0] || ''
+  const axisMarkerStyles = source.match(/\.timeline-axis-marker \{[\s\S]*?\.timeline-event-tooltip \{/)?.[0] || ''
+
+  assert.doesNotMatch(markerButtonBlock, /<img|<svg|avatar|icon|Icon|getChampionIconUrl|data-label|timeline-event-cluster-count|\{\{\s*cluster\.count\s*\}\}/i)
+  assert.doesNotMatch(axisMarkerStyles, /timeline-event-marker-core|timeline-event-cluster-count|event-dragon|event-baron|event-herald|event-voidgrub|event-turret|rotate\(45deg\)|border-radius:\s*3px/)
+})
+
+test('chart timeline axis clusters render as larger same-color dots via stable classes', () => {
+  const source = readInlineDetailSource()
+  const markerButtonBlock = source.match(/class="timeline-axis-marker[\s\S]*?<\/button>/)?.[0] || ''
+  const styleFunction = readFunctionBlock(source, 'function getTimelineClusterStyle')
+  const markerRule = source.match(/\.timeline-axis-marker \{[\s\S]*?\n\}/)?.[0] || ''
+  const blueRule = source.match(/\.timeline-axis-marker--blue \{[\s\S]*?\n\}/)?.[0] || ''
+  const redRule = source.match(/\.timeline-axis-marker--red \{[\s\S]*?\n\}/)?.[0] || ''
+  const clusterBlueRule = source.match(/\.timeline-axis-marker--cluster\.timeline-axis-marker--blue \{[\s\S]*?\n\}/)?.[0] || ''
+  const clusterRedRule = source.match(/\.timeline-axis-marker--cluster\.timeline-axis-marker--red \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(markerButtonBlock, /cluster\.count > 1\s*\?\s*'timeline-axis-marker--cluster'\s*:\s*'timeline-axis-marker--single'/)
+  assert.match(styleFunction, /'--timeline-axis-marker-size': `\$\{cluster\.markerSize\}px`/)
+  assert.match(markerRule, /width:\s*var\(--timeline-axis-marker-size/)
+  assert.match(markerRule, /height:\s*var\(--timeline-axis-marker-size/)
+  assert.match(markerRule, /border-radius:\s*(?:50%|999px)/)
+  assert.match(blueRule, /color:/)
+  assert.match(redRule, /color:/)
+  assert.match(clusterBlueRule, /box-shadow:/)
+  assert.match(clusterRedRule, /box-shadow:/)
+})
+
+test('chart timeline axis tooltip renders as a pointerless bubble with an arrow', () => {
+  const source = readInlineDetailSource()
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const markerButtonBlock = source.match(/class="timeline-axis-marker[\s\S]*?<\/button>/)?.[0] || ''
+  const tooltipRule = source.match(/\.timeline-event-tooltip \{[\s\S]*?\n\}/)?.[0] || ''
+  const bubbleRule = source.match(/\.timeline-axis-tooltip--bubble \{[\s\S]*?\n\}/)?.[0] || ''
+  const arrowRule = source.match(/\.timeline-axis-tooltip-arrow \{[\s\S]*?\n\}/)?.[0] || ''
+  const tooltipStyleFunction = readFunctionBlock(source, 'function getTimelineEventTooltipStyle')
+  const showTooltipFunction = readFunctionBlock(source, 'function showTimelineEventTooltip')
+
+  assert.match(chartStageBlock, /class="timeline-event-tooltip timeline-axis-tooltip--bubble"/)
+  assert.match(chartStageBlock, /class="timeline-axis-tooltip-arrow"/)
+  assert.match(markerButtonBlock, /@pointerenter="showTimelineEventTooltip\(\$event, cluster\)"/)
+  assert.match(markerButtonBlock, /@pointermove="moveTimelineEventTooltip\(\$event\)"/)
+  assert.match(markerButtonBlock, /@pointerleave="hideTimelineEventTooltip"/)
+  assert.match(tooltipRule, /pointer-events:\s*none/)
+  assert.match(bubbleRule, /border-radius:\s*(?:8|9|10|12)px/)
+  assert.match(bubbleRule, /transform:\s*translate\(-50%,\s*calc\(-100% - var\(--timeline-axis-tooltip-gap/)
+  assert.match(arrowRule, /rotate\(45deg\)/)
+  assert.match(arrowRule, /background:/)
+  assert.match(arrowRule, /left:\s*var\(--timeline-axis-tooltip-arrow-left/)
+  assert.match(tooltipStyleFunction, /'--timeline-axis-tooltip-arrow-left'/)
+  assert.match(tooltipStyleFunction, /hoveredEventTooltipAnchor\.value/)
+  assert.match(showTooltipFunction, /getTimelinePointerAnchor\(event\)/)
+})
+
+test('chart watermarks are centered soft squares and line paths have no translucent glow layer', () => {
+  const source = readInlineDetailSource()
+  const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
+  const teamWatermarkBlock = chartStageBlock.match(/class="team-average-watermarks"[\s\S]*?<\/g>\s*<g/)?.[0] || ''
+  const laneWatermarkBlock = chartStageBlock.match(/class="lane-matchup-watermarks lane-matchup-watermark--vertical"[\s\S]*?<\/g>\s*<g class="timeline-chart-grid">/)?.[0] || ''
+  const laneWatermarkFunction = readFunctionBlock(source, 'function createLaneMatchupWatermarks')
+  const teamAverageFunction = readFunctionBlock(source, 'function createTeamAverageWatermarkGroups')
+  const teamWatermarkFunction = readFunctionBlock(source, 'function createTeamChampionWatermarks')
+  const watermarkStyles = source.match(/\.lane-matchup-watermarks,[\s\S]*?\.timeline-gold-line \{/)?.[0] || ''
+  const timelineGoldLineRule = source.match(/\.timeline-gold-line \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(teamWatermarkBlock, /pointer-events="none"/)
+  assert.match(laneWatermarkBlock, /pointer-events="none"/)
+  assert.match(teamWatermarkBlock, /:href="watermark\.iconUrl"/)
+  assert.match(teamWatermarkFunction, /getChampionIconUrl\(player\.championId\)/)
+  assert.match(teamWatermarkFunction, /if \(!iconUrl\)/)
+  assert.match(teamAverageFunction, /CHART_PADDING\.left \+ CHART_PLOT_WIDTH \/ 2/)
+  assert.match(teamAverageFunction, /zeroAxisY\.value - TEAM_WATERMARK_SIZE - TEAM_WATERMARK_AXIS_GAP/)
+  assert.match(teamAverageFunction, /zeroAxisY\.value \+ TEAM_WATERMARK_AXIS_GAP/)
+  assert.match(teamAverageFunction, /group\.tone === 'blue'/)
+  assert.match(teamWatermarkFunction, /players\.slice\(0, 5\)/)
+  assert.match(chartStageBlock, /team-average-watermark-row--blue/)
+  assert.match(chartStageBlock, /team-average-watermark-row--red/)
+  assert.match(chartStageBlock, /v-for="group in teamAverageWatermarkGroups"[\s\S]*v-for="watermark in group\.watermarks"/)
+  assert.match(laneWatermarkFunction, /CHART_PADDING\.left \+ CHART_PLOT_WIDTH \/ 2/)
+  assert.match(laneWatermarkFunction, /zeroAxisY\.value - LANE_WATERMARK_SIZE \/ 2 - LANE_WATERMARK_AXIS_GAP/)
+  assert.match(laneWatermarkFunction, /zeroAxisY\.value \+ LANE_WATERMARK_SIZE \/ 2 \+ LANE_WATERMARK_AXIS_GAP/)
+  assert.match(chartStageBlock, /lane-matchup-watermark-avatar--blue/)
+  assert.match(chartStageBlock, /lane-matchup-watermark-avatar--red/)
+  assert.doesNotMatch(teamAverageFunction, /centerY|totalCount|TEAM_WATERMARK_TEAM_GAP|stagger|CHART_HEIGHT - CHART_PADDING\.bottom|CHART_PADDING\.top \+ 42/)
+  assert.doesNotMatch(laneWatermarkFunction, /spacing|blueX|redX|centerY|offset/)
+  assert.match(chartStageBlock, /:x="-WATERMARK_IMAGE_CROP_OUTSET"/)
+  assert.match(chartStageBlock, /:width="watermark\.size \+ WATERMARK_IMAGE_CROP_OUTSET \* 2"/)
+  assert.match(watermarkStyles, /border-radius:\s*14px/)
+  assert.match(watermarkStyles, /clip-path:\s*inset\(3px round 14px\)/)
+  assert.match(watermarkStyles, /object-fit:\s*cover/)
+  assert.match(watermarkStyles, /fill:\s*transparent/)
+  assert.match(watermarkStyles, /stroke-width:\s*0\.5/)
+  assert.doesNotMatch(watermarkStyles, /box-shadow|drop-shadow|filter|blur|clip-path:\s*circle|circle\(50%|border-radius:\s*50%|black|rgba\(0,\s*0,\s*0|rgba\(3,\s*10,\s*18|watermark-halo/)
+  assert.doesNotMatch(chartStageBlock, /watermark-halo|<circle[\s\S]*watermark/)
+  assertOrdered(chartStageBlock, [
+    'class="team-average-watermarks"',
+    'class="lane-matchup-watermarks lane-matchup-watermark--vertical"',
+    'class="timeline-chart-grid"',
+    'class="timeline-gold-line"'
+  ])
+  assert.doesNotMatch(chartStageBlock, /timeline-gold-line-(?:glow|shadow)/)
+  assert.doesNotMatch(source, /\.timeline-gold-line-(?:glow|shadow)/)
+  assert.doesNotMatch(timelineGoldLineRule, /filter|drop-shadow|blur|stroke-opacity|opacity/)
 })
 
 test('timeline API types and client method are defined without touching game-detail API', () => {

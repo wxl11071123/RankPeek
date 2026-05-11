@@ -2233,10 +2233,6 @@ watch(
 }
 
 .page-shell {
-  --match-page-shell-top: 16px;
-  position: sticky;
-  top: var(--match-page-shell-top);
-  z-index: 80;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -2600,12 +2596,6 @@ watch(
   position: relative;
   isolation: isolate;
   overflow: visible;
-}
-
-.page-shell.surface-glow {
-  position: sticky;
-  top: var(--match-page-shell-top);
-  z-index: 80;
 }
 
 .control-glow::before,
