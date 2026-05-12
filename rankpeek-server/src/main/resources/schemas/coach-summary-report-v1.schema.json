@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rankpeek.local/schemas/coach-summary-report-v1.schema.json",
+  "title": "RankPeek coach_summary AI report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "analysisType",
+    "inputHash",
+    "title",
+    "summary",
+    "verdict",
+    "keyFindings",
+    "trainingPlan",
+    "championAdvice",
+    "chartBlocks",
+    "warnings",
+    "metadata"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "coach_summary_report.v1"
+    },
+    "analysisType": {
+      "const": "coach_summary"
+    },
+    "inputHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verdict": {
+      "$ref": "#/$defs/verdict"
+    },
+    "keyFindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/keyFinding"
+      }
+    },
+    "trainingPlan": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/trainingPlanItem"
+      }
+    },
+    "championAdvice": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/championAdvice"
+      }
+    },
+    "chartBlocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/chartBlock"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/warning"
+      }
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "score",
+        "confidence",
+        "summary"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "keyFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "priority",
+        "category",
+        "claim",
+        "evidence",
+        "reasoning",
+        "advice",
+        "confidence",
+        "evidenceRefs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "laning",
+            "mid_game",
+            "objective",
+            "death",
+            "champion_pool",
+            "role_pool",
+            "economy",
+            "teamfight",
+            "vision",
+            "general"
+          ]
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasoning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "trainingPlanItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "focus",
+        "why",
+        "nextGames",
+        "task",
+        "metricToTrack",
+        "target",
+        "priority"
+      ],
+      "properties": {
+        "focus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nextGames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metricToTrack": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        }
+      }
+    },
+    "championAdvice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "championName",
+        "role",
+        "recommendation",
+        "reason",
+        "confidence"
+      ],
+      "properties": {
+        "championName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recommendation": {
+          "type": "string",
+          "enum": [
+            "keep",
+            "practice",
+            "avoid_temporarily",
+            "observe_more"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        }
+      }
+    },
+    "chartBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "title",
+        "description",
+        "dataRef",
+        "highlight"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "gold_curve",
+            "death_timeline",
+            "champion_pool",
+            "role_profile",
+            "metric_comparison",
+            "objective_deaths"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataRef": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reference to a snapshot match digest, event id, aggregate dataRef, or local chart source. This field must not contain fabricated chart series values."
+        },
+        "highlight": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "data_quality",
+            "insufficient_sample",
+            "low_confidence",
+            "unsupported_claim"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelName",
+        "promptVersion",
+        "generatedAt",
+        "snapshotSchemaVersion",
+        "dataQualityConfidence"
+      ],
+      "properties": {
+        "modelName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "promptVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "snapshotSchemaVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataQualityConfidence": {
+          "$ref": "#/$defs/confidence"
+        }
+      }
+    }
+  }
+}

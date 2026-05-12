@@ -78,6 +78,26 @@ test('home refresh account button uses the shared refresh icon button', () => {
   assert.match(refreshFunction, /accountRefreshBusy\.value = true[\s\S]*await gameStore\.refreshSummoner\(\)[\s\S]*finally[\s\S]*accountRefreshBusy\.value = false/)
 })
 
+test('home analyze button prepares coach summary input without creating a fake AI report', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import \{ prepareCoachSummaryGeneration \} from '@\/services\/coachSummaryInputSnapshot'/)
+  assert.match(source, /const coachAnalysisBusy = ref\(false\)/)
+  assert.match(source, /async function runAnalysis\(\)/)
+  assert.match(source, /prepareCoachSummaryGeneration\(\{[\s\S]*accountPuuid: puuid[\s\S]*\}\)/)
+  assert.match(source, /AI_COACH_PREPARING_NOTICE/)
+  assert.match(source, /AI_COACH_PARTIAL_TIMELINE_NOTICE/)
+  assert.match(source, /AI_COACH_SNAPSHOT_INTEGRITY_FAILED_NOTICE/)
+  assert.match(source, /result\.status === 'snapshot_integrity_failed'/)
+  assert.match(source, /onHydrationProgress: \(progress\) =>/)
+  assert.match(source, /setCoachProgressNotice\(`正在补全第 \$\{progress\.current\}\/\$\{progress\.total\} 局对局详情\.\.\.`\)/)
+  assert.match(source, /console\.info\('RankPeek coach_summary input snapshot ready:', result\.snapshot\)/)
+  assert.match(source, /showCoachNotice\(result\.message\)/)
+  assert.match(source, /AI_COACH_ACCOUNT_MISSING_NOTICE/)
+  assert.match(source, /:disabled="coachAnalysisBusy"/)
+  assert.doesNotMatch(source, /saveAnalysisResult|saveServerAiFinalResultToLocal|router\.push|name: 'ai-analysis'/)
+})
+
 test('home rank badges show loading or failure instead of immediate unranked fallback', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
 

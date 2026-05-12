@@ -79,3 +79,13 @@ test('user tag summary can be calculated from prefetched match history', () => {
     /return this\.post<UserTagSummary>\('\/user-tag\/summary-from-matches', \{ puuid, mode, matches \}, undefined, options\)/
   )
 })
+
+test('coach summary detail and timeline calls can request SGP-only backend behavior', () => {
+  const source = readFileSync(new URL('./httpClient.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /async getGameDetail\(\s*gameId: number,\s*options: \{ source\?: 'auto' \| 'sgp' \| 'lcu'; sgpOnly\?: boolean \} = \{\}/)
+  assert.match(source, /\/summoner\/game-detail\/\$\{gameId\}/)
+  assert.match(source, /sgpOnly: options\.sgpOnly === true/)
+  assert.match(source, /async getGameTimeline\(\s*gameId: number,\s*options: \{ source\?: 'auto' \| 'sgp' \| 'lcu' \| 'cache'; sgpOnly\?: boolean \} = \{\}/)
+  assert.match(source, /\/summoner\/game-timeline\/\$\{gameId\}/)
+})

@@ -399,6 +399,33 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getGameDetailById_sgpOnlyDoesNotUseLcuParticipantsWhenSgpObjectiveDetailIsNotRenderable() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var sgpDetail = hollowGameDetail(112L);
+        sgpDetail.setQueueId(420);
+        sgpDetail.setTeamObjectives(List.of(teamObjectiveSummary(
+                100,
+                List.of(),
+                1,
+                1,
+                0,
+                null,
+                null,
+                null,
+                Map.of("hextech", 1)
+        )));
+        when(sgpMatchHistoryProvider.fetchGameDetail(112L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(sgpDetail);
+
+        assertThatThrownBy(() -> sourceAwareService.getGameDetailById(112L, MatchHistorySource.SGP, true))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("missing renderable participant stats");
+
+        verify(sgpMatchHistoryProvider).fetchGameDetail(112L, options(MatchHistorySource.SGP, false));
+        verify(matchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
     void getGameDetailById_sourceSgpDoesNotUseCachedLcuDetailBeforeProvider() {
         MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
         var cachedLcuDetail = renderableGameDetail(106L);

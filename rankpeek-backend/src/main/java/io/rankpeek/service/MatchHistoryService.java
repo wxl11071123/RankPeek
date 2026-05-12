@@ -1008,7 +1008,16 @@ public class MatchHistoryService {
     }
 
     public GameDetail getGameDetailById(Long gameId, MatchHistorySource source) {
-        MatchHistoryQueryOptions options = MatchHistoryQueryOptions.defaultFor(normalizeSource(source), false);
+        return getGameDetailById(gameId, source, false);
+    }
+
+    public GameDetail getGameDetailById(Long gameId, String source, boolean sgpOnly) {
+        return getGameDetailById(gameId, MatchHistorySource.fromRequest(source), sgpOnly);
+    }
+
+    public GameDetail getGameDetailById(Long gameId, MatchHistorySource source, boolean sgpOnly) {
+        MatchHistorySource requestedSource = sgpOnly ? MatchHistorySource.SGP : normalizeSource(source);
+        MatchHistoryQueryOptions options = MatchHistoryQueryOptions.defaultFor(requestedSource, false);
         if (normalizeSource(options.preferredSource()) == MatchHistorySource.CACHE) {
             return loadCachedGameDetail(gameId).orElse(null);
         }
@@ -1037,13 +1046,15 @@ public class MatchHistoryService {
 
         try {
             GameDetail detail = resolvedProvider.provider().fetchGameDetail(gameId, options);
-            detail = hydrateSgpDetailParticipantsFromLcu(gameId, detail, resolvedProvider.source());
+            if (!sgpOnly) {
+                detail = hydrateSgpDetailParticipantsFromLcu(gameId, detail, resolvedProvider.source());
+            }
             if (!isRenderableGameDetail(detail)) {
                 throw new IllegalStateException("Game detail missing renderable participant stats");
             }
             enrichParticipantStats(detail);
             hydrateObjectiveEventActors(detail);
-            if (isAutoSgpAttempt(options, resolvedProvider.source())) {
+            if (!sgpOnly && isAutoSgpAttempt(options, resolvedProvider.source())) {
                 detail = mergeLcuObjectiveFallback(gameId, detail);
             }
             if (usesDatabaseCache(resolvedProvider.source()) && cacheRepository != null) {

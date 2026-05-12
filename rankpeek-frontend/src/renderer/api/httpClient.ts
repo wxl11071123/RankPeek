@@ -444,10 +444,11 @@ class ApiClient {
    */
   async getGameDetail(
     gameId: number,
-    options: { source?: 'auto' | 'sgp' | 'lcu' } = {}
+    options: { source?: 'auto' | 'sgp' | 'lcu'; sgpOnly?: boolean } = {}
   ): Promise<GameDetail> {
     return this.get<GameDetail>(`/summoner/game-detail/${gameId}`, {
-      source: options.source ?? 'auto'
+      source: options.source ?? 'auto',
+      sgpOnly: options.sgpOnly === true
     })
   }
 
@@ -461,10 +462,11 @@ class ApiClient {
    */
   async getGameTimeline(
     gameId: number,
-    options: { source?: 'auto' | 'sgp' | 'lcu' | 'cache' } = {}
+    options: { source?: 'auto' | 'sgp' | 'lcu' | 'cache'; sgpOnly?: boolean } = {}
   ): Promise<MatchTimelineFetchResult> {
     return this.get<MatchTimelineFetchResult>(`/summoner/game-timeline/${gameId}`, {
-      source: options.source ?? 'auto'
+      source: options.source ?? 'auto',
+      sgpOnly: options.sgpOnly === true
     })
   }
 

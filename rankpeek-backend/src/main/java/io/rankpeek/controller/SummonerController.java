@@ -227,8 +227,9 @@ public class SummonerController {
     @GetMapping("/game-detail/{gameId}")
     public ApiResponse<GameDetail> getGameDetail(
             @PathVariable Long gameId,
-            @RequestParam(required = false) String source) {
-        return ApiResponse.success(matchHistoryService.getGameDetailById(gameId, source));
+            @RequestParam(required = false) String source,
+            @RequestParam(defaultValue = "false") boolean sgpOnly) {
+        return ApiResponse.success(matchHistoryService.getGameDetailById(gameId, source, sgpOnly));
     }
 
     /**

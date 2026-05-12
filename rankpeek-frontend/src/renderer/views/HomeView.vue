@@ -11,6 +11,7 @@ import {
   loadFortuneRecord,
   saveFortuneRecord
 } from '@/utils/homeInsights'
+import { prepareCoachSummaryGeneration } from '@/services/coachSummaryInputSnapshot'
 import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { t } from '@/i18n'
 import type { QueueInfo } from '@/types/api'
@@ -169,6 +170,14 @@ const DIVISION_CN_MAP: Record<string, string> = {
 const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
 const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
 const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
+const AI_COACH_READY_NOTICE = '电子教练数据已准备完成，等待 AI 服务接入。'
+const AI_COACH_ACCOUNT_MISSING_NOTICE = '当前账号未识别，请先连接并刷新客户端账号。'
+const AI_COACH_LOCAL_DATA_ERROR_NOTICE = '本地数据暂不可用，无法准备电子教练数据。'
+
+const AI_COACH_PREPARING_NOTICE = '正在准备最近 20 局排位数据...'
+const AI_COACH_PARTIAL_TIMELINE_NOTICE = '部分对局时间线拉取失败，报告数据质量可能较低。'
+
+const AI_COACH_SNAPSHOT_INTEGRITY_FAILED_NOTICE = '电子教练数据校验失败，请刷新战绩后重试'
 
 const RANK_TONE_MAP: Record<string, string> = {
   iron: 'iron',
@@ -293,6 +302,7 @@ type RankBadgeKey = 'solo' | 'flex'
 const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false })
 const coachNotice = ref('')
 const accountRefreshBusy = ref(false)
+const coachAnalysisBusy = ref(false)
 
 const fortuneRecord = ref<FortuneRecord>({ history: [] })
 const currentFortune = ref<Fortune | null>(null)
@@ -385,8 +395,59 @@ function loadLocalHomeState() {
   coachNotice.value = ''
 }
 
-function runAnalysis() {
-  showCoachNotice()
+async function runAnalysis() {
+  if (coachAnalysisBusy.value) {
+    return
+  }
+
+  const puuid = currentSummoner.value?.puuid?.trim()
+  if (!accountConnected.value || !puuid) {
+    showCoachNotice(AI_COACH_ACCOUNT_MISSING_NOTICE)
+    return
+  }
+
+  coachAnalysisBusy.value = true
+  try {
+    setCoachProgressNotice(AI_COACH_PREPARING_NOTICE)
+    const result = await prepareCoachSummaryGeneration({
+      accountPuuid: puuid,
+      onHydrationProgress: (progress) => {
+        if (progress.stage === 'preparing') {
+          setCoachProgressNotice(AI_COACH_PREPARING_NOTICE)
+          return
+        }
+        if (progress.stage === 'hydrating_match' && progress.current && progress.total) {
+          setCoachProgressNotice(`正在补全第 ${progress.current}/${progress.total} 局对局详情...`)
+          return
+        }
+        if (progress.stage === 'partial_failure') {
+          setCoachProgressNotice(AI_COACH_PARTIAL_TIMELINE_NOTICE)
+        }
+      }
+    })
+    if (result.status === 'ready') {
+      console.info('RankPeek coach_summary input snapshot ready:', result.snapshot)
+      showCoachNotice(
+        (result.snapshot.dataQuality.sgpHydration?.errors.length ?? 0) > 0
+          ? AI_COACH_PARTIAL_TIMELINE_NOTICE
+          : AI_COACH_READY_NOTICE
+      )
+      return
+    }
+
+    if (result.status === 'snapshot_integrity_failed') {
+      console.warn('RankPeek coach_summary snapshot integrity failed:', result.errors, result.warnings)
+      showCoachNotice(AI_COACH_SNAPSHOT_INTEGRITY_FAILED_NOTICE)
+      return
+    }
+
+    showCoachNotice(result.message)
+  } catch (error) {
+    console.warn('Failed to prepare coach_summary input snapshot:', error)
+    showCoachNotice(AI_COACH_LOCAL_DATA_ERROR_NOTICE)
+  } finally {
+    coachAnalysisBusy.value = false
+  }
 }
 
 function toggleAutoAnalysis() {
@@ -440,13 +501,18 @@ function clearFortuneTimer() {
   }
 }
 
-function showCoachNotice() {
-  coachNotice.value = AI_COACH_NOTICE
+function showCoachNotice(message = AI_COACH_NOTICE) {
+  coachNotice.value = message
   clearCoachNoticeTimer()
   coachNoticeTimer = window.setTimeout(() => {
     coachNotice.value = ''
     coachNoticeTimer = null
   }, 2600)
+}
+
+function setCoachProgressNotice(message: string) {
+  clearCoachNoticeTimer()
+  coachNotice.value = message
 }
 
 function clearCoachNoticeTimer() {
@@ -733,6 +799,7 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
           <button
             class="primary-btn control-glow"
             type="button"
+            :disabled="coachAnalysisBusy"
             @pointermove="updateControlGlow"
             @pointerleave="resetControlGlow"
             @click="runAnalysis"
