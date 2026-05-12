@@ -34,8 +34,8 @@
             <button
               class="team-analysis-btn team-analysis-btn-blue control-glow"
               type="button"
-              aria-disabled="true"
-              title="AI 待命"
+              title="打开队友成分分析"
+              @click="openGamingAiAnalysis('teammate')"
             >
               队友成分
             </button>
@@ -84,8 +84,8 @@
             <button
               class="team-analysis-btn team-analysis-btn-red control-glow"
               type="button"
-              aria-disabled="true"
-              title="AI 待命"
+              title="打开赛前对手分析"
+              @click="openGamingAiAnalysis('opponent')"
             >
               赛前分析
             </button>
@@ -124,6 +124,12 @@
         </section>
       </div>
     </div>
+    <GamingAiAnalysisModal
+      :open="gamingAiModalOpen"
+      :mode="gamingAiModalMode"
+      :preview="gamingAiPreview"
+      @close="closeGamingAiAnalysis"
+    />
   </div>
 </template>
 
@@ -132,9 +138,15 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getGamingSessionData } from '@/api/sessionDataAdapter'
 import { wsClient } from '@/api/websocketClient'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
+import GamingAiAnalysisModal from '@/components/gaming/GamingAiAnalysisModal.vue'
 import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
 import type { CacheUpdateEvent, SessionData, SessionSummoner } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
+import {
+  createGamingAiAnalysisPreview,
+  type GamingAiAnalysisMode,
+  type GamingAiAnalysisPreview
+} from '@/services/gamingAiAnalysisPreview'
 import { useI18n, type MessageKey } from '@/i18n'
 
 const { t } = useI18n()
@@ -188,6 +200,9 @@ const allSessionPlayers = computed<SessionSummoner[]>(() => [
   ...redTeamPlayers.value
 ])
 const expandedParticipantKeys = ref<Set<string>>(new Set())
+const gamingAiModalOpen = ref(false)
+const gamingAiModalMode = ref<GamingAiAnalysisMode>('teammate')
+const gamingAiPreview = ref<GamingAiAnalysisPreview | null>(null)
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -354,6 +369,26 @@ function toggleParticipantRecentMatches(player: SessionSummoner) {
   expandedParticipantKeys.value = nextKeys
 }
 
+function openGamingAiAnalysis(mode: GamingAiAnalysisMode) {
+  gamingAiModalMode.value = mode
+  refreshGamingAiPreview(mode)
+  gamingAiModalOpen.value = true
+}
+
+function closeGamingAiAnalysis() {
+  gamingAiModalOpen.value = false
+}
+
+function refreshGamingAiPreview(mode: GamingAiAnalysisMode = gamingAiModalMode.value) {
+  const players = mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
+  gamingAiPreview.value = createGamingAiAnalysisPreview({
+    mode,
+    players,
+    sessionData: sessionData.value,
+    currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
+  })
+}
+
 async function fetchSessionData(options: { showLoading?: boolean } = {}) {
   if (isRefreshPaused.value || sessionFetchInFlight) return
 
@@ -471,6 +506,12 @@ watch(
     }
   }
 )
+
+watch(sessionData, () => {
+  if (gamingAiModalOpen.value) {
+    refreshGamingAiPreview()
+  }
+})
 
 watch(() => sessionData.value.phase, (newVal, oldVal) => {
   if (newVal === 'ChampSelect' && oldVal !== 'ChampSelect') {
@@ -852,7 +893,7 @@ onUnmounted(() => {
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
   opacity: 1;
   transition:
     border-color var(--transition-fast),
@@ -872,10 +913,6 @@ onUnmounted(() => {
 
 .team-analysis-btn.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
   box-shadow: var(--gaming-control-edge-shadow);
-}
-
-.team-analysis-btn[aria-disabled="true"] {
-  opacity: 1;
 }
 
 :global([data-theme="light"] .gaming-view .team-analysis-btn) {

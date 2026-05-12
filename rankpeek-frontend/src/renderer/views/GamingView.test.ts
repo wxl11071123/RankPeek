@@ -153,3 +153,25 @@ test('gaming player cards render per-card inline recent panels with independent 
   assert.doesNotMatch(source, /const selectedPlayerKey|selectedSessionSummoner|selected-player-recent-panel/)
   assert.doesNotMatch(source, /useRouter|router\.push/)
 })
+
+test('gaming AI analysis buttons open local preview modal for teammates and opponents', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const blueButton = source.match(/<button[\s\S]*?队友成分[\s\S]*?<\/button>/)?.[0] || ''
+  const redButton = source.match(/<button[\s\S]*?赛前分析[\s\S]*?<\/button>/)?.[0] || ''
+
+  assert.match(source, /import GamingAiAnalysisModal from '@\/components\/gaming\/GamingAiAnalysisModal\.vue'/)
+  assert.match(source, /import \{[\s\S]*createGamingAiAnalysisPreview[\s\S]*\} from '@\/services\/gamingAiAnalysisPreview'/)
+  assert.match(source, /GamingAiAnalysisMode/)
+  assert.match(source, /GamingAiAnalysisPreview/)
+  assert.match(blueButton, /@click="openGamingAiAnalysis\('teammate'\)"/)
+  assert.match(redButton, /@click="openGamingAiAnalysis\('opponent'\)"/)
+  assert.doesNotMatch(blueButton, /aria-disabled/)
+  assert.doesNotMatch(redButton, /aria-disabled/)
+  assert.match(source, /const gamingAiModalOpen = ref\(false\)/)
+  assert.match(source, /const gamingAiModalMode = ref<GamingAiAnalysisMode>\('teammate'\)/)
+  assert.match(source, /const gamingAiPreview = ref<GamingAiAnalysisPreview \| null>\(null\)/)
+  assert.match(source, /function openGamingAiAnalysis\(mode: GamingAiAnalysisMode\)/)
+  assert.match(source, /mode === 'teammate' \? blueTeamPlayers\.value : redTeamPlayers\.value/)
+  assert.match(source, /currentSummonerPuuid: sessionData\.value\.currentSummoner\?\.puuid/)
+  assert.match(source, /<GamingAiAnalysisModal[\s\S]*:open="gamingAiModalOpen"[\s\S]*:mode="gamingAiModalMode"[\s\S]*:preview="gamingAiPreview"[\s\S]*@close="closeGamingAiAnalysis"/)
+})
