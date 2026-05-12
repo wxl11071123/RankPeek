@@ -4,6 +4,7 @@ import type { AiAnalysisResult, LocalDatabaseAPI } from '../types/localDatabase.
 import {
   formatAnalysisTime,
   formatAnalysisType,
+  getCoachReportFinalSentence,
   getCoachReportHeadline,
   loadLocalAiAnalysisResults,
   normalizeCoachChartBlocks,
@@ -291,6 +292,51 @@ test('coach report headline uses product fallback order and truncates long templ
   })
   assert.ok(fallbackTitle.length <= 18)
   assert.match(fallbackTitle, /\.\.\.$/)
+})
+
+test('coach report final sentence uses finalSummary first sentence for modal header', () => {
+  assert.equal(
+    getCoachReportFinalSentence({
+      ...coachSummaryReport,
+      finalSummary: '中期团战筑造优势。后续先压低团前死亡。',
+      verdict: { ...coachSummaryReport.verdict, summary: '不应该优先显示这句。' }
+    }),
+    '中期团战筑造优势。'
+  )
+})
+
+test('coach report final sentence falls back to verdict summary first sentence', () => {
+  assert.equal(
+    getCoachReportFinalSentence({
+      ...coachSummaryReport,
+      finalSummary: '',
+      verdict: { ...coachSummaryReport.verdict, summary: '资源团前先站稳！第二句不展示。' }
+    }),
+    '资源团前先站稳！'
+  )
+})
+
+test('coach report final sentence trims long text and appends punctuation when needed', () => {
+  const sentence = getCoachReportFinalSentence({
+    ...coachSummaryReport,
+    finalSummary: '中期资源团站位和视野联动已经能稳定筑造优势但还需要控制追击成本'
+  })
+
+  assert.ok(sentence.length <= 25)
+  assert.match(sentence, /…$/)
+  assert.doesNotMatch(sentence, /开发环境|DEV|预览说明/)
+
+  assert.equal(
+    getCoachReportFinalSentence({
+      ...coachSummaryReport,
+      finalSummary: '',
+      verdict: { ...coachSummaryReport.verdict, label: '', summary: '' },
+      cardTitle: '',
+      shortTitle: '',
+      headline: '中期团战筑造优势'
+    }),
+    '中期团战筑造优势。'
+  )
 })
 
 test('coach chart blocks normalize malformed values without throwing', () => {

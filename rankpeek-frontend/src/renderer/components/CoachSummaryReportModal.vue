@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 import CoachSummaryReportContent from '@/components/CoachSummaryReportContent.vue'
-import { getCoachReportHeadline } from '@/services/localAiAnalysis'
+import { getCoachReportFinalSentence } from '@/services/localAiAnalysis'
 import type { CoachSummaryReportV1 } from '@/types/coachSummaryReport'
 
 type ReportLoadState = 'loading' | 'ready' | 'missing' | 'unsupported' | 'invalid' | 'error'
@@ -24,10 +24,9 @@ const emit = defineEmits<{
   (event: 'close'): void
 }>()
 
-const title = computed(() => (
-  props.report ? getCoachReportHeadline({ report: props.report }) : '复盘报告'
+const finalSentence = computed(() => (
+  props.report ? getCoachReportFinalSentence(props.report) : '近期排位复盘'
 ))
-const subtitle = computed(() => props.report?.summary || props.errorMessage || '正在读取本地报告...')
 
 function emitClose() {
   emit('close')
@@ -71,9 +70,7 @@ onBeforeUnmount(() => {
       >
         <header class="coach-report-modal-header">
           <div class="coach-report-modal-title">
-            <p>{{ isPreview ? 'AI 复盘报告 · DEV 预览' : 'AI 复盘报告' }}</p>
-            <h2 id="coach-report-modal-title">{{ title }}</h2>
-            <span>{{ subtitle }}</span>
+            <h2 id="coach-report-modal-title" class="coach-report-modal-final-sentence ai-report-prose">{{ finalSentence }}</h2>
           </div>
           <button
             class="coach-report-modal-close"
@@ -132,10 +129,10 @@ onBeforeUnmount(() => {
 .coach-report-modal-header {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 20px 22px 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -143,30 +140,25 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.coach-report-modal-title p {
-  margin: 0 0 4px;
-  color: var(--accent-color);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .coach-report-modal-title h2 {
   margin: 0;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.25;
   letter-spacing: 0;
 }
 
-.coach-report-modal-title span {
-  display: block;
-  max-width: 780px;
-  margin-top: 7px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
+.ai-report-prose {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.coach-report-modal-final-sentence.ai-report-prose {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  font-weight: 700;
 }
 
 .coach-report-modal-close {
@@ -211,7 +203,7 @@ onBeforeUnmount(() => {
   }
 
   .coach-report-modal-header {
-    padding: 16px;
+    padding: 14px;
   }
 
   .coach-report-modal-title h2 {

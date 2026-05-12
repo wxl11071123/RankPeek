@@ -228,7 +228,7 @@ export const DEV_COACH_SUMMARY_REPORT_PREVIEW: CoachSummaryReportV1 = {
       message: '该报告仅用于开发环境预览，不代表真实分析结果。'
     }
   ],
-  finalSummary: '开发预览的重点是验证详情页 UI：三段式布局、英雄卡片和三类轻量图表都可以在没有真实报告时查看。',
+  finalSummary: '中期团战筑造优势。',
   metadata: {
     modelName: 'dev-preview',
     promptVersion: 'coach_summary.preview.v1',

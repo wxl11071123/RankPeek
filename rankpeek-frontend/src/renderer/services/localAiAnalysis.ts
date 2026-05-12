@@ -17,6 +17,7 @@ const COACH_SUMMARY_REPORT_SCHEMA_VERSION = 'coach_summary_report.v1'
 const COACH_SUMMARY_ANALYSIS_TYPE = 'coach_summary'
 const COACH_HEADLINE_FALLBACK = '近期排位复盘'
 const COACH_HEADLINE_LIMIT = 18
+const COACH_FINAL_SENTENCE_LIMIT = 24
 
 const COACH_CHART_KINDS = new Set<CoachSummaryChartKind>(['bar', 'line', 'scatter', 'timeline', 'table'])
 const COACH_CHART_PLACEMENTS = new Set<CoachSummaryChartPlacement>(['overview', 'analysis', 'summary'])
@@ -242,6 +243,21 @@ export function getCoachReportHeadline({
   return candidates[0] || COACH_HEADLINE_FALLBACK
 }
 
+export function getCoachReportFinalSentence(report: unknown): string {
+  const reportRecord = isRecord(report) ? report : {}
+  const candidates = [
+    getStringField(reportRecord, 'finalSummary'),
+    getNestedString(reportRecord, 'verdict', 'summary'),
+    getNestedString(reportRecord, 'verdict', 'label'),
+    getStringField(reportRecord, 'headline'),
+    getStringField(reportRecord, 'cardTitle'),
+    getStringField(reportRecord, 'shortTitle'),
+    getStringField(reportRecord, 'title')
+  ].filter((item): item is string => Boolean(item))
+
+  return normalizeFinalSentence(candidates[0] || COACH_HEADLINE_FALLBACK)
+}
+
 export function normalizeCoachChartBlocks(blocks: unknown): NormalizedCoachSummaryChartBlock[] {
   if (!Array.isArray(blocks)) {
     return []
@@ -407,6 +423,19 @@ function truncateHeadline(value: string): string {
     return compact
   }
   return `${compact.slice(0, COACH_HEADLINE_LIMIT - 3)}...`
+}
+
+function normalizeFinalSentence(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  const firstSentenceMatch = compact.match(/^.*?[。！？.!?]/)
+  const sentence = firstSentenceMatch ? firstSentenceMatch[0].trim() : compact
+  if (!sentence) {
+    return COACH_HEADLINE_FALLBACK
+  }
+  if (sentence.length > COACH_FINAL_SENTENCE_LIMIT) {
+    return `${sentence.slice(0, COACH_FINAL_SENTENCE_LIMIT - 1)}…`
+  }
+  return /[。！？.!?…]$/.test(sentence) ? sentence : `${sentence}。`
 }
 
 function normalizeVerdict(record: Record<string, unknown>): CoachSummaryReportV1['verdict'] {

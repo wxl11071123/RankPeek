@@ -9,6 +9,7 @@ test('coach summary report modal exposes accessible dialog structure and close c
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.match(source, /import CoachSummaryReportContent from '@\/components\/CoachSummaryReportContent\.vue'/)
+  assert.match(source, /getCoachReportFinalSentence/)
   assert.match(source, /role="dialog"/)
   assert.match(source, /aria-modal="true"/)
   assert.match(source, /aria-label="关闭/)
@@ -17,6 +18,28 @@ test('coach summary report modal exposes accessible dialog structure and close c
   assert.match(source, /keydown/)
   assert.match(source, /Escape/)
   assert.match(source, /CoachSummaryReportContent/)
+})
+
+test('coach summary report modal header only shows the final AI sentence', () => {
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.doesNotMatch(source, /AI 复盘报告/)
+  assert.doesNotMatch(source, /DEV 预览/)
+  assert.doesNotMatch(source, /这是一份仅用于开发环境/)
+  assert.match(source, /coach-report-modal-final-sentence/)
+  assert.match(source, /class="coach-report-modal-final-sentence ai-report-prose"/)
+  assert.match(source, /<h2 id="coach-report-modal-title" class="coach-report-modal-final-sentence ai-report-prose">\{\{ finalSentence \}\}<\/h2>/)
+  assert.match(source, /\.coach-report-modal-final-sentence\.ai-report-prose\s*\{[\s\S]*font-family:\s*"Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif/)
+  assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"Noto Serif SC"/)
+  assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"Source Han Serif SC"/)
+  assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"Songti SC"/)
+  assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"SimSun"/)
+  assert.match(source, /\.ai-report-prose\s*\{[\s\S]*serif/)
+  assert.match(source, /id="coach-report-modal-title"[\s\S]*\{\{ finalSentence \}\}/)
+  assert.doesNotMatch(source, /<p>\{\{ isPreview/)
+  assert.doesNotMatch(source, /<span>\{\{ subtitle \}\}<\/span>/)
+  assert.match(source, /class="coach-report-modal-close"/)
+  assert.match(source, /type="button"/)
 })
 
 test('coach summary report modal uses a fixed overlay and scrollable content area without third-party UI', () => {

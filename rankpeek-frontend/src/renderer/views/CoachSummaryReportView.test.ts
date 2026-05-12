@@ -26,8 +26,9 @@ test('coach summary report view delegates report body to shared content componen
   assert.match(source, /import CoachSummaryReportContent from '@\/components\/CoachSummaryReportContent\.vue'/)
   assert.match(source, /<CoachSummaryReportContent/)
   assert.match(content, /近 20 局概览/)
-  assert.match(content, /AI 分析内容/)
-  assert.match(content, /AI 总结/)
+  assert.match(content, /数据分析/)
+  assert.match(content, /数据总结/)
+  assert.doesNotMatch(content, /AI 分析内容|AI 总结|下一阶段训练重点/)
   assert.equal((content.match(/<section[\s\S]*?class="report-section/g) || []).length, 3)
   assert.doesNotMatch(source, /本地复盘档案|玩家复盘档案/)
 })
@@ -60,6 +61,8 @@ test('coach summary report view supports a DEV-only preview fixture', () => {
   assert.match(preview, /纳亚菲利/)
   assert.match(preview, /凯隐/)
   assert.match(preview, /希瓦娜/)
+  assert.match(preview, /finalSummary:\s*'中期团战筑造优势。'/)
+  assert.doesNotMatch(preview, /finalSummary:\s*'开发预览/)
   assert.equal((preview.match(/placement:\s*'(overview|analysis|summary)'/g) || []).length, 3)
 })
 
@@ -69,18 +72,16 @@ test('coach summary report view no longer shows a return-home button', () => {
   assert.doesNotMatch(source, /返回首页|back-button|goHome|router\.push\('/)
 })
 
-test('coach summary report content places chart blocks inside the three sections with caps and fallbacks', () => {
+test('coach summary report content only keeps chart blocks in the overview section', () => {
   const source = readRendererFile('components/CoachSummaryReportContent.vue')
 
   assert.match(source, /overviewCharts/)
-  assert.match(source, /analysisCharts/)
-  assert.match(source, /summaryCharts/)
   assert.match(source, /MAX_REPORT_CHARTS\s*=\s*3/)
-  assert.match(source, /MAX_SUMMARY_CHARTS\s*=\s*1/)
   assert.match(source, /placement === 'overview'/)
-  assert.match(source, /placement === 'analysis'/)
-  assert.match(source, /placement === 'summary'/)
   assert.match(source, /CoachSummaryChartBlock/)
+  assert.doesNotMatch(source, /analysisCharts|summaryCharts/)
+  assert.doesNotMatch(source, /placement === 'analysis'|placement === 'summary'/)
+  assert.doesNotMatch(source, /trainingPlan|training-list|training-item|item\.task|item\.target/)
 })
 
 test('coach summary chart component supports bar, line, table, dataRef fallback, and unsupported fallback', () => {
