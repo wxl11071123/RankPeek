@@ -13,28 +13,72 @@ const props = withDefaults(defineProps<{
   errorMessage?: string
   createdAt?: string | null
   isPreview?: boolean
+  canNavigate?: boolean
+  activeIndex?: number
+  reportCount?: number
 }>(), {
   reportLoadState: 'ready',
   errorMessage: '',
   createdAt: null,
-  isPreview: false
+  isPreview: false,
+  canNavigate: false,
+  activeIndex: -1,
+  reportCount: 0
 })
 
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'previous'): void
+  (event: 'next'): void
 }>()
 
 const finalSentence = computed(() => (
   props.report ? getCoachReportFinalSentence(props.report) : '近期排位复盘'
 ))
 
+const navigationStatus = computed(() => {
+  if (props.reportCount <= 0) {
+    return '0 / 0'
+  }
+  const displayIndex = props.activeIndex >= 0 ? props.activeIndex + 1 : 0
+  return `${displayIndex} / ${props.reportCount}`
+})
+
 function emitClose() {
   emit('close')
 }
 
+function emitPrevious() {
+  if (props.canNavigate) {
+    emit('previous')
+  }
+}
+
+function emitNext() {
+  if (props.canNavigate) {
+    emit('next')
+  }
+}
+
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && props.open) {
+  if (!props.open) {
+    return
+  }
+
+  if (event.key === 'Escape') {
     emitClose()
+    return
+  }
+
+  if (event.key === 'ArrowLeft' && props.canNavigate) {
+    event.preventDefault()
+    emitPrevious()
+    return
+  }
+
+  if (event.key === 'ArrowRight' && props.canNavigate) {
+    event.preventDefault()
+    emitNext()
   }
 }
 
@@ -60,8 +104,20 @@ onBeforeUnmount(() => {
     <div
       v-if="open"
       class="coach-report-modal-overlay"
+      :class="{ 'has-navigation': canNavigate }"
       @click.self="emitClose"
     >
+      <button
+        v-if="canNavigate"
+        class="coach-report-modal-nav coach-report-modal-nav-previous"
+        type="button"
+        aria-label="上一份报告"
+        :title="`上一份报告（${navigationStatus}）`"
+        @click="emitPrevious"
+      >
+        ‹
+      </button>
+
       <section
         class="coach-report-modal-panel"
         role="dialog"
@@ -92,6 +148,17 @@ onBeforeUnmount(() => {
           />
         </div>
       </section>
+
+      <button
+        v-if="canNavigate"
+        class="coach-report-modal-nav coach-report-modal-nav-next"
+        type="button"
+        aria-label="下一份报告"
+        :title="`下一份报告（${navigationStatus}）`"
+        @click="emitNext"
+      >
+        ›
+      </button>
     </div>
   </Teleport>
 </template>
@@ -124,6 +191,50 @@ onBeforeUnmount(() => {
   box-shadow:
     0 28px 80px rgba(0, 0, 0, 0.42),
     0 0 0 1px rgba(var(--accent-rgb), 0.06);
+}
+
+.coach-report-modal-overlay.has-navigation .coach-report-modal-panel {
+  width: min(1180px, calc(100vw - 184px));
+}
+
+.coach-report-modal-nav {
+  position: absolute;
+  top: 50%;
+  width: 46px;
+  height: 62px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  border-radius: var(--radius-md);
+  background: rgba(18, 22, 30, 0.74);
+  color: var(--text-primary);
+  font-size: 42px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.coach-report-modal-nav:hover,
+.coach-report-modal-nav:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.44);
+  background: rgba(var(--accent-rgb), 0.16);
+  outline: none;
+}
+
+.coach-report-modal-nav:active {
+  transform: translateY(-50%) scale(0.97);
+}
+
+.coach-report-modal-nav-previous {
+  left: 24px;
+}
+
+.coach-report-modal-nav-next {
+  right: 24px;
 }
 
 .coach-report-modal-header {
@@ -200,6 +311,24 @@ onBeforeUnmount(() => {
   .coach-report-modal-panel {
     width: calc(100vw - 32px);
     max-height: calc(100vh - 32px);
+  }
+
+  .coach-report-modal-overlay.has-navigation .coach-report-modal-panel {
+    width: calc(100vw - 112px);
+  }
+
+  .coach-report-modal-nav {
+    width: 38px;
+    height: 52px;
+    font-size: 34px;
+  }
+
+  .coach-report-modal-nav-previous {
+    left: 10px;
+  }
+
+  .coach-report-modal-nav-next {
+    right: 10px;
   }
 
   .coach-report-modal-header {

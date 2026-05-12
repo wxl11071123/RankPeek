@@ -60,7 +60,6 @@ const overviewCharts = computed(() => (
       .slice(0, Math.min(2, MAX_REPORT_CHARTS))
 ))
 const findings = computed(() => (props.report?.keyFindings || []).slice(0, 5))
-const championAdvice = computed(() => (props.report?.championAdvice || []).slice(0, 3))
 const closingSummary = computed(() =>
   props.report?.finalSummary ||
   props.report?.verdict.summary ||
@@ -76,13 +75,6 @@ function formatPercent(value?: number): string {
     return '-'
   }
   return `${Number.isInteger(value) ? value : Number(value.toFixed(1))}%`
-}
-
-function formatNumber(value?: number): string {
-  if (value === undefined) {
-    return '-'
-  }
-  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
 }
 
 function formatRoleLabel(role: string): string {
@@ -230,7 +222,6 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
       <section class="report-section analysis-section">
         <div class="section-heading">
           <h2>数据分析</h2>
-          <span>{{ findings.length }} 条重点</span>
         </div>
 
         <ol class="finding-list report-list">
@@ -239,15 +230,6 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
             <p class="ai-report-prose">{{ finding.advice || finding.reasoning || finding.evidence }}</p>
           </li>
         </ol>
-
-        <div v-if="championAdvice.length" class="advice-list">
-          <section v-for="advice in championAdvice" :key="`${advice.championName}-${advice.role}`" class="advice-item">
-            <span>{{ advice.role }}</span>
-            <strong>{{ advice.championName }}</strong>
-            <p class="ai-report-prose">{{ advice.reason }}</p>
-          </section>
-        </div>
-
       </section>
 
       <div class="paper-divider" aria-hidden="true"></div>
@@ -255,14 +237,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
       <section class="report-section summary-section">
         <div class="section-heading">
           <h2>数据总结</h2>
-          <span>{{ report.verdict.label }}</span>
         </div>
-
-        <blockquote class="verdict-paper">
-          <strong>{{ report.verdict.label }}</strong>
-          <span>{{ formatNumber(report.verdict.score) }}</span>
-          <p class="ai-report-prose">{{ report.verdict.summary }}</p>
-        </blockquote>
 
         <p class="final-summary ai-report-prose">{{ closingSummary }}</p>
       </section>
@@ -441,10 +416,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 .fact-sub,
 .hero-main p,
 .hero-metrics span,
-.finding-item p,
-.advice-item p,
-.advice-item span,
-.verdict-paper p {
+.finding-item p {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
@@ -465,7 +437,6 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 
 .hero-chip-list,
 .finding-list,
-.advice-list,
 .chart-grid {
   display: grid;
   gap: 10px;
@@ -514,9 +485,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 }
 
 .hero-main h3,
-.finding-item strong,
-.advice-item strong,
-.verdict-paper strong {
+.finding-item strong {
   display: block;
   margin: 0;
   color: var(--text-primary);
@@ -724,55 +693,12 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   line-height: 1.35;
 }
 
-.finding-item p,
-.advice-item p {
+.finding-item p {
   margin: 6px 0 0;
 }
 
-.advice-list {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.advice-item {
-  padding-top: 10px;
-}
-
-.advice-item {
-  border-top: 1px solid var(--border-subtle);
-}
-
-.advice-item span {
-  display: block;
-  margin-top: 6px;
-  color: var(--text-tertiary);
-  font-weight: 700;
-}
-
-.verdict-paper {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 12px;
-  padding: 2px 0 2px 14px;
-  margin-top: 4px;
-  border-left: 3px solid rgba(var(--accent-rgb), 0.52);
-}
-
-.verdict-paper span {
-  color: var(--accent-color);
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.verdict-paper p {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-
 .final-summary {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
+  margin-top: 0;
   color: var(--text-primary);
   font-weight: 650;
 }
@@ -791,8 +717,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 @media (max-width: 860px) {
   .overview-layout,
   .hero-chip-list,
-  .chart-grid,
-  .advice-list {
+  .chart-grid {
     grid-template-columns: 1fr;
   }
 

@@ -111,11 +111,28 @@ test('home coach report cards load local coach summaries and open report modal b
   assert.match(source, /const coachReportModalOpen = ref\(false\)/)
   assert.match(source, /const activeCoachReport = ref<CoachSummaryReportV1 \| null>\(null\)/)
   assert.match(source, /async function openCoachReport\(/)
-  assert.match(openFunction, /getAnalysisResultById\(Number\(report\.id\)\)/)
-  assert.match(openFunction, /parseCoachSummaryReportOutput\(result\.data\.outputJson\)/)
+  assert.match(source, /getAnalysisResultById\(Number\(report\.id\)\)/)
+  assert.match(source, /parseCoachSummaryReportOutput\(result\.data\.outputJson\)/)
   assert.match(source, /<CoachSummaryReportModal[\s\S]*:open="coachReportModalOpen"[\s\S]*:report="activeCoachReport"[\s\S]*@close="closeCoachReportModal"/)
   assert.doesNotMatch(openFunction, /router\.push|name:\s*'CoachSummaryReport'|\/reports/)
   assert.doesNotMatch(source, /listMatchRecordsByAccount|getMatchDetail|getGameDetail|getGameTimeline|findAnalysisByInputHash/)
+})
+
+test('home wires coach report modal navigation to the current local reports list', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const activeCoachReportIndex = ref\(-1\)/)
+  assert.match(source, /async function openCoachReport\(report: HomeCoachReport \| null, index: number\)/)
+  assert.match(source, /activeCoachReportIndex\.value = index/)
+  assert.match(source, /async function openCoachReportAtIndex\(index: number\)/)
+  assert.match(source, /function navigateCoachReport\(delta: number\)/)
+  assert.match(source, /coachReports\.value\.length/)
+  assert.match(source, /openCoachReportAtIndex\(nextIndex\)/)
+  assert.match(source, /:can-navigate="coachReports\.length > 1 && !coachReportPreview"/)
+  assert.match(source, /:active-index="activeCoachReportIndex"/)
+  assert.match(source, /:report-count="coachReports\.length"/)
+  assert.match(source, /@previous="navigateCoachReport\(-1\)"/)
+  assert.match(source, /@next="navigateCoachReport\(1\)"/)
 })
 
 test('home dev placeholder opens the dev report preview without saving a fake report', () => {

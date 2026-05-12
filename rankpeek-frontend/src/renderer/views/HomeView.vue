@@ -333,6 +333,7 @@ const coachAnalysisBusy = ref(false)
 const coachReports = ref<HomeCoachReport[]>([])
 const coachReportModalOpen = ref(false)
 const activeCoachReport = ref<CoachSummaryReportV1 | null>(null)
+const activeCoachReportIndex = ref(-1)
 const coachReportLoadState = ref<CoachReportLoadState>('ready')
 const coachReportError = ref('')
 const coachReportCreatedAt = ref<string | null>(null)
@@ -469,8 +470,9 @@ function firstSentence(value: string): string {
   return (match?.[1] || compact).slice(0, 72)
 }
 
-async function openCoachReport(report: HomeCoachReport | null) {
+async function openCoachReport(report: HomeCoachReport | null, index: number) {
   if (!report?.id) {
+    activeCoachReportIndex.value = -1
     if (import.meta.env.DEV) {
       openCoachReportModal(DEV_COACH_SUMMARY_REPORT_PREVIEW, { preview: true })
       return
@@ -480,6 +482,38 @@ async function openCoachReport(report: HomeCoachReport | null) {
     return
   }
 
+  activeCoachReportIndex.value = index
+  await loadCoachReport(report)
+}
+
+async function openCoachReportAtIndex(index: number) {
+  const count = coachReports.value.length
+  if (count <= 0) {
+    return
+  }
+
+  const normalizedIndex = ((index % count) + count) % count
+  const report = coachReports.value[normalizedIndex]
+  if (!report) {
+    return
+  }
+
+  activeCoachReportIndex.value = normalizedIndex
+  await loadCoachReport(report)
+}
+
+function navigateCoachReport(delta: number) {
+  const count = coachReports.value.length
+  if (count <= 1 || coachReportPreview.value) {
+    return
+  }
+
+  const baseIndex = activeCoachReportIndex.value >= 0 ? activeCoachReportIndex.value : 0
+  const nextIndex = (baseIndex + delta + count) % count
+  void openCoachReportAtIndex(nextIndex)
+}
+
+async function loadCoachReport(report: HomeCoachReport) {
   if (!Number.isInteger(Number(report.id)) || Number(report.id) <= 0) {
     openCoachReportError('报告编号无效')
     return
@@ -558,6 +592,7 @@ function closeCoachReportModal() {
   coachReportRequestSerial += 1
   coachReportModalOpen.value = false
   activeCoachReport.value = null
+  activeCoachReportIndex.value = -1
   coachReportLoadState.value = 'ready'
   coachReportError.value = ''
   coachReportCreatedAt.value = null
@@ -1058,7 +1093,12 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
       :error-message="coachReportError"
       :created-at="coachReportCreatedAt"
       :is-preview="coachReportPreview"
+      :can-navigate="coachReports.length > 1 && !coachReportPreview"
+      :active-index="activeCoachReportIndex"
+      :report-count="coachReports.length"
       @close="closeCoachReportModal"
+      @previous="navigateCoachReport(-1)"
+      @next="navigateCoachReport(1)"
     />
   </div>
 </template>

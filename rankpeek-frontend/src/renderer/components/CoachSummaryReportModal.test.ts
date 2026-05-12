@@ -20,6 +20,35 @@ test('coach summary report modal exposes accessible dialog structure and close c
   assert.match(source, /CoachSummaryReportContent/)
 })
 
+test('coach summary report modal exposes previous and next report navigation', () => {
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.match(source, /canNavigate/)
+  assert.match(source, /activeIndex/)
+  assert.match(source, /reportCount/)
+  assert.match(source, /\(event: 'previous'\): void/)
+  assert.match(source, /\(event: 'next'\): void/)
+  assert.match(source, /emit\('previous'\)/)
+  assert.match(source, /emit\('next'\)/)
+  assert.match(source, /aria-label="上一份报告"/)
+  assert.match(source, /aria-label="下一份报告"/)
+  assert.match(source, /coach-report-modal-nav/)
+  assert.match(source, /coach-report-modal-nav-previous/)
+  assert.match(source, /coach-report-modal-nav-next/)
+  assert.match(source, /@click="emitPrevious"/)
+  assert.match(source, /@click="emitNext"/)
+})
+
+test('coach summary report modal supports arrow keys without replacing escape close', () => {
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.match(source, /event\.key === 'Escape'/)
+  assert.match(source, /event\.key === 'ArrowLeft'/)
+  assert.match(source, /event\.key === 'ArrowRight'/)
+  assert.match(source, /emitPrevious\(\)/)
+  assert.match(source, /emitNext\(\)/)
+})
+
 test('coach summary report modal header only shows the final AI sentence', () => {
   const source = readFileSync(modalUrl, 'utf8')
 

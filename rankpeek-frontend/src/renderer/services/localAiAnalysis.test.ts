@@ -339,6 +339,22 @@ test('coach report final sentence trims long text and appends punctuation when n
   )
 })
 
+test('coach report final sentence prefers report titles over verdict label', () => {
+  const sentence = getCoachReportFinalSentence({
+    ...coachSummaryReport,
+    finalSummary: '',
+    verdict: {
+      ...coachSummaryReport.verdict,
+      summary: '',
+      label: 'verdict label should not win'
+    },
+    headline: 'Headline should win'
+  })
+
+  assert.match(sentence, /^Headline should win/)
+  assert.doesNotMatch(sentence, /verdict label should not win/)
+})
+
 test('coach chart blocks normalize malformed values without throwing', () => {
   const blocks = normalizeCoachChartBlocks([
     coachSummaryReport.chartBlocks[0],

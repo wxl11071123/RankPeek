@@ -22,13 +22,38 @@ test('coach summary report content owns the three report sections and chart caps
   assert.doesNotMatch(source, /placement === 'analysis'|placement === 'summary'/)
 })
 
+test('coach summary report analysis section hides champion advice cards', () => {
+  const source = readFileSync(contentUrl, 'utf8')
+
+  assert.match(source, /analysis-section/)
+  assert.match(source, /finding-list/)
+  assert.match(source, /finding-item/)
+  assert.doesNotMatch(source, /<span>\{\{ findings\.length \}\}[^<]*<\/span>/)
+  assert.doesNotMatch(source, /championAdvice/)
+  assert.doesNotMatch(source, /advice-list/)
+  assert.doesNotMatch(source, /advice-item/)
+  assert.doesNotMatch(source, /advice\.championName|advice\.role|advice\.reason/)
+})
+
+test('coach summary report summary section hides verdict label and score paper', () => {
+  const source = readFileSync(contentUrl, 'utf8')
+
+  assert.match(source, /summary-section/)
+  assert.match(source, /closingSummary/)
+  assert.match(source, /<p class="final-summary ai-report-prose">\{\{ closingSummary \}\}<\/p>/)
+  assert.doesNotMatch(source, /verdict-paper/)
+  assert.doesNotMatch(source, /report\.verdict\.label/)
+  assert.doesNotMatch(source, /formatNumber\(report\.verdict\.score\)/)
+  assert.doesNotMatch(source, /<span>\{\{ report\.verdict\.label \}\}<\/span>/)
+})
+
 test('coach summary report content uses paper sections instead of nested dashboard cards', () => {
   const source = readFileSync(contentUrl, 'utf8')
 
   assert.match(source, /report-divider|paper-divider|section-divider/)
   assert.match(source, /<section[\s\S]*?class="report-section/)
   assert.doesNotMatch(source, /overview-summary-panel|hero-win-rate-panel/)
-  assert.doesNotMatch(source, /finding-card|advice-card|training-card|verdict-card/)
+  assert.doesNotMatch(source, /finding-card|advice-card|training-card|verdict-card|verdict-paper/)
   assert.doesNotMatch(source, /\.report-section\s*\{[^}]*border:/)
   assert.doesNotMatch(source, /\.report-section\s*\{[^}]*box-shadow:/)
 })
@@ -144,9 +169,9 @@ test('coach summary report applies serif prose only to AI generated copy', () =>
   assert.match(source, /<p class="section-summary ai-report-prose">\{\{ overviewSummary \}\}<\/p>/)
   assert.match(source, /<strong class="ai-report-prose">\{\{ finding\.claim \}\}<\/strong>/)
   assert.match(source, /<p class="ai-report-prose">\{\{ finding\.advice \|\| finding\.reasoning \|\| finding\.evidence \}\}<\/p>/)
-  assert.match(source, /<p class="ai-report-prose">\{\{ advice\.reason \}\}<\/p>/)
-  assert.match(source, /<p class="ai-report-prose">\{\{ report\.verdict\.summary \}\}<\/p>/)
   assert.match(source, /<p class="final-summary ai-report-prose">\{\{ closingSummary \}\}<\/p>/)
+  assert.doesNotMatch(source, /advice\.(championName|role|reason)/)
+  assert.doesNotMatch(source, /report\.verdict\.label|report\.verdict\.score/)
   assert.doesNotMatch(source, /<h2 class="ai-report-prose">/)
   assert.doesNotMatch(source, /class="fact-main ai-report-prose"/)
   assert.doesNotMatch(source, /class="hero-win-tooltip ai-report-prose"/)

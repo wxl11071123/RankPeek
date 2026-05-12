@@ -248,7 +248,6 @@ export function getCoachReportFinalSentence(report: unknown): string {
   const candidates = [
     getStringField(reportRecord, 'finalSummary'),
     getNestedString(reportRecord, 'verdict', 'summary'),
-    getNestedString(reportRecord, 'verdict', 'label'),
     getStringField(reportRecord, 'headline'),
     getStringField(reportRecord, 'cardTitle'),
     getStringField(reportRecord, 'shortTitle'),
