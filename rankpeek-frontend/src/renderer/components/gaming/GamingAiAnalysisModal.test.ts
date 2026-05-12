@@ -22,6 +22,8 @@ test('gaming AI analysis modal renders mode title, preview notice, and player in
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.match(source, /preview: GamingAiAnalysisPreview \| null/)
+  assert.match(source, /serverSyncState\?: 'idle' \| 'syncing' \| 'synced' \| 'failed'/)
+  assert.match(source, /serverSyncMessage\?: string/)
   assert.match(source, /\{\{ preview\.title \}\}/)
   assert.match(source, /\{\{ preview\.subtitle \}\}/)
   assert.match(source, /AI 占位/)
@@ -33,6 +35,18 @@ test('gaming AI analysis modal renders mode title, preview notice, and player in
   assert.match(source, /player\.damageRateText/)
   assert.match(source, /player\.sampleText/)
   assert.match(source, /preview\.laneAdvice/)
+})
+
+test('gaming AI analysis modal shows local preview and lightweight server sync status', () => {
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.match(source, /const serverSyncText = computed/)
+  assert.match(source, /正在整理并发送临时数据/)
+  assert.match(source, /临时数据已发送到本地服务器 mock/)
+  assert.match(source, /服务器暂不可用，当前展示本地规则预览/)
+  assert.match(source, /正式 AI 结果/)
+  assert.match(source, /class="gaming-ai-analysis-sync"/)
+  assert.match(source, /serverSyncText/)
 })
 
 test('gaming AI analysis modal has empty state and lightweight scrollable report styling', () => {

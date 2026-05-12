@@ -128,6 +128,8 @@
       :open="gamingAiModalOpen"
       :mode="gamingAiModalMode"
       :preview="gamingAiPreview"
+      :server-sync-state="gamingAiServerSyncState"
+      :server-sync-message="gamingAiServerSyncMessage"
       @close="closeGamingAiAnalysis"
     />
   </div>
@@ -147,6 +149,8 @@ import {
   type GamingAiAnalysisMode,
   type GamingAiAnalysisPreview
 } from '@/services/gamingAiAnalysisPreview'
+import { buildGamingAiInputSnapshot } from '@/services/gamingAiInputSnapshot'
+import { submitGamingAiInputSnapshotToServer } from '@/services/gamingAiServerSync'
 import { useI18n, type MessageKey } from '@/i18n'
 
 const { t } = useI18n()
@@ -203,6 +207,10 @@ const expandedParticipantKeys = ref<Set<string>>(new Set())
 const gamingAiModalOpen = ref(false)
 const gamingAiModalMode = ref<GamingAiAnalysisMode>('teammate')
 const gamingAiPreview = ref<GamingAiAnalysisPreview | null>(null)
+type GamingAiServerSyncState = 'idle' | 'syncing' | 'synced' | 'failed'
+const gamingAiServerSyncState = ref<GamingAiServerSyncState>('idle')
+const gamingAiServerSyncMessage = ref('')
+let lastSubmittedGamingAiSnapshotKey = ''
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -370,9 +378,17 @@ function toggleParticipantRecentMatches(player: SessionSummoner) {
 }
 
 function openGamingAiAnalysis(mode: GamingAiAnalysisMode) {
+  const players = mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
   gamingAiModalMode.value = mode
   refreshGamingAiPreview(mode)
   gamingAiModalOpen.value = true
+  const snapshot = buildGamingAiInputSnapshot({
+    mode,
+    sessionData: sessionData.value,
+    selectedPlayers: players,
+    currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
+  })
+  void syncGamingAiInputSnapshot(snapshot)
 }
 
 function closeGamingAiAnalysis() {
@@ -386,6 +402,39 @@ function refreshGamingAiPreview(mode: GamingAiAnalysisMode = gamingAiModalMode.v
     players,
     sessionData: sessionData.value,
     currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
+  })
+}
+
+async function syncGamingAiInputSnapshot(snapshot: ReturnType<typeof buildGamingAiInputSnapshot>) {
+  const snapshotKey = createGamingAiSnapshotSubmissionKey(snapshot)
+  if (snapshotKey === lastSubmittedGamingAiSnapshotKey) {
+    return
+  }
+
+  lastSubmittedGamingAiSnapshotKey = snapshotKey
+  gamingAiServerSyncState.value = 'syncing'
+  gamingAiServerSyncMessage.value = '正在整理并发送临时数据...'
+
+  const result = await submitGamingAiInputSnapshotToServer(snapshot)
+  if (snapshotKey !== lastSubmittedGamingAiSnapshotKey) {
+    return
+  }
+
+  if (result.ok) {
+    gamingAiServerSyncState.value = 'synced'
+    gamingAiServerSyncMessage.value = '临时数据已发送到本地服务器 mock。'
+    return
+  }
+
+  console.warn('Failed to sync gaming AI input snapshot', result.message)
+  gamingAiServerSyncState.value = 'failed'
+  gamingAiServerSyncMessage.value = '服务器暂不可用，当前展示本地规则预览。'
+}
+
+function createGamingAiSnapshotSubmissionKey(snapshot: ReturnType<typeof buildGamingAiInputSnapshot>): string {
+  return JSON.stringify({
+    ...snapshot,
+    generatedAt: ''
   })
 }
 

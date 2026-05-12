@@ -138,7 +138,7 @@ function createPlayerInsight(mode: GamingAiAnalysisMode, player: SessionSummoner
     name: formatPlayerName(player),
     championId: player.championId > 0 ? player.championId : undefined,
     profileIconId: player.summoner?.profileIconId || undefined,
-    rankText: formatRankText(player),
+    rankText: formatGamingAiRankText(player),
     kdaText: formatNumber(stats.kda, 1),
     winRateText: stats.winRate == null ? '--' : `${stats.winRate.toFixed(1)}%`,
     damageRateText: stats.damageRate == null ? '--' : `${stats.damageRate.toFixed(1)}%`,
@@ -413,7 +413,7 @@ function getPlayerKey(player: SessionSummoner): string {
   return `name:${formatPlayerName(player)}:${player.championId || 0}`
 }
 
-function formatRankText(player: SessionSummoner): string {
+export function formatGamingAiRankText(player: SessionSummoner): string {
   const queueMap = player.rank?.queueMap as Partial<Record<'RANKED_SOLO_5x5' | 'RANKED_FLEX_SR', QueueInfo | null>> | undefined
   const queueInfo = queueMap?.RANKED_SOLO_5x5 || queueMap?.RANKED_FLEX_SR || null
   if (!queueInfo) {

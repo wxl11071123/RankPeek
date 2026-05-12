@@ -175,3 +175,35 @@ test('gaming AI analysis buttons open local preview modal for teammates and oppo
   assert.match(source, /currentSummonerPuuid: sessionData\.value\.currentSummoner\?\.puuid/)
   assert.match(source, /<GamingAiAnalysisModal[\s\S]*:open="gamingAiModalOpen"[\s\S]*:mode="gamingAiModalMode"[\s\S]*:preview="gamingAiPreview"[\s\S]*@close="closeGamingAiAnalysis"/)
 })
+
+test('gaming AI analysis click builds a temporary input snapshot and syncs it to rankpeek-server mock', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const fetchSessionBlock = source.slice(
+    source.indexOf('async function fetchSessionData'),
+    source.indexOf('function collectCurrentSessionPuuids')
+  )
+  const openAnalysisBlock = source.slice(
+    source.indexOf('function openGamingAiAnalysis'),
+    source.indexOf('function closeGamingAiAnalysis')
+  )
+  const syncSnapshotBlock = source.slice(
+    source.indexOf('async function syncGamingAiInputSnapshot'),
+    source.indexOf('function createGamingAiSnapshotSubmissionKey')
+  )
+
+  assert.match(source, /import \{ buildGamingAiInputSnapshot \} from '@\/services\/gamingAiInputSnapshot'/)
+  assert.match(source, /import \{ submitGamingAiInputSnapshotToServer \} from '@\/services\/gamingAiServerSync'/)
+  assert.match(source, /type GamingAiServerSyncState = 'idle' \| 'syncing' \| 'synced' \| 'failed'/)
+  assert.match(source, /const gamingAiServerSyncState = ref<GamingAiServerSyncState>\('idle'\)/)
+  assert.match(source, /const gamingAiServerSyncMessage = ref\(''\)/)
+  assert.match(source, /let lastSubmittedGamingAiSnapshotKey = ''/)
+  assert.match(openAnalysisBlock, /buildGamingAiInputSnapshot\(\{/)
+  assert.match(openAnalysisBlock, /selectedPlayers: players/)
+  assert.match(openAnalysisBlock, /syncGamingAiInputSnapshot\(snapshot\)/)
+  assert.match(syncSnapshotBlock, /submitGamingAiInputSnapshotToServer\(snapshot\)/)
+  assert.match(syncSnapshotBlock, /console\.warn\('Failed to sync gaming AI input snapshot'/)
+  assert.match(source, /:server-sync-state="gamingAiServerSyncState"/)
+  assert.match(source, /:server-sync-message="gamingAiServerSyncMessage"/)
+  assert.doesNotMatch(fetchSessionBlock, /buildGamingAiInputSnapshot/)
+  assert.doesNotMatch(fetchSessionBlock, /submitGamingAiInputSnapshotToServer/)
+})

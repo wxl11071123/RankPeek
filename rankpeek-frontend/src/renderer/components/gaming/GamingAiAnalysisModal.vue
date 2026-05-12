@@ -11,8 +11,12 @@ const props = withDefaults(defineProps<{
   open: boolean
   mode?: GamingAiAnalysisMode
   preview: GamingAiAnalysisPreview | null
+  serverSyncState?: 'idle' | 'syncing' | 'synced' | 'failed'
+  serverSyncMessage?: string
 }>(), {
-  mode: 'teammate'
+  mode: 'teammate',
+  serverSyncState: 'idle',
+  serverSyncMessage: ''
 })
 
 const emit = defineEmits<{
@@ -23,6 +27,23 @@ const fallbackTitle = computed(() => props.mode === 'teammate' ? '队友成分�
 const fallbackSubtitle = computed(() => '等待对局 · 未知模式')
 const sectionTitle = computed(() => props.mode === 'teammate' ? '队友逐个分析' : '对手威胁列表')
 const bulletTitle = computed(() => props.mode === 'teammate' ? '本局队友风险摘要' : '突破点')
+
+const serverSyncText = computed(() => {
+  if (props.serverSyncMessage.trim()) {
+    return props.serverSyncMessage.trim()
+  }
+
+  if (props.serverSyncState === 'syncing') {
+    return '正在整理并发送临时数据...'
+  }
+  if (props.serverSyncState === 'synced') {
+    return '临时数据已发送到本地服务器 mock。'
+  }
+  if (props.serverSyncState === 'failed') {
+    return '服务器暂不可用，当前展示本地规则预览。'
+  }
+  return '本地规则预览，不是正式 AI 结果。'
+})
 
 function emitClose() {
   emit('close')
@@ -90,6 +111,12 @@ onBeforeUnmount(() => {
               <h2 id="gaming-ai-analysis-title">{{ fallbackTitle }}</h2>
               <span>{{ fallbackSubtitle }}</span>
             </template>
+            <p
+              class="gaming-ai-analysis-sync"
+              :class="`sync-${serverSyncState}`"
+            >
+              {{ serverSyncText }}
+            </p>
           </div>
           <button
             class="gaming-ai-analysis-close"
@@ -236,6 +263,26 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 750;
   line-height: 1.35;
+}
+
+.gaming-ai-analysis-sync {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.gaming-ai-analysis-sync.sync-syncing {
+  color: rgba(var(--accent-rgb), 0.86);
+}
+
+.gaming-ai-analysis-sync.sync-synced {
+  color: #55d187;
+}
+
+.gaming-ai-analysis-sync.sync-failed {
+  color: #f0b35a;
 }
 
 .gaming-ai-analysis-close {

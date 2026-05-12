@@ -1,6 +1,7 @@
 package io.rankpeek.server.analysis;
 
 import java.util.List;
+import java.util.Map;
 
 public record PregameAnalysisRequest(
         String patchKey,
@@ -8,6 +9,8 @@ public record PregameAnalysisRequest(
         Integer championId,
         String role,
         List<String> allyTeamTags,
-        List<String> enemyTeamTags
+        List<String> enemyTeamTags,
+        String snapshotSchemaVersion,
+        Map<String, Object> snapshot
 ) {
 }
