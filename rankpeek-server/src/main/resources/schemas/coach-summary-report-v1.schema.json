@@ -29,6 +29,18 @@
       "type": "string",
       "minLength": 1
     },
+    "headline": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cardTitle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shortTitle": {
+      "type": "string",
+      "minLength": 1
+    },
     "title": {
       "type": "string",
       "minLength": 1
@@ -36,6 +48,10 @@
     "summary": {
       "type": "string",
       "minLength": 1
+    },
+    "overview": {
+      "type": "object",
+      "$ref": "#/$defs/overview"
     },
     "verdict": {
       "$ref": "#/$defs/verdict"
@@ -72,6 +88,10 @@
         "$ref": "#/$defs/warning"
       }
     },
+    "finalSummary": {
+      "type": "string",
+      "minLength": 1
+    },
     "metadata": {
       "$ref": "#/$defs/metadata"
     }
@@ -92,6 +112,186 @@
         "medium",
         "low"
       ]
+    },
+    "chartKind": {
+      "type": "string",
+      "enum": [
+        "bar",
+        "line",
+        "scatter",
+        "timeline",
+        "table"
+      ]
+    },
+    "chartPlacement": {
+      "type": "string",
+      "enum": [
+        "overview",
+        "analysis",
+        "summary"
+      ]
+    },
+    "chartValue": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "overview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalMatches",
+        "summary"
+      ],
+      "properties": {
+        "totalMatches": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wins": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "losses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "winRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "primaryRoles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roleCount"
+          }
+        },
+        "heroStats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/heroStat"
+          }
+        },
+        "roleStats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roleStat"
+          }
+        }
+      }
+    },
+    "roleCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "count"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "heroStat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "championDisplayName",
+        "role",
+        "games"
+      ],
+      "properties": {
+        "championId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "championCanonicalName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "championDisplayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "games": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wins": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "losses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "winRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "kda": {
+          "type": "string",
+          "minLength": 1
+        },
+        "averageKda": {
+          "type": "number",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "roleStat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "games"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "games": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wins": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "losses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "winRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
     },
     "verdict": {
       "type": "object",
@@ -271,11 +471,7 @@
       "additionalProperties": false,
       "required": [
         "id",
-        "type",
-        "title",
-        "description",
-        "dataRef",
-        "highlight"
+        "title"
       ],
       "properties": {
         "id": {
@@ -309,6 +505,55 @@
         "highlight": {
           "type": "string",
           "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/chartKind"
+        },
+        "placement": {
+          "$ref": "#/$defs/chartPlacement"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/chartValue"
+            }
+          }
+        },
+        "xKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "yKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "labelKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "valueKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interpretation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },

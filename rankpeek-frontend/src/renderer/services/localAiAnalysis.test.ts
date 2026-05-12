@@ -4,8 +4,11 @@ import type { AiAnalysisResult, LocalDatabaseAPI } from '../types/localDatabase.
 import {
   formatAnalysisTime,
   formatAnalysisType,
+  getCoachReportHeadline,
   loadLocalAiAnalysisResults,
-  parseAiAnalysisOutput
+  normalizeCoachChartBlocks,
+  parseAiAnalysisOutput,
+  parseCoachSummaryReportOutput
 } from './localAiAnalysis.ts'
 
 async function withMutedWarnings<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -135,4 +138,185 @@ test('loading local AI analysis results maps database records and preserves quer
       }
     }
   ])
+})
+
+const coachSummaryReport = {
+  schemaVersion: 'coach_summary_report.v1',
+  analysisType: 'coach_summary',
+  inputHash: 'hash-coach',
+  headline: '贝蕾亚波动偏高',
+  title: '近20场排位电子教练简报',
+  summary: '近20局中野节奏有起伏，死亡集中在资源刷新前。',
+  overview: {
+    totalMatches: 20,
+    wins: 11,
+    losses: 9,
+    winRate: 55,
+    summary: '主玩打野，贝蕾亚和凯隐占比最高。',
+    primaryRoles: [{ role: 'JUNGLE', count: 16 }],
+    heroStats: [
+      {
+        championId: 233,
+        championCanonicalName: 'Briar',
+        championDisplayName: '贝蕾亚',
+        role: 'JUNGLE',
+        games: 8,
+        wins: 4,
+        losses: 4,
+        winRate: 50,
+        kda: '7.1 / 6.0 / 8.4',
+        averageKda: 2.58
+      }
+    ],
+    roleStats: [
+      { role: 'JUNGLE', games: 16, wins: 9, losses: 7, winRate: 56.25 }
+    ]
+  },
+  verdict: {
+    label: '中期死亡拖慢节奏',
+    score: 72,
+    confidence: 'medium',
+    summary: '优势局需要提前处理资源团前站位。'
+  },
+  keyFindings: [
+    {
+      id: 'death-before-objective',
+      priority: 'high',
+      category: 'death',
+      claim: '资源刷新前死亡偏多',
+      evidence: '20局中有多次资源前120秒死亡。',
+      reasoning: '死亡窗口让队伍失去布控和先手。',
+      advice: '资源刷新前先推线再进河道。',
+      confidence: 'medium',
+      evidenceRefs: ['aggregate.objectiveDeaths']
+    }
+  ],
+  trainingPlan: [
+    {
+      focus: '资源前站位',
+      why: '减少资源团前掉点。',
+      nextGames: 5,
+      task: '资源刷新前45秒避免单人脸探。',
+      metricToTrack: 'objective_deaths_before_120s',
+      target: '5局内不超过1次',
+      priority: 'high'
+    }
+  ],
+  championAdvice: [
+    {
+      championName: 'Briar',
+      role: 'JUNGLE',
+      recommendation: 'practice',
+      reason: '样本最多但死亡波动偏高。',
+      confidence: 'medium'
+    }
+  ],
+  chartBlocks: [
+    {
+      id: 'hero-winrate',
+      title: '主玩英雄胜率',
+      kind: 'bar',
+      placement: 'overview',
+      data: [
+        { champion: '贝蕾亚', games: 8, winRate: 50 },
+        { champion: '凯隐', games: 6, winRate: 67 }
+      ],
+      labelKey: 'champion',
+      valueKey: 'winRate',
+      intent: '对比主玩英雄胜率',
+      interpretation: '凯隐更稳定。',
+      evidenceRefs: ['overview.heroStats']
+    },
+    {
+      id: 'kda-trend',
+      title: 'KDA 趋势',
+      kind: 'line',
+      placement: 'analysis',
+      data: [
+        { match: 1, kda: 2.1 },
+        { match: 2, kda: 3.4 }
+      ],
+      xKey: 'match',
+      yKeys: ['kda'],
+      intent: '观察近期 KDA 波动',
+      evidenceRefs: ['aggregate.kdaTrend']
+    },
+    {
+      id: 'future-chart',
+      title: '经济差趋势',
+      kind: 'line',
+      placement: 'analysis',
+      dataRef: 'aggregate.goldDiffTrend',
+      intent: '后续由确定性聚合提供曲线',
+      evidenceRefs: ['aggregate.goldDiffTrend']
+    }
+  ],
+  warnings: [],
+  finalSummary: '接下来一周先把资源前死亡压下来。',
+  metadata: {
+    modelName: 'deepseek-placeholder',
+    promptVersion: 'coach_summary.prompt.v1',
+    generatedAt: '2026-05-12T00:00:00Z',
+    snapshotSchemaVersion: 'coach_summary.v1',
+    dataQualityConfidence: 'medium'
+  }
+}
+
+test('coach summary report v1 output parses structured overview and chart blocks', () => {
+  const parsed = parseCoachSummaryReportOutput(JSON.stringify(coachSummaryReport))
+
+  assert.equal(parsed.status, 'parsed')
+  assert.equal(parsed.report?.schemaVersion, 'coach_summary_report.v1')
+  assert.equal(parsed.report?.overview?.heroStats?.[0]?.championDisplayName, '贝蕾亚')
+  assert.equal(parsed.report?.overview?.roleStats?.[0]?.role, 'JUNGLE')
+  assert.equal(parsed.report?.chartBlocks?.length, 3)
+  assert.equal(parsed.report?.chartBlocks?.[2]?.dataRef, 'aggregate.goldDiffTrend')
+})
+
+test('coach report headline uses product fallback order and truncates long template title', () => {
+  assert.equal(getCoachReportHeadline({ report: coachSummaryReport }), '贝蕾亚波动偏高')
+  assert.equal(getCoachReportHeadline({ report: { ...coachSummaryReport, headline: '', cardTitle: '凯隐纳亚菲利更稳' } }), '凯隐纳亚菲利更稳')
+  assert.equal(getCoachReportHeadline({ report: { ...coachSummaryReport, headline: '', cardTitle: '', shortTitle: '中期死亡拖慢节奏' } }), '中期死亡拖慢节奏')
+  assert.equal(getCoachReportHeadline({ report: { ...coachSummaryReport, headline: '', cardTitle: '', shortTitle: '', verdict: { ...coachSummaryReport.verdict, label: '资源团前掉点偏多' } } }), '资源团前掉点偏多')
+
+  const fallbackTitle = getCoachReportHeadline({
+    report: {
+      ...coachSummaryReport,
+      headline: '',
+      cardTitle: '',
+      shortTitle: '',
+      verdict: { ...coachSummaryReport.verdict, label: '' },
+      title: '近20场排位电子教练简报：这是一段非常长的模板标题，首页不应该完整展示'
+    }
+  })
+  assert.ok(fallbackTitle.length <= 18)
+  assert.match(fallbackTitle, /\.\.\.$/)
+})
+
+test('coach chart blocks normalize malformed values without throwing', () => {
+  const blocks = normalizeCoachChartBlocks([
+    coachSummaryReport.chartBlocks[0],
+    { id: 'bad-kind', title: '坏图', kind: 'pie', placement: 'overview', data: [{ x: 1 }], evidenceRefs: [] },
+    { id: 'bad-placement', title: '坏位置', kind: 'bar', placement: 'sidecar', data: [{ x: 1 }], evidenceRefs: [] },
+    { id: 'bad-data', title: '坏数据', kind: 'bar', placement: 'analysis', data: ['nope'], evidenceRefs: [42] },
+    { id: 'legacy', title: '旧字段图表', type: 'gold_curve', dataRef: 'matches[*].economyTimeline', description: '旧 schema 图表', highlight: '先保留 dataRef' }
+  ])
+
+  assert.equal(blocks.length, 3)
+  assert.equal(blocks[0]?.kind, 'bar')
+  assert.equal(blocks[1]?.kind, 'bar')
+  assert.equal(blocks[1]?.data, undefined)
+  assert.equal(blocks[1]?.evidenceRefs.length, 0)
+  assert.equal(blocks[2]?.placement, 'analysis')
+  assert.equal(blocks[2]?.dataRef, 'matches[*].economyTimeline')
+})
+
+test('unsupported or malformed coach summary JSON does not throw', async () => {
+  const malformed = await withMutedWarnings(() => parseCoachSummaryReportOutput('{bad-json'))
+  const unsupported = parseCoachSummaryReportOutput(JSON.stringify({ schemaVersion: 'other', analysisType: 'coach_summary' }))
+
+  assert.equal(malformed.status, 'invalid')
+  assert.equal(unsupported.status, 'unsupported')
+  assert.equal(malformed.report, null)
+  assert.equal(unsupported.report, null)
 })

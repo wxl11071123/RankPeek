@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { getCoachReportHeadline } from '@/services/localAiAnalysis'
 
 interface CoachReport {
+  id?: number | string
+  headline?: string
+  cardTitle?: string
+  shortTitle?: string
   title: string
   body: string
   detail?: string
@@ -119,7 +124,7 @@ function getReportTitle(report: DisplayReport, index: number): string {
     return title
   }
 
-  return title || `第 ${index + 1} 份复盘`
+  return getCoachReportHeadline({ report }) || title || `第 ${index + 1} 份复盘`
 }
 
 function getReportMeta(report: DisplayReport, index: number): string {

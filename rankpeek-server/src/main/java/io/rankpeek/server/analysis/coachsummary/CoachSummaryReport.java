@@ -8,19 +8,25 @@ import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public record CoachSummaryReport(
         String schemaVersion,
         String analysisType,
         String inputHash,
+        String headline,
+        String cardTitle,
+        String shortTitle,
         String title,
         String summary,
+        Overview overview,
         Verdict verdict,
         List<KeyFinding> keyFindings,
         List<TrainingPlanItem> trainingPlan,
         List<ChampionAdvice> championAdvice,
         List<ChartBlock> chartBlocks,
         List<ReportWarning> warnings,
+        String finalSummary,
         Metadata metadata
 ) {
     public static final String SCHEMA_VERSION = "coach_summary_report.v1";
@@ -30,6 +36,9 @@ public record CoachSummaryReport(
         schemaVersion = requireExact(schemaVersion, SCHEMA_VERSION, "schemaVersion");
         analysisType = requireExact(analysisType, ANALYSIS_TYPE, "analysisType");
         inputHash = requireNonBlank(inputHash, "inputHash");
+        headline = optionalString(headline);
+        cardTitle = optionalString(cardTitle);
+        shortTitle = optionalString(shortTitle);
         title = requireNonBlank(title, "title");
         summary = requireNonBlank(summary, "summary");
         verdict = requireNonNull(verdict, "verdict");
@@ -38,7 +47,84 @@ public record CoachSummaryReport(
         championAdvice = requireList(championAdvice, "championAdvice");
         chartBlocks = requireList(chartBlocks, "chartBlocks");
         warnings = requireList(warnings, "warnings");
+        finalSummary = optionalString(finalSummary);
         metadata = requireNonNull(metadata, "metadata");
+    }
+
+    public record Overview(
+            Integer totalMatches,
+            Integer wins,
+            Integer losses,
+            Double winRate,
+            String summary,
+            List<RoleCount> primaryRoles,
+            List<HeroStat> heroStats,
+            List<RoleStat> roleStats
+    ) {
+        public Overview {
+            totalMatches = requirePositive(totalMatches, "overview.totalMatches");
+            wins = optionalNonNegative(wins, "overview.wins");
+            losses = optionalNonNegative(losses, "overview.losses");
+            winRate = optionalPercentage(winRate, "overview.winRate");
+            summary = requireNonBlank(summary, "overview.summary");
+            primaryRoles = optionalList(primaryRoles);
+            heroStats = optionalList(heroStats);
+            roleStats = optionalList(roleStats);
+        }
+    }
+
+    public record RoleCount(
+            String role,
+            Integer count
+    ) {
+        public RoleCount {
+            role = requireNonBlank(role, "overview.primaryRoles.role");
+            count = requirePositive(count, "overview.primaryRoles.count");
+        }
+    }
+
+    public record HeroStat(
+            Integer championId,
+            String championCanonicalName,
+            String championDisplayName,
+            String role,
+            Integer games,
+            Integer wins,
+            Integer losses,
+            Double winRate,
+            String kda,
+            Double averageKda,
+            String summary
+    ) {
+        public HeroStat {
+            championId = optionalPositive(championId, "overview.heroStats.championId");
+            championCanonicalName = optionalString(championCanonicalName);
+            championDisplayName = requireNonBlank(championDisplayName, "overview.heroStats.championDisplayName");
+            role = requireNonBlank(role, "overview.heroStats.role");
+            games = requirePositive(games, "overview.heroStats.games");
+            wins = optionalNonNegative(wins, "overview.heroStats.wins");
+            losses = optionalNonNegative(losses, "overview.heroStats.losses");
+            winRate = optionalPercentage(winRate, "overview.heroStats.winRate");
+            kda = optionalString(kda);
+            averageKda = optionalNonNegative(averageKda, "overview.heroStats.averageKda");
+            summary = optionalString(summary);
+        }
+    }
+
+    public record RoleStat(
+            String role,
+            Integer games,
+            Integer wins,
+            Integer losses,
+            Double winRate
+    ) {
+        public RoleStat {
+            role = requireNonBlank(role, "overview.roleStats.role");
+            games = requirePositive(games, "overview.roleStats.games");
+            wins = optionalNonNegative(wins, "overview.roleStats.wins");
+            losses = optionalNonNegative(losses, "overview.roleStats.losses");
+            winRate = optionalPercentage(winRate, "overview.roleStats.winRate");
+        }
     }
 
     public record Verdict(
@@ -121,15 +207,32 @@ public record CoachSummaryReport(
             String title,
             String description,
             String dataRef,
-            String highlight
+            String highlight,
+            ChartKind kind,
+            ChartPlacement placement,
+            List<Map<String, Object>> data,
+            String xKey,
+            List<String> yKeys,
+            String labelKey,
+            String valueKey,
+            String intent,
+            String interpretation,
+            List<String> evidenceRefs
     ) {
         public ChartBlock {
             id = requireNonBlank(id, "chartBlocks.id");
-            type = requireNonNull(type, "chartBlocks.type");
             title = requireNonBlank(title, "chartBlocks.title");
-            description = requireNonBlank(description, "chartBlocks.description");
-            dataRef = requireNonBlank(dataRef, "chartBlocks.dataRef");
-            highlight = requireNonBlank(highlight, "chartBlocks.highlight");
+            description = optionalString(description);
+            dataRef = optionalString(dataRef);
+            highlight = optionalString(highlight);
+            data = optionalList(data);
+            xKey = optionalString(xKey);
+            yKeys = optionalStringList(yKeys, "chartBlocks.yKeys");
+            labelKey = optionalString(labelKey);
+            valueKey = optionalString(valueKey);
+            intent = optionalString(intent);
+            interpretation = optionalString(interpretation);
+            evidenceRefs = optionalStringList(evidenceRefs, "chartBlocks.evidenceRefs");
         }
     }
 
@@ -285,6 +388,54 @@ public record CoachSummaryReport(
         }
     }
 
+    public enum ChartKind implements WireValue {
+        BAR("bar"),
+        LINE("line"),
+        SCATTER("scatter"),
+        TIMELINE("timeline"),
+        TABLE("table");
+
+        private final String value;
+
+        ChartKind(String value) {
+            this.value = value;
+        }
+
+        @JsonCreator
+        public static ChartKind fromJson(String value) {
+            return enumFromValue(ChartKind.class, value);
+        }
+
+        @Override
+        @JsonValue
+        public String value() {
+            return value;
+        }
+    }
+
+    public enum ChartPlacement implements WireValue {
+        OVERVIEW("overview"),
+        ANALYSIS("analysis"),
+        SUMMARY("summary");
+
+        private final String value;
+
+        ChartPlacement(String value) {
+            this.value = value;
+        }
+
+        @JsonCreator
+        public static ChartPlacement fromJson(String value) {
+            return enumFromValue(ChartPlacement.class, value);
+        }
+
+        @Override
+        @JsonValue
+        public String value() {
+            return value;
+        }
+    }
+
     public enum WarningType implements WireValue {
         DATA_QUALITY("data_quality"),
         INSUFFICIENT_SAMPLE("insufficient_sample"),
@@ -328,6 +479,14 @@ public record CoachSummaryReport(
         return value;
     }
 
+    private static String optionalString(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private static String requireIsoInstant(String value, String field) {
         String nonBlank = requireNonBlank(value, field);
         try {
@@ -359,11 +518,55 @@ public record CoachSummaryReport(
         return value;
     }
 
+    private static Integer optionalPositive(Integer value, String field) {
+        if (value == null) {
+            return null;
+        }
+        if (value < 1) {
+            throw new IllegalArgumentException(field + " must be greater than 0");
+        }
+        return value;
+    }
+
+    private static Integer optionalNonNegative(Integer value, String field) {
+        if (value == null) {
+            return null;
+        }
+        if (value < 0) {
+            throw new IllegalArgumentException(field + " must not be negative");
+        }
+        return value;
+    }
+
+    private static Double optionalNonNegative(Double value, String field) {
+        if (value == null) {
+            return null;
+        }
+        if (value < 0) {
+            throw new IllegalArgumentException(field + " must not be negative");
+        }
+        return value;
+    }
+
+    private static Double optionalPercentage(Double value, String field) {
+        if (value == null) {
+            return null;
+        }
+        if (value < 0 || value > 100) {
+            throw new IllegalArgumentException(field + " must be between 0 and 100");
+        }
+        return value;
+    }
+
     private static <T> List<T> requireList(List<T> value, String field) {
         if (value == null) {
             throw new IllegalArgumentException(field + " is required");
         }
         return List.copyOf(value);
+    }
+
+    private static <T> List<T> optionalList(List<T> value) {
+        return value == null ? List.of() : List.copyOf(value);
     }
 
     private static <T> List<T> requireNonEmptyList(List<T> value, String field) {
@@ -377,6 +580,15 @@ public record CoachSummaryReport(
     private static List<String> requireNonEmptyStringList(List<String> value, String field) {
         List<String> list = requireNonEmptyList(value, field);
         return list.stream()
+                .map(item -> requireNonBlank(item, field + " item"))
+                .toList();
+    }
+
+    private static List<String> optionalStringList(List<String> value, String field) {
+        if (value == null) {
+            return List.of();
+        }
+        return value.stream()
                 .map(item -> requireNonBlank(item, field + " item"))
                 .toList();
     }

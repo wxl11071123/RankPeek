@@ -34,6 +34,12 @@ const routes: RouteRecordRaw[] = [
     meta: { titleKey: 'nav.aiAnalysis', keepAlive: false }
   },
   {
+    path: '/reports/:id',
+    name: 'CoachSummaryReport',
+    component: () => import('@/views/CoachSummaryReportView.vue'),
+    meta: { titleKey: 'nav.aiAnalysis', keepAlive: false }
+  },
+  {
     path: '/user-tag',
     redirect: '/summoner'
   },

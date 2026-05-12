@@ -1,0 +1,31 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+
+const modalUrl = new URL('./CoachSummaryReportModal.vue', import.meta.url)
+
+test('coach summary report modal exposes accessible dialog structure and close controls', () => {
+  assert.equal(existsSync(modalUrl), true)
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.match(source, /import CoachSummaryReportContent from '@\/components\/CoachSummaryReportContent\.vue'/)
+  assert.match(source, /role="dialog"/)
+  assert.match(source, /aria-modal="true"/)
+  assert.match(source, /aria-label="关闭/)
+  assert.match(source, /emit\('close'\)/)
+  assert.match(source, /@click\.self="emitClose"/)
+  assert.match(source, /keydown/)
+  assert.match(source, /Escape/)
+  assert.match(source, /CoachSummaryReportContent/)
+})
+
+test('coach summary report modal uses a fixed overlay and scrollable content area without third-party UI', () => {
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.match(source, /\.coach-report-modal-overlay[\s\S]*position:\s*fixed/)
+  assert.match(source, /width:\s*min\(1180px, calc\(100vw - 96px\)\)/)
+  assert.match(source, /max-height:\s*calc\(100vh - 72px\)/)
+  assert.match(source, /\.coach-report-modal-body[\s\S]*overflow-y:\s*auto/)
+  assert.match(source, /width:\s*calc\(100vw - 32px\)/)
+  assert.doesNotMatch(source, /element-plus|ant-design|naive-ui|vuetify|headlessui/i)
+})

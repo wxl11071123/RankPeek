@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AICoachCards from '@/components/AICoachCards.vue'
+import CoachSummaryReportModal from '@/components/CoachSummaryReportModal.vue'
 import HomeChart from '@/components/HomeChart.vue'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import { useGameStore } from '@/stores/game'
@@ -12,11 +13,19 @@ import {
   saveFortuneRecord
 } from '@/utils/homeInsights'
 import { prepareCoachSummaryGeneration } from '@/services/coachSummaryInputSnapshot'
+import {
+  getCoachReportHeadline,
+  loadLocalAiAnalysisResults,
+  parseCoachSummaryReportOutput,
+  type LocalAiAnalysisDisplayResult
+} from '@/services/localAiAnalysis'
+import { DEV_COACH_SUMMARY_REPORT_PREVIEW } from '@/services/coachSummaryReportPreview'
 import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { t } from '@/i18n'
 import type { QueueInfo } from '@/types/api'
 import type { Fortune, FortuneRecord } from '@/utils/homeInsights'
 import type { RankLoadStatus } from '@/utils/rankDisplay'
+import type { CoachSummaryReportV1 } from '@/types/coachSummaryReport'
 
 const gameStore = useGameStore()
 
@@ -297,12 +306,38 @@ interface AutoAnalysisSettings {
   enabled: boolean
 }
 
+interface HomeCoachReport {
+  id: number | string
+  headline?: string
+  cardTitle?: string
+  shortTitle?: string
+  title: string
+  body: string
+  detail?: string
+  meta?: string
+}
+
+type CoachReportLoadState = 'loading' | 'ready' | 'missing' | 'unsupported' | 'invalid' | 'error'
+
+interface OpenCoachReportModalOptions {
+  preview?: boolean
+  createdAt?: string | null
+}
+
 type RankBadgeKey = 'solo' | 'flex'
 
 const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false })
 const coachNotice = ref('')
 const accountRefreshBusy = ref(false)
 const coachAnalysisBusy = ref(false)
+const coachReports = ref<HomeCoachReport[]>([])
+const coachReportModalOpen = ref(false)
+const activeCoachReport = ref<CoachSummaryReportV1 | null>(null)
+const coachReportLoadState = ref<CoachReportLoadState>('ready')
+const coachReportError = ref('')
+const coachReportCreatedAt = ref<string | null>(null)
+const coachReportPreview = ref(false)
+let coachReportRequestSerial = 0
 
 const fortuneRecord = ref<FortuneRecord>({ history: [] })
 const currentFortune = ref<Fortune | null>(null)
@@ -393,6 +428,140 @@ function loadLocalHomeState() {
   fortuneRecord.value = loadFortuneRecord(key)
   currentFortune.value = getCurrentFortune(fortuneRecord.value)
   coachNotice.value = ''
+  void refreshLocalCoachReports()
+}
+
+async function refreshLocalCoachReports() {
+  const puuid = currentSummoner.value?.puuid?.trim()
+  if (!puuid) {
+    coachReports.value = []
+    return
+  }
+
+  const result = await loadLocalAiAnalysisResults(puuid, {
+    limit: 6,
+    offset: 0,
+    analysisType: 'coach_summary'
+  })
+  coachReports.value = result.results.map(toHomeCoachReport)
+}
+
+function toHomeCoachReport(result: LocalAiAnalysisDisplayResult): HomeCoachReport {
+  const parsed = parseCoachSummaryReportOutput(result.outputJson)
+  const report = parsed.report
+  const title = getCoachReportHeadline({ report, result })
+  const summary = firstSentence(report?.summary || result.output.summary)
+  return {
+    id: result.id,
+    headline: report?.headline,
+    cardTitle: report?.cardTitle,
+    shortTitle: report?.shortTitle,
+    title,
+    body: summary,
+    detail: report?.verdict.summary || summary,
+    meta: result.createdAtLabel
+  }
+}
+
+function firstSentence(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  const match = compact.match(/^(.+?[。.!？?])\s*/)
+  return (match?.[1] || compact).slice(0, 72)
+}
+
+async function openCoachReport(report: HomeCoachReport | null) {
+  if (!report?.id) {
+    if (import.meta.env.DEV) {
+      openCoachReportModal(DEV_COACH_SUMMARY_REPORT_PREVIEW, { preview: true })
+      return
+    }
+
+    showCoachNotice()
+    return
+  }
+
+  if (!Number.isInteger(Number(report.id)) || Number(report.id) <= 0) {
+    openCoachReportError('报告编号无效')
+    return
+  }
+
+  const database = window.electronAPI?.database
+  if (!database) {
+    openCoachReportError('本地报告库暂不可用')
+    return
+  }
+
+  const requestId = ++coachReportRequestSerial
+  coachReportModalOpen.value = true
+  activeCoachReport.value = null
+  coachReportLoadState.value = 'loading'
+  coachReportError.value = ''
+  coachReportCreatedAt.value = null
+  coachReportPreview.value = false
+
+  try {
+    const result = await database.getAnalysisResultById(Number(report.id))
+    if (requestId !== coachReportRequestSerial) {
+      return
+    }
+    if (!result.success) {
+      openCoachReportError(result.error)
+      return
+    }
+    if (!result.data) {
+      openCoachReportError('没有找到这份报告', 'missing')
+      return
+    }
+
+    const parsed = parseCoachSummaryReportOutput(result.data.outputJson)
+    if (parsed.status === 'parsed' && parsed.report) {
+      openCoachReportModal(parsed.report, {
+        createdAt: result.data.createdAt
+      })
+      return
+    }
+
+    openCoachReportError(
+      parsed.status === 'unsupported' ? '暂不支持该报告类型' : '报告内容暂时无法解析',
+      parsed.status === 'unsupported' ? 'unsupported' : 'invalid'
+    )
+  } catch (error) {
+    if (requestId !== coachReportRequestSerial) {
+      return
+    }
+    openCoachReportError(error instanceof Error ? error.message : String(error))
+  }
+}
+
+function openCoachReportModal(
+  report: CoachSummaryReportV1,
+  options: OpenCoachReportModalOptions = {}
+) {
+  activeCoachReport.value = report
+  coachReportLoadState.value = 'ready'
+  coachReportError.value = ''
+  coachReportCreatedAt.value = options.createdAt ?? null
+  coachReportPreview.value = Boolean(options.preview)
+  coachReportModalOpen.value = true
+}
+
+function openCoachReportError(message: string, state: CoachReportLoadState = 'error') {
+  activeCoachReport.value = null
+  coachReportLoadState.value = state
+  coachReportError.value = message
+  coachReportCreatedAt.value = null
+  coachReportPreview.value = false
+  coachReportModalOpen.value = true
+}
+
+function closeCoachReportModal() {
+  coachReportRequestSerial += 1
+  coachReportModalOpen.value = false
+  activeCoachReport.value = null
+  coachReportLoadState.value = 'ready'
+  coachReportError.value = ''
+  coachReportCreatedAt.value = null
+  coachReportPreview.value = false
 }
 
 async function runAnalysis() {
@@ -834,7 +1003,10 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
         @pointermove="updateControlGlow"
         @pointerleave="resetControlGlow"
       >
-        <AICoachCards />
+        <AICoachCards
+          :reports="coachReports"
+          @open-report="openCoachReport"
+        />
       </div>
       <article
         class="fortune-card surface-glow"
@@ -878,6 +1050,16 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
     </section>
 
     <HomeChart :summoner="currentSummoner" :puuid="currentSummoner?.puuid" :connected="accountConnected" />
+
+    <CoachSummaryReportModal
+      :open="coachReportModalOpen"
+      :report="activeCoachReport"
+      :report-load-state="coachReportLoadState"
+      :error-message="coachReportError"
+      :created-at="coachReportCreatedAt"
+      :is-preview="coachReportPreview"
+      @close="closeCoachReportModal"
+    />
   </div>
 </template>
 

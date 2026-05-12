@@ -80,6 +80,7 @@ test('home refresh account button uses the shared refresh icon button', () => {
 
 test('home analyze button prepares coach summary input without creating a fake AI report', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const runAnalysisFunction = source.match(/async function runAnalysis\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
   assert.match(source, /import \{ prepareCoachSummaryGeneration \} from '@\/services\/coachSummaryInputSnapshot'/)
   assert.match(source, /const coachAnalysisBusy = ref\(false\)/)
@@ -95,7 +96,38 @@ test('home analyze button prepares coach summary input without creating a fake A
   assert.match(source, /showCoachNotice\(result\.message\)/)
   assert.match(source, /AI_COACH_ACCOUNT_MISSING_NOTICE/)
   assert.match(source, /:disabled="coachAnalysisBusy"/)
-  assert.doesNotMatch(source, /saveAnalysisResult|saveServerAiFinalResultToLocal|router\.push|name: 'ai-analysis'/)
+  assert.doesNotMatch(runAnalysisFunction, /saveAnalysisResult|saveServerAiFinalResultToLocal|router\.push|name: 'ai-analysis'|openCoachReportModal/)
+})
+
+test('home coach report cards load local coach summaries and open report modal by id', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const openFunction = source.match(/async function openCoachReport\([\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /import CoachSummaryReportModal from '@\/components\/CoachSummaryReportModal\.vue'/)
+  assert.match(source, /loadLocalAiAnalysisResults/)
+  assert.match(source, /analysisType:\s*'coach_summary'/)
+  assert.match(source, /limit:\s*6/)
+  assert.match(source, /<AICoachCards[\s\S]*:reports="coachReports"[\s\S]*@open-report="openCoachReport"/)
+  assert.match(source, /const coachReportModalOpen = ref\(false\)/)
+  assert.match(source, /const activeCoachReport = ref<CoachSummaryReportV1 \| null>\(null\)/)
+  assert.match(source, /async function openCoachReport\(/)
+  assert.match(openFunction, /getAnalysisResultById\(Number\(report\.id\)\)/)
+  assert.match(openFunction, /parseCoachSummaryReportOutput\(result\.data\.outputJson\)/)
+  assert.match(source, /<CoachSummaryReportModal[\s\S]*:open="coachReportModalOpen"[\s\S]*:report="activeCoachReport"[\s\S]*@close="closeCoachReportModal"/)
+  assert.doesNotMatch(openFunction, /router\.push|name:\s*'CoachSummaryReport'|\/reports/)
+  assert.doesNotMatch(source, /listMatchRecordsByAccount|getMatchDetail|getGameDetail|getGameTimeline|findAnalysisByInputHash/)
+})
+
+test('home dev placeholder opens the dev report preview without saving a fake report', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const openFunction = source.match(/async function openCoachReport\([\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /import \{ DEV_COACH_SUMMARY_REPORT_PREVIEW \} from '@\/services\/coachSummaryReportPreview'/)
+  assert.match(openFunction, /if \(!report\?\.id\) \{[\s\S]*if \(import\.meta\.env\.DEV\) \{[\s\S]*openCoachReportModal\(DEV_COACH_SUMMARY_REPORT_PREVIEW, \{ preview: true \}\)/)
+  assert.match(source, /showCoachNotice\(\)/)
+  assert.match(source, /function closeCoachReportModal\(\)/)
+  assert.match(source, /coachReportModalOpen\.value = false/)
+  assert.doesNotMatch(openFunction, /saveAnalysisResult|saveServerAiFinalResultToLocal|router\.push/)
 })
 
 test('home rank badges show loading or failure instead of immediate unranked fallback', () => {
