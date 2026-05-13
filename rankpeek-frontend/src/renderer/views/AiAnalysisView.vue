@@ -10,16 +10,19 @@ import {
   buildAccountAnalysisInputSnapshot,
   type AiAnalysisInputSnapshot
 } from '@/services/aiAnalysisInputSnapshot'
-import { isServerAiEnabled } from '@/services/serverAiAnalysisClient'
+import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
+
+type ReportTypeFilter = 'all' | 'pregame' | 'postgame' | 'praise' | 'coach'
+type ReportCategory = Exclude<ReportTypeFilter, 'all'> | 'fun' | 'other'
 
 interface FeatureCard {
   key: string
   title: string
-  items: string[]
+  positioning: string
+  tags: string[]
 }
 
 const gameStore = useGameStore()
-const serverAiEnabled = isServerAiEnabled()
 // Future server AI final results should be saved through saveServerAiFinalResultToLocal()
 // and will appear in the existing local history list.
 
@@ -32,6 +35,7 @@ const preparedSnapshot = ref<AiAnalysisInputSnapshot | null>(null)
 const preparingInput = ref(false)
 const preparationUnavailable = ref(false)
 const preparationError = ref<string | null>(null)
+const selectedReportType = ref<ReportTypeFilter>('all')
 let loadRequestId = 0
 let prepareRequestId = 0
 
@@ -45,65 +49,92 @@ const currentSummonerName = computed(() => {
 
   return summoner.tagLine ? `${summoner.gameName}#${summoner.tagLine}` : summoner.gameName
 })
-const puuidTail = computed(() => {
-  const puuid = accountPuuid.value
-  return puuid ? puuid.slice(-8) : ''
-})
 const hasResults = computed(() => analysisResults.value.length > 0)
-const preparationStatusLabel = computed(() => {
-  if (!currentSummoner.value) {
-    return t('aiAnalysis.prepareSelectAccount')
+const filteredAnalysisResults = computed(() => {
+  if (selectedReportType.value === 'all') {
+    return analysisResults.value
   }
 
-  const snapshot = preparedSnapshot.value
-  if (!snapshot) {
-    return t('aiAnalysis.preparePending')
-  }
-
-  return snapshot.source.hasEnoughData
-    ? t('aiAnalysis.prepareReady')
-    : t('aiAnalysis.prepareInsufficient')
+  return analysisResults.value.filter(result => getReportCategory(result) === selectedReportType.value)
 })
+const hasFilteredResults = computed(() => filteredAnalysisResults.value.length > 0)
+const accountStatusLabel = computed(() => currentSummonerName.value || t('aiAnalysis.noAccountStatus'))
+const rankpeekAccountLabel = computed(() => t('aiAnalysis.rankpeekAccountGuest'))
+const rankpeekBalanceLabel = computed(() => '￥0.00')
+const currentSummonerProfileIconUrl = computed(() => {
+  const summoner = currentSummoner.value
+  return summoner?.profileIconId ? getProfileIconUrl(summoner.profileIconId) : ''
+})
+const accountInitial = computed(() => {
+  const name = currentSummoner.value?.gameName || currentSummonerName.value
+  return name ? name.slice(0, 1).toUpperCase() : '?'
+})
+
+const reportTypeTabs = computed<Array<{ key: ReportTypeFilter; label: string; count: number }>>(() => [
+  {
+    key: 'all',
+    label: t('aiAnalysis.filterAll'),
+    count: analysisResults.value.length
+  },
+  {
+    key: 'pregame',
+    label: t('aiAnalysis.featurePreGame'),
+    count: countReportsByCategory('pregame')
+  },
+  {
+    key: 'postgame',
+    label: t('aiAnalysis.featurePostGame'),
+    count: countReportsByCategory('postgame')
+  },
+  {
+    key: 'praise',
+    label: t('aiAnalysis.featurePraise'),
+    count: countReportsByCategory('praise')
+  },
+  {
+    key: 'coach',
+    label: t('aiAnalysis.featureCoach'),
+    count: countReportsByCategory('coach')
+  }
+])
 
 const featureCards = computed<FeatureCard[]>(() => [
   {
     key: 'pre-game',
     title: t('aiAnalysis.featurePreGame'),
-    items: [
-      t('aiAnalysis.preGameTeammates'),
-      t('aiAnalysis.preGameRisks'),
-      t('aiAnalysis.preGamePlan'),
-      t('aiAnalysis.preGameDraft')
+    positioning: t('aiAnalysis.preGamePositioning'),
+    tags: [
+      t('aiAnalysis.tagTeammates'),
+      t('aiAnalysis.tagRiskTips'),
+      t('aiAnalysis.tagOpponentThreat')
     ]
   },
   {
     key: 'post-game',
     title: t('aiAnalysis.featurePostGame'),
-    items: [
-      t('aiAnalysis.postGameSwing'),
-      t('aiAnalysis.postGameDeaths'),
-      t('aiAnalysis.postGameObjective'),
-      t('aiAnalysis.postGameGoldTurn')
+    positioning: t('aiAnalysis.postGamePositioning'),
+    tags: [
+      t('aiAnalysis.tagFromStrongToWeak'),
+      t('aiAnalysis.tagSingleGameReview')
+    ]
+  },
+  {
+    key: 'praise',
+    title: t('aiAnalysis.featurePraise'),
+    positioning: t('aiAnalysis.praisePositioning'),
+    tags: [
+      t('aiAnalysis.tagPraise'),
+      t('aiAnalysis.tagEmotionalValue'),
+      t('aiAnalysis.tagEntertainment')
     ]
   },
   {
     key: 'coach',
     title: t('aiAnalysis.featureCoach'),
-    items: [
-      t('aiAnalysis.coachRecent'),
-      t('aiAnalysis.coachChampionPool'),
-      t('aiAnalysis.coachRole'),
-      t('aiAnalysis.coachReport')
-    ]
-  },
-  {
-    key: 'fun',
-    title: t('aiAnalysis.featureFun'),
-    items: [
-      t('aiAnalysis.funProfile'),
-      t('aiAnalysis.funPraise'),
-      t('aiAnalysis.funIndex'),
-      t('aiAnalysis.funAram')
+    positioning: t('aiAnalysis.coachPositioning'),
+    tags: [
+      t('aiAnalysis.tagRecent20'),
+      t('aiAnalysis.tagChampionPool')
     ]
   }
 ])
@@ -123,6 +154,64 @@ function resetPreparedSnapshot() {
   preparationUnavailable.value = false
   preparationError.value = null
   preparingInput.value = false
+}
+
+function countReportsByCategory(category: ReportCategory) {
+  return analysisResults.value.filter(result => getReportCategory(result) === category).length
+}
+
+function getReportCategory(result: LocalAiAnalysisDisplayResult): ReportCategory {
+  const normalized = result.analysisType.trim().toLowerCase()
+  if (!normalized) {
+    return 'other'
+  }
+
+  if (normalized.includes('postgame_praise') || normalized.includes('praise') || normalized.includes('compliment')) {
+    return 'praise'
+  }
+
+  if (normalized.includes('pregame') || normalized.includes('pre_game') || normalized.includes('before')) {
+    return 'pregame'
+  }
+
+  if (normalized.includes('postgame') || normalized.includes('post_game') || normalized.includes('review') || normalized.includes('after')) {
+    return 'postgame'
+  }
+
+  if (normalized.includes('coach') || normalized.includes('weekly') || normalized.includes('monthly')) {
+    return 'coach'
+  }
+
+  if (normalized.includes('entertainment') || normalized.includes('fun')) {
+    return 'fun'
+  }
+
+  return 'other'
+}
+
+function getReportCategoryLabel(result: LocalAiAnalysisDisplayResult) {
+  switch (getReportCategory(result)) {
+    case 'pregame':
+      return t('aiAnalysis.featurePreGame')
+    case 'postgame':
+      return t('aiAnalysis.featurePostGame')
+    case 'praise':
+      return t('aiAnalysis.featurePraise')
+    case 'coach':
+      return t('aiAnalysis.featureCoach')
+    case 'fun':
+      return t('aiAnalysis.featureFun')
+    case 'other':
+      return result.analysisTypeLabel
+  }
+}
+
+function getReportTitle(result: LocalAiAnalysisDisplayResult) {
+  return result.output.title || result.analysisTypeLabel
+}
+
+function getReportScopeLabel(result: LocalAiAnalysisDisplayResult) {
+  return result.matchId ? t('aiAnalysis.singleMatchReport') : t('aiAnalysis.accountReport')
 }
 
 async function prepareAnalysisInputSnapshot() {
@@ -206,126 +295,52 @@ async function refreshLocalAnalysisResults() {
 
 <template>
   <div class="ai-analysis-view">
-    <header class="analysis-header">
-      <div>
+    <section class="hero-panel">
+      <div class="hero-copy">
         <h1>{{ t('aiAnalysis.title') }}</h1>
         <p>{{ t('aiAnalysis.subtitle') }}</p>
       </div>
-      <button class="primary-action" type="button" :disabled="preparingInput" @click="prepareAnalysisInputSnapshot">
-        {{ preparingInput ? t('aiAnalysis.preparingInput') : t('aiAnalysis.prepareInput') }}
-      </button>
-    </header>
+
+      <div class="status-card account-showcase-card">
+        <div class="account-showcase-item rankpeek-account-value">
+          {{ rankpeekAccountLabel }}
+        </div>
+        <div class="account-showcase-item league-account-showcase">
+          <img
+            v-if="currentSummonerProfileIconUrl"
+            class="account-avatar"
+            :src="currentSummonerProfileIconUrl"
+            alt=""
+            @error="markAssetLoadFailed"
+          >
+          <span v-else class="account-avatar-placeholder">{{ accountInitial }}</span>
+          <span class="league-account-name">{{ accountStatusLabel }}</span>
+        </div>
+        <div class="account-showcase-item balance-row">
+          <span class="balance-showcase">{{ rankpeekBalanceLabel }}</span>
+          <button class="balance-recharge-button" type="button">{{ t('aiAnalysis.recharge') }}</button>
+        </div>
+      </div>
+    </section>
 
     <p v-if="placeholderNotice" class="notice-line">{{ placeholderNotice }}</p>
 
-    <section class="account-card">
-      <div class="section-heading">
-        <span>{{ t('aiAnalysis.currentAccount') }}</span>
-      </div>
-
-      <div v-if="currentSummoner" class="account-body">
-        <div class="account-mark">{{ currentSummoner.gameName.slice(0, 1).toUpperCase() }}</div>
-        <div class="account-copy">
-          <h2>{{ currentSummonerName }}</h2>
-          <p>{{ t('aiAnalysis.puuidTail', { tail: puuidTail }) }}</p>
-          <span>{{ t('aiAnalysis.accountHint') }}</span>
-        </div>
-      </div>
-
-      <div v-else class="empty-card">
-        <h2>{{ t('aiAnalysis.noAccountTitle') }}</h2>
-        <p>{{ t('aiAnalysis.noAccountBody') }}</p>
-      </div>
-    </section>
-
-    <section class="data-prep-card">
-      <div class="section-heading">
-        <span>{{ t('aiAnalysis.dataPrepTitle') }}</span>
-        <small>{{ t('aiAnalysis.dataPrepLimit') }}</small>
-      </div>
-
-      <div v-if="!currentSummoner" class="prep-empty">
-        <p>{{ t('aiAnalysis.prepareSelectAccount') }}</p>
-      </div>
-
-      <div v-else class="prep-body">
-        <div v-if="preparedSnapshot" class="prep-grid">
-          <div>
-            <strong>{{ preparedSnapshot.source.matchRecordCount }}</strong>
-            <span>{{ t('aiAnalysis.localMatches') }}</span>
-          </div>
-          <div>
-            <strong>{{ preparedSnapshot.source.matchDetailCount }}</strong>
-            <span>{{ t('aiAnalysis.localDetails') }}</span>
-          </div>
-          <div>
-            <strong>{{ preparedSnapshot.source.hasEnoughData ? t('aiAnalysis.prepareReady') : t('aiAnalysis.prepareInsufficient') }}</strong>
-            <span>{{ t('aiAnalysis.dataPrepStatus') }}</span>
-          </div>
-        </div>
-
-        <div v-else class="prep-grid">
-          <div>
-            <strong>0</strong>
-            <span>{{ t('aiAnalysis.localMatches') }}</span>
-          </div>
-          <div>
-            <strong>0</strong>
-            <span>{{ t('aiAnalysis.localDetails') }}</span>
-          </div>
-          <div>
-            <strong>{{ preparationStatusLabel }}</strong>
-            <span>{{ t('aiAnalysis.dataPrepStatus') }}</span>
-          </div>
-        </div>
-
-        <p v-if="preparedSnapshot" class="hash-line">
-          {{ t('aiAnalysis.inputHash') }}: {{ preparedSnapshot.inputHash }}
-        </p>
-        <p v-else-if="preparationUnavailable" class="prep-warning">
-          {{ preparationError || t('aiAnalysis.prepareUnavailable') }}
-        </p>
-
-        <button class="secondary-action prep-action" type="button" :disabled="preparingInput" @click="prepareAnalysisInputSnapshot">
-          {{ preparingInput ? t('aiAnalysis.preparingInput') : t('aiAnalysis.prepareInput') }}
-        </button>
-      </div>
-    </section>
-
-    <section class="server-ai-card">
-      <div class="section-heading">
-        <span>{{ t('aiAnalysis.serverAiTitle') }}</span>
-        <small>{{ serverAiEnabled ? t('aiAnalysis.serverAiEnabled') : t('aiAnalysis.serverAiDisabled') }}</small>
-      </div>
-
-      <p class="server-ai-summary">{{ t('aiAnalysis.serverAiLocalOnly') }}</p>
-
-      <div class="server-ai-mode-grid">
-        <div>
-          <strong>{{ t('aiAnalysis.serverAiStreamTitle') }}</strong>
-          <span>{{ t('aiAnalysis.serverAiStreamPlan') }}</span>
-        </div>
-        <div>
-          <strong>{{ t('aiAnalysis.serverAiAsyncTitle') }}</strong>
-          <span>{{ t('aiAnalysis.serverAiAsyncPlan') }}</span>
-        </div>
-      </div>
-    </section>
-
     <section class="feature-section">
-      <div class="section-heading">
-        <span>{{ t('aiAnalysis.featureTitle') }}</span>
-      </div>
-
       <div class="feature-grid">
-        <article v-for="card in featureCards" :key="card.key" class="feature-card">
-          <h2>{{ card.title }}</h2>
-          <ul>
-            <li v-for="item in card.items" :key="item">{{ item }}</li>
-          </ul>
-          <button class="secondary-action" type="button" disabled>
-            {{ t('aiAnalysis.comingSoon') }}
-          </button>
+        <article
+          v-for="card in featureCards"
+          :key="card.key"
+          class="feature-card"
+        >
+          <div class="feature-copy">
+            <div class="feature-title-row">
+              <h2>{{ card.title }}</h2>
+            </div>
+            <p class="feature-positioning">{{ card.positioning }}</p>
+          </div>
+          <div class="tag-list" aria-label="feature tags">
+            <span v-for="tag in card.tags" :key="tag">{{ tag }}</span>
+          </div>
         </article>
       </div>
     </section>
@@ -333,7 +348,20 @@ async function refreshLocalAnalysisResults() {
     <section class="history-section">
       <div class="section-heading history-heading">
         <span>{{ t('aiAnalysis.historyTitle') }}</span>
-        <small v-if="currentSummoner">{{ t('aiAnalysis.historyLimit') }}</small>
+      </div>
+
+      <div class="report-type-tabs" role="tablist" aria-label="AI report type filters">
+        <button
+          v-for="tab in reportTypeTabs"
+          :key="tab.key"
+          class="report-type-tab"
+          :class="{ active: selectedReportType === tab.key }"
+          type="button"
+          @click="selectedReportType = tab.key"
+        >
+          <span>{{ tab.label }}</span>
+          <strong>{{ tab.count }}</strong>
+        </button>
       </div>
 
       <div v-if="!currentSummoner" class="empty-card">
@@ -356,29 +384,40 @@ async function refreshLocalAnalysisResults() {
         <p>{{ t('aiAnalysis.emptyHistoryBody') }}</p>
       </div>
 
+      <div v-else-if="!hasFilteredResults" class="empty-card">
+        <h2>{{ t('aiAnalysis.emptyFilteredTitle') }}</h2>
+        <p>{{ t('aiAnalysis.emptyFilteredBody') }}</p>
+      </div>
+
       <div v-else class="history-list">
-        <article v-for="result in analysisResults" :key="result.id" class="history-card">
-          <div class="history-card-header">
-            <div>
-              <strong>{{ result.analysisTypeLabel }}</strong>
-              <span>{{ result.createdAtLabel }}</span>
+        <article
+          v-for="result in filteredAnalysisResults"
+          :key="result.id"
+          class="report-card"
+          :class="{ invalid: result.output.status === 'invalid' }"
+        >
+          <div class="report-main">
+            <div class="report-topline">
+              <span class="report-type-pill">{{ getReportCategoryLabel(result) }}</span>
+              <time>{{ result.createdAtLabel }}</time>
             </div>
-            <span class="type-code">{{ result.analysisType }}</span>
+            <h3>{{ getReportTitle(result) }}</h3>
+            <p>{{ result.output.summary }}</p>
           </div>
 
-          <div class="meta-grid">
+          <ul v-if="result.output.highlights.length" class="report-highlights">
+            <li v-for="highlight in result.output.highlights.slice(0, 3)" :key="highlight">{{ highlight }}</li>
+          </ul>
+
+          <div class="report-context">
+            <span>{{ currentSummonerName || t('aiAnalysis.currentAccountFallback') }}</span>
+            <span>{{ getReportScopeLabel(result) }}</span>
+          </div>
+
+          <div class="report-meta">
             <span>{{ t('aiAnalysis.subjectKey') }}: {{ result.subjectKey || t('common.none') }}</span>
             <span>{{ t('aiAnalysis.gameVersion') }}: {{ result.gameVersion || t('common.none') }}</span>
             <span>{{ t('aiAnalysis.modelName') }}: {{ result.modelName || t('common.none') }}</span>
-            <span>{{ t('aiAnalysis.promptVersion') }}: {{ result.promptVersion || t('common.none') }}</span>
-          </div>
-
-          <div class="output-preview" :class="{ invalid: result.output.status === 'invalid' }">
-            <h3 v-if="result.output.title">{{ result.output.title }}</h3>
-            <p>{{ result.output.summary }}</p>
-            <ul v-if="result.output.highlights.length">
-              <li v-for="highlight in result.output.highlights" :key="highlight">{{ highlight }}</li>
-            </ul>
           </div>
         </article>
       </div>
@@ -388,79 +427,173 @@ async function refreshLocalAnalysisResults() {
 
 <style scoped>
 .ai-analysis-view {
-  max-width: 1080px;
+  max-width: 1120px;
   margin: 0 auto;
   padding-bottom: 36px;
 }
 
-.analysis-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.hero-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 18px;
-  margin-bottom: 16px;
+  align-items: stretch;
+  padding: 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(var(--accent-rgb), 0.12), transparent 56%),
+    var(--bg-secondary);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(var(--accent-rgb), 0.03);
 }
 
-.analysis-header h1 {
-  margin: 0 0 6px;
+.hero-copy {
+  min-width: 0;
+}
+
+.hero-copy h1 {
+  margin: 0 0 8px;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 760;
   letter-spacing: 0;
 }
 
-.analysis-header p {
-  margin: 0;
+.hero-copy p {
+  max-width: 560px;
+  margin: 0 0 20px;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
-.primary-action,
-.secondary-action {
-  min-height: 40px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  padding: 0 16px;
-  font-size: 13px;
-  font-weight: 650;
+.status-card,
+.feature-card,
+.empty-card,
+.report-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.14),
+    0 0 0 1px rgba(var(--accent-rgb), 0.03);
+}
+
+.status-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px;
+  background: rgba(var(--accent-rgb), 0.06);
+}
+
+.account-showcase-card {
+  align-items: stretch;
+}
+
+.account-showcase-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rankpeek-account-value {
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.league-account-showcase {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.league-account-name {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+.balance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.balance-showcase {
+  color: var(--accent-color);
+  font-size: 21px;
+  font-weight: 820;
+  line-height: 1.2;
+}
+
+.balance-recharge-button {
+  min-height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--accent-color);
+  font-size: 12px;
+  font-weight: 750;
   letter-spacing: 0;
   transition:
     border-color 0.18s ease,
     background 0.18s ease,
-    box-shadow 0.2s ease,
-    color 0.18s ease,
-    opacity 0.18s ease;
+    color 0.18s ease;
 }
 
-.primary-action {
-  flex: 0 0 auto;
-  background: var(--accent-color);
-  color: #fff;
-  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.22);
+.balance-recharge-button:hover {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--text-primary);
 }
 
-.primary-action:hover {
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.16),
-    0 0 18px rgba(var(--accent-rgb), 0.3);
-}
-
-.secondary-action {
-  width: 100%;
-  margin-top: auto;
-  background: var(--bg-tertiary);
-  border-color: var(--border-subtle);
+.report-meta span {
   color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
-.secondary-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+.account-avatar,
+.account-avatar-placeholder {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+}
+
+.account-avatar {
+  display: block;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.account-avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .notice-line {
-  margin: 0 0 16px;
+  margin: 16px 0 0;
   padding: 10px 14px;
   border: 1px solid rgba(var(--accent-rgb), 0.22);
   border-radius: var(--radius-md);
@@ -470,32 +603,9 @@ async function refreshLocalAnalysisResults() {
   font-weight: 600;
 }
 
-.account-card,
-.data-prep-card,
-.server-ai-card,
-.feature-card,
-.empty-card,
-.history-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.16),
-    0 0 0 1px rgba(var(--accent-rgb), 0.03);
-}
-
-.account-card,
-.data-prep-card,
-.server-ai-card,
 .feature-section,
 .history-section {
   margin-top: 24px;
-}
-
-.account-card,
-.data-prep-card,
-.server-ai-card {
-  padding: 22px 24px;
 }
 
 .section-heading {
@@ -521,172 +631,6 @@ async function refreshLocalAnalysisResults() {
   text-transform: none;
 }
 
-.account-body {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.account-mark {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(135deg, rgba(var(--accent-rgb), 0.22), rgba(212, 167, 44, 0.18)),
-    var(--bg-tertiary);
-  border: 1px solid rgba(var(--accent-rgb), 0.18);
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 800;
-}
-
-.account-copy {
-  min-width: 0;
-}
-
-.account-copy h2,
-.empty-card h2,
-.feature-card h2,
-.history-card h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-weight: 650;
-  letter-spacing: 0;
-}
-
-.account-copy h2 {
-  font-size: 20px;
-}
-
-.account-copy p,
-.account-copy span,
-.empty-card p,
-.feature-card li,
-.output-preview p,
-.output-preview li,
-.meta-grid span {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.account-copy p {
-  margin: 5px 0 2px;
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-.prep-empty p,
-.hash-line,
-.prep-warning {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.prep-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.prep-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.prep-grid div {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-}
-
-.prep-grid strong,
-.prep-grid span {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.prep-grid strong {
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 750;
-}
-
-.prep-grid span {
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.hash-line {
-  font-family: var(--font-mono);
-  color: var(--accent-color);
-  overflow-wrap: anywhere;
-}
-
-.prep-warning {
-  color: var(--warning-color);
-  overflow-wrap: anywhere;
-}
-
-.prep-action {
-  width: auto;
-  align-self: flex-start;
-  margin-top: 0;
-}
-
-.server-ai-summary {
-  margin: 0 0 14px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.server-ai-mode-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.server-ai-mode-grid div {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-}
-
-.server-ai-mode-grid strong,
-.server-ai-mode-grid span {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.server-ai-mode-grid strong {
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 750;
-}
-
-.server-ai-mode-grid span {
-  margin-top: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -694,25 +638,67 @@ async function refreshLocalAnalysisResults() {
 }
 
 .feature-card {
-  min-height: 220px;
+  min-height: 132px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
   padding: 18px;
 }
 
-.feature-card h2 {
-  font-size: 16px;
+.feature-copy h2,
+.empty-card h2,
+.report-card h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
-.feature-card ul,
-.output-preview ul {
-  margin: 12px 0 0;
-  padding-left: 18px;
+.feature-copy h2 {
+  font-size: 17px;
 }
 
-.feature-card li + li,
-.output-preview li + li {
-  margin-top: 6px;
+.feature-positioning {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.feature-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.empty-card p,
+.report-main p,
+.report-highlights li {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-list span,
+.report-type-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--accent-color);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .empty-card {
@@ -738,104 +724,156 @@ async function refreshLocalAnalysisResults() {
   gap: 12px;
 }
 
-.history-card {
+.report-type-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.report-type-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.report-type-tab strong {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-type-tab.active {
+  border-color: rgba(var(--accent-rgb), 0.32);
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--text-primary);
+}
+
+.report-type-tab.active strong {
+  color: var(--accent-color);
+}
+
+.report-card {
   padding: 18px;
 }
 
-.history-card-header {
+.report-card.invalid {
+  border-color: rgba(255, 159, 10, 0.22);
+}
+
+.report-topline {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
-.history-card-header div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.history-card-header strong {
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.history-card-header span {
+.report-topline time {
+  flex: 0 0 auto;
   color: var(--text-tertiary);
   font-size: 12px;
 }
 
-.type-code {
-  max-width: 220px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  background: rgba(var(--accent-rgb), 0.1);
-  color: var(--accent-color);
-  font-family: var(--font-mono);
-  font-size: 12px;
+.report-card h3 {
+  font-size: 17px;
+}
+
+.report-main p {
+  margin: 8px 0 0;
   overflow-wrap: anywhere;
 }
 
-.meta-grid {
+.report-highlights {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 12px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.meta-grid span {
-  overflow-wrap: anywhere;
-}
-
-.output-preview {
-  padding: 14px;
+.report-highlights li {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
 }
 
-.output-preview.invalid {
-  background: var(--warning-bg);
-  border-color: rgba(255, 159, 10, 0.22);
+.report-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
 }
 
-.output-preview h3 {
-  margin-bottom: 6px;
-  font-size: 15px;
+.report-context span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
 }
 
-.output-preview p {
-  margin: 0;
+.report-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.report-meta span {
+  color: var(--text-tertiary);
   overflow-wrap: anywhere;
 }
 
 @media (max-width: 1120px) {
-  .feature-grid {
+  .feature-grid,
+  .report-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
+@media (max-width: 840px) {
+  .hero-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
-  .analysis-header,
-  .history-card-header,
-  .account-body {
+  .hero-panel {
+    padding: 20px;
+  }
+
+  .hero-copy h1 {
+    font-size: 28px;
+  }
+
+  .report-topline {
     align-items: stretch;
     flex-direction: column;
+    gap: 6px;
   }
 
   .feature-grid,
-  .meta-grid,
-  .prep-grid,
-  .server-ai-mode-grid {
+  .report-highlights,
+  .report-meta {
     grid-template-columns: 1fr;
-  }
-
-  .primary-action,
-  .prep-action {
-    width: 100%;
   }
 }
 </style>
