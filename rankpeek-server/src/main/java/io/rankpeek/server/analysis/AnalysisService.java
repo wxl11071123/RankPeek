@@ -79,6 +79,36 @@ public class AnalysisService {
         return emitter;
     }
 
+    public SseEmitter streamPostgameMock(PostgameAnalysisRequest request) {
+        SseEmitter emitter = new SseEmitter(30_000L);
+
+        Thread.ofVirtual().start(() -> {
+            try {
+                sendEvent(emitter, "start", "RankPeek postgame mock stream started");
+                pauseBriefly();
+                sendEvent(emitter, "section", "Data received");
+                pauseBriefly();
+                sendEvent(emitter, "delta", buildPostgameReceivedDelta(request));
+                pauseBriefly();
+                sendEvent(emitter, "section", "Data quality");
+                pauseBriefly();
+                sendEvent(emitter, "delta", buildPostgameDataQualityDelta(request));
+                pauseBriefly();
+                sendEvent(emitter, "done", "done");
+                emitter.complete();
+            } catch (Exception e) {
+                try {
+                    sendEvent(emitter, "error", "postgame mock stream failed");
+                } catch (IOException ignored) {
+                    // The client may have already disconnected.
+                }
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
+    }
+
     private static List<String> nullToEmpty(List<String> values) {
         return values == null ? List.of() : List.copyOf(values);
     }
@@ -101,6 +131,29 @@ public class AnalysisService {
             return "对手侧优先关注高胜率、高 KDA 或战绩隐藏目标；若标签样本不足，不从 snapshot 反查补数据。";
         }
         return "队友侧优先识别低样本、战绩隐藏和波动标签；本轮只使用前端提交的临时 snapshot。";
+    }
+
+    private static String buildPostgameReceivedDelta(PostgameAnalysisRequest request) {
+        String mode = normalizePostgameMode(request.mode());
+        String label = "praise".equals(mode) ? "postgame praise snapshot" : "postgame review snapshot";
+        return "Received " + label + ". This is a rankpeek-server mock stream and does not call a real AI provider.";
+    }
+
+    private static String buildPostgameDataQualityDelta(PostgameAnalysisRequest request) {
+        Map<String, Object> dataQuality = readMap(readMap(request.snapshot()).get("dataQuality"));
+        boolean hasGameDetail = readBoolean(dataQuality.get("hasGameDetail"));
+        boolean hasTimeline = readBoolean(dataQuality.get("hasTimeline"));
+        int participantCount = readInt(dataQuality.get("participantCount"));
+
+        return "dataQuality: hasGameDetail=" + hasGameDetail
+                + ", hasTimeline=" + hasTimeline
+                + ", participantCount=" + participantCount
+                + ".";
+    }
+
+    private static String normalizePostgameMode(String mode) {
+        String value = mode == null ? "" : mode.trim().toLowerCase();
+        return "praise".equals(value) ? "praise" : "review";
     }
 
     private static void sendPlayerVerdicts(SseEmitter emitter, PregameAnalysisRequest request) throws IOException {
@@ -215,6 +268,35 @@ public class AnalysisService {
             return bool;
         }
         return "true".equalsIgnoreCase(readString(value));
+    }
+
+    private static int readInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(readString(value));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private static Map<String, Object> readMap(Map<String, Object> value) {
+        return value == null ? Map.of() : value;
+    }
+
+    private static Map<String, Object> readMap(Object value) {
+        if (!(value instanceof Map<?, ?> source)) {
+            return Map.of();
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() instanceof String key) {
+                result.put(key, entry.getValue());
+            }
+        }
+        return result;
     }
 
     private static String summarizeTags(List<String> tags) {

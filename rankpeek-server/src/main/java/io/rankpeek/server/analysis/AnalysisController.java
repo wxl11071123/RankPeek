@@ -30,4 +30,9 @@ public class AnalysisController {
     public SseEmitter pregameStream(@RequestBody PregameAnalysisRequest request) {
         return analysisService.streamPregameMock(request);
     }
+
+    @PostMapping(value = "/postgame/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter postgameStream(@RequestBody PostgameAnalysisRequest request) {
+        return analysisService.streamPostgameMock(request);
+    }
 }

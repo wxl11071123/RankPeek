@@ -2,7 +2,16 @@
 import { computed, ref, watch } from 'vue'
 import { apiClient } from '@/api/httpClient'
 import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
+import PostgameAiAnalysisModal from '@/components/match-history/PostgameAiAnalysisModal.vue'
 import { useI18n, type MessageKey } from '@/i18n'
+import {
+  buildPostgameAiInputSnapshot
+} from '@/services/postgameAiInputSnapshot'
+import {
+  createPostgameAiStreamRequest,
+  streamPostgameAiAnalysis,
+  type PostgameAiStreamState
+} from '@/services/postgameAiServerStream'
 import type {
   DragonType,
   GameDetail,
@@ -61,6 +70,7 @@ import {
 
 export type InlineDetailTabKey = 'overview' | 'runes' | 'chart'
 
+type PostgameAiAnalysisMode = 'review' | 'praise'
 type DetailLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 type TeamTone = 'blue' | 'red'
 type TraitKind = 'perk' | 'augment'
@@ -98,6 +108,7 @@ interface RuneStatDisplayRow {
 interface RuneTeamSection {
   key: TeamTone
   teamId: number
+  label: string
   players: MatchDetailParticipant[]
 }
 
@@ -516,8 +527,8 @@ const blueTeamPlayers = computed(() => getTeamParticipants(displayGameDetail.val
 const redTeamPlayers = computed(() => getTeamParticipants(displayGameDetail.value, 200, props.currentPuuid))
 const allPlayers = computed(() => [...blueTeamPlayers.value, ...redTeamPlayers.value])
 const runeTeamSections = computed<RuneTeamSection[]>(() => [
-  { key: 'blue', teamId: 100, players: blueTeamPlayers.value },
-  { key: 'red', teamId: 200, players: redTeamPlayers.value }
+  { key: 'blue', teamId: 100, label: t('common.blueTeam'), players: blueTeamPlayers.value },
+  { key: 'red', teamId: 200, label: t('common.redTeam'), players: redTeamPlayers.value }
 ].filter(section => section.players.length > 0))
 const blueTeamTotals = computed(() => sumTeamStats(blueTeamPlayers.value))
 const redTeamTotals = computed(() => sumTeamStats(redTeamPlayers.value))
@@ -578,6 +589,12 @@ const activeChartCrosshairTimestamp = computed<number | null>(() => {
 const staticTeamGoldDiff = computed(() => blueTeamTotals.value.goldEarned - redTeamTotals.value.goldEarned)
 const failedObjectiveIconKeys = ref(new Set<string>())
 const expandedRuneParticipantKey = ref('')
+const postgameAiModalOpen = ref(false)
+const postgameAiModalMode = ref<PostgameAiAnalysisMode>('review')
+const postgameAiStreamState = ref<PostgameAiStreamState>('idle')
+const postgameAiStreamText = ref('')
+const postgameAiStreamError = ref('')
+const postgameAiStreamAbortController = ref<AbortController | null>(null)
 
 const detailTabs = computed<Array<{ key: InlineDetailTabKey; label: string }>>(() => [
   { key: 'overview', label: t('matchDetail.overviewTab') },
@@ -631,6 +648,132 @@ watch(
 
 function selectTab(tab: InlineDetailTabKey): void {
   activeTabValue.value = tab
+}
+
+function openPostgameAiModal(mode: PostgameAiAnalysisMode): void {
+  postgameAiStreamAbortController.value?.abort()
+  postgameAiStreamAbortController.value = null
+  postgameAiStreamState.value = 'idle'
+  postgameAiStreamText.value = ''
+  postgameAiStreamError.value = ''
+  postgameAiModalMode.value = mode
+  postgameAiModalOpen.value = true
+}
+
+function closePostgameAiModal(): void {
+  postgameAiStreamAbortController.value?.abort()
+  postgameAiStreamAbortController.value = null
+  postgameAiStreamState.value = 'idle'
+  postgameAiStreamText.value = ''
+  postgameAiStreamError.value = ''
+  postgameAiModalOpen.value = false
+}
+
+function cancelPostgameAiAnalysis(): void {
+  postgameAiStreamAbortController.value?.abort()
+  postgameAiStreamAbortController.value = null
+  if (postgameAiStreamState.value === 'preparing' || postgameAiStreamState.value === 'streaming') {
+    postgameAiStreamState.value = 'idle'
+  }
+}
+
+async function startPostgameAiAnalysis(): Promise<void> {
+  if (postgameAiStreamState.value === 'preparing' || postgameAiStreamState.value === 'streaming') {
+    return
+  }
+
+  const abortController = new AbortController()
+  postgameAiStreamAbortController.value = abortController
+  postgameAiStreamState.value = 'preparing'
+  postgameAiStreamText.value = ''
+  postgameAiStreamError.value = ''
+
+  try {
+    const timeline = await resolvePostgameTimelineForSnapshot()
+    if (abortController.signal.aborted) {
+      return
+    }
+
+    const snapshot = buildPostgameAiInputSnapshot({
+      mode: postgameAiModalMode.value,
+      matchHistory: props.matchHistory,
+      gameDetail: displayGameDetail.value,
+      timeline,
+      currentPuuid: props.currentPuuid,
+      currentSummonerName: props.currentSummonerName
+    })
+    const request = createPostgameAiStreamRequest(snapshot)
+    postgameAiStreamState.value = 'streaming'
+
+    const result = await streamPostgameAiAnalysis(request, {
+      onSection: title => appendPostgameAiStreamText(`\n${title}\n`),
+      onDelta: text => appendPostgameAiStreamText(text),
+      onError: message => {
+        postgameAiStreamError.value = message
+        postgameAiStreamState.value = 'failed'
+      },
+      onDone: () => {
+        if (postgameAiStreamState.value !== 'failed') {
+          postgameAiStreamState.value = 'completed'
+        }
+      }
+    }, {
+      signal: abortController.signal
+    })
+
+    if (abortController.signal.aborted) {
+      return
+    }
+    if (!result.ok) {
+      postgameAiStreamError.value = result.message
+      postgameAiStreamState.value = 'failed'
+      return
+    }
+    if (postgameAiStreamState.value === 'streaming') {
+      postgameAiStreamState.value = 'completed'
+    }
+  } catch (error) {
+    if (!abortController.signal.aborted) {
+      postgameAiStreamError.value = error instanceof Error ? error.message : 'rankpeek-server 暂不可用'
+      postgameAiStreamState.value = 'failed'
+    }
+  } finally {
+    if (postgameAiStreamAbortController.value === abortController) {
+      postgameAiStreamAbortController.value = null
+    }
+  }
+}
+
+async function resolvePostgameTimelineForSnapshot(): Promise<MatchTimeline | null> {
+  if (timelineData.value) {
+    return timelineData.value
+  }
+  if (!isChartRankedMode.value) {
+    return null
+  }
+
+  const gameId = currentTimelineGameId.value
+  if (gameId === null) {
+    return null
+  }
+
+  try {
+    const result = await apiClient.getGameTimeline(gameId, { source: 'auto' })
+    if (result.status === 'FETCHED' && hasRenderableTimeline(result.timeline)) {
+      timelineRequestedGameId.value = gameId
+      timelineData.value = result.timeline
+      timelineLoadStatus.value = 'loaded'
+      timelineLastError.value = ''
+      return result.timeline
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function appendPostgameAiStreamText(text: string): void {
+  postgameAiStreamText.value += text
 }
 
 function resetTimelineChartState(): void {
@@ -2759,18 +2902,37 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
       {{ detailNotice }}
     </div>
 
-    <nav class="inline-detail-tabs" aria-label="match detail tabs">
-      <button
-        v-for="tab in detailTabs"
-        :key="tab.key"
-        class="inline-detail-tab"
-        :class="{ active: activeTabValue === tab.key }"
-        type="button"
-        @click="selectTab(tab.key)"
-      >
-        {{ tab.label }}
-      </button>
-    </nav>
+    <div class="inline-detail-toolbar">
+      <nav class="inline-detail-tabs" aria-label="match detail tabs">
+        <button
+          v-for="tab in detailTabs"
+          :key="tab.key"
+          class="inline-detail-tab"
+          :class="{ active: activeTabValue === tab.key }"
+          type="button"
+          @click="selectTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+
+      <div class="postgame-ai-actions" aria-label="赛后 AI 分析入口">
+        <button
+          class="postgame-ai-action postgame-ai-action-review"
+          type="button"
+          @click="openPostgameAiModal('review')"
+        >
+          赛后复盘
+        </button>
+        <button
+          class="postgame-ai-action postgame-ai-action-praise"
+          type="button"
+          @click="openPostgameAiModal('praise')"
+        >
+          夸夸机
+        </button>
+      </div>
+    </div>
 
     <section class="inline-detail-body">
       <div v-if="activeTabValue === 'overview'" class="overview-tab">
@@ -2803,7 +2965,6 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                       :key="item.key"
                       class="objective-pill compact-objective-pill"
                       :class="`objective-${item.kind}`"
-                      :title="item.title"
                       :aria-label="item.title"
                       tabindex="0"
                     >
@@ -3086,127 +3247,210 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
       </div>
 
       <div v-else-if="activeTabValue === 'runes'" class="runes-tab">
-        <template
+        <section
           v-for="(team, teamIndex) in runeTeamSections"
           :key="`rune-team-${team.key}`"
+          class="rune-team-card"
+          :class="team.key"
         >
-          <div
-            v-if="teamIndex > 0"
-            class="rune-team-divider rune-team-divider--between-teams rune-team-divider--interactive"
-            aria-hidden="true"
-          />
-          <div
-            v-for="(player, playerIndex) in team.players"
-            :key="`runes-${player.participantId}`"
-            class="rune-player-row"
-            :class="{
-              me: player.isCurrentPlayer,
-              expanded: isRuneParticipantExpanded(player),
-              clickable: true,
-              'rune-player-row--team-end': teamIndex < runeTeamSections.length - 1 && playerIndex === team.players.length - 1
-            }"
-            data-card-click-ignore
-            role="button"
-            tabindex="0"
-            @click="toggleRuneParticipant(player)"
-            @keydown.enter.prevent="toggleRuneParticipant(player)"
-            @keydown.space.prevent="toggleRuneParticipant(player)"
-          >
-          <div class="player-cell">
-            <span class="champion-wrap">
-              <img
-                v-if="getChampionIconUrl(player.championId)"
-                :src="getChampionIconUrl(player.championId)"
-                alt=""
-                @error="markAssetLoadFailed"
-              />
-            </span>
-            <span class="spell-stack">
-              <span
-                v-for="slot in getPlayerSpellSlots(player)"
-                :key="`runes-${slot.key}`"
-                class="mini-slot spell-slot"
-                :class="{ empty: slot.empty }"
-              >
-                <AssetHoverTooltip
-                  v-if="slot.url && !slot.empty && getSummonerSpellTooltipDetails(slot.id)"
-                  :details="getSummonerSpellTooltipDetails(slot.id)!"
-                >
-                  <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
-                </AssetHoverTooltip>
-                <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
-              </span>
-            </span>
-            <span class="player-copy">
-              <strong>{{ getPlayerName(player) }}</strong>
-              <span v-if="getDisplayPosition(player)">{{ getDisplayPosition(player) }}</span>
-            </span>
-          </div>
+          <header class="rune-team-header">
+            <strong>{{ team.label }}</strong>
+          </header>
 
-          <div class="trait-list">
-            <span
-              v-for="slot in getPlayerTraitSlots(player)"
-              :key="`runes-${slot.key}`"
-              class="trait-detail-slot"
-              :class="[`trait-${slot.kind}`, slot.rarityClass, { empty: slot.empty }]"
-              :aria-label="slot.label"
-            >
-              <AssetHoverTooltip
-                v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
-                :details="getTraitTooltipDetails(slot)!"
-              >
-                <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
-              </AssetHoverTooltip>
-              <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
-            </span>
-          </div>
-
-          <div
-            v-if="isRuneParticipantExpanded(player)"
-            class="rune-detail-panel"
-            @click.stop
-          >
+          <div class="rune-team-players">
             <div
-              v-if="!hasValidAugment(player)"
-              class="rune-columns"
+              v-for="(player, playerIndex) in team.players"
+              :key="`runes-${player.participantId}`"
+              class="rune-player-row"
+              :class="{
+                me: player.isCurrentPlayer,
+                expanded: isRuneParticipantExpanded(player),
+                clickable: true
+              }"
+              data-card-click-ignore
+              role="button"
+              tabindex="0"
+              @click="toggleRuneParticipant(player)"
+              @keydown.enter.prevent="toggleRuneParticipant(player)"
+              @keydown.space.prevent="toggleRuneParticipant(player)"
             >
-              <section
-                v-for="column in getPlayerRuneColumns(player)"
-                :key="column.key"
-                class="rune-column"
-              >
-                <header class="rune-column-header">
+              <div class="player-cell">
+                <span class="champion-wrap">
+                  <img
+                    v-if="getChampionIconUrl(player.championId)"
+                    :src="getChampionIconUrl(player.championId)"
+                    alt=""
+                    @error="markAssetLoadFailed"
+                  />
+                </span>
+                <span class="spell-stack">
                   <span
-                    v-if="column.styleSlot"
-                    class="rune-style-icon trait-detail-slot"
-                    :class="[`trait-${column.styleSlot.kind}`, column.styleSlot.rarityClass, { empty: column.styleSlot.empty }]"
-                    :aria-label="column.styleSlot.label"
+                    v-for="slot in getPlayerSpellSlots(player)"
+                    :key="`runes-${slot.key}`"
+                    class="mini-slot spell-slot"
+                    :class="{ empty: slot.empty }"
                   >
                     <AssetHoverTooltip
-                      v-if="column.styleSlot.url && !column.styleSlot.empty && getTraitTooltipDetails(column.styleSlot)"
-                      :details="getTraitTooltipDetails(column.styleSlot)!"
+                      v-if="slot.url && !slot.empty && getSummonerSpellTooltipDetails(slot.id)"
+                      :details="getSummonerSpellTooltipDetails(slot.id)!"
                     >
-                      <img
-                        v-if="column.styleSlot.url"
-                        :src="column.styleSlot.url"
-                        alt=""
-                        @error="markAssetLoadFailed"
-                      >
+                      <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
                     </AssetHoverTooltip>
-                    <img
-                      v-else-if="column.styleSlot.url"
-                      :src="column.styleSlot.url"
-                      alt=""
-                      @error="markAssetLoadFailed"
-                    >
+                    <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
                   </span>
-                  <strong>{{ column.title }}</strong>
-                </header>
+                </span>
+                <span class="player-copy">
+                  <strong>{{ getPlayerName(player) }}</strong>
+                  <span v-if="getDisplayPosition(player)">{{ getDisplayPosition(player) }}</span>
+                </span>
+              </div>
 
-                <div class="rune-column-list">
+              <div class="trait-list">
+                <span
+                  v-for="slot in getPlayerTraitSlots(player)"
+                  :key="`runes-${slot.key}`"
+                  class="trait-detail-slot"
+                  :class="[`trait-${slot.kind}`, slot.rarityClass, { empty: slot.empty }]"
+                  :aria-label="slot.label"
+                >
+                  <AssetHoverTooltip
+                    v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                    :details="getTraitTooltipDetails(slot)!"
+                  >
+                    <img v-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                  </AssetHoverTooltip>
+                  <img v-else-if="slot.url" :src="slot.url" alt="" @error="markAssetLoadFailed" />
+                </span>
+              </div>
+
+              <div
+                v-if="isRuneParticipantExpanded(player)"
+                class="rune-detail-panel"
+                @click.stop
+              >
+                <div
+                  v-if="!hasValidAugment(player)"
+                  class="rune-columns"
+                >
+                  <section
+                    v-for="column in getPlayerRuneColumns(player)"
+                    :key="column.key"
+                    class="rune-column"
+                  >
+                    <header class="rune-column-header">
+                      <span
+                        v-if="column.styleSlot"
+                        class="rune-style-icon trait-detail-slot"
+                        :class="[`trait-${column.styleSlot.kind}`, column.styleSlot.rarityClass, { empty: column.styleSlot.empty }]"
+                        :aria-label="column.styleSlot.label"
+                      >
+                        <AssetHoverTooltip
+                          v-if="column.styleSlot.url && !column.styleSlot.empty && getTraitTooltipDetails(column.styleSlot)"
+                          :details="getTraitTooltipDetails(column.styleSlot)!"
+                        >
+                          <img
+                            v-if="column.styleSlot.url"
+                            :src="column.styleSlot.url"
+                            alt=""
+                            @error="markAssetLoadFailed"
+                          >
+                        </AssetHoverTooltip>
+                        <img
+                          v-else-if="column.styleSlot.url"
+                          :src="column.styleSlot.url"
+                          alt=""
+                          @error="markAssetLoadFailed"
+                        >
+                      </span>
+                      <strong>{{ column.title }}</strong>
+                    </header>
+
+                    <div class="rune-column-list">
+                      <article
+                        v-for="slot in column.slots"
+                        :key="`detail-${column.key}-${slot.key}`"
+                        class="rune-detail-item"
+                      >
+                        <AssetHoverTooltip
+                          v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
+                          :details="getTraitTooltipDetails(slot)!"
+                        >
+                          <div class="rune-detail-content">
+                            <span
+                              class="rune-detail-icon-wrap trait-detail-slot"
+                              :class="[`trait-${slot.kind}`, slot.rarityClass]"
+                              :aria-label="slot.label"
+                            >
+                              <img
+                                v-if="slot.url"
+                                class="rune-detail-icon"
+                                :src="slot.url"
+                                alt=""
+                                @error="markAssetLoadFailed"
+                              >
+                            </span>
+                            <div class="rune-detail-text">
+                              <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
+                              <div
+                                v-if="getRuneStatDisplayRows(player, slot).length"
+                                class="rune-stat-list"
+                              >
+                                <span
+                                  v-for="row in getRuneStatDisplayRows(player, slot)"
+                                  :key="row.key"
+                                  class="rune-stat-line"
+                                >
+                                  {{ row.text }}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </AssetHoverTooltip>
+                        <div
+                          v-else
+                          class="rune-detail-content"
+                        >
+                          <span
+                            class="rune-detail-icon-wrap trait-detail-slot"
+                            :class="[`trait-${slot.kind}`, slot.rarityClass]"
+                            :aria-label="slot.label"
+                          >
+                            <img
+                              v-if="slot.url"
+                              class="rune-detail-icon"
+                              :src="slot.url"
+                              alt=""
+                              @error="markAssetLoadFailed"
+                            >
+                          </span>
+                          <div class="rune-detail-text">
+                            <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
+                            <div
+                              v-if="getRuneStatDisplayRows(player, slot).length"
+                              class="rune-stat-list"
+                            >
+                              <span
+                                v-for="row in getRuneStatDisplayRows(player, slot)"
+                                :key="row.key"
+                                class="rune-stat-line"
+                              >
+                                {{ row.text }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    </div>
+                  </section>
+                </div>
+
+                <div
+                  v-else
+                  class="rune-augment-list"
+                >
                   <article
-                    v-for="slot in column.slots"
-                    :key="`detail-${column.key}-${slot.key}`"
+                    v-for="slot in getRuneDetailSlots(player)"
+                    :key="`detail-${slot.key}`"
                     class="rune-detail-item"
                   >
                     <AssetHoverTooltip
@@ -3229,18 +3473,6 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                         </span>
                         <div class="rune-detail-text">
                           <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
-                          <div
-                            v-if="getRuneStatDisplayRows(player, slot).length"
-                            class="rune-stat-list"
-                          >
-                            <span
-                              v-for="row in getRuneStatDisplayRows(player, slot)"
-                              :key="row.key"
-                              class="rune-stat-line"
-                            >
-                              {{ row.text }}
-                            </span>
-                          </div>
                         </div>
                       </div>
                     </AssetHoverTooltip>
@@ -3263,83 +3495,14 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                       </span>
                       <div class="rune-detail-text">
                         <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
-                        <div
-                          v-if="getRuneStatDisplayRows(player, slot).length"
-                          class="rune-stat-list"
-                        >
-                          <span
-                            v-for="row in getRuneStatDisplayRows(player, slot)"
-                            :key="row.key"
-                            class="rune-stat-line"
-                          >
-                            {{ row.text }}
-                          </span>
-                        </div>
                       </div>
                     </div>
                   </article>
                 </div>
-              </section>
-            </div>
-
-            <div
-              v-else
-              class="rune-augment-list"
-            >
-              <article
-                v-for="slot in getRuneDetailSlots(player)"
-                :key="`detail-${slot.key}`"
-                class="rune-detail-item"
-              >
-                <AssetHoverTooltip
-                  v-if="slot.url && !slot.empty && getTraitTooltipDetails(slot)"
-                  :details="getTraitTooltipDetails(slot)!"
-                >
-                  <div class="rune-detail-content">
-                    <span
-                      class="rune-detail-icon-wrap trait-detail-slot"
-                      :class="[`trait-${slot.kind}`, slot.rarityClass]"
-                      :aria-label="slot.label"
-                    >
-                      <img
-                        v-if="slot.url"
-                        class="rune-detail-icon"
-                        :src="slot.url"
-                        alt=""
-                        @error="markAssetLoadFailed"
-                      >
-                    </span>
-                    <div class="rune-detail-text">
-                      <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
-                    </div>
-                  </div>
-                </AssetHoverTooltip>
-                <div
-                  v-else
-                  class="rune-detail-content"
-                >
-                  <span
-                    class="rune-detail-icon-wrap trait-detail-slot"
-                    :class="[`trait-${slot.kind}`, slot.rarityClass]"
-                    :aria-label="slot.label"
-                  >
-                    <img
-                      v-if="slot.url"
-                      class="rune-detail-icon"
-                      :src="slot.url"
-                      alt=""
-                      @error="markAssetLoadFailed"
-                    >
-                  </span>
-                  <div class="rune-detail-text">
-                    <strong class="rune-detail-name">{{ getRuneDisplayName(slot) }}</strong>
-                  </div>
-                </div>
-              </article>
+              </div>
             </div>
           </div>
-        </div>
-        </template>
+        </section>
       </div>
 
       <div v-else-if="activeTabValue === 'chart'" class="chart-tab">
@@ -3651,6 +3814,17 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
         </div>
       </div>
     </section>
+
+    <PostgameAiAnalysisModal
+      :open="postgameAiModalOpen"
+      :mode="postgameAiModalMode"
+      :stream-state="postgameAiStreamState"
+      :stream-text="postgameAiStreamText"
+      :stream-error="postgameAiStreamError"
+      @start-analysis="startPostgameAiAnalysis"
+      @cancel-analysis="cancelPostgameAiAnalysis"
+      @close="closePostgameAiModal"
+    />
   </section>
 </template>
 
@@ -3687,10 +3861,21 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   line-height: 1.4;
 }
 
-.inline-detail-tabs {
+.inline-detail-toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
+}
+
+.inline-detail-tabs,
+.postgame-ai-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .inline-detail-tab {
@@ -3709,6 +3894,34 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   border-color: rgba(var(--accent-rgb), 0.38);
   background: rgba(var(--accent-rgb), 0.14);
   color: var(--accent-color);
+}
+
+.postgame-ai-actions {
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.postgame-ai-action {
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  border-radius: 6px;
+  background: rgba(var(--accent-rgb), 0.095);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.postgame-ai-action:hover,
+.postgame-ai-action:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent-color);
+  outline: none;
 }
 
 .inline-detail-body,
@@ -3927,8 +4140,9 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 .objective-tooltip-actors {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 5px;
-  flex-wrap: wrap;
 }
 
 .objective-tooltip-actor {
@@ -4046,98 +4260,6 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 .participant-row:last-child,
 .rune-player-row:last-child {
   border-bottom: 0;
-}
-
-.rune-player-row--team-end {
-  border-bottom-color: transparent;
-}
-
-.rune-team-divider {
-  --rune-team-divider-edge: rgba(245, 190, 90, 0.05);
-  --rune-team-divider-mid: rgba(245, 190, 90, 0.44);
-  --rune-team-divider-core: rgba(245, 190, 90, 0.72);
-  --rune-team-divider-glow: rgba(245, 190, 90, 0.2);
-  position: relative;
-  z-index: 1;
-  height: 4px;
-  margin: -2px 10px;
-  border: 0;
-  background: transparent;
-  pointer-events: auto;
-}
-
-.rune-team-divider::before,
-.rune-team-divider::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  pointer-events: none;
-  transition:
-    opacity 0.18s ease,
-    box-shadow 0.18s ease,
-    filter 0.18s ease;
-}
-
-.rune-team-divider::before {
-  left: 0;
-  right: 0;
-  height: 1px;
-  transform: translateY(-50%);
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--rune-team-divider-edge) 12%,
-    var(--rune-team-divider-mid) 32%,
-    var(--rune-team-divider-core) 50%,
-    var(--rune-team-divider-mid) 68%,
-    var(--rune-team-divider-edge) 88%,
-    transparent 100%
-  );
-  opacity: 0.82;
-  box-shadow: 0 0 5px var(--rune-team-divider-glow);
-}
-
-.rune-team-divider::after {
-  left: 24%;
-  right: 24%;
-  height: 2px;
-  transform: translateY(-50%);
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--rune-team-divider-mid) 28%,
-    var(--rune-team-divider-core) 50%,
-    var(--rune-team-divider-mid) 72%,
-    transparent 100%
-  );
-  opacity: 0.38;
-  filter: blur(0.2px);
-  box-shadow: 0 0 8px var(--rune-team-divider-glow);
-}
-
-.rune-team-divider--between-teams {
-  cursor: default;
-}
-
-.rune-team-divider--interactive:hover::before {
-  opacity: 1;
-  box-shadow:
-    0 0 6px var(--rune-team-divider-glow),
-    0 0 12px var(--rune-team-divider-glow);
-}
-
-.rune-team-divider--interactive:hover::after {
-  opacity: 0.78;
-  box-shadow:
-    0 0 9px var(--rune-team-divider-glow),
-    0 0 18px var(--rune-team-divider-glow);
-}
-
-:global([data-theme="light"] .rune-team-divider) {
-  --rune-team-divider-edge: rgba(70, 140, 230, 0.06);
-  --rune-team-divider-mid: rgba(70, 140, 230, 0.36);
-  --rune-team-divider-core: rgba(70, 140, 230, 0.66);
-  --rune-team-divider-glow: rgba(70, 140, 230, 0.22);
 }
 
 .participant-row.clickable,
@@ -4448,14 +4570,58 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 .runes-tab {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rune-team-card {
+  min-width: 0;
   border: 1px solid rgba(124, 139, 164, 0.14);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.035);
   overflow: hidden;
 }
 
-:global([data-theme="light"] .runes-tab) {
+.rune-team-card.blue {
+  border-color: rgba(92, 163, 234, 0.18);
+}
+
+.rune-team-card.red {
+  border-color: rgba(222, 111, 111, 0.18);
+}
+
+:global([data-theme="light"] .rune-team-card) {
   background: rgba(255, 255, 255, 0.74);
+}
+
+.rune-team-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(124, 139, 164, 0.1);
+  background: rgba(124, 139, 164, 0.055);
+}
+
+.rune-team-header strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.rune-team-card.blue .rune-team-header {
+  background: rgba(92, 163, 234, 0.07);
+}
+
+.rune-team-card.red .rune-team-header {
+  background: rgba(222, 111, 111, 0.07);
+}
+
+.rune-team-players {
+  min-width: 0;
 }
 
 .rune-player-row {
@@ -5131,6 +5297,16 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 @media (max-width: 760px) {
   .inline-match-detail {
     padding: 8px;
+  }
+
+  .inline-detail-toolbar {
+    align-items: flex-start;
+  }
+
+  .postgame-ai-actions {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   .team-detail-header {

@@ -81,6 +81,48 @@ interface RuneToggleHarness {
   toggleRuneParticipant: (player: { participantId: number }) => void
 }
 
+interface PostgameAiHarness {
+  postgameAiModalOpen: { value: boolean }
+  postgameAiModalMode: { value: 'review' | 'praise' }
+  postgameAiStreamState: { value: 'idle' | 'preparing' | 'streaming' | 'completed' | 'failed' }
+  postgameAiStreamText: { value: string }
+  postgameAiStreamError: { value: string }
+  openPostgameAiModal: (mode: 'review' | 'praise') => void
+  closePostgameAiModal: () => void
+}
+
+function createPostgameAiHarness(): PostgameAiHarness {
+  const source = readInlineDetailSource()
+  const script = `
+    const postgameAiModalOpen = { value: false }
+    const postgameAiModalMode = { value: 'review' }
+    const postgameAiStreamState = { value: 'idle' }
+    const postgameAiStreamText = { value: '' }
+    const postgameAiStreamError = { value: '' }
+    const postgameAiStreamAbortController = { value: null }
+    ${readFunctionBlock(source, 'function openPostgameAiModal(mode: PostgameAiAnalysisMode): void')}
+    ${readFunctionBlock(source, 'function closePostgameAiModal(): void')}
+    globalThis.__postgameAiHarness = {
+      postgameAiModalOpen,
+      postgameAiModalMode,
+      postgameAiStreamState,
+      postgameAiStreamText,
+      postgameAiStreamError,
+      openPostgameAiModal,
+      closePostgameAiModal
+    }
+  `
+  const compiled = ts.transpileModule(script, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText
+  const context = createContext({})
+  runInContext(compiled, context)
+  return (context as { __postgameAiHarness: PostgameAiHarness }).__postgameAiHarness
+}
+
 function createRuneToggleHarness(gameId = 2468): RuneToggleHarness {
   const source = readInlineDetailSource()
   const script = `
@@ -225,6 +267,81 @@ test('inline match detail exposes compact overview, rune, and chart tabs', () =>
   assert.match(zh, /'matchDetail\.chartTab': '线图'/)
   assert.match(en, /'matchDetail\.runesTab': 'Runes'/)
   assert.match(en, /'matchDetail\.chartTab': 'Chart'/)
+})
+
+test('inline match detail exposes postgame AI buttons near tabs and wires modal modes', () => {
+  const source = readInlineDetailSource()
+  const actionBlock = source.match(/<div class="postgame-ai-actions"[\s\S]*?<\/div>/)?.[0] || ''
+  const tabsIndex = source.indexOf('class="inline-detail-tabs"')
+  const actionIndex = source.indexOf('class="postgame-ai-actions"')
+  const bodyIndex = source.indexOf('class="inline-detail-body"')
+
+  assert.match(source, /import PostgameAiAnalysisModal from '@\/components\/match-history\/PostgameAiAnalysisModal\.vue'/)
+  assert.match(source, /buildPostgameAiInputSnapshot/)
+  assert.match(source, /createPostgameAiStreamRequest/)
+  assert.match(source, /streamPostgameAiAnalysis/)
+  assert.match(source, /type PostgameAiAnalysisMode = 'review' \| 'praise'/)
+  assert.match(source, /const postgameAiModalOpen = ref\(false\)/)
+  assert.match(source, /const postgameAiModalMode = ref<PostgameAiAnalysisMode>\('review'\)/)
+  assert.match(source, /const postgameAiStreamState = ref<PostgameAiStreamState>\('idle'\)/)
+  assert.match(source, /const postgameAiStreamText = ref\(''\)/)
+  assert.match(source, /const postgameAiStreamError = ref\(''\)/)
+  assert.match(source, /const postgameAiStreamAbortController = ref<AbortController \| null>\(null\)/)
+  assert.match(source, /function openPostgameAiModal\(mode: PostgameAiAnalysisMode\): void/)
+  assert.match(source, /function closePostgameAiModal\(\): void/)
+  assert.ok(tabsIndex >= 0 && actionIndex > tabsIndex && actionIndex < bodyIndex)
+  assert.match(actionBlock, /@click="openPostgameAiModal\('review'\)"[\s\S]*赛后复盘/)
+  assert.match(actionBlock, /@click="openPostgameAiModal\('praise'\)"[\s\S]*夸夸机/)
+  assert.match(source, /<PostgameAiAnalysisModal[\s\S]*:open="postgameAiModalOpen"[\s\S]*:mode="postgameAiModalMode"[\s\S]*:stream-state="postgameAiStreamState"[\s\S]*:stream-text="postgameAiStreamText"[\s\S]*:stream-error="postgameAiStreamError"[\s\S]*@start-analysis="startPostgameAiAnalysis"[\s\S]*@cancel-analysis="cancelPostgameAiAnalysis"[\s\S]*@close="closePostgameAiModal"/)
+})
+
+test('inline match detail postgame AI handlers open review and praise modes then close', () => {
+  const harness = createPostgameAiHarness()
+
+  harness.openPostgameAiModal('review')
+  assert.equal(harness.postgameAiModalOpen.value, true)
+  assert.equal(harness.postgameAiModalMode.value, 'review')
+
+  harness.closePostgameAiModal()
+  assert.equal(harness.postgameAiModalOpen.value, false)
+
+  harness.openPostgameAiModal('praise')
+  assert.equal(harness.postgameAiModalOpen.value, true)
+  assert.equal(harness.postgameAiModalMode.value, 'praise')
+})
+
+test('opening postgame AI modal does not build snapshots, fetch timelines, or call server stream', () => {
+  const source = readInlineDetailSource()
+  const openBlock = readFunctionBlock(source, 'function openPostgameAiModal(mode: PostgameAiAnalysisMode): void')
+
+  assert.match(openBlock, /postgameAiModalMode\.value = mode/)
+  assert.match(openBlock, /postgameAiModalOpen\.value = true/)
+  assert.doesNotMatch(openBlock, /buildPostgameAiInputSnapshot|createPostgameAiStreamRequest|streamPostgameAiAnalysis|apiClient\.getGameTimeline|fetch\(/)
+})
+
+test('postgame AI start handler builds and streams only after the modal start action', () => {
+  const source = readInlineDetailSource()
+  const startBlock = readFunctionBlock(source, 'async function startPostgameAiAnalysis()')
+  const timelineBlock = readFunctionBlock(source, 'async function resolvePostgameTimelineForSnapshot()')
+
+  assert.match(startBlock, /postgameAiStreamState\.value === 'preparing' \|\| postgameAiStreamState\.value === 'streaming'/)
+  assert.match(startBlock, /buildPostgameAiInputSnapshot\(\{[\s\S]*mode: postgameAiModalMode\.value[\s\S]*matchHistory: props\.matchHistory[\s\S]*gameDetail: displayGameDetail\.value[\s\S]*timeline[\s\S]*currentPuuid: props\.currentPuuid[\s\S]*currentSummonerName: props\.currentSummonerName/)
+  assert.match(startBlock, /createPostgameAiStreamRequest\(snapshot\)/)
+  assert.match(startBlock, /streamPostgameAiAnalysis\(/)
+  assert.match(timelineBlock, /if \(timelineData\.value\) \{[\s\S]*return timelineData\.value/)
+  assert.match(timelineBlock, /isChartRankedMode\.value/)
+  assert.match(timelineBlock, /apiClient\.getGameTimeline\(gameId,[\s\S]*source: 'auto'/)
+})
+
+test('postgame AI close cancels active work and clears stream state', () => {
+  const source = readInlineDetailSource()
+  const closeBlock = readFunctionBlock(source, 'function closePostgameAiModal(): void')
+
+  assert.match(closeBlock, /postgameAiStreamAbortController\.value\?\.abort\(\)/)
+  assert.match(closeBlock, /postgameAiStreamState\.value = 'idle'/)
+  assert.match(closeBlock, /postgameAiStreamText\.value = ''/)
+  assert.match(closeBlock, /postgameAiStreamError\.value = ''/)
+  assert.match(closeBlock, /postgameAiModalOpen\.value = false/)
 })
 
 test('chart tab renders timeline chart UI instead of a placeholder', () => {
@@ -665,17 +782,13 @@ test('runes tab renders LCU-style primary and secondary rune columns', () => {
   assert.match(source, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/)
 })
 
-test('runes tab groups teams explicitly and renders a divider only between blue and red teams', () => {
+test('runes tab renders blue and red teams as separate overview-style modules without divider', () => {
   const source = readInlineDetailSource()
   const overviewBlock = source.match(/<div v-if="activeTabValue === 'overview'"[\s\S]*?<div v-else-if="activeTabValue === 'runes'"/)?.[0] || ''
   const runesBlock = source.match(/<div v-else-if="activeTabValue === 'runes'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
   const chartBlock = source.match(/<div v-else-if="activeTabValue === 'chart'"[\s\S]*?<\/div>\s*<\/section>/)?.[0] || ''
-  const dividerRule = source.match(/\.rune-team-divider \{[\s\S]*?\n\}/)?.[0] || ''
-  const dividerBeforeRule = source.match(/\.rune-team-divider::before \{[\s\S]*?\n\}/)?.[0] || ''
-  const dividerAfterRule = (source.match(/\.rune-team-divider::after \{[\s\S]*?\n\}/g) || [])
-    .find(rule => /height:\s*2px/.test(rule)) || ''
-  const lightThemeRule = source.match(/:global\(\[data-theme="light"\] \.rune-team-divider\) \{[\s\S]*?\n\}/)?.[0] || ''
-  const hoverRule = source.match(/\.rune-team-divider--interactive:hover::before[\s\S]*?\n\}/)?.[0] || ''
+  const runesTabRule = source.match(/\.runes-tab \{[\s\S]*?\n\}/)?.[0] || ''
+  const runeTeamCardRule = source.match(/\.rune-team-card \{[\s\S]*?\n\}/)?.[0] || ''
 
   assert.match(source, /interface RuneTeamSection \{/)
   assert.match(source, /const runeTeamSections = computed<RuneTeamSection\[\]>/)
@@ -683,30 +796,26 @@ test('runes tab groups teams explicitly and renders a divider only between blue 
   assert.match(source, /key: 'red'[\s\S]*teamId: 200[\s\S]*players: redTeamPlayers\.value/)
   assert.match(source, /\.filter\(section => section\.players\.length > 0\)/)
   assert.match(runesBlock, /v-for="\(\s*team,\s*teamIndex\s*\) in runeTeamSections"/)
-  assert.match(runesBlock, /v-if="teamIndex > 0"/)
-  assert.match(runesBlock, /class="rune-team-divider rune-team-divider--between-teams rune-team-divider--interactive"/)
+  assert.match(runesBlock, /class="rune-team-card"/)
+  assert.match(runesBlock, /class="rune-team-header"/)
+  assert.match(runesBlock, /class="rune-team-players"/)
   assert.match(runesBlock, /v-for="\(\s*player,\s*playerIndex\s*\) in team\.players"/)
   assertOrdered(runesBlock, [
-    'v-if="teamIndex > 0"',
-    'class="rune-team-divider rune-team-divider--between-teams rune-team-divider--interactive"',
+    'class="rune-team-card"',
+    'class="rune-team-header"',
+    'class="rune-team-players"',
     'v-for="(player, playerIndex) in team.players"'
   ])
-  assert.match(runesBlock, /'rune-player-row--team-end': teamIndex < runeTeamSections\.length - 1 && playerIndex === team\.players\.length - 1/)
   assert.doesNotMatch(runesBlock, /v-for="player in allPlayers"/)
   assert.doesNotMatch(overviewBlock, /rune-team-divider/)
   assert.doesNotMatch(chartBlock, /rune-team-divider/)
-  assert.match(source, /\.rune-team-divider \{/)
-  assert.match(source, /\.rune-team-divider--between-teams \{/)
-  assert.match(source, /\.rune-team-divider--interactive:hover::before/)
-  assert.match(source, /\.rune-team-divider--interactive:hover::after/)
-  assert.match(dividerRule, /height:\s*4px/)
-  assert.match(dividerRule, /margin:\s*-2px 10px/)
-  assert.doesNotMatch(dividerRule, /height:\s*(?:8|10|12|16)px/)
-  assert.match(dividerRule, /rgba\(245, 190, 90/)
-  assert.match(dividerBeforeRule, /linear-gradient/)
-  assert.match(dividerAfterRule, /height:\s*2px/)
-  assert.match(lightThemeRule, /rgba\(70, 140, 230/)
-  assert.match(hoverRule, /box-shadow/)
+  assert.doesNotMatch(runesBlock, /rune-team-divider/)
+  assert.doesNotMatch(source, /\.rune-team-divider/)
+  assert.doesNotMatch(source, /rune-player-row--team-end/)
+  assert.match(runesTabRule, /gap:\s*8px/)
+  assert.match(runeTeamCardRule, /border:\s*1px solid rgba\(124, 139, 164, 0\.14\)/)
+  assert.match(runeTeamCardRule, /border-radius:\s*7px/)
+  assert.match(runeTeamCardRule, /overflow:\s*hidden/)
 })
 
 test('rune columns use perks.styles selections instead of rendering style ids as rune cards', () => {
@@ -1588,10 +1697,11 @@ test('ranked overview objective pills render structure icon counts and keep an i
     source,
     'function buildObjectiveDisplayItems(teamId: number, summary: TeamObjectiveSummary): ObjectiveDisplayItem[]'
   )
+  const tooltipActorsRule = source.match(/\.objective-tooltip-actors \{[\s\S]*?\n\}/)?.[0] || ''
 
   assert.match(headerBlock, /v-if="showDraftAndObjectiveSummary && getTeamObjectiveItems\(team\.teamId\)\.length"[\s\S]*class="team-header-resources"[\s\S]*class="team-objective-icons"/)
   assert.match(headerBlock, /v-for="item in getTeamObjectiveItems\(team\.teamId\)"[\s\S]*class="objective-pill compact-objective-pill"/)
-  assert.match(headerBlock, /:title="item\.title"/)
+  assert.doesNotMatch(headerBlock, /:title="item\.title"|title=/)
   assert.match(headerBlock, /:aria-label="item\.title"/)
   assert.match(headerBlock, /tabindex="0"/)
   assert.match(headerBlock, /v-for="icon in getObjectiveItemIcons\(item\)"[\s\S]*v-if="shouldUseObjectiveIconImage\(icon\)"[\s\S]*class="objective-icon objective-icon-img"[\s\S]*:src="icon\.iconUrl"/)
@@ -1600,8 +1710,12 @@ test('ranked overview objective pills render structure icon counts and keep an i
   assert.match(headerBlock, /<svg[\s\S]*viewBox="0 0 16 16"[\s\S]*aria-hidden="true"[\s\S]*focusable="false"/)
   assert.match(headerBlock, /<strong[\s\S]*v-if="item\.showCount"[\s\S]*class="objective-count"[\s\S]*\{\{ getObjectiveCountText\(item\) \}\}/)
   assert.match(headerBlock, /class="objective-tooltip"[\s\S]*role="tooltip"[\s\S]*v-for="group in item\.tooltipGroups"/)
+  assert.match(headerBlock, /class="objective-tooltip-title"[\s\S]*\{\{ item\.title \}\}/)
   assert.match(headerBlock, /class="objective-tooltip-avatar"[\s\S]*:src="getChampionIconUrl\(group\.championId\)"/)
   assert.match(headerBlock, /class="objective-tooltip-count"[\s\S]*group\.count/)
+  assert.match(tooltipActorsRule, /flex-direction:\s*column/)
+  assert.match(tooltipActorsRule, /align-items:\s*flex-start/)
+  assert.doesNotMatch(headerBlock, /<AssetHoverTooltip/)
   assert.doesNotMatch(headerBlock, /class="objective-pill compact-objective-pill"[\s\S]*\{\{ item\.label \}\}/)
   assert.doesNotMatch(headerBlock, /class="team-structure-chip"[\s\S]*\{\{ item\.label \}\}[\s\S]*\{\{ item\.count \}\}/)
   assert.doesNotMatch(headerBlock, /x\{\{ item\.count \}\}|男爵x|小龙x/)
@@ -1759,7 +1873,8 @@ test('objective pills normalize dragon type aliases before building tooltip titl
   assert.doesNotMatch(normalizeKillsBlock, /source\[type\]/)
   assert.match(headerBlock, /class="objective-icon objective-icon-img"[\s\S]*:src="icon\.iconUrl"[\s\S]*alt=""/)
   assert.match(headerBlock, /class="objective-icon objective-fallback-icon"[\s\S]*:class="`objective-fallback-\$\{icon\.kind\}`"/)
-  assert.match(headerBlock, /:title="item\.title"/)
+  assert.doesNotMatch(headerBlock, /:title="item\.title"|title=/)
+  assert.match(headerBlock, /:aria-label="item\.title"/)
 })
 
 test('draft and objective summary is hidden for ARAM and CHERRY even when data exists', () => {
