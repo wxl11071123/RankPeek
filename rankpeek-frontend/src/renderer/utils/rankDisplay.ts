@@ -41,10 +41,18 @@ const TIER_LABELS: Record<string, string> = {
 }
 
 const DIVISION_LABELS: Record<string, string> = {
-  I: 'I',
-  II: 'II',
-  III: 'III',
-  IV: 'IV'
+  I: 'Ⅰ',
+  II: 'Ⅱ',
+  III: 'Ⅲ',
+  IV: 'Ⅳ',
+  'Ⅰ': 'Ⅰ',
+  'Ⅱ': 'Ⅱ',
+  'Ⅲ': 'Ⅲ',
+  'Ⅳ': 'Ⅳ',
+  '一': 'Ⅰ',
+  '二': 'Ⅱ',
+  '三': 'Ⅲ',
+  '四': 'Ⅳ'
 }
 
 const UNRANKED_TIER_VALUES = new Set(['', 'UNRANKED', 'NONE', 'NULL', 'UNDEFINED'])
@@ -99,6 +107,27 @@ export function isRankedQueueInfo(queueInfo: QueueInfo | null | undefined): queu
   return Boolean(queueInfo) && !UNRANKED_TIER_VALUES.has(tier)
 }
 
+export function formatRankDivisionLabel(division?: string): string {
+  const raw = (division ?? '').trim()
+  const key = raw.toUpperCase()
+  if (!key || key === 'NA') {
+    return ''
+  }
+  return DIVISION_LABELS[key] ?? DIVISION_LABELS[raw] ?? raw
+}
+
+export function normalizeRankDivisionText(value: string): string {
+  const text = value.trim()
+  if (!text) {
+    return ''
+  }
+
+  return text.replace(
+    /(一|二|三|四|Ⅰ|Ⅱ|Ⅲ|Ⅳ|IV|III|II|I)(?=(?:\s*\d+\s*LP)?\s*$)/i,
+    match => formatRankDivisionLabel(match)
+  )
+}
+
 function formatRankTier(queueInfo: QueueInfo): string {
   const tier = normalizeTier(queueInfo.tier)
   const tierLabel = TIER_LABELS[tier] ?? queueInfo.tier
@@ -126,11 +155,7 @@ function normalizeTier(tier?: string): string {
 }
 
 function normalizeDivision(division?: string): string {
-  const key = (division ?? '').trim().toUpperCase()
-  if (!key || key === 'NA') {
-    return ''
-  }
-  return DIVISION_LABELS[key] ?? key
+  return formatRankDivisionLabel(division)
 }
 
 function readFiniteNumber(value?: number): number {

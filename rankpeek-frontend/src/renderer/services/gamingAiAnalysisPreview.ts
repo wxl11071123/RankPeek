@@ -1,4 +1,5 @@
 import type { QueueInfo, RecordStatus, SessionData, SessionSummoner } from '@/types/api'
+import { formatRankDivisionLabel, normalizeRankDivisionText } from '../utils/rankDisplay.ts'
 
 export type GamingAiAnalysisMode = 'teammate' | 'opponent'
 export type GamingAiInsightTone = 'carry' | 'stable' | 'risk' | 'weak' | 'unknown'
@@ -81,13 +82,6 @@ const tierLabelMap: Record<string, string> = {
   MASTER: '超凡大师',
   GRANDMASTER: '傲世宗师',
   CHALLENGER: '最强王者'
-}
-
-const divisionLabelMap: Record<string, string> = {
-  I: '一',
-  II: '二',
-  III: '三',
-  IV: '四'
 }
 
 interface PlayerStats {
@@ -421,7 +415,7 @@ export function formatGamingAiRankText(player: SessionSummoner): string {
   }
 
   if (queueInfo.displayRank?.trim()) {
-    return queueInfo.displayRank.trim()
+    return normalizeRankDivisionText(queueInfo.displayRank)
   }
 
   if (queueInfo.isProvisional) {
@@ -439,8 +433,7 @@ export function formatGamingAiRankText(player: SessionSummoner): string {
     return `${tierLabel} ${queueInfo.leaguePoints ?? 0} LP`
   }
 
-  const division = queueInfo.division?.toUpperCase()
-  const divisionLabel = division ? (divisionLabelMap[division] || queueInfo.division) : ''
+  const divisionLabel = formatRankDivisionLabel(queueInfo.division)
   return divisionLabel
     ? `${tierLabel} ${divisionLabel} ${queueInfo.leaguePoints ?? 0} LP`
     : `${tierLabel} ${queueInfo.leaguePoints ?? 0} LP`

@@ -96,14 +96,16 @@ test('session tag API types accept nullable or omitted scout fields', () => {
   assert.match(source, /userTag\?: UserTag \| null/)
 })
 
-test('formats gaming rank labels with Chinese tier names', () => {
+test('formats gaming rank labels with shared unicode roman division labels', () => {
   const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
 
+  assert.match(source, /import \{ formatRankDivisionLabel \} from '@\/utils\/rankDisplay'/)
   assert.match(source, /PLATINUM:\s*'铂金'/)
   assert.match(source, /DIAMOND:\s*'钻石'/)
   assert.match(source, /MASTER:\s*'超凡大师'/)
   assert.match(source, /GRANDMASTER:\s*'傲世宗师'/)
   assert.match(source, /CHALLENGER:\s*'最强王者'/)
-  assert.match(source, /II:\s*'二'/)
+  assert.doesNotMatch(source, /const divisionLabelMap/)
+  assert.match(source, /const divisionLabel = formatRankDivisionLabel\(queueInfo\.division\)/)
   assert.match(source, /return `\$\{tierLabel\} \$\{divisionLabel\} \$\{queueInfo\.leaguePoints\} LP`/)
 })

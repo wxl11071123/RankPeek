@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildRankDisplay,
+  formatRankDivisionLabel,
   getRankQueueInfo,
+  normalizeRankDivisionText,
   type RankLoadStatus
 } from './rankDisplay.ts'
 import type { QueueInfo, Rank } from '../types/api.ts'
@@ -36,10 +38,20 @@ test('maps ranked queue keys to their queue entries', () => {
   assert.equal(getRankQueueInfo(rank, 'RANKED_FLEX_SR'), flex)
 })
 
+test('formats rank divisions with unicode roman numerals in shared display helpers', () => {
+  assert.equal(formatRankDivisionLabel('I'), 'Ⅰ')
+  assert.equal(formatRankDivisionLabel('II'), 'Ⅱ')
+  assert.equal(formatRankDivisionLabel('III'), 'Ⅲ')
+  assert.equal(formatRankDivisionLabel('IV'), 'Ⅳ')
+  assert.equal(formatRankDivisionLabel('二'), 'Ⅱ')
+  assert.equal(normalizeRankDivisionText('铂金二'), '铂金Ⅱ')
+  assert.equal(normalizeRankDivisionText('铂金 II 50 LP'), '铂金 Ⅱ 50 LP')
+})
+
 test('formats ranked tier, division, league points, and wins-only copy from queue info', () => {
   const display = buildRankDisplay(queueInfo(), 'loaded')
 
-  assert.equal(display.tierText, '黄金 II 63LP')
+  assert.equal(display.tierText, '黄金 Ⅱ 63LP')
   assert.equal(display.recordText, '28胜')
   assert.equal(display.state, 'ranked')
   assert.equal(display.iconTier, 'gold')
@@ -76,7 +88,7 @@ test('formats rank record from explicit wins and losses without showing losses o
     losses: 308
   }), 'loaded')
 
-  assert.equal(display.tierText, '铂金 III 12LP')
+  assert.equal(display.tierText, '铂金 Ⅲ 12LP')
   assert.equal(display.recordText, '292胜')
   assert.doesNotMatch(display.recordText, /308L|胜率|%/)
 })
@@ -106,7 +118,7 @@ test('renders wins-only rank record when losses are zero and total games are una
     games: undefined
   }), 'loaded')
 
-  assert.equal(display.tierText, '铂金 III 12LP')
+  assert.equal(display.tierText, '铂金 Ⅲ 12LP')
   assert.equal(display.recordText, '292胜')
 })
 
@@ -147,7 +159,7 @@ test('one missing queue is unranked without hiding the other ranked queue', () =
   const soloDisplay = buildRankDisplay(queueInfo({ tier: 'EMERALD', division: 'IV', leaguePoints: 35 }), 'loaded')
   const flexDisplay = buildRankDisplay(null, 'loaded')
 
-  assert.equal(soloDisplay.tierText, '翡翠 IV 35LP')
+  assert.equal(soloDisplay.tierText, '翡翠 Ⅳ 35LP')
   assert.equal(soloDisplay.recordText, '28胜')
   assert.equal(flexDisplay.tierText, '未定级')
   assert.equal(flexDisplay.recordText, '暂无排位数据')

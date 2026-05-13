@@ -22,6 +22,8 @@ test('gaming AI analysis modal removes local rule preview copy and conclusions',
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.doesNotMatch(source, /AI 占位|本地规则预览/)
+  assert.doesNotMatch(source, /RankPeek 分析/)
+  assert.doesNotMatch(source, /点击开始分析后，将基于当前对战信息生成临时分析。/)
   assert.doesNotMatch(source, /本地规则预览，点击开始分析后才会发送临时 snapshot/)
   assert.doesNotMatch(source, /队友逐个分析/)
   assert.doesNotMatch(source, /本局队友风险摘要/)
@@ -43,10 +45,29 @@ test('gaming AI analysis modal keeps title, queue label, and manual start contro
   assert.match(source, /分析中\.\.\./)
   assert.match(source, /@click="emitStartAnalysis"/)
   assert.match(source, /:disabled="analysisButtonDisabled"/)
-  assert.match(source, /当前仅支持单双排位和灵活排位分析/)
+  assert.match(source, /队友成分\/赛前分析只支持排位模式/)
+  assert.doesNotMatch(source, /当前仅支持单双排位和灵活排位分析/)
 })
 
-test('gaming AI analysis modal renders only server stream text and stream player verdicts', () => {
+test('gaming AI analysis modal renders current player basics before server verdicts', () => {
+  const source = readFileSync(modalUrl, 'utf8')
+
+  assert.match(source, /v-if="preview && preview\.players\.length"/)
+  assert.match(source, /v-for="player in preview\.players"/)
+  assert.match(source, /:key="player\.key"/)
+  assert.match(source, /playerAvatarUrl\(player\)/)
+  assert.match(source, /player\.name/)
+  assert.match(source, /player\.rankText/)
+  assert.match(source, /player\.kdaText/)
+  assert.match(source, /player\.winRateText/)
+  assert.match(source, /player\.damageRateText/)
+  assert.match(source, /player\.sampleText/)
+  assert.match(source, /当前队友|当前对手/)
+  assert.doesNotMatch(source, /player\.verdict/)
+  assert.doesNotMatch(source, /player\.reason/)
+})
+
+test('gaming AI analysis modal renders server stream text and stream player verdicts', () => {
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.match(source, /playerVerdicts\?: Record<string, GamingAiPlayerStreamVerdict>/)

@@ -1,6 +1,7 @@
 package io.rankpeek.server.analysis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.server.ai.AiProvider;
 import io.rankpeek.server.ai.AnalysisResult;
@@ -16,7 +17,8 @@ import java.util.Map;
 @Service
 public class AnalysisService {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
 
     private final PromptContextService promptContextService;
     private final AiProvider aiProvider;
@@ -114,15 +116,22 @@ public class AnalysisService {
             int index
     ) throws JsonProcessingException {
         boolean opponentMode = "opponent".equalsIgnoreCase(request.mode() == null ? "" : request.mode().trim());
-        String label = opponentMode
-                ? (index % 2 == 0 ? "高威胁" : "可突破")
-                : (index % 2 == 0 ? "稳定队友" : "风险队友");
-        String tone = opponentMode
-                ? (index % 2 == 0 ? "carry" : "weak")
-                : (index % 2 == 0 ? "stable" : "risk");
-        String reason = opponentMode
-                ? "rankpeek-server mock 仅基于本次请求里的对手标签生成。"
-                : "rankpeek-server mock 仅基于本次请求里的队友标签生成。";
+        boolean selfPlayer = readBoolean(player.get("isSelf"));
+        String label = selfPlayer
+                ? "\u5f53\u524d\u7528\u6237"
+                : opponentMode
+                        ? (index % 2 == 0 ? "高威胁" : "可突破")
+                        : (index % 2 == 0 ? "稳定队友" : "风险队友");
+        String tone = selfPlayer
+                ? "unknown"
+                : opponentMode
+                        ? (index % 2 == 0 ? "carry" : "weak")
+                        : (index % 2 == 0 ? "stable" : "risk");
+        String reason = selfPlayer
+                ? "\u8fd9\u662f\u5f53\u524d\u767b\u5f55\u7528\u6237\uff0c\u53ea\u4f5c\u4e3a\u4e0a\u4e0b\u6587\uff0c\u4e0d\u7eb3\u5165\u961f\u53cb\u98ce\u9669\u5224\u65ad\u3002"
+                : opponentMode
+                        ? "rankpeek-server mock 仅基于本次请求里的对手标签生成。"
+                        : "rankpeek-server mock 仅基于本次请求里的队友标签生成。";
 
         Map<String, String> payload = new LinkedHashMap<>();
         payload.put("playerKey", readPlayerKey(player, index));
@@ -199,6 +208,13 @@ public class AnalysisService {
 
     private static String readString(Object value) {
         return value instanceof String text ? text.trim() : "";
+    }
+
+    private static boolean readBoolean(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return "true".equalsIgnoreCase(readString(value));
     }
 
     private static String summarizeTags(List<String> tags) {

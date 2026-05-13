@@ -21,12 +21,18 @@ test('normalizes ranked Chinese queue names without phase prefixes', () => {
   assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: '灵活排位' }), '灵活排位')
 })
 
-test('treats non-ranked and unknown queues as unsupported unknown mode', () => {
-  for (const typeCn of ['极地大乱斗', '匹配', '竞技场', '无限火力', '']) {
-    assert.equal(normalizeGamingQueueLabel({ queueId: 450, typeCn }), '未知模式')
+test('shows non-ranked queue labels while keeping AI analysis unsupported', () => {
+  assert.equal(normalizeGamingQueueLabel({ queueId: 450, typeCn: '极地大乱斗' }), '海克斯大乱斗')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: '海克斯大乱斗' }), '海克斯大乱斗')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: '匹配' }), '匹配')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: '竞技场' }), '竞技场')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: '无限火力' }), '无限火力')
+
+  for (const typeCn of ['极地大乱斗', '海克斯大乱斗', '匹配', '竞技场', '无限火力', '']) {
     assert.equal(isGamingAiAnalysisEnabledQueue({ queueId: 450, typeCn }), false)
   }
 
+  assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: '' }), '未知模式')
   assert.equal(normalizeGamingQueueLabel({ queueId: 0, typeCn: undefined }), '未知模式')
   assert.equal(isGamingAiAnalysisEnabledQueue({ queueId: 0, typeCn: undefined }), false)
 })

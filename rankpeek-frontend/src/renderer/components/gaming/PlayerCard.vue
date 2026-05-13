@@ -145,6 +145,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { QueueInfo, RankTag, RecordStatus, SessionSummoner } from '@/types/api'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
+import { formatRankDivisionLabel } from '@/utils/rankDisplay'
 import { buildSummonerLookupName, createSummonerLookupRoute } from '@/utils/summonerLookupRoute'
 
 import unranked from '@/assets/imgs/tier/unranked.png'
@@ -369,13 +370,6 @@ const tierLabelMap: Record<string, string> = {
   CHALLENGER: '最强王者'
 }
 
-const divisionLabelMap: Record<string, string> = {
-  I: '一',
-  II: '二',
-  III: '三',
-  IV: '四'
-}
-
 const teamClass = computed(() => {
   if (props.team === 'blue') return 'team-blue'
   if (props.team === 'red') return 'team-red'
@@ -522,8 +516,7 @@ const tierText = computed(() => {
       return `${tierLabel} ${queueInfo.leaguePoints} LP`
     }
 
-    const divisionKey = queueInfo.division?.toUpperCase()
-    const divisionLabel = divisionKey ? (divisionLabelMap[divisionKey] || queueInfo.division) : ''
+    const divisionLabel = formatRankDivisionLabel(queueInfo.division)
     if (divisionLabel) {
       return `${tierLabel} ${divisionLabel} ${queueInfo.leaguePoints} LP`
     }

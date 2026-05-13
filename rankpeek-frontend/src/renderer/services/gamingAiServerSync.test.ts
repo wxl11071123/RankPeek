@@ -24,6 +24,7 @@ function createSnapshot(): GamingAiInputSnapshot {
     allyTeam: [
       {
         side: 'ally',
+        isSelf: true,
         puuid: 'ally-puuid',
         gameName: 'W',
         tagLine: '1234',
@@ -69,6 +70,7 @@ function createSnapshot(): GamingAiInputSnapshot {
     enemyTeam: [
       {
         side: 'enemy',
+        isSelf: false,
         gameName: 'Hidden',
         displayName: 'Hidden#CN1',
         championId: 64,
@@ -113,6 +115,7 @@ test('flattens gaming AI snapshot player tags into compact team strings', () => 
   assert.equal(flattened.allyTeamTags.length, 1)
   assert.equal(flattened.enemyTeamTags.length, 1)
   assert.match(flattened.allyTeamTags[0] ?? '', /ally \| W#1234/)
+  assert.match(flattened.allyTeamTags[0] ?? '', /self=true/)
   assert.match(flattened.allyTeamTags[0] ?? '', /champion=141/)
   assert.match(flattened.allyTeamTags[0] ?? '', /rank=Emerald I 50 LP/)
   assert.match(flattened.allyTeamTags[0] ?? '', /status=NORMAL/)

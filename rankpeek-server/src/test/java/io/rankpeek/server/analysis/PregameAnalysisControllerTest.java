@@ -156,4 +156,41 @@ class PregameAnalysisControllerTest {
                 .andExpect(content().string(containsString("event:delta")))
                 .andExpect(content().string(containsString("event:done")));
     }
+
+    @Test
+    void pregameStreamLabelsSelfWithoutTreatingSelfAsRiskTeammate() throws Exception {
+        String request = """
+                {
+                  "mode": "teammate",
+                  "queueId": 420,
+                  "allyTeamTags": ["ally | Teammate#CN1 | champion=64 | status=NORMAL | sample=20", "ally | Self#CN1 | self=true | champion=141 | status=NORMAL | sample=20"],
+                  "enemyTeamTags": [],
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v1",
+                  "snapshot": {
+                    "schemaVersion": "gaming_ai_input_snapshot.v1",
+                    "mode": "teammate",
+                    "selectedPlayers": [
+                      {"key": "puuid:teammate-puuid", "puuid": "teammate-puuid", "displayName": "Teammate#CN1", "isSelf": false},
+                      {"key": "puuid:self-puuid", "puuid": "self-puuid", "displayName": "Self#CN1", "isSelf": true}
+                    ],
+                    "allyTeam": [],
+                    "enemyTeam": []
+                  }
+                }
+                """;
+
+        MvcResult result = mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(request))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("puuid:self-puuid")))
+                .andExpect(content().string(containsString("\\u5F53\\u524D\\u7528\\u6237")))
+                .andExpect(content().string(containsString("\"tone\":\"unknown\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("\"tone\":\"risk\""))));
+    }
 }

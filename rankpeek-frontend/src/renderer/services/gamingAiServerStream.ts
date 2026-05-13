@@ -313,7 +313,14 @@ function readVerdictTone(payload: unknown): GamingAiPlayerStreamVerdict['tone'] 
 function formatPlayerTagLine(player: GamingAiInputPlayer): string {
   const parts = [
     player.side,
-    player.displayName,
+    player.displayName
+  ]
+
+  if (player.isSelf) {
+    parts.push('self=true')
+  }
+
+  parts.push(
     `champion=${player.championId ?? 'unknown'}`,
     `rank=${player.rankText || 'unknown'}`,
     `status=${player.recordStatus}`,
@@ -321,7 +328,7 @@ function formatPlayerTagLine(player: GamingAiInputPlayer): string {
     `winRate=${formatPercent(player.metrics.winRate)}`,
     `kda=${formatNumber(player.metrics.kda)}`,
     `damageRate=${formatPercent(player.metrics.damageRate)}`
-  ]
+  )
   const tagNames = player.tags.map(tag => tag.name).filter(Boolean)
 
   if (tagNames.length) {

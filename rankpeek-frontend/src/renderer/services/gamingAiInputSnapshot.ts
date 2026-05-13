@@ -34,6 +34,7 @@ export interface GamingAiInputSnapshot {
 export interface GamingAiInputPlayer {
   key: string
   side: 'ally' | 'enemy'
+  isSelf: boolean
   puuid?: string
   gameName: string
   tagLine?: string
@@ -78,17 +79,19 @@ export function buildGamingAiInputSnapshot(input: {
 }): GamingAiInputSnapshot {
   const allyPlayers = pickPreferredTeam(input.sessionData.teammates, input.sessionData.teamOne)
   const enemyPlayers = pickPreferredTeam(input.sessionData.opponents, input.sessionData.teamTwo)
+  const currentIdentity = createCurrentSummonerIdentity(input.sessionData.currentSummoner, input.currentSummonerPuuid)
+  const currentSummoner = normalizeCurrentSummoner(currentIdentity)
   const defaultSelectedPlayers = input.mode === 'teammate' ? allyPlayers : enemyPlayers
   const selectedPlayers = input.selectedPlayers?.length ? input.selectedPlayers : defaultSelectedPlayers
 
-  const allyTeam = allyPlayers.map(player => toInputPlayer(player, 'ally'))
-  const enemyTeam = enemyPlayers.map(player => toInputPlayer(player, 'enemy'))
+  const allyTeam = allyPlayers.map(player => toInputPlayer(player, 'ally', currentIdentity))
+  const enemyTeam = enemyPlayers.map(player => toInputPlayer(player, 'enemy', currentIdentity))
   const normalizedByKey = new Map<string, GamingAiInputPlayer>()
   allyPlayers.forEach((player, index) => normalizedByKey.set(getPlayerSnapshotKey(player), allyTeam[index]))
   enemyPlayers.forEach((player, index) => normalizedByKey.set(getPlayerSnapshotKey(player), enemyTeam[index]))
   const selectedFallbackSide = input.mode === 'teammate' ? 'ally' : 'enemy'
   const normalizedSelectedPlayers = selectedPlayers.map(player => (
-    normalizedByKey.get(getPlayerSnapshotKey(player)) ?? toInputPlayer(player, selectedFallbackSide)
+    normalizedByKey.get(getPlayerSnapshotKey(player)) ?? toInputPlayer(player, selectedFallbackSide, currentIdentity)
   ))
   const allPlayers = [...allyTeam, ...enemyTeam]
 
@@ -101,9 +104,7 @@ export function buildGamingAiInputSnapshot(input: {
     queueName: readNonEmptyString(input.sessionData.typeCn) || readNonEmptyString(input.sessionData.queueType) || 'Unknown',
     ...(readNonEmptyString(input.sessionData.matchId) ? { matchId: input.sessionData.matchId.trim() } : {}),
     ...(toFiniteNumber(input.sessionData.roundIndex) != null ? { roundIndex: toFiniteNumber(input.sessionData.roundIndex) as number } : {}),
-    ...(normalizeCurrentSummoner(input.sessionData.currentSummoner, input.currentSummonerPuuid) ? {
-      currentSummoner: normalizeCurrentSummoner(input.sessionData.currentSummoner, input.currentSummonerPuuid)
-    } : {}),
+    ...(currentSummoner ? { currentSummoner } : {}),
     allyTeam,
     enemyTeam,
     selectedPlayers: normalizedSelectedPlayers,
@@ -123,7 +124,18 @@ function pickPreferredTeam(preferred: SessionSummoner[] | undefined, fallback: S
   return preferred?.length ? preferred : (fallback ?? [])
 }
 
-function toInputPlayer(player: SessionSummoner, side: 'ally' | 'enemy'): GamingAiInputPlayer {
+interface CurrentSummonerIdentity {
+  puuid?: string
+  summonerId?: number
+  gameName?: string
+  tagLine?: string
+}
+
+function toInputPlayer(
+  player: SessionSummoner,
+  side: 'ally' | 'enemy',
+  currentIdentity: CurrentSummonerIdentity
+): GamingAiInputPlayer {
   const recentData = player.userTag?.recentData
   const wins = finiteNumberOrZero(recentData?.selectWins)
   const losses = finiteNumberOrZero(recentData?.selectLosses)
@@ -139,6 +151,7 @@ function toInputPlayer(player: SessionSummoner, side: 'ally' | 'enemy'): GamingA
   return {
     key: getPlayerSnapshotKey(player),
     side,
+    isSelf: isCurrentSummonerPlayer(player, currentIdentity),
     ...(readNonEmptyString(player.summoner?.puuid) ? { puuid: player.summoner.puuid.trim() } : {}),
     gameName: readNonEmptyString(player.summoner?.gameName) || 'Unknown player',
     ...(readNonEmptyString(player.summoner?.tagLine) ? { tagLine: player.summoner.tagLine.trim() } : {}),
@@ -175,10 +188,24 @@ function toInputPlayer(player: SessionSummoner, side: 'ally' | 'enemy'): GamingA
   }
 }
 
-function normalizeCurrentSummoner(summoner: Summoner | undefined, currentSummonerPuuid?: string) {
+function createCurrentSummonerIdentity(summoner: Summoner | undefined, currentSummonerPuuid?: string): CurrentSummonerIdentity {
   const puuid = readNonEmptyString(currentSummonerPuuid) || readNonEmptyString(summoner?.puuid)
+  const summonerId = toFiniteNumber(summoner?.summonerId)
   const gameName = readNonEmptyString(summoner?.gameName)
   const tagLine = readNonEmptyString(summoner?.tagLine)
+
+  return {
+    ...(puuid ? { puuid } : {}),
+    ...(summonerId != null ? { summonerId } : {}),
+    ...(gameName ? { gameName } : {}),
+    ...(tagLine ? { tagLine } : {})
+  }
+}
+
+function normalizeCurrentSummoner(identity: CurrentSummonerIdentity) {
+  const puuid = readNonEmptyString(identity.puuid)
+  const gameName = readNonEmptyString(identity.gameName)
+  const tagLine = readNonEmptyString(identity.tagLine)
 
   if (!puuid && !gameName && !tagLine) {
     return null
@@ -189,6 +216,25 @@ function normalizeCurrentSummoner(summoner: Summoner | undefined, currentSummone
     ...(gameName ? { gameName } : {}),
     ...(tagLine ? { tagLine } : {})
   }
+}
+
+function isCurrentSummonerPlayer(player: SessionSummoner, identity: CurrentSummonerIdentity): boolean {
+  const playerPuuid = readNonEmptyString(player.summoner?.puuid)
+  if (identity.puuid) {
+    return playerPuuid === identity.puuid
+  }
+
+  const playerSummonerId = toFiniteNumber(player.summoner?.summonerId)
+  if (identity.summonerId != null && playerSummonerId != null && playerSummonerId === identity.summonerId) {
+    return true
+  }
+
+  const gameName = readNonEmptyString(player.summoner?.gameName)
+  if (!identity.gameName || !gameName || gameName !== identity.gameName) {
+    return false
+  }
+
+  return readNonEmptyString(player.summoner?.tagLine) === readNonEmptyString(identity.tagLine)
 }
 
 function normalizePreGroupMarker(marker: SessionSummoner['preGroupMarkers'] | undefined): GamingAiInputPlayer['preGroupMarker'] | null {

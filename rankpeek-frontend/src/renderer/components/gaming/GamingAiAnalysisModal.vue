@@ -36,6 +36,7 @@ const emit = defineEmits<{
 
 const fallbackTitle = computed(() => props.mode === 'teammate' ? '队友成分分析' : '赛前对手分析')
 const fallbackSubtitle = computed(() => '未知模式')
+const playerSectionTitle = computed(() => props.mode === 'teammate' ? '当前队友' : '当前对手')
 const streamBusy = computed(() => props.streamState === 'preparing' || props.streamState === 'streaming')
 const analysisButtonDisabled = computed(() => streamBusy.value || !props.analysisEnabled)
 const analysisButtonText = computed(() => streamBusy.value ? '分析中...' : '开始分析')
@@ -145,20 +146,13 @@ onBeforeUnmount(() => {
       >
         <header class="gaming-ai-analysis-header">
           <div class="gaming-ai-analysis-heading">
-            <p class="gaming-ai-analysis-eyebrow">RankPeek 分析</p>
             <h2 id="gaming-ai-analysis-title">{{ preview?.title || fallbackTitle }}</h2>
             <span>{{ queueLabel || preview?.subtitle || fallbackSubtitle }}</span>
             <p
-              v-if="analysisEnabled"
+              v-if="!analysisEnabled"
               class="gaming-ai-analysis-note"
             >
-              点击开始分析后，将基于当前对战信息生成临时分析。
-            </p>
-            <p
-              v-else
-              class="gaming-ai-analysis-note"
-            >
-              当前仅支持单双排位和灵活排位分析。
+              队友成分/赛前分析只支持排位模式。
             </p>
           </div>
           <div class="gaming-ai-analysis-actions">
@@ -190,6 +184,47 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="gaming-ai-analysis-body">
+          <section v-if="preview && preview.players.length" class="gaming-ai-analysis-section">
+            <h3>{{ playerSectionTitle }}</h3>
+            <ul class="gaming-ai-analysis-player-list">
+              <li
+                v-for="player in preview.players"
+                :key="player.key"
+                class="gaming-ai-analysis-player"
+              >
+                <div class="gaming-ai-analysis-avatar">
+                  <img
+                    v-if="playerAvatarUrl(player)"
+                    :src="playerAvatarUrl(player)"
+                    :alt="player.name"
+                    @error="markAssetLoadFailed"
+                  />
+                  <span v-else>{{ player.name.slice(0, 1) }}</span>
+                </div>
+
+                <div class="gaming-ai-analysis-copy">
+                  <div class="gaming-ai-analysis-player-title">
+                    <strong>{{ player.name }}</strong>
+                    <span>{{ player.rankText }}</span>
+                  </div>
+                </div>
+
+                <div class="gaming-ai-analysis-side">
+                  <div class="gaming-ai-analysis-metrics" aria-label="关键数据">
+                    <span><small>KDA</small>{{ player.kdaText }}</span>
+                    <span><small>胜率</small>{{ player.winRateText }}</span>
+                    <span><small>伤转率</small>{{ player.damageRateText }}</span>
+                    <span><small>样本</small>{{ player.sampleText }}</span>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section v-else class="gaming-ai-analysis-empty">
+            当前还没有可用玩家数据，请进入英雄选择或加载阶段后再试。
+          </section>
+
           <section v-if="streamVisible" class="gaming-ai-analysis-section gaming-ai-analysis-stream">
             <h3>服务器分析</h3>
             <p
