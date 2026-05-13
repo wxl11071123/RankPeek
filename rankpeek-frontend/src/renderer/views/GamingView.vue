@@ -128,8 +128,11 @@
       :open="gamingAiModalOpen"
       :mode="gamingAiModalMode"
       :preview="gamingAiPreview"
-      :server-sync-state="gamingAiServerSyncState"
-      :server-sync-message="gamingAiServerSyncMessage"
+      :stream-state="gamingAiStreamState"
+      :stream-text="gamingAiStreamText"
+      :stream-error="gamingAiStreamError"
+      @start-analysis="startGamingAiServerAnalysis"
+      @cancel-analysis="cancelGamingAiServerAnalysis"
       @close="closeGamingAiAnalysis"
     />
   </div>
@@ -150,7 +153,11 @@ import {
   type GamingAiAnalysisPreview
 } from '@/services/gamingAiAnalysisPreview'
 import { buildGamingAiInputSnapshot } from '@/services/gamingAiInputSnapshot'
-import { submitGamingAiInputSnapshotToServer } from '@/services/gamingAiServerSync'
+import {
+  createGamingAiStreamRequest,
+  streamGamingAiAnalysis,
+  type GamingAiStreamState
+} from '@/services/gamingAiServerStream'
 import { useI18n, type MessageKey } from '@/i18n'
 
 const { t } = useI18n()
@@ -207,10 +214,10 @@ const expandedParticipantKeys = ref<Set<string>>(new Set())
 const gamingAiModalOpen = ref(false)
 const gamingAiModalMode = ref<GamingAiAnalysisMode>('teammate')
 const gamingAiPreview = ref<GamingAiAnalysisPreview | null>(null)
-type GamingAiServerSyncState = 'idle' | 'syncing' | 'synced' | 'failed'
-const gamingAiServerSyncState = ref<GamingAiServerSyncState>('idle')
-const gamingAiServerSyncMessage = ref('')
-let lastSubmittedGamingAiSnapshotKey = ''
+const gamingAiStreamState = ref<GamingAiStreamState>('idle')
+const gamingAiStreamText = ref('')
+const gamingAiStreamError = ref('')
+let gamingAiStreamAbortController: AbortController | null = null
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -378,20 +385,16 @@ function toggleParticipantRecentMatches(player: SessionSummoner) {
 }
 
 function openGamingAiAnalysis(mode: GamingAiAnalysisMode) {
-  const players = mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
+  cancelGamingAiServerAnalysis()
   gamingAiModalMode.value = mode
   refreshGamingAiPreview(mode)
+  resetGamingAiStreamState()
   gamingAiModalOpen.value = true
-  const snapshot = buildGamingAiInputSnapshot({
-    mode,
-    sessionData: sessionData.value,
-    selectedPlayers: players,
-    currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
-  })
-  void syncGamingAiInputSnapshot(snapshot)
 }
 
 function closeGamingAiAnalysis() {
+  cancelGamingAiServerAnalysis()
+  resetGamingAiStreamState()
   gamingAiModalOpen.value = false
 }
 
@@ -405,37 +408,94 @@ function refreshGamingAiPreview(mode: GamingAiAnalysisMode = gamingAiModalMode.v
   })
 }
 
-async function syncGamingAiInputSnapshot(snapshot: ReturnType<typeof buildGamingAiInputSnapshot>) {
-  const snapshotKey = createGamingAiSnapshotSubmissionKey(snapshot)
-  if (snapshotKey === lastSubmittedGamingAiSnapshotKey) {
+async function startGamingAiServerAnalysis() {
+  if (gamingAiStreamState.value === 'preparing' || gamingAiStreamState.value === 'streaming') {
     return
   }
 
-  lastSubmittedGamingAiSnapshotKey = snapshotKey
-  gamingAiServerSyncState.value = 'syncing'
-  gamingAiServerSyncMessage.value = '正在整理并发送临时数据...'
+  const players = gamingAiModalMode.value === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
+  const snapshot = buildGamingAiInputSnapshot({
+    mode: gamingAiModalMode.value,
+    sessionData: sessionData.value,
+    selectedPlayers: players,
+    currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
+  })
+  const request = createGamingAiStreamRequest(snapshot)
+  const controller = new AbortController()
+  gamingAiStreamAbortController = controller
+  gamingAiStreamState.value = 'preparing'
+  gamingAiStreamText.value = ''
+  gamingAiStreamError.value = ''
 
-  const result = await submitGamingAiInputSnapshotToServer(snapshot)
-  if (snapshotKey !== lastSubmittedGamingAiSnapshotKey) {
+  const result = await streamGamingAiAnalysis(request, {
+    onEvent: (event) => {
+      if (controller.signal.aborted) {
+        return
+      }
+      if (event.type === 'start') {
+        gamingAiStreamState.value = 'streaming'
+      }
+      if (event.type === 'section') {
+        gamingAiStreamState.value = 'streaming'
+        gamingAiStreamText.value += `${gamingAiStreamText.value ? '\n\n' : ''}${event.title}\n`
+      }
+    },
+    onDelta: (text) => {
+      if (controller.signal.aborted) {
+        return
+      }
+      gamingAiStreamState.value = 'streaming'
+      gamingAiStreamText.value += text
+    },
+    onError: (message) => {
+      if (controller.signal.aborted) {
+        return
+      }
+      gamingAiStreamError.value = message
+      gamingAiStreamState.value = 'failed'
+    },
+    onDone: () => {
+      if (controller.signal.aborted) {
+        return
+      }
+      gamingAiStreamState.value = 'completed'
+    }
+  }, { signal: controller.signal })
+
+  if (gamingAiStreamAbortController !== controller) {
     return
   }
 
-  if (result.ok) {
-    gamingAiServerSyncState.value = 'synced'
-    gamingAiServerSyncMessage.value = '临时数据已发送到本地服务器 mock。'
+  gamingAiStreamAbortController = null
+  if (!result.ok) {
+    if (controller.signal.aborted) {
+      gamingAiStreamState.value = 'idle'
+      return
+    }
+    gamingAiStreamError.value = result.message
+    gamingAiStreamState.value = 'failed'
     return
   }
 
-  console.warn('Failed to sync gaming AI input snapshot', result.message)
-  gamingAiServerSyncState.value = 'failed'
-  gamingAiServerSyncMessage.value = '服务器暂不可用，当前展示本地规则预览。'
+  if (gamingAiStreamState.value !== 'completed') {
+    gamingAiStreamState.value = 'completed'
+  }
 }
 
-function createGamingAiSnapshotSubmissionKey(snapshot: ReturnType<typeof buildGamingAiInputSnapshot>): string {
-  return JSON.stringify({
-    ...snapshot,
-    generatedAt: ''
-  })
+function cancelGamingAiServerAnalysis() {
+  if (gamingAiStreamAbortController) {
+    gamingAiStreamAbortController.abort()
+    gamingAiStreamAbortController = null
+  }
+  if (gamingAiStreamState.value === 'preparing' || gamingAiStreamState.value === 'streaming') {
+    gamingAiStreamState.value = 'idle'
+  }
+}
+
+function resetGamingAiStreamState() {
+  gamingAiStreamState.value = 'idle'
+  gamingAiStreamText.value = ''
+  gamingAiStreamError.value = ''
 }
 
 async function fetchSessionData(options: { showLoading?: boolean } = {}) {
@@ -596,6 +656,7 @@ function checkAndRetryFetch() {
 }
 
 onUnmounted(() => {
+  cancelGamingAiServerAnalysis()
   if (refreshInterval) {
     clearInterval(refreshInterval)
   }

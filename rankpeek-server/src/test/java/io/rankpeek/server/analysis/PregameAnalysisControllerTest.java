@@ -8,9 +8,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -52,6 +57,7 @@ class PregameAnalysisControllerTest {
     void pregameMockAcceptsTemporaryGamingSnapshotPayload() throws Exception {
         String request = """
                 {
+                  "mode": "teammate",
                   "patchKey": "26.09",
                   "queueId": 420,
                   "championId": 141,
@@ -97,6 +103,7 @@ class PregameAnalysisControllerTest {
     void pregameRequestDeserializesTemporaryGamingSnapshotFields() throws Exception {
         String request = """
                 {
+                  "mode": "opponent",
                   "queueId": 420,
                   "allyTeamTags": [],
                   "enemyTeamTags": [],
@@ -112,6 +119,39 @@ class PregameAnalysisControllerTest {
         PregameAnalysisRequest parsed = objectMapper.readValue(request, PregameAnalysisRequest.class);
 
         org.assertj.core.api.Assertions.assertThat(parsed.snapshotSchemaVersion()).isEqualTo("gaming_ai_input_snapshot.v1");
+        org.assertj.core.api.Assertions.assertThat(parsed.mode()).isEqualTo("opponent");
         org.assertj.core.api.Assertions.assertThat(parsed.snapshot()).containsKey("allyTeam");
+    }
+
+    @Test
+    void pregameStreamReturnsMockSseAnalysisForTemporaryGamingSnapshot() throws Exception {
+        String request = """
+                {
+                  "mode": "teammate",
+                  "queueId": 420,
+                  "allyTeamTags": ["ally | W#1234 | champion=141 | status=NORMAL | sample=20"],
+                  "enemyTeamTags": ["enemy | Hidden#CN1 | champion=64 | status=PRIVATE"],
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v1",
+                  "snapshot": {
+                    "schemaVersion": "gaming_ai_input_snapshot.v1",
+                    "mode": "teammate",
+                    "allyTeam": [{"displayName": "W#1234"}],
+                    "enemyTeam": [{"displayName": "Hidden#CN1"}]
+                  }
+                }
+                """;
+
+        MvcResult result = mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(request))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("event:start")))
+                .andExpect(content().string(containsString("event:delta")))
+                .andExpect(content().string(containsString("event:done")));
     }
 }

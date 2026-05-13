@@ -11,42 +11,64 @@ const props = withDefaults(defineProps<{
   open: boolean
   mode?: GamingAiAnalysisMode
   preview: GamingAiAnalysisPreview | null
-  serverSyncState?: 'idle' | 'syncing' | 'synced' | 'failed'
-  serverSyncMessage?: string
+  streamState?: 'idle' | 'preparing' | 'streaming' | 'completed' | 'failed'
+  streamText?: string
+  streamError?: string
 }>(), {
   mode: 'teammate',
-  serverSyncState: 'idle',
-  serverSyncMessage: ''
+  streamState: 'idle',
+  streamText: '',
+  streamError: ''
 })
 
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'start-analysis'): void
+  (event: 'cancel-analysis'): void
 }>()
 
 const fallbackTitle = computed(() => props.mode === 'teammate' ? '队友成分分析' : '赛前对手分析')
 const fallbackSubtitle = computed(() => '等待对局 · 未知模式')
 const sectionTitle = computed(() => props.mode === 'teammate' ? '队友逐个分析' : '对手威胁列表')
 const bulletTitle = computed(() => props.mode === 'teammate' ? '本局队友风险摘要' : '突破点')
-
-const serverSyncText = computed(() => {
-  if (props.serverSyncMessage.trim()) {
-    return props.serverSyncMessage.trim()
-  }
-
-  if (props.serverSyncState === 'syncing') {
-    return '正在整理并发送临时数据...'
-  }
-  if (props.serverSyncState === 'synced') {
-    return '临时数据已发送到本地服务器 mock。'
-  }
-  if (props.serverSyncState === 'failed') {
+const streamBusy = computed(() => props.streamState === 'preparing' || props.streamState === 'streaming')
+const analysisButtonDisabled = computed(() => streamBusy.value)
+const analysisButtonText = computed(() => streamBusy.value ? '分析中...' : '开始分析')
+const streamVisible = computed(() => (
+  props.streamState === 'preparing' ||
+  props.streamState === 'streaming' ||
+  props.streamState === 'completed' ||
+  props.streamState === 'failed' ||
+  Boolean(props.streamText.trim())
+))
+const streamStatusText = computed(() => {
+  if (props.streamState === 'failed') {
     return '服务器暂不可用，当前展示本地规则预览。'
   }
-  return '本地规则预览，不是正式 AI 结果。'
+  if (props.streamState === 'completed') {
+    return '分析完成'
+  }
+  if (props.streamState === 'preparing') {
+    return '正在准备请求...'
+  }
+  if (props.streamState === 'streaming') {
+    return props.streamText.trim() ? '' : '正在等待服务器返回...'
+  }
+  return ''
 })
 
 function emitClose() {
   emit('close')
+}
+
+function emitStartAnalysis() {
+  if (!analysisButtonDisabled.value) {
+    emit('start-analysis')
+  }
+}
+
+function emitCancelAnalysis() {
+  emit('cancel-analysis')
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -111,27 +133,55 @@ onBeforeUnmount(() => {
               <h2 id="gaming-ai-analysis-title">{{ fallbackTitle }}</h2>
               <span>{{ fallbackSubtitle }}</span>
             </template>
-            <p
-              class="gaming-ai-analysis-sync"
-              :class="`sync-${serverSyncState}`"
-            >
-              {{ serverSyncText }}
+            <p class="gaming-ai-analysis-local-note">
+              本地规则预览，点击开始分析后才会发送临时 snapshot。
             </p>
           </div>
-          <button
-            class="gaming-ai-analysis-close"
-            type="button"
-            aria-label="关闭分析弹窗"
-            @click="emitClose"
-          >
-            ×
-          </button>
+          <div class="gaming-ai-analysis-actions">
+            <button
+              class="gaming-ai-analysis-start"
+              type="button"
+              :disabled="analysisButtonDisabled"
+              @click="emitStartAnalysis"
+            >
+              {{ analysisButtonText }}
+            </button>
+            <button
+              v-if="streamBusy"
+              class="gaming-ai-analysis-stop"
+              type="button"
+              @click="emitCancelAnalysis"
+            >
+              停止
+            </button>
+            <button
+              class="gaming-ai-analysis-close"
+              type="button"
+              aria-label="关闭分析弹窗"
+              @click="emitClose"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
         <div class="gaming-ai-analysis-body">
           <p class="gaming-ai-analysis-opening">
             {{ preview?.opening || '当前还没有可用玩家数据，请进入英雄选择或加载阶段后再试。' }}
           </p>
+
+          <section v-if="streamVisible" class="gaming-ai-analysis-section gaming-ai-analysis-stream">
+            <h3>服务器分析</h3>
+            <p
+              v-if="streamStatusText"
+              class="gaming-ai-analysis-stream-status"
+              :class="`stream-${streamState}`"
+              :title="streamState === 'failed' ? streamError : undefined"
+            >
+              {{ streamStatusText }}
+            </p>
+            <pre v-if="streamText.trim()" class="gaming-ai-analysis-stream-text">{{ streamText }}</pre>
+          </section>
 
           <section v-if="preview && preview.players.length" class="gaming-ai-analysis-section">
             <h3>{{ sectionTitle }}</h3>
@@ -265,7 +315,7 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-.gaming-ai-analysis-sync {
+.gaming-ai-analysis-local-note {
   margin: 8px 0 0;
   color: var(--text-secondary);
   font-size: 12px;
@@ -273,15 +323,47 @@ onBeforeUnmount(() => {
   line-height: 1.4;
 }
 
-.gaming-ai-analysis-sync.sync-syncing {
-  color: rgba(var(--accent-rgb), 0.86);
+.gaming-ai-analysis-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.gaming-ai-analysis-sync.sync-synced {
-  color: #55d187;
+.gaming-ai-analysis-start,
+.gaming-ai-analysis-stop {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(var(--accent-rgb), 0.32);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, opacity 0.16s ease;
 }
 
-.gaming-ai-analysis-sync.sync-failed {
+.gaming-ai-analysis-start:hover:not(:disabled),
+.gaming-ai-analysis-start:focus-visible:not(:disabled),
+.gaming-ai-analysis-stop:hover,
+.gaming-ai-analysis-stop:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.58);
+  background: rgba(var(--accent-rgb), 0.18);
+  outline: none;
+}
+
+.gaming-ai-analysis-start:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.gaming-ai-analysis-stop {
+  border-color: rgba(240, 179, 90, 0.34);
+  background: rgba(240, 179, 90, 0.12);
   color: #f0b35a;
 }
 
@@ -322,6 +404,40 @@ onBeforeUnmount(() => {
   font-size: 15px;
   font-weight: 750;
   line-height: 1.55;
+}
+
+.gaming-ai-analysis-stream {
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--accent-rgb), 0.16);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.045);
+}
+
+.gaming-ai-analysis-stream-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.gaming-ai-analysis-stream-status.stream-failed {
+  color: #f0b35a;
+}
+
+.gaming-ai-analysis-stream-status.stream-completed {
+  color: #55d187;
+}
+
+.gaming-ai-analysis-stream-text {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.65;
 }
 
 .gaming-ai-analysis-section + .gaming-ai-analysis-section,
@@ -549,6 +665,15 @@ onBeforeUnmount(() => {
   .gaming-ai-analysis-body {
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .gaming-ai-analysis-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gaming-ai-analysis-actions {
+    justify-content: flex-start;
   }
 
   .gaming-ai-analysis-player {

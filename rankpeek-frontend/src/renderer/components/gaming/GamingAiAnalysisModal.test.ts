@@ -18,15 +18,15 @@ test('gaming AI analysis modal exposes accessible dialog structure and close con
   assert.match(source, /document\.removeEventListener\('keydown', handleKeydown\)/)
 })
 
-test('gaming AI analysis modal renders mode title, preview notice, and player insight list', () => {
+test('gaming AI analysis modal renders mode title, local preview notice, and player insight list', () => {
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.match(source, /preview: GamingAiAnalysisPreview \| null/)
-  assert.match(source, /serverSyncState\?: 'idle' \| 'syncing' \| 'synced' \| 'failed'/)
-  assert.match(source, /serverSyncMessage\?: string/)
+  assert.match(source, /streamState\?: 'idle' \| 'preparing' \| 'streaming' \| 'completed' \| 'failed'/)
+  assert.match(source, /streamText\?: string/)
+  assert.match(source, /streamError\?: string/)
   assert.match(source, /\{\{ preview\.title \}\}/)
   assert.match(source, /\{\{ preview\.subtitle \}\}/)
-  assert.match(source, /AI 占位/)
   assert.match(source, /本地规则预览/)
   assert.match(source, /v-for="player in preview\.players"/)
   assert.match(source, /player\.verdict/)
@@ -37,16 +37,21 @@ test('gaming AI analysis modal renders mode title, preview notice, and player in
   assert.match(source, /preview\.laneAdvice/)
 })
 
-test('gaming AI analysis modal shows local preview and lightweight server sync status', () => {
+test('gaming AI analysis modal exposes manual server stream controls', () => {
   const source = readFileSync(modalUrl, 'utf8')
 
-  assert.match(source, /const serverSyncText = computed/)
-  assert.match(source, /正在整理并发送临时数据/)
-  assert.match(source, /临时数据已发送到本地服务器 mock/)
+  assert.match(source, /\(event: 'start-analysis'\): void/)
+  assert.match(source, /\(event: 'cancel-analysis'\): void/)
+  assert.match(source, /emit\('start-analysis'\)/)
+  assert.match(source, /emit\('cancel-analysis'\)/)
+  assert.match(source, /开始分析/)
+  assert.match(source, /分析中\.\.\./)
+  assert.match(source, /服务器分析/)
+  assert.match(source, /streamText/)
   assert.match(source, /服务器暂不可用，当前展示本地规则预览/)
-  assert.match(source, /正式 AI 结果/)
-  assert.match(source, /class="gaming-ai-analysis-sync"/)
-  assert.match(source, /serverSyncText/)
+  assert.match(source, /分析完成/)
+  assert.match(source, /@click="emitStartAnalysis"/)
+  assert.match(source, /:disabled="analysisButtonDisabled"/)
 })
 
 test('gaming AI analysis modal has empty state and lightweight scrollable report styling', () => {
@@ -69,6 +74,6 @@ test('gaming AI analysis modal has empty state and lightweight scrollable report
 test('gaming AI analysis modal stays local-only without AI provider calls', () => {
   const source = readFileSync(modalUrl, 'utf8')
 
-  assert.doesNotMatch(source, /DeepSeek|deepseek|OpenAI|fetch\(|axios|apiClient|serverAi/i)
+  assert.doesNotMatch(source, /DeepSeek|deepseek|OpenAI|真实 AI|fetch\(|axios|apiClient|serverAi/i)
   assert.doesNotMatch(source, /chart\.js|echarts/i)
 })

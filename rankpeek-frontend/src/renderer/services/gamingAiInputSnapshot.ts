@@ -1,4 +1,4 @@
-import type { QueueInfo, RecordStatus, SessionData, SessionSummoner, Summoner } from '@/types/api'
+import type { RecordStatus, SessionData, SessionSummoner, Summoner } from '@/types/api'
 import { formatGamingAiRankText } from './gamingAiAnalysisPreview.ts'
 
 export type GamingAiInputMode = 'teammate' | 'opponent'
@@ -40,10 +40,6 @@ export interface GamingAiInputPlayer {
   championId?: number
   championKey?: string
   rankText: string
-  rank?: {
-    solo?: GamingAiInputRankQueue | null
-    flex?: GamingAiInputRankQueue | null
-  }
   recordStatus: 'NORMAL' | 'PRIVATE' | 'EMPTY' | 'ERROR'
   tags: Array<{
     name: string
@@ -71,17 +67,6 @@ export interface GamingAiInputPlayer {
     name?: string
     type?: string
   }
-}
-
-export interface GamingAiInputRankQueue {
-  tier?: string
-  division?: string
-  leaguePoints?: number
-  wins?: number
-  losses?: number | null
-  totalGames?: number | null
-  displayRank?: string
-  isProvisional?: boolean
 }
 
 export function buildGamingAiInputSnapshot(input: {
@@ -159,7 +144,6 @@ function toInputPlayer(player: SessionSummoner, side: 'ally' | 'enemy'): GamingA
     ...(championId != null && championId > 0 ? { championId } : {}),
     ...(readNonEmptyString(player.championKey) ? { championKey: player.championKey.trim() } : {}),
     rankText: formatGamingAiRankText(player),
-    rank: normalizeRank(player),
     recordStatus: normalizeRecordStatus(player.userTag?.recordStatus),
     tags: (player.userTag?.tag ?? [])
       .filter(tag => readNonEmptyString(tag.tagName))
@@ -202,36 +186,6 @@ function normalizeCurrentSummoner(summoner: Summoner | undefined, currentSummone
     ...(puuid ? { puuid } : {}),
     ...(gameName ? { gameName } : {}),
     ...(tagLine ? { tagLine } : {})
-  }
-}
-
-function normalizeRank(player: SessionSummoner): GamingAiInputPlayer['rank'] {
-  const queueMap = player.rank?.queueMap
-  return {
-    solo: normalizeRankQueue(queueMap?.RANKED_SOLO_5x5),
-    flex: normalizeRankQueue(queueMap?.RANKED_FLEX_SR)
-  }
-}
-
-function normalizeRankQueue(queueInfo: QueueInfo | null | undefined): GamingAiInputRankQueue | null {
-  if (!queueInfo) {
-    return null
-  }
-
-  const wins = toFiniteNumber(queueInfo.wins)
-  const losses = toFiniteNumber(queueInfo.losses)
-  const explicitTotalGames = toFiniteNumber(queueInfo.totalGames) ?? toFiniteNumber(queueInfo.games)
-  const totalGames = explicitTotalGames ?? (wins != null || losses != null ? (wins ?? 0) + (losses ?? 0) : null)
-
-  return {
-    ...(readNonEmptyString(queueInfo.tier) ? { tier: queueInfo.tier.trim() } : {}),
-    ...(readNonEmptyString(queueInfo.division) ? { division: queueInfo.division.trim() } : {}),
-    ...(toFiniteNumber(queueInfo.leaguePoints) != null ? { leaguePoints: toFiniteNumber(queueInfo.leaguePoints) as number } : {}),
-    ...(wins != null ? { wins } : {}),
-    losses,
-    totalGames,
-    ...(readNonEmptyString(queueInfo.displayRank) ? { displayRank: queueInfo.displayRank.trim() } : {}),
-    ...(typeof queueInfo.isProvisional === 'boolean' ? { isProvisional: queueInfo.isProvisional } : {})
   }
 }
 

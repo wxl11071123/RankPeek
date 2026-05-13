@@ -69,6 +69,7 @@ Useful endpoints:
 - `GET /api/server/version`
 - `GET /api/patch/current`
 - `POST /api/analysis/pregame/mock`
+- `POST /api/analysis/pregame/stream`
 
 ## Why Mock Only
 

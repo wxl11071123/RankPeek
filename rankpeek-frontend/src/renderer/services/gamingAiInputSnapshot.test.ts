@@ -206,8 +206,6 @@ test('reuses user tags, recent metrics, rank, champion, summoner, and record sta
   assert.equal(normalized?.metrics.averageGold, 11000)
   assert.equal(normalized?.metrics.averageDamageDealtToChampions, 17750)
   assert.equal(Number(normalized?.metrics.damageRate?.toFixed(2)), 161.36)
-  assert.equal(normalized?.rank?.solo?.tier, 'EMERALD')
-  assert.equal(normalized?.rank?.solo?.displayRank, undefined)
   assert.match(normalized?.rankText ?? '', /50/)
 })
 

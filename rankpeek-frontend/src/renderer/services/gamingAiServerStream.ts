@@ -1,0 +1,294 @@
+import type { GamingAiInputPlayer, GamingAiInputSnapshot } from './gamingAiInputSnapshot.ts'
+
+export const RANKPEEK_SERVER_BASE_URL = 'http://127.0.0.1:18080'
+export const RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT = '/api/analysis/pregame/stream'
+
+export type GamingAiStreamState =
+  | 'idle'
+  | 'preparing'
+  | 'streaming'
+  | 'completed'
+  | 'failed'
+
+export interface GamingAiStreamRequest {
+  mode: 'teammate' | 'opponent'
+  snapshotSchemaVersion: string
+  snapshot: GamingAiInputSnapshot
+  allyTeamTags: string[]
+  enemyTeamTags: string[]
+}
+
+export type GamingAiStreamEvent =
+  | { type: 'start'; title?: string }
+  | { type: 'delta'; text: string }
+  | { type: 'section'; title: string }
+  | { type: 'done' }
+  | { type: 'error'; message: string }
+
+export function flattenGamingAiSnapshotTags(snapshot: GamingAiInputSnapshot): {
+  allyTeamTags: string[]
+  enemyTeamTags: string[]
+} {
+  return {
+    allyTeamTags: snapshot.allyTeam.map(player => formatPlayerTagLine(player)),
+    enemyTeamTags: snapshot.enemyTeam.map(player => formatPlayerTagLine(player))
+  }
+}
+
+export function createGamingAiStreamRequest(snapshot: GamingAiInputSnapshot): GamingAiStreamRequest {
+  const flattened = flattenGamingAiSnapshotTags(snapshot)
+
+  return {
+    mode: snapshot.mode,
+    snapshotSchemaVersion: snapshot.schemaVersion,
+    snapshot,
+    allyTeamTags: flattened.allyTeamTags,
+    enemyTeamTags: flattened.enemyTeamTags
+  }
+}
+
+export async function streamGamingAiAnalysis(
+  request: GamingAiStreamRequest,
+  handlers: {
+    onEvent?: (event: GamingAiStreamEvent) => void
+    onDelta?: (text: string) => void
+    onError?: (message: string) => void
+    onDone?: () => void
+  },
+  options: { signal?: AbortSignal } = {}
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      signal: options.signal
+    })
+
+    if (!response.ok) {
+      const message = `rankpeek-server 请求失败：HTTP ${response.status}`
+      emitStreamEvent({ type: 'error', message }, handlers)
+      return { ok: false, message }
+    }
+
+    if (!response.body) {
+      const message = 'rankpeek-server 暂不可用'
+      emitStreamEvent({ type: 'error', message }, handlers)
+      return { ok: false, message }
+    }
+
+    const contentType = response.headers.get('Content-Type') || ''
+    if (contentType.includes('text/event-stream')) {
+      await parseSseStream(response.body, handlers)
+    } else {
+      await parseNdjsonStream(response.body, handlers)
+    }
+
+    return { ok: true }
+  } catch {
+    if (options.signal?.aborted) {
+      return { ok: false, message: '请求已取消' }
+    }
+
+    const message = 'rankpeek-server 暂不可用'
+    emitStreamEvent({ type: 'error', message }, handlers)
+    return { ok: false, message }
+  }
+}
+
+async function parseSseStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: Parameters<typeof streamGamingAiAnalysis>[1]
+): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) {
+      break
+    }
+
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split(/\r?\n\r?\n/)
+    buffer = parts.pop() ?? ''
+    for (const part of parts) {
+      parseSseBlock(part, handlers)
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) {
+    parseSseBlock(buffer, handlers)
+  }
+}
+
+async function parseNdjsonStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: Parameters<typeof streamGamingAiAnalysis>[1]
+): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) {
+      break
+    }
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      parseNdjsonLine(line, handlers)
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) {
+    parseNdjsonLine(buffer, handlers)
+  }
+}
+
+function parseSseBlock(block: string, handlers: Parameters<typeof streamGamingAiAnalysis>[1]): void {
+  let eventName = 'message'
+  const dataLines: string[] = []
+
+  for (const rawLine of block.split(/\r?\n/)) {
+    const line = rawLine.trimEnd()
+    if (!line || line.startsWith(':')) {
+      continue
+    }
+    if (line.startsWith('event:')) {
+      eventName = line.slice('event:'.length).trim()
+      continue
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trimStart())
+    }
+  }
+
+  emitParsedStreamEvent(eventName, dataLines.join('\n'), handlers)
+}
+
+function parseNdjsonLine(line: string, handlers: Parameters<typeof streamGamingAiAnalysis>[1]): void {
+  const trimmed = line.trim()
+  if (!trimmed) {
+    return
+  }
+
+  try {
+    const event = JSON.parse(trimmed) as Partial<GamingAiStreamEvent>
+    if (typeof event.type === 'string') {
+      emitParsedStreamEvent(event.type, JSON.stringify(event), handlers)
+      return
+    }
+  } catch {
+    // Plain text lines are treated as streaming deltas.
+  }
+
+  emitStreamEvent({ type: 'delta', text: trimmed }, handlers)
+}
+
+function emitParsedStreamEvent(
+  eventName: string,
+  data: string,
+  handlers: Parameters<typeof streamGamingAiAnalysis>[1]
+): void {
+  const payload = parsePayload(data)
+  const normalizedEventName = eventName === 'message' ? readString(payload, 'type') || 'delta' : eventName
+
+  if (normalizedEventName === 'start') {
+    emitStreamEvent({ type: 'start', title: readString(payload, 'title') || readText(payload) || undefined }, handlers)
+    return
+  }
+  if (normalizedEventName === 'section') {
+    emitStreamEvent({ type: 'section', title: readString(payload, 'title') || readText(payload) || data }, handlers)
+    return
+  }
+  if (normalizedEventName === 'delta') {
+    emitStreamEvent({ type: 'delta', text: readString(payload, 'text') || readText(payload) || data }, handlers)
+    return
+  }
+  if (normalizedEventName === 'done') {
+    emitStreamEvent({ type: 'done' }, handlers)
+    return
+  }
+  if (normalizedEventName === 'error') {
+    emitStreamEvent({ type: 'error', message: readString(payload, 'message') || readText(payload) || data }, handlers)
+  }
+}
+
+function emitStreamEvent(
+  event: GamingAiStreamEvent,
+  handlers: Parameters<typeof streamGamingAiAnalysis>[1]
+): void {
+  handlers.onEvent?.(event)
+
+  if (event.type === 'delta') {
+    handlers.onDelta?.(event.text)
+    return
+  }
+  if (event.type === 'error') {
+    handlers.onError?.(event.message)
+    return
+  }
+  if (event.type === 'done') {
+    handlers.onDone?.()
+  }
+}
+
+function parsePayload(data: string): unknown {
+  if (!data.trim()) {
+    return ''
+  }
+
+  try {
+    return JSON.parse(data)
+  } catch {
+    return data
+  }
+}
+
+function readString(payload: unknown, key: string): string {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+  const value = (payload as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function readText(payload: unknown): string {
+  return typeof payload === 'string' ? payload : ''
+}
+
+function formatPlayerTagLine(player: GamingAiInputPlayer): string {
+  const parts = [
+    player.side,
+    player.displayName,
+    `champion=${player.championId ?? 'unknown'}`,
+    `rank=${player.rankText || 'unknown'}`,
+    `status=${player.recordStatus}`,
+    `sample=${player.metrics.sample}`,
+    `winRate=${formatPercent(player.metrics.winRate)}`,
+    `kda=${formatNumber(player.metrics.kda)}`,
+    `damageRate=${formatPercent(player.metrics.damageRate)}`
+  ]
+  const tagNames = player.tags.map(tag => tag.name).filter(Boolean)
+
+  if (tagNames.length) {
+    parts.push(`tags=${tagNames.join(', ')}`)
+  }
+
+  return parts.join(' | ')
+}
+
+function formatPercent(value: number | null): string {
+  return value != null && Number.isFinite(value) ? `${value.toFixed(1)}%` : '--'
+}
+
+function formatNumber(value: number | null): string {
+  return value != null && Number.isFinite(value) ? value.toFixed(1) : '--'
+}

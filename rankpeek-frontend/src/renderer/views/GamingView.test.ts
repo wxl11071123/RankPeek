@@ -154,7 +154,7 @@ test('gaming player cards render per-card inline recent panels with independent 
   assert.doesNotMatch(source, /useRouter|router\.push/)
 })
 
-test('gaming AI analysis buttons open local preview modal for teammates and opponents', () => {
+test('gaming AI analysis buttons open local preview modal for teammates and opponents without disabling entry buttons', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
   const blueButton = source.match(/<button[\s\S]*?队友成分[\s\S]*?<\/button>/)?.[0] || ''
   const redButton = source.match(/<button[\s\S]*?赛前分析[\s\S]*?<\/button>/)?.[0] || ''
@@ -170,13 +170,16 @@ test('gaming AI analysis buttons open local preview modal for teammates and oppo
   assert.match(source, /const gamingAiModalOpen = ref\(false\)/)
   assert.match(source, /const gamingAiModalMode = ref<GamingAiAnalysisMode>\('teammate'\)/)
   assert.match(source, /const gamingAiPreview = ref<GamingAiAnalysisPreview \| null>\(null\)/)
+  assert.match(source, /const gamingAiStreamState = ref<GamingAiStreamState>\('idle'\)/)
+  assert.match(source, /const gamingAiStreamText = ref\(''\)/)
+  assert.match(source, /const gamingAiStreamError = ref\(''\)/)
   assert.match(source, /function openGamingAiAnalysis\(mode: GamingAiAnalysisMode\)/)
   assert.match(source, /mode === 'teammate' \? blueTeamPlayers\.value : redTeamPlayers\.value/)
   assert.match(source, /currentSummonerPuuid: sessionData\.value\.currentSummoner\?\.puuid/)
-  assert.match(source, /<GamingAiAnalysisModal[\s\S]*:open="gamingAiModalOpen"[\s\S]*:mode="gamingAiModalMode"[\s\S]*:preview="gamingAiPreview"[\s\S]*@close="closeGamingAiAnalysis"/)
+  assert.match(source, /<GamingAiAnalysisModal[\s\S]*:open="gamingAiModalOpen"[\s\S]*:mode="gamingAiModalMode"[\s\S]*:preview="gamingAiPreview"[\s\S]*:stream-state="gamingAiStreamState"[\s\S]*:stream-text="gamingAiStreamText"[\s\S]*:stream-error="gamingAiStreamError"[\s\S]*@start-analysis="startGamingAiServerAnalysis"[\s\S]*@cancel-analysis="cancelGamingAiServerAnalysis"[\s\S]*@close="closeGamingAiAnalysis"/)
 })
 
-test('gaming AI analysis click builds a temporary input snapshot and syncs it to rankpeek-server mock', () => {
+test('gaming AI analysis only builds and streams the snapshot after modal start-analysis', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
   const fetchSessionBlock = source.slice(
     source.indexOf('async function fetchSessionData'),
@@ -186,24 +189,28 @@ test('gaming AI analysis click builds a temporary input snapshot and syncs it to
     source.indexOf('function openGamingAiAnalysis'),
     source.indexOf('function closeGamingAiAnalysis')
   )
-  const syncSnapshotBlock = source.slice(
-    source.indexOf('async function syncGamingAiInputSnapshot'),
-    source.indexOf('function createGamingAiSnapshotSubmissionKey')
+  const startAnalysisBlock = source.slice(
+    source.indexOf('async function startGamingAiServerAnalysis'),
+    source.indexOf('function cancelGamingAiServerAnalysis')
   )
 
   assert.match(source, /import \{ buildGamingAiInputSnapshot \} from '@\/services\/gamingAiInputSnapshot'/)
-  assert.match(source, /import \{ submitGamingAiInputSnapshotToServer \} from '@\/services\/gamingAiServerSync'/)
-  assert.match(source, /type GamingAiServerSyncState = 'idle' \| 'syncing' \| 'synced' \| 'failed'/)
-  assert.match(source, /const gamingAiServerSyncState = ref<GamingAiServerSyncState>\('idle'\)/)
-  assert.match(source, /const gamingAiServerSyncMessage = ref\(''\)/)
-  assert.match(source, /let lastSubmittedGamingAiSnapshotKey = ''/)
-  assert.match(openAnalysisBlock, /buildGamingAiInputSnapshot\(\{/)
-  assert.match(openAnalysisBlock, /selectedPlayers: players/)
-  assert.match(openAnalysisBlock, /syncGamingAiInputSnapshot\(snapshot\)/)
-  assert.match(syncSnapshotBlock, /submitGamingAiInputSnapshotToServer\(snapshot\)/)
-  assert.match(syncSnapshotBlock, /console\.warn\('Failed to sync gaming AI input snapshot'/)
-  assert.match(source, /:server-sync-state="gamingAiServerSyncState"/)
-  assert.match(source, /:server-sync-message="gamingAiServerSyncMessage"/)
+  assert.match(source, /createGamingAiStreamRequest/)
+  assert.match(source, /streamGamingAiAnalysis/)
+  assert.match(source, /let gamingAiStreamAbortController: AbortController \| null = null/)
+  assert.doesNotMatch(openAnalysisBlock, /buildGamingAiInputSnapshot/)
+  assert.doesNotMatch(openAnalysisBlock, /streamGamingAiAnalysis/)
+  assert.match(startAnalysisBlock, /const players = gamingAiModalMode\.value === 'teammate' \? blueTeamPlayers\.value : redTeamPlayers\.value/)
+  assert.match(startAnalysisBlock, /buildGamingAiInputSnapshot\(\{/)
+  assert.match(startAnalysisBlock, /selectedPlayers: players/)
+  assert.match(startAnalysisBlock, /createGamingAiStreamRequest\(snapshot\)/)
+  assert.match(startAnalysisBlock, /streamGamingAiAnalysis\(/)
+  assert.match(startAnalysisBlock, /onDelta: \(text\) => \{/)
+  assert.match(startAnalysisBlock, /gamingAiStreamText\.value \+= text/)
+  assert.match(startAnalysisBlock, /onError: \(message\) => \{/)
+  assert.match(startAnalysisBlock, /gamingAiStreamState\.value = 'failed'/)
+  assert.match(startAnalysisBlock, /onDone: \(\) => \{/)
+  assert.match(startAnalysisBlock, /gamingAiStreamState\.value = 'completed'/)
   assert.doesNotMatch(fetchSessionBlock, /buildGamingAiInputSnapshot/)
-  assert.doesNotMatch(fetchSessionBlock, /submitGamingAiInputSnapshotToServer/)
+  assert.doesNotMatch(fetchSessionBlock, /streamGamingAiAnalysis/)
 })
