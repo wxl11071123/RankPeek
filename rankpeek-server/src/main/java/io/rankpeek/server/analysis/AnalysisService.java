@@ -1,15 +1,22 @@
 package io.rankpeek.server.analysis;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.server.ai.AiProvider;
 import io.rankpeek.server.ai.AnalysisResult;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AnalysisService {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final PromptContextService promptContextService;
     private final AiProvider aiProvider;
@@ -44,6 +51,8 @@ public class AnalysisService {
                 sendEvent(emitter, "section", "概览");
                 pauseBriefly();
                 sendEvent(emitter, "delta", buildOverviewDelta(request));
+                pauseBriefly();
+                sendPlayerVerdicts(emitter, request);
                 pauseBriefly();
                 sendEvent(emitter, "section", "风险点");
                 pauseBriefly();
@@ -90,6 +99,106 @@ public class AnalysisService {
             return "对手侧优先关注高胜率、高 KDA 或战绩隐藏目标；若标签样本不足，不从 snapshot 反查补数据。";
         }
         return "队友侧优先识别低样本、战绩隐藏和波动标签；本轮只使用前端提交的临时 snapshot。";
+    }
+
+    private static void sendPlayerVerdicts(SseEmitter emitter, PregameAnalysisRequest request) throws IOException {
+        List<Map<String, Object>> players = readSelectedSnapshotPlayers(request);
+        for (int i = 0; i < players.size(); i++) {
+            sendEvent(emitter, "player_verdict", buildPlayerVerdictJson(request, players.get(i), i));
+        }
+    }
+
+    private static String buildPlayerVerdictJson(
+            PregameAnalysisRequest request,
+            Map<String, Object> player,
+            int index
+    ) throws JsonProcessingException {
+        boolean opponentMode = "opponent".equalsIgnoreCase(request.mode() == null ? "" : request.mode().trim());
+        String label = opponentMode
+                ? (index % 2 == 0 ? "高威胁" : "可突破")
+                : (index % 2 == 0 ? "稳定队友" : "风险队友");
+        String tone = opponentMode
+                ? (index % 2 == 0 ? "carry" : "weak")
+                : (index % 2 == 0 ? "stable" : "risk");
+        String reason = opponentMode
+                ? "rankpeek-server mock 仅基于本次请求里的对手标签生成。"
+                : "rankpeek-server mock 仅基于本次请求里的队友标签生成。";
+
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("playerKey", readPlayerKey(player, index));
+        payload.put("label", label);
+        payload.put("tone", tone);
+        payload.put("reason", reason);
+        return OBJECT_MAPPER.writeValueAsString(payload);
+    }
+
+    private static List<Map<String, Object>> readSelectedSnapshotPlayers(PregameAnalysisRequest request) {
+        Map<String, Object> snapshot = request.snapshot();
+        if (snapshot == null || snapshot.isEmpty()) {
+            return List.of();
+        }
+
+        List<Map<String, Object>> selectedPlayers = toPlayerMaps(snapshot.get("selectedPlayers"));
+        if (!selectedPlayers.isEmpty()) {
+            return selectedPlayers;
+        }
+
+        String mode = request.mode() == null ? "" : request.mode().trim().toLowerCase();
+        if ("opponent".equals(mode)) {
+            return toPlayerMaps(snapshot.get("enemyTeam"));
+        }
+        return toPlayerMaps(snapshot.get("allyTeam"));
+    }
+
+    private static List<Map<String, Object>> toPlayerMaps(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+
+        List<Map<String, Object>> players = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                Map<String, Object> player = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (entry.getKey() instanceof String key) {
+                        player.put(key, entry.getValue());
+                    }
+                }
+                players.add(player);
+            }
+        }
+        return players;
+    }
+
+    private static String readPlayerKey(Map<String, Object> player, int index) {
+        String key = readString(player.get("key"));
+        if (!key.isBlank()) {
+            return key;
+        }
+
+        String puuid = readString(player.get("puuid"));
+        if (!puuid.isBlank()) {
+            return "puuid:" + puuid;
+        }
+
+        String displayName = readString(player.get("displayName"));
+        if (!displayName.isBlank()) {
+            return "name:" + displayName + ":" + readChampionKeyPart(player.get("championId"));
+        }
+
+        return "player:" + index;
+    }
+
+    private static String readChampionKeyPart(Object value) {
+        if (value instanceof Number number) {
+            return String.valueOf(number.intValue());
+        }
+        String text = readString(value);
+        return text.isBlank() ? "0" : text;
+    }
+
+    private static String readString(Object value) {
+        return value instanceof String text ? text.trim() : "";
     }
 
     private static String summarizeTags(List<String> tags) {

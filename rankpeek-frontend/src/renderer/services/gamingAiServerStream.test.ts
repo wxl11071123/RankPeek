@@ -15,9 +15,10 @@ function createSnapshot(): GamingAiInputSnapshot {
     generatedAt: '2026-05-13T00:00:00.000Z',
     phase: 'ChampSelect',
     queueId: 420,
-    queueName: 'Ranked Solo',
+    queueName: '单双排位',
     allyTeam: [
       {
+        key: 'puuid:ally-puuid',
         side: 'ally',
         puuid: 'ally-puuid',
         gameName: 'W',
@@ -52,6 +53,7 @@ function createSnapshot(): GamingAiInputSnapshot {
     ],
     enemyTeam: [
       {
+        key: 'name:Hidden#CN1:64',
         side: 'enemy',
         gameName: 'Hidden',
         tagLine: 'CN1',
@@ -121,10 +123,11 @@ test('creates a stream request that carries mode, schema, snapshot, and flattene
   assert.deepEqual(request.enemyTeamTags, flattenGamingAiSnapshotTags(snapshot).enemyTeamTags)
 })
 
-test('streams gaming AI analysis deltas from an SSE response', async () => {
+test('streams gaming AI analysis delta and player verdict events from an SSE response', async () => {
   const request = createGamingAiStreamRequest(createSnapshot())
   const events: string[] = []
   const deltas: string[] = []
+  const verdicts: Array<{ playerKey: string; label: string; tone?: string; reason?: string }> = []
   const originalFetch = globalThis.fetch
 
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -138,6 +141,7 @@ test('streams gaming AI analysis deltas from an SSE response', async () => {
       start(controller) {
         controller.enqueue(encoder.encode('event: start\ndata: {"title":"mock"}\n\n'))
         controller.enqueue(encoder.encode('event: delta\ndata: 第一段\n\n'))
+        controller.enqueue(encoder.encode('event: player_verdict\ndata: {"playerKey":"puuid:ally-puuid","label":"稳定队友","tone":"stable","reason":"来自 server stream"}\n\n'))
         controller.enqueue(encoder.encode('event: delta\ndata: 第二段\n\n'))
         controller.enqueue(encoder.encode('event: done\ndata: done\n\n'))
         controller.close()
@@ -150,13 +154,61 @@ test('streams gaming AI analysis deltas from an SSE response', async () => {
 
   try {
     const result = await streamGamingAiAnalysis(request, {
-      onEvent: event => events.push(event.type),
+      onEvent: event => {
+        events.push(event.type)
+        if (event.type === 'player_verdict') {
+          verdicts.push(event)
+        }
+      },
       onDelta: text => deltas.push(text)
     })
 
     assert.deepEqual(result, { ok: true })
-    assert.deepEqual(events, ['start', 'delta', 'delta', 'done'])
+    assert.deepEqual(events, ['start', 'delta', 'player_verdict', 'delta', 'done'])
     assert.deepEqual(deltas, ['第一段', '第二段'])
+    assert.deepEqual(verdicts, [{
+      playerKey: 'puuid:ally-puuid',
+      label: '稳定队友',
+      tone: 'stable',
+      reason: '来自 server stream'
+    }])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('streams gaming AI analysis player verdict events from an NDJSON response', async () => {
+  const request = createGamingAiStreamRequest(createSnapshot())
+  const events: string[] = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async () => {
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"type":"player_verdict","playerKey":"name:Hidden#CN1:64","label":"可突破","tone":"weak","reason":"来自 NDJSON"}\n'))
+        controller.enqueue(encoder.encode('{"type":"done"}\n'))
+        controller.close()
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/x-ndjson' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamGamingAiAnalysis(request, {
+      onEvent: event => {
+        if (event.type === 'player_verdict') {
+          events.push(`${event.playerKey}:${event.label}:${event.tone}:${event.reason}`)
+          return
+        }
+        events.push(event.type)
+      }
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(events, ['name:Hidden#CN1:64:可突破:weak:来自 NDJSON', 'done'])
   } finally {
     globalThis.fetch = originalFetch
   }

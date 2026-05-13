@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import {
+  isGamingAiAnalysisEnabledQueue,
+  normalizeGamingQueueLabel
+} from '../services/gamingAiQueue.ts'
 
 test('gaming refresh action uses the shared refresh icon button', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
@@ -154,10 +158,10 @@ test('gaming player cards render per-card inline recent panels with independent 
   assert.doesNotMatch(source, /useRouter|router\.push/)
 })
 
-test('gaming AI analysis buttons open local preview modal for teammates and opponents without disabling entry buttons', () => {
+test('gaming AI analysis buttons open modal for teammates and opponents without disabling entry buttons', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
-  const blueButton = source.match(/<button[\s\S]*?队友成分[\s\S]*?<\/button>/)?.[0] || ''
-  const redButton = source.match(/<button[\s\S]*?赛前分析[\s\S]*?<\/button>/)?.[0] || ''
+  const blueButton = source.match(/<button[\s\S]*?@click="openGamingAiAnalysis\('teammate'\)"[\s\S]*?<\/button>/)?.[0] || ''
+  const redButton = source.match(/<button[\s\S]*?@click="openGamingAiAnalysis\('opponent'\)"[\s\S]*?<\/button>/)?.[0] || ''
 
   assert.match(source, /import GamingAiAnalysisModal from '@\/components\/gaming\/GamingAiAnalysisModal\.vue'/)
   assert.match(source, /import \{[\s\S]*createGamingAiAnalysisPreview[\s\S]*\} from '@\/services\/gamingAiAnalysisPreview'/)
@@ -173,10 +177,12 @@ test('gaming AI analysis buttons open local preview modal for teammates and oppo
   assert.match(source, /const gamingAiStreamState = ref<GamingAiStreamState>\('idle'\)/)
   assert.match(source, /const gamingAiStreamText = ref\(''\)/)
   assert.match(source, /const gamingAiStreamError = ref\(''\)/)
+  assert.match(source, /const gamingAiPlayerVerdicts = ref<Record<string, GamingAiPlayerStreamVerdict>>\(\{\}\)/)
   assert.match(source, /function openGamingAiAnalysis\(mode: GamingAiAnalysisMode\)/)
-  assert.match(source, /mode === 'teammate' \? blueTeamPlayers\.value : redTeamPlayers\.value/)
-  assert.match(source, /currentSummonerPuuid: sessionData\.value\.currentSummoner\?\.puuid/)
-  assert.match(source, /<GamingAiAnalysisModal[\s\S]*:open="gamingAiModalOpen"[\s\S]*:mode="gamingAiModalMode"[\s\S]*:preview="gamingAiPreview"[\s\S]*:stream-state="gamingAiStreamState"[\s\S]*:stream-text="gamingAiStreamText"[\s\S]*:stream-error="gamingAiStreamError"[\s\S]*@start-analysis="startGamingAiServerAnalysis"[\s\S]*@cancel-analysis="cancelGamingAiServerAnalysis"[\s\S]*@close="closeGamingAiAnalysis"/)
+  assert.match(source, /:queue-label="gamingAiQueueLabel"/)
+  assert.match(source, /:analysis-enabled="gamingAiAnalysisEnabled"/)
+  assert.match(source, /:player-verdicts="gamingAiPlayerVerdicts"/)
+  assert.match(source, /<GamingAiAnalysisModal[\s\S]*:open="gamingAiModalOpen"[\s\S]*:mode="gamingAiModalMode"[\s\S]*:preview="gamingAiPreview"[\s\S]*:queue-label="gamingAiQueueLabel"[\s\S]*:analysis-enabled="gamingAiAnalysisEnabled"[\s\S]*:stream-state="gamingAiStreamState"[\s\S]*:stream-text="gamingAiStreamText"[\s\S]*:stream-error="gamingAiStreamError"[\s\S]*:player-verdicts="gamingAiPlayerVerdicts"[\s\S]*@start-analysis="startGamingAiServerAnalysis"[\s\S]*@cancel-analysis="cancelGamingAiServerAnalysis"[\s\S]*@close="closeGamingAiAnalysis"/)
 })
 
 test('gaming AI analysis only builds and streams the snapshot after modal start-analysis', () => {
@@ -195,16 +201,22 @@ test('gaming AI analysis only builds and streams the snapshot after modal start-
   )
 
   assert.match(source, /import \{ buildGamingAiInputSnapshot \} from '@\/services\/gamingAiInputSnapshot'/)
+  assert.match(source, /isGamingAiAnalysisEnabledQueue/)
   assert.match(source, /createGamingAiStreamRequest/)
   assert.match(source, /streamGamingAiAnalysis/)
   assert.match(source, /let gamingAiStreamAbortController: AbortController \| null = null/)
   assert.doesNotMatch(openAnalysisBlock, /buildGamingAiInputSnapshot/)
   assert.doesNotMatch(openAnalysisBlock, /streamGamingAiAnalysis/)
+  assert.match(startAnalysisBlock, /if \(!isGamingAiAnalysisEnabledQueue\(sessionData\.value\)\) \{/)
+  assert.match(startAnalysisBlock, /return/)
   assert.match(startAnalysisBlock, /const players = gamingAiModalMode\.value === 'teammate' \? blueTeamPlayers\.value : redTeamPlayers\.value/)
   assert.match(startAnalysisBlock, /buildGamingAiInputSnapshot\(\{/)
   assert.match(startAnalysisBlock, /selectedPlayers: players/)
   assert.match(startAnalysisBlock, /createGamingAiStreamRequest\(snapshot\)/)
   assert.match(startAnalysisBlock, /streamGamingAiAnalysis\(/)
+  assert.match(startAnalysisBlock, /gamingAiPlayerVerdicts\.value = \{\}/)
+  assert.match(startAnalysisBlock, /event\.type === 'player_verdict'/)
+  assert.match(startAnalysisBlock, /gamingAiPlayerVerdicts\.value = \{[\s\S]*\[event\.playerKey\]: event/)
   assert.match(startAnalysisBlock, /onDelta: \(text\) => \{/)
   assert.match(startAnalysisBlock, /gamingAiStreamText\.value \+= text/)
   assert.match(startAnalysisBlock, /onError: \(message\) => \{/)
@@ -213,4 +225,24 @@ test('gaming AI analysis only builds and streams the snapshot after modal start-
   assert.match(startAnalysisBlock, /gamingAiStreamState\.value = 'completed'/)
   assert.doesNotMatch(fetchSessionBlock, /buildGamingAiInputSnapshot/)
   assert.doesNotMatch(fetchSessionBlock, /streamGamingAiAnalysis/)
+})
+
+test('gaming AI queue labels normalize ranked modes and exclude phase prefixes', () => {
+  assert.equal(normalizeGamingQueueLabel({ queueId: 420, typeCn: '单排/双排' }), '单双排位')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 420, typeCn: '单双排' }), '单双排位')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 420, typeCn: '单双排位' }), '单双排位')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 440, typeCn: '灵活组排' }), '灵活排位')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 440, typeCn: '灵活排位' }), '灵活排位')
+  assert.equal(normalizeGamingQueueLabel({ queueId: 450, typeCn: '极地大乱斗' }), '未知模式')
+  assert.equal(isGamingAiAnalysisEnabledQueue({ queueId: 420, typeCn: '单排/双排' }), true)
+  assert.equal(isGamingAiAnalysisEnabledQueue({ queueId: 440, typeCn: '灵活组排' }), true)
+  assert.equal(isGamingAiAnalysisEnabledQueue({ queueId: 450, typeCn: '极地大乱斗' }), false)
+})
+
+test('gaming AI modal subtitle source uses queue label without phase prefixes', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const gamingAiQueueLabel = computed\(\(\) => normalizeGamingQueueLabel\(sessionData\.value\)\)/)
+  assert.match(source, /:queue-label="gamingAiQueueLabel"/)
+  assert.doesNotMatch(source, /大厅 ·|英雄选择 ·|游戏中 ·/)
 })

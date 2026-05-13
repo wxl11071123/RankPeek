@@ -128,9 +128,12 @@
       :open="gamingAiModalOpen"
       :mode="gamingAiModalMode"
       :preview="gamingAiPreview"
+      :queue-label="gamingAiQueueLabel"
+      :analysis-enabled="gamingAiAnalysisEnabled"
       :stream-state="gamingAiStreamState"
       :stream-text="gamingAiStreamText"
       :stream-error="gamingAiStreamError"
+      :player-verdicts="gamingAiPlayerVerdicts"
       @start-analysis="startGamingAiServerAnalysis"
       @cancel-analysis="cancelGamingAiServerAnalysis"
       @close="closeGamingAiAnalysis"
@@ -156,8 +159,13 @@ import { buildGamingAiInputSnapshot } from '@/services/gamingAiInputSnapshot'
 import {
   createGamingAiStreamRequest,
   streamGamingAiAnalysis,
+  type GamingAiPlayerStreamVerdict,
   type GamingAiStreamState
 } from '@/services/gamingAiServerStream'
+import {
+  isGamingAiAnalysisEnabledQueue,
+  normalizeGamingQueueLabel
+} from '@/services/gamingAiQueue'
 import { useI18n, type MessageKey } from '@/i18n'
 
 const { t } = useI18n()
@@ -217,6 +225,7 @@ const gamingAiPreview = ref<GamingAiAnalysisPreview | null>(null)
 const gamingAiStreamState = ref<GamingAiStreamState>('idle')
 const gamingAiStreamText = ref('')
 const gamingAiStreamError = ref('')
+const gamingAiPlayerVerdicts = ref<Record<string, GamingAiPlayerStreamVerdict>>({})
 let gamingAiStreamAbortController: AbortController | null = null
 
 const phaseCn = computed(() => {
@@ -252,6 +261,8 @@ const phaseClass = computed(() => {
 
 const queueName = computed(() => hasActiveSession.value ? (sessionData.value.typeCn || t('common.unknownMode')) : '未进入房间')
 const queueUnknown = computed(() => !hasActiveSession.value || !sessionData.value.typeCn)
+const gamingAiQueueLabel = computed(() => normalizeGamingQueueLabel(sessionData.value))
+const gamingAiAnalysisEnabled = computed(() => isGamingAiAnalysisEnabledQueue(sessionData.value))
 const refreshButtonLabel = computed(() => {
   if (loading.value) return t('common.refreshing')
   return hasActiveSession.value ? t('common.refresh') : t('common.refreshStatus')
@@ -412,6 +423,9 @@ async function startGamingAiServerAnalysis() {
   if (gamingAiStreamState.value === 'preparing' || gamingAiStreamState.value === 'streaming') {
     return
   }
+  if (!isGamingAiAnalysisEnabledQueue(sessionData.value)) {
+    return
+  }
 
   const players = gamingAiModalMode.value === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
   const snapshot = buildGamingAiInputSnapshot({
@@ -426,10 +440,19 @@ async function startGamingAiServerAnalysis() {
   gamingAiStreamState.value = 'preparing'
   gamingAiStreamText.value = ''
   gamingAiStreamError.value = ''
+  gamingAiPlayerVerdicts.value = {}
 
   const result = await streamGamingAiAnalysis(request, {
     onEvent: (event) => {
       if (controller.signal.aborted) {
+        return
+      }
+      if (event.type === 'player_verdict') {
+        gamingAiStreamState.value = 'streaming'
+        gamingAiPlayerVerdicts.value = {
+          ...gamingAiPlayerVerdicts.value,
+          [event.playerKey]: event
+        }
         return
       }
       if (event.type === 'start') {
@@ -496,6 +519,7 @@ function resetGamingAiStreamState() {
   gamingAiStreamState.value = 'idle'
   gamingAiStreamText.value = ''
   gamingAiStreamError.value = ''
+  gamingAiPlayerVerdicts.value = {}
 }
 
 async function fetchSessionData(options: { showLoading?: boolean } = {}) {

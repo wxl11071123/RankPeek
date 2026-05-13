@@ -135,8 +135,8 @@ class PregameAnalysisControllerTest {
                   "snapshot": {
                     "schemaVersion": "gaming_ai_input_snapshot.v1",
                     "mode": "teammate",
-                    "allyTeam": [{"displayName": "W#1234"}],
-                    "enemyTeam": [{"displayName": "Hidden#CN1"}]
+                    "allyTeam": [{"key": "puuid:ally-puuid", "puuid": "ally-puuid", "displayName": "W#1234"}],
+                    "enemyTeam": [{"key": "name:Hidden#CN1:64", "displayName": "Hidden#CN1"}]
                   }
                 }
                 """;
@@ -151,6 +151,8 @@ class PregameAnalysisControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("event:start")))
+                .andExpect(content().string(containsString("event:player_verdict")))
+                .andExpect(content().string(containsString("puuid:ally-puuid")))
                 .andExpect(content().string(containsString("event:delta")))
                 .andExpect(content().string(containsString("event:done")));
     }

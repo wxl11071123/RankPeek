@@ -5,20 +5,27 @@ import type {
   GamingAiAnalysisPreview,
   GamingAiPlayerInsight
 } from '@/services/gamingAiAnalysisPreview'
+import type { GamingAiPlayerStreamVerdict } from '@/services/gamingAiServerStream'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 const props = withDefaults(defineProps<{
   open: boolean
   mode?: GamingAiAnalysisMode
   preview: GamingAiAnalysisPreview | null
+  queueLabel?: string
+  analysisEnabled?: boolean
   streamState?: 'idle' | 'preparing' | 'streaming' | 'completed' | 'failed'
   streamText?: string
   streamError?: string
+  playerVerdicts?: Record<string, GamingAiPlayerStreamVerdict>
 }>(), {
   mode: 'teammate',
+  queueLabel: '',
+  analysisEnabled: true,
   streamState: 'idle',
   streamText: '',
-  streamError: ''
+  streamError: '',
+  playerVerdicts: () => ({})
 })
 
 const emit = defineEmits<{
@@ -28,12 +35,19 @@ const emit = defineEmits<{
 }>()
 
 const fallbackTitle = computed(() => props.mode === 'teammate' ? '队友成分分析' : '赛前对手分析')
-const fallbackSubtitle = computed(() => '等待对局 · 未知模式')
-const sectionTitle = computed(() => props.mode === 'teammate' ? '队友逐个分析' : '对手威胁列表')
-const bulletTitle = computed(() => props.mode === 'teammate' ? '本局队友风险摘要' : '突破点')
+const fallbackSubtitle = computed(() => '未知模式')
 const streamBusy = computed(() => props.streamState === 'preparing' || props.streamState === 'streaming')
-const analysisButtonDisabled = computed(() => streamBusy.value)
+const analysisButtonDisabled = computed(() => streamBusy.value || !props.analysisEnabled)
 const analysisButtonText = computed(() => streamBusy.value ? '分析中...' : '开始分析')
+const playerVerdictList = computed(() => {
+  const playersByKey = new Map((props.preview?.players ?? []).map(player => [player.key, player]))
+  return Object.values(props.playerVerdicts)
+    .filter(verdict => verdict.playerKey && verdict.label)
+    .map(verdict => ({
+      ...verdict,
+      player: playersByKey.get(verdict.playerKey)
+    }))
+})
 const streamVisible = computed(() => (
   props.streamState === 'preparing' ||
   props.streamState === 'streaming' ||
@@ -43,7 +57,7 @@ const streamVisible = computed(() => (
 ))
 const streamStatusText = computed(() => {
   if (props.streamState === 'failed') {
-    return '服务器暂不可用，当前展示本地规则预览。'
+    return '服务器暂不可用，请稍后再试。'
   }
   if (props.streamState === 'completed') {
     return '分析完成'
@@ -81,7 +95,10 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-function playerAvatarUrl(player: GamingAiPlayerInsight): string {
+function playerAvatarUrl(player: GamingAiPlayerInsight | undefined): string {
+  if (!player) {
+    return ''
+  }
   if (player.championId && player.championId > 0) {
     return getChampionIconUrl(player.championId)
   }
@@ -89,6 +106,10 @@ function playerAvatarUrl(player: GamingAiPlayerInsight): string {
     return getProfileIconUrl(player.profileIconId)
   }
   return ''
+}
+
+function displayPlayerName(verdict: GamingAiPlayerStreamVerdict & { player?: GamingAiPlayerInsight }): string {
+  return verdict.player?.name || verdict.playerKey
 }
 
 watch(
@@ -124,17 +145,20 @@ onBeforeUnmount(() => {
       >
         <header class="gaming-ai-analysis-header">
           <div class="gaming-ai-analysis-heading">
-            <p class="gaming-ai-analysis-eyebrow">AI 占位 / 本地规则预览</p>
-            <template v-if="preview">
-              <h2 id="gaming-ai-analysis-title">{{ preview.title }}</h2>
-              <span>{{ preview.subtitle }}</span>
-            </template>
-            <template v-else>
-              <h2 id="gaming-ai-analysis-title">{{ fallbackTitle }}</h2>
-              <span>{{ fallbackSubtitle }}</span>
-            </template>
-            <p class="gaming-ai-analysis-local-note">
-              本地规则预览，点击开始分析后才会发送临时 snapshot。
+            <p class="gaming-ai-analysis-eyebrow">RankPeek 分析</p>
+            <h2 id="gaming-ai-analysis-title">{{ preview?.title || fallbackTitle }}</h2>
+            <span>{{ queueLabel || preview?.subtitle || fallbackSubtitle }}</span>
+            <p
+              v-if="analysisEnabled"
+              class="gaming-ai-analysis-note"
+            >
+              点击开始分析后，将基于当前对战信息生成临时分析。
+            </p>
+            <p
+              v-else
+              class="gaming-ai-analysis-note"
+            >
+              当前仅支持单双排位和灵活排位分析。
             </p>
           </div>
           <div class="gaming-ai-analysis-actions">
@@ -166,10 +190,6 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="gaming-ai-analysis-body">
-          <p class="gaming-ai-analysis-opening">
-            {{ preview?.opening || '当前还没有可用玩家数据，请进入英雄选择或加载阶段后再试。' }}
-          </p>
-
           <section v-if="streamVisible" class="gaming-ai-analysis-section gaming-ai-analysis-stream">
             <h3>服务器分析</h3>
             <p
@@ -183,60 +203,38 @@ onBeforeUnmount(() => {
             <pre v-if="streamText.trim()" class="gaming-ai-analysis-stream-text">{{ streamText }}</pre>
           </section>
 
-          <section v-if="preview && preview.players.length" class="gaming-ai-analysis-section">
-            <h3>{{ sectionTitle }}</h3>
+          <section v-if="playerVerdictList.length" class="gaming-ai-analysis-section">
+            <h3>玩家判断</h3>
             <ul class="gaming-ai-analysis-player-list">
               <li
-                v-for="player in preview.players"
-                :key="player.key"
+                v-for="verdict in playerVerdictList"
+                :key="verdict.playerKey"
                 class="gaming-ai-analysis-player"
-                :class="`tone-${player.tone}`"
+                :class="`tone-${verdict.tone || 'unknown'}`"
               >
                 <div class="gaming-ai-analysis-avatar">
                   <img
-                    v-if="playerAvatarUrl(player)"
-                    :src="playerAvatarUrl(player)"
-                    :alt="player.name"
+                    v-if="playerAvatarUrl(verdict.player)"
+                    :src="playerAvatarUrl(verdict.player)"
+                    :alt="displayPlayerName(verdict)"
                     @error="markAssetLoadFailed"
                   />
-                  <span v-else>{{ player.name.slice(0, 1) }}</span>
+                  <span v-else>{{ displayPlayerName(verdict).slice(0, 1) }}</span>
                 </div>
 
                 <div class="gaming-ai-analysis-copy">
                   <div class="gaming-ai-analysis-player-title">
-                    <strong>{{ player.name }}</strong>
-                    <span>{{ player.rankText }}</span>
+                    <strong>{{ displayPlayerName(verdict) }}</strong>
+                    <span v-if="verdict.player?.rankText">{{ verdict.player.rankText }}</span>
                   </div>
-                  <p>{{ player.reason }}</p>
+                  <p v-if="verdict.reason">{{ verdict.reason }}</p>
                 </div>
 
                 <div class="gaming-ai-analysis-side">
-                  <span class="gaming-ai-analysis-verdict">{{ player.verdict }}</span>
-                  <div class="gaming-ai-analysis-metrics" aria-label="关键数据">
-                    <span><small>KDA</small>{{ player.kdaText }}</span>
-                    <span><small>胜率</small>{{ player.winRateText }}</span>
-                    <span><small>伤转率</small>{{ player.damageRateText }}</span>
-                    <span><small>样本</small>{{ player.sampleText }}</span>
-                  </div>
+                  <span class="gaming-ai-analysis-verdict">{{ verdict.label }}</span>
                 </div>
               </li>
             </ul>
-          </section>
-
-          <section v-else class="gaming-ai-analysis-empty">
-            当前还没有可用玩家数据，请进入英雄选择或加载阶段后再试。
-          </section>
-
-          <section v-if="preview?.bullets.length" class="gaming-ai-analysis-section">
-            <h3>{{ bulletTitle }}</h3>
-            <ul class="gaming-ai-analysis-bullets">
-              <li v-for="bullet in preview.bullets" :key="bullet">{{ bullet }}</li>
-            </ul>
-          </section>
-
-          <section v-if="preview?.laneAdvice" class="gaming-ai-analysis-section gaming-ai-analysis-advice">
-            <h3>前期建议</h3>
-            <p>{{ preview.laneAdvice }}</p>
           </section>
         </div>
       </section>
@@ -315,7 +313,7 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-.gaming-ai-analysis-local-note {
+.gaming-ai-analysis-note {
   margin: 8px 0 0;
   color: var(--text-secondary);
   font-size: 12px;

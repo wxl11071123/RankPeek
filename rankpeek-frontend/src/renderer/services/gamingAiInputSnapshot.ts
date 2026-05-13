@@ -32,6 +32,7 @@ export interface GamingAiInputSnapshot {
 }
 
 export interface GamingAiInputPlayer {
+  key: string
   side: 'ally' | 'enemy'
   puuid?: string
   gameName: string
@@ -136,6 +137,7 @@ function toInputPlayer(player: SessionSummoner, side: 'ally' | 'enemy'): GamingA
   const championId = toFiniteNumber(player.championId)
 
   return {
+    key: getPlayerSnapshotKey(player),
     side,
     ...(readNonEmptyString(player.summoner?.puuid) ? { puuid: player.summoner.puuid.trim() } : {}),
     gameName: readNonEmptyString(player.summoner?.gameName) || 'Unknown player',

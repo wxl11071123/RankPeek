@@ -144,6 +144,9 @@ test('builds a gaming AI input snapshot from the current session teams', () => {
   assert.equal(snapshot.allyTeam.length, 1)
   assert.equal(snapshot.enemyTeam.length, 1)
   assert.equal(snapshot.selectedPlayers.length, 1)
+  assert.equal(snapshot.allyTeam[0]?.key, 'puuid:ally-puuid')
+  assert.equal(snapshot.enemyTeam[0]?.key, 'puuid:enemy-puuid')
+  assert.equal(snapshot.selectedPlayers[0]?.key, 'puuid:ally-puuid')
   assert.equal(snapshot.selectedPlayers[0]?.side, 'ally')
 })
 

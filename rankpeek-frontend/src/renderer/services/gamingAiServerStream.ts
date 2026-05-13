@@ -18,10 +18,18 @@ export interface GamingAiStreamRequest {
   enemyTeamTags: string[]
 }
 
+export interface GamingAiPlayerStreamVerdict {
+  playerKey: string
+  label: string
+  tone?: 'carry' | 'stable' | 'risk' | 'weak' | 'unknown'
+  reason?: string
+}
+
 export type GamingAiStreamEvent =
   | { type: 'start'; title?: string }
   | { type: 'delta'; text: string }
   | { type: 'section'; title: string }
+  | ({ type: 'player_verdict' } & GamingAiPlayerStreamVerdict)
   | { type: 'done' }
   | { type: 'error'; message: string }
 
@@ -212,6 +220,21 @@ function emitParsedStreamEvent(
     emitStreamEvent({ type: 'delta', text: readString(payload, 'text') || readText(payload) || data }, handlers)
     return
   }
+  if (normalizedEventName === 'player_verdict') {
+    const playerKey = readString(payload, 'playerKey')
+    const label = readString(payload, 'label')
+    if (playerKey && label) {
+      const tone = readVerdictTone(payload)
+      const reason = readString(payload, 'reason')
+      emitStreamEvent(createPlayerVerdictEvent({
+        playerKey,
+        label,
+        ...(tone ? { tone } : {}),
+        ...(reason ? { reason } : {})
+      }), handlers)
+    }
+    return
+  }
   if (normalizedEventName === 'done') {
     emitStreamEvent({ type: 'done' }, handlers)
     return
@@ -262,6 +285,29 @@ function readString(payload: unknown, key: string): string {
 
 function readText(payload: unknown): string {
   return typeof payload === 'string' ? payload : ''
+}
+
+function createPlayerVerdictEvent(verdict: GamingAiPlayerStreamVerdict): GamingAiStreamEvent {
+  const event = { ...verdict } as GamingAiStreamEvent
+  Object.defineProperty(event, 'type', {
+    value: 'player_verdict',
+    enumerable: false
+  })
+  return event
+}
+
+function readVerdictTone(payload: unknown): GamingAiPlayerStreamVerdict['tone'] | undefined {
+  const tone = readString(payload, 'tone')
+  if (
+    tone === 'carry' ||
+    tone === 'stable' ||
+    tone === 'risk' ||
+    tone === 'weak' ||
+    tone === 'unknown'
+  ) {
+    return tone
+  }
+  return undefined
 }
 
 function formatPlayerTagLine(player: GamingAiInputPlayer): string {
