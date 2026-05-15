@@ -6,6 +6,31 @@ import {
   normalizeGamingQueueLabel
 } from '../services/gamingAiQueue.ts'
 
+function extractRule(source: string, selector: string) {
+  const normalizedSource = source.replace(/\r\n/g, '\n')
+  const start = normalizedSource.indexOf(selector)
+  assert.notEqual(start, -1, `${selector} should exist`)
+
+  const open = normalizedSource.indexOf('{', start)
+  assert.notEqual(open, -1, `${selector} should have a body`)
+
+  let depth = 0
+  for (let index = open; index < normalizedSource.length; index += 1) {
+    if (normalizedSource[index] === '{') {
+      depth += 1
+    }
+
+    if (normalizedSource[index] === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return normalizedSource.slice(open + 1, index)
+      }
+    }
+  }
+
+  assert.fail(`${selector} should close`)
+}
+
 test('gaming refresh action uses the shared refresh icon button', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
 
@@ -34,6 +59,52 @@ test('gaming page applies the home-style cursor glow to panels, buttons, and pla
   assert.match(source, /<PlayerCard[\s\S]*class="gaming-player-card surface-glow"/)
   assert.match(source, /\.control-glow::before,\s*\.surface-glow::before/)
   assert.match(source, /\.gaming-player-card\.surface-glow/)
+})
+
+test('gaming page follows the shared home module and control glow contract', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const playerCardSource = readFileSync(new URL('../components/gaming/PlayerCard.vue', import.meta.url), 'utf8')
+  const baseRule = extractRule(source, '.gaming-view')
+  const lightRule = extractRule(source, ':global([data-theme="light"] .gaming-view)')
+  const headerRule = extractRule(source, '.gaming-header')
+  const teamPanelRule = extractRule(source, '.team-panel')
+  const headerHoverRule = extractRule(source, '.gaming-header:hover,\n.gaming-header:focus-within')
+  const teamHoverRule = extractRule(source, '.team-panel:hover,\n.team-panel:focus-within')
+  const buttonHoverRule = extractRule(source, '.team-analysis-btn:hover,\n.team-analysis-btn:focus-visible')
+  const selectedRule = extractRule(playerCardSource, '.player-card.selected')
+
+  assert.match(baseRule, /--gaming-module-hover-rgb:\s*212, 175, 55/)
+  assert.match(baseRule, /--gaming-module-hover-border:\s*rgba\(var\(--gaming-module-hover-rgb\), 0\.48\)/)
+  assert.match(baseRule, /--gaming-module-hover-shadow:/)
+  assert.match(baseRule, /--gaming-hover-border:\s*var\(--gaming-module-hover-border\)/)
+  assert.match(baseRule, /--gaming-hover-shadow:\s*var\(--gaming-module-hover-shadow\)/)
+  assert.match(baseRule, /--gaming-control-border-hover:\s*rgba\(96, 176, 255, 0\.58\)/)
+  assert.match(baseRule, /--gaming-control-bg-hover-local:[\s\S]*var\(--gaming-control-border-hover\) 72%[\s\S]*\) border-box/)
+
+  assert.match(lightRule, /--gaming-module-hover-rgb:\s*86, 109, 134/)
+  assert.match(lightRule, /--gaming-module-hover-border:\s*rgba\(var\(--gaming-module-hover-rgb\), 0\.42\)/)
+  assert.match(lightRule, /--gaming-control-border-local-glow:\s*rgba\(255, 218, 76, 0\.94\)/)
+  assert.match(lightRule, /--gaming-control-border-local-glow-fade:\s*rgba\(244, 183, 24, 0\.52\)/)
+  assert.match(lightRule, /--gaming-control-edge-rgb:\s*255, 210, 62/)
+  assert.match(lightRule, /--gaming-control-border-hover:\s*var\(--border-color\)/)
+  assert.match(lightRule, /--gaming-control-bg-hover:\s*rgba\(252, 238, 198, 0\.98\)/)
+
+  assert.match(headerRule, /border:\s*1px solid var\(--border-color\)/)
+  assert.match(headerRule, /box-shadow:\s*none/)
+  assert.match(teamPanelRule, /border:\s*1px solid var\(--border-color\)/)
+  assert.match(teamPanelRule, /box-shadow:\s*none/)
+  assert.doesNotMatch(source, /\.team-blue\s*\{[\s\S]*?border-color:/)
+  assert.doesNotMatch(source, /\.team-red\s*\{[\s\S]*?border-color:/)
+
+  assert.match(headerHoverRule, /border-color:\s*var\(--gaming-module-hover-border\)/)
+  assert.match(headerHoverRule, /box-shadow:\s*var\(--gaming-module-hover-shadow\)/)
+  assert.match(teamHoverRule, /border-color:\s*var\(--gaming-module-hover-border\)/)
+  assert.match(teamHoverRule, /box-shadow:\s*var\(--gaming-module-hover-shadow\)/)
+  assert.match(buttonHoverRule, /background:\s*var\(--gaming-control-bg-hover-local\)/)
+  assert.match(buttonHoverRule, /box-shadow:\s*var\(--gaming-control-hover-shadow\), var\(--gaming-control-edge-shadow\)/)
+
+  assert.match(selectedRule, /border-color:\s*rgba\(240, 196, 79, 0\.48\)/)
+  assert.match(selectedRule, /box-shadow:\s*0 0 0 1px rgba\(240, 196, 79, 0\.14\)/)
 })
 
 test('uses compact team panels and reads session data through the gaming adapter', () => {

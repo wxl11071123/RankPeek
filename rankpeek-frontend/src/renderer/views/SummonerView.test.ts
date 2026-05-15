@@ -2,6 +2,30 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+function extractRule(source: string, selector: string) {
+  const start = source.indexOf(selector)
+  assert.notEqual(start, -1, `${selector} should exist`)
+
+  const open = source.indexOf('{', start)
+  assert.notEqual(open, -1, `${selector} should have a body`)
+
+  let depth = 0
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === '{') {
+      depth += 1
+    }
+
+    if (source[index] === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(open + 1, index)
+      }
+    }
+  }
+
+  assert.fail(`${selector} should close`)
+}
+
 test('summoner lookup delegates the match analysis body to the shared panel', () => {
   const source = readFileSync(new URL('./SummonerView.vue', import.meta.url), 'utf8')
 
@@ -52,7 +76,7 @@ test('summoner lookup search controls live in the shared history panel header', 
   assert.match(panel, /class="filter-control control-glow"[\s\S]*<select[\s\S]*class="filter-select"/)
   assert.match(panel, /\.lookup-search-input-wrap \{[\s\S]*border: 1px solid var\(--match-control-border\)[\s\S]*background:[\s\S]*var\(--match-control-bg\)/)
   assert.match(panel, /\.lookup-search-input \{[\s\S]*border: 0[\s\S]*background: transparent/)
-  assert.match(panel, /\.lookup-search-input-wrap:hover,[\s\S]*\.lookup-search-input-wrap:focus-within \{[\s\S]*border-color: var\(--match-control-border\)[\s\S]*var\(--match-control-edge-shadow\)/)
+  assert.match(panel, /\.lookup-search-input-wrap:hover,[\s\S]*\.lookup-search-input-wrap:focus-within \{[\s\S]*border-color: var\(--match-control-border-hover\)[\s\S]*var\(--match-control-bg-hover-local\)[\s\S]*var\(--match-control-edge-shadow\)/)
   assert.match(panel, /\.lookup-search-input-wrap\.control-glow\[data-near-glow='true'\]:not\(:hover\):not\(:focus-within\) \{[\s\S]*border-color: var\(--match-control-border\)[\s\S]*var\(--match-control-edge-shadow\)/)
   assert.match(panel, /:global\(\[data-theme="light"\] \.match-history-view \.lookup-search-input-wrap\) \{[\s\S]*background:[\s\S]*rgba\(255, 255, 255, 0\.92\)[\s\S]*color: #101722/)
   assert.match(panel, /:global\(\[data-theme="light"\] \.match-history-view \.lookup-search-icon-btn\) \{[\s\S]*color: #000/)
@@ -60,10 +84,10 @@ test('summoner lookup search controls live in the shared history panel header', 
   assert.match(panel, /:global\(\[data-theme="light"\] \.match-history-view \.lookup-search-icon\),[\s\S]*:global\(\[data-theme="light"\] \.match-history-view \.lookup-search-icon path\) \{[\s\S]*stroke: #000/)
   assert.doesNotMatch(panel, /:global\(\[data-theme="light"\] \.match-history-view \.lookup-search-input:hover\)/)
   assert.match(panel, /\.lookup-search-icon-btn \{[\s\S]*width: var\(--lookup-control-height\)[\s\S]*height: var\(--lookup-control-height\)[\s\S]*border: 1px solid rgba\(92, 163, 234, 0\)[\s\S]*color: #fff/)
-  assert.match(panel, /\.lookup-search-icon-btn:hover,[\s\S]*\.lookup-search-icon-btn:focus-visible \{[\s\S]*border-color: rgba\(92, 163, 234, 0\)[\s\S]*var\(--match-control-edge-shadow\)/)
+  assert.match(panel, /\.lookup-search-icon-btn:hover,[\s\S]*\.lookup-search-icon-btn:focus-visible \{[\s\S]*border-color: var\(--match-control-border-hover\)[\s\S]*var\(--match-control-edge-shadow\)/)
   assert.match(panel, /\.lookup-search-icon-btn\.control-glow\[data-near-glow='true'\]:not\(:hover\):not\(:focus\) \{[\s\S]*border-color: rgba\(92, 163, 234, 0\)[\s\S]*var\(--match-control-edge-shadow\)/)
   assert.match(panel, /\.control-glow:hover::before,[\s\S]*\.control-glow:focus-within::before,[\s\S]*\.control-glow:focus-visible::before/)
-  assert.match(panel, /\.filter-control:hover,[\s\S]*\.filter-control:focus-within \{[\s\S]*border-color: var\(--match-control-border\)[\s\S]*var\(--match-control-edge-shadow\)/)
+  assert.match(panel, /\.filter-control:hover,[\s\S]*\.filter-control:focus-within \{[\s\S]*border-color: var\(--match-control-border-hover\)[\s\S]*var\(--match-control-bg-hover-local\)[\s\S]*var\(--match-control-edge-shadow\)/)
   assert.match(panel, /\.filter-control\.control-glow\[data-near-glow='true'\]:not\(:hover\):not\(:focus-within\) \{[\s\S]*border-color: var\(--match-control-border\)[\s\S]*var\(--match-control-edge-shadow\)/)
   assert.match(panel, /\.lookup-search-icon-btn:disabled \{[\s\S]*opacity: 0\.45[\s\S]*cursor: not-allowed/)
   assert.doesNotMatch(panel.match(/\.lookup-search-icon-btn:disabled \{[\s\S]*?\}/)?.[0] || '', /pointer-events:\s*none/)
@@ -74,6 +98,37 @@ test('summoner lookup search controls live in the shared history panel header', 
   assert.match(panel, /<section v-if="currentSummoner" class="content-stack">/)
   assert.match(zh, /'matchHistory\.lookupTitle': '战绩查询'/)
   assert.match(en, /'matchHistory\.lookupTitle': 'Match Lookup'/)
+})
+
+test('summoner lookup follows the shared module and control glow contract', () => {
+  const panel = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const variablesRule = extractRule(panel, '.match-history-view')
+  const lightVariablesRule = extractRule(panel, ':global([data-theme="light"] .match-history-view)')
+  const lookupShellRule = extractRule(panel, ".match-history-view[data-variant='lookup'] .page-shell,")
+  const lookupHoverRule = extractRule(panel, ".match-history-view[data-variant='lookup'] .page-shell:hover,")
+  const lookupNearRule = extractRule(panel, ".match-history-view[data-variant='lookup'] .page-shell.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within),")
+  const lookupAfterRule = extractRule(panel, ".match-history-view[data-variant='lookup'] .page-shell::after")
+
+  assert.match(variablesRule, /--match-module-hover-rgb:\s*212,\s*175,\s*55/)
+  assert.match(variablesRule, /--match-module-hover-border:\s*rgba\(var\(--match-module-hover-rgb\),\s*0\.48\)/)
+  assert.match(variablesRule, /--match-module-hover-shadow:/)
+  assert.match(lightVariablesRule, /--match-module-hover-rgb:\s*86,\s*109,\s*134/)
+  assert.match(lightVariablesRule, /--match-module-hover-border:\s*rgba\(var\(--match-module-hover-rgb\),\s*0\.42\)/)
+  assert.match(lightVariablesRule, /--match-control-border-local-glow:\s*var\(--rp-light-gold-edge-core\)/)
+  assert.match(lightVariablesRule, /--match-control-border-hover:\s*rgba\(226,\s*179,\s*34,\s*0\.42\)/)
+
+  assert.match(lookupShellRule, /border:\s*1px solid var\(--border-color\)/)
+  assert.match(lookupShellRule, /background:\s*var\(--bg-secondary\)/)
+  assert.match(lookupShellRule, /box-shadow:\s*none/)
+  assert.doesNotMatch(lookupShellRule, /linear-gradient|inset|rgba\(41,\s*151,\s*255/)
+
+  assert.match(lookupHoverRule, /border-color:\s*var\(--match-module-hover-border\)/)
+  assert.match(lookupHoverRule, /box-shadow:\s*var\(--match-module-hover-shadow\)/)
+  assert.doesNotMatch(lookupHoverRule, /inset|rgba\(41,\s*151,\s*255|rgba\(92,\s*163,\s*234/)
+
+  assert.match(lookupNearRule, /border-color:\s*var\(--border-color\)/)
+  assert.match(lookupNearRule, /box-shadow:\s*none/)
+  assert.match(lookupAfterRule, /display:\s*none/)
 })
 
 test('summoner lookup keeps only search state and leaves match state to the panel', () => {

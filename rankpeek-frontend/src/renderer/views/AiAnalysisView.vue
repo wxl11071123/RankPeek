@@ -427,9 +427,38 @@ async function refreshLocalAnalysisResults() {
 
 <style scoped>
 .ai-analysis-view {
+  --ai-analysis-module-hover-rgb: 212, 175, 55;
+  --ai-analysis-module-hover-border: rgba(var(--ai-analysis-module-hover-rgb), 0.48);
+  --ai-analysis-module-hover-shadow:
+    0 0 0 1px rgba(var(--ai-analysis-module-hover-rgb), 0.16),
+    0 0 18px rgba(var(--ai-analysis-module-hover-rgb), 0.18),
+    0 12px 28px rgba(var(--ai-analysis-module-hover-rgb), 0.08);
+  --ai-analysis-control-hover-rgb: 212, 175, 55;
+  --ai-analysis-control-hover-border: rgba(var(--ai-analysis-control-hover-rgb), 0.46);
+  --ai-analysis-control-hover-bg: rgba(var(--ai-analysis-control-hover-rgb), 0.08);
+  --ai-analysis-control-hover-shadow:
+    0 0 0 1px rgba(var(--ai-analysis-control-hover-rgb), 0.13),
+    0 0 14px rgba(var(--ai-analysis-control-hover-rgb), 0.18);
+  --ai-analysis-accent-rgb: 212, 175, 55;
   max-width: 1120px;
   margin: 0 auto;
   padding-bottom: 36px;
+}
+
+:global([data-theme="light"] .ai-analysis-view) {
+  --ai-analysis-module-hover-rgb: 86, 109, 134;
+  --ai-analysis-module-hover-border: rgba(var(--ai-analysis-module-hover-rgb), 0.42);
+  --ai-analysis-module-hover-shadow:
+    0 0 0 1px rgba(var(--ai-analysis-module-hover-rgb), 0.14),
+    0 0 18px rgba(var(--ai-analysis-module-hover-rgb), 0.14),
+    0 12px 28px rgba(var(--ai-analysis-module-hover-rgb), 0.07);
+  --ai-analysis-control-hover-rgb: 226, 179, 34;
+  --ai-analysis-control-hover-border: rgba(var(--ai-analysis-control-hover-rgb), 0.42);
+  --ai-analysis-control-hover-bg: rgba(var(--ai-analysis-control-hover-rgb), 0.1);
+  --ai-analysis-control-hover-shadow:
+    0 0 0 1px rgba(var(--ai-analysis-control-hover-rgb), 0.13),
+    0 0 12px rgba(var(--ai-analysis-control-hover-rgb), 0.2);
+  --ai-analysis-accent-rgb: 166, 133, 32;
 }
 
 .hero-panel {
@@ -438,14 +467,6 @@ async function refreshLocalAnalysisResults() {
   gap: 18px;
   align-items: stretch;
   padding: 24px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background:
-    linear-gradient(135deg, rgba(var(--accent-rgb), 0.12), transparent 56%),
-    var(--bg-secondary);
-  box-shadow:
-    0 16px 34px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(var(--accent-rgb), 0.03);
 }
 
 .hero-copy {
@@ -469,16 +490,28 @@ async function refreshLocalAnalysisResults() {
   line-height: 1.6;
 }
 
+.hero-panel,
 .status-card,
 .feature-card,
 .empty-card,
 .report-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.14),
-    0 0 0 1px rgba(var(--accent-rgb), 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.hero-panel:hover,
+.hero-panel:focus-within,
+.feature-card:hover,
+.feature-card:focus-within,
+.empty-card:hover,
+.empty-card:focus-within,
+.report-card:hover,
+.report-card:focus-within {
+  border-color: var(--ai-analysis-module-hover-border);
+  box-shadow: var(--ai-analysis-module-hover-shadow);
 }
 
 .status-card {
@@ -487,7 +520,6 @@ async function refreshLocalAnalysisResults() {
   justify-content: center;
   gap: 14px;
   padding: 18px;
-  background: rgba(var(--accent-rgb), 0.06);
 }
 
 .account-showcase-card {
@@ -531,7 +563,7 @@ async function refreshLocalAnalysisResults() {
 }
 
 .balance-showcase {
-  color: var(--accent-color);
+  color: rgb(var(--ai-analysis-accent-rgb));
   font-size: 21px;
   font-weight: 820;
   line-height: 1.2;
@@ -540,24 +572,28 @@ async function refreshLocalAnalysisResults() {
 .balance-recharge-button {
   min-height: 28px;
   flex: 0 0 auto;
-  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 0 10px;
-  background: rgba(var(--accent-rgb), 0.1);
-  color: var(--accent-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 750;
   letter-spacing: 0;
   transition:
     border-color 0.18s ease,
     background 0.18s ease,
-    color 0.18s ease;
+    color 0.18s ease,
+    box-shadow 0.2s ease;
 }
 
-.balance-recharge-button:hover {
-  border-color: rgba(var(--accent-rgb), 0.4);
-  background: rgba(var(--accent-rgb), 0.16);
+.balance-recharge-button:hover,
+.balance-recharge-button:focus-visible {
+  border-color: var(--ai-analysis-control-hover-border);
+  background: var(--ai-analysis-control-hover-bg);
+  box-shadow: var(--ai-analysis-control-hover-shadow);
   color: var(--text-primary);
+  outline: none;
 }
 
 .report-meta span {
@@ -595,10 +631,10 @@ async function refreshLocalAnalysisResults() {
 .notice-line {
   margin: 16px 0 0;
   padding: 10px 14px;
-  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  border: 1px solid rgba(var(--ai-analysis-accent-rgb), 0.22);
   border-radius: var(--radius-md);
-  background: rgba(var(--accent-rgb), 0.1);
-  color: var(--accent-color);
+  background: rgba(var(--ai-analysis-accent-rgb), 0.08);
+  color: rgb(var(--ai-analysis-accent-rgb));
   font-size: 13px;
   font-weight: 600;
 }
@@ -693,10 +729,10 @@ async function refreshLocalAnalysisResults() {
   align-items: center;
   min-height: 24px;
   padding: 0 9px;
-  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  border: 1px solid rgba(var(--ai-analysis-accent-rgb), 0.2);
   border-radius: var(--radius-sm);
-  background: rgba(var(--accent-rgb), 0.08);
-  color: var(--accent-color);
+  background: rgba(var(--ai-analysis-accent-rgb), 0.08);
+  color: rgb(var(--ai-analysis-accent-rgb));
   font-size: 12px;
   font-weight: 650;
 }
@@ -737,13 +773,23 @@ async function refreshLocalAnalysisResults() {
   gap: 8px;
   min-height: 34px;
   padding: 0 11px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 650;
   letter-spacing: 0;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.2s ease, color 0.18s ease;
+}
+
+.report-type-tab:hover,
+.report-type-tab:focus-visible {
+  border-color: var(--ai-analysis-control-hover-border);
+  background: var(--ai-analysis-control-hover-bg);
+  box-shadow: var(--ai-analysis-control-hover-shadow);
+  color: var(--text-primary);
+  outline: none;
 }
 
 .report-type-tab strong {

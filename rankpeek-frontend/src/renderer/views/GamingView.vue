@@ -703,8 +703,14 @@ onUnmounted(() => {
 
 <style scoped>
 .gaming-view {
-  --module-edge-color: rgba(232, 221, 186, 0.46);
-  --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
+  --gaming-module-hover-rgb: 212, 175, 55;
+  --gaming-module-hover-border: rgba(var(--gaming-module-hover-rgb), 0.48);
+  --gaming-module-hover-shadow:
+    0 0 0 1px rgba(var(--gaming-module-hover-rgb), 0.16),
+    0 0 18px rgba(var(--gaming-module-hover-rgb), 0.18),
+    0 12px 28px rgba(var(--gaming-module-hover-rgb), 0.08);
+  --module-edge-color: var(--gaming-module-hover-border);
+  --module-edge-glow: var(--gaming-module-hover-shadow);
   --control-glow-x: 50%;
   --control-glow-y: 50%;
   --control-edge-width: 1px;
@@ -724,32 +730,40 @@ onUnmounted(() => {
     -3px 0 11px -6px rgba(var(--gaming-control-edge-rgb), calc(var(--edge-left-alpha) * 0.48));
   --gaming-control-bg-hover: rgba(28, 36, 48, 0.96);
   --gaming-control-border: var(--border-color);
+  --gaming-control-border-hover: rgba(96, 176, 255, 0.58);
   --gaming-control-bg-hover-local: linear-gradient(var(--gaming-control-bg-hover), var(--gaming-control-bg-hover)) padding-box,
     radial-gradient(
       circle at var(--control-glow-x) var(--control-glow-y),
       var(--gaming-control-border-local-glow) 0%,
       var(--gaming-control-border-local-glow-fade) 36%,
-      var(--gaming-control-border) 72%
+      var(--gaming-control-border-hover) 72%
     ) border-box;
   --gaming-control-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 0 16px rgba(41, 151, 255, 0.22);
-  --gaming-hover-border: rgba(226, 179, 34, 0.32);
-  --gaming-hover-shadow: var(--module-edge-glow);
+  --gaming-hover-border: var(--gaming-module-hover-border);
+  --gaming-hover-shadow: var(--gaming-module-hover-shadow);
   min-height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 :global([data-theme="light"] .gaming-view) {
-  --module-edge-color: rgba(226, 179, 34, 0.34);
-  --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
+  --gaming-module-hover-rgb: 86, 109, 134;
+  --gaming-module-hover-border: rgba(var(--gaming-module-hover-rgb), 0.42);
+  --gaming-module-hover-shadow:
+    0 0 0 1px rgba(var(--gaming-module-hover-rgb), 0.14),
+    0 0 18px rgba(var(--gaming-module-hover-rgb), 0.14),
+    0 12px 28px rgba(var(--gaming-module-hover-rgb), 0.07);
+  --module-edge-color: var(--gaming-module-hover-border);
+  --module-edge-glow: var(--gaming-module-hover-shadow);
   --gaming-control-border-local-glow: rgba(255, 218, 76, 0.94);
   --gaming-control-border-local-glow-fade: rgba(244, 183, 24, 0.52);
-  --gaming-control-edge-rgb: 226, 179, 34;
+  --gaming-control-edge-rgb: 255, 210, 62;
   --gaming-control-bg-hover: rgba(252, 238, 198, 0.98);
   --gaming-control-border: var(--border-color);
+  --gaming-control-border-hover: var(--border-color);
   --gaming-control-hover-shadow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
-  --gaming-hover-border: rgba(196, 145, 16, 0.34);
-  --gaming-hover-shadow: var(--module-edge-glow);
+  --gaming-hover-border: var(--gaming-module-hover-border);
+  --gaming-hover-shadow: var(--gaming-module-hover-shadow);
 }
 
 .gaming-content {
@@ -777,8 +791,8 @@ onUnmounted(() => {
 
 .gaming-header:hover,
 .gaming-header:focus-within {
-  border-color: var(--gaming-hover-border);
-  box-shadow: var(--gaming-hover-shadow);
+  border-color: var(--gaming-module-hover-border);
+  box-shadow: var(--gaming-module-hover-shadow);
 }
 
 .phase-info {
@@ -941,27 +955,14 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   border-radius: 14px;
   background: var(--bg-secondary);
+  box-shadow: none;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
-.team-blue {
-  border-color: rgba(59, 130, 246, 0.16);
-}
-
-.team-red {
-  border-color: rgba(239, 68, 68, 0.16);
-}
-
-.team-blue:hover,
-.team-blue:focus-within {
-  border-color: var(--gaming-hover-border);
-  box-shadow: var(--gaming-hover-shadow);
-}
-
-.team-red:hover,
-.team-red:focus-within {
-  border-color: var(--gaming-hover-border);
-  box-shadow: var(--gaming-hover-shadow);
+.team-panel:hover,
+.team-panel:focus-within {
+  border-color: var(--gaming-module-hover-border);
+  box-shadow: var(--gaming-module-hover-shadow);
 }
 
 .team-header {
@@ -1050,9 +1051,9 @@ onUnmounted(() => {
 }
 
 :global([data-theme="light"] .gaming-view .team-analysis-btn) {
-  border-color: rgba(59, 130, 246, 0.34);
-  background: rgba(59, 130, 246, 0.055);
-  color: #245f9f;
+  border-color: rgba(86, 109, 134, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  color: #2f4d6a;
   box-shadow: none;
 }
 
@@ -1060,7 +1061,7 @@ onUnmounted(() => {
 :global([data-theme="light"] .gaming-view .team-analysis-btn:focus-visible) {
   border-color: transparent;
   background: var(--gaming-control-bg-hover-local);
-  color: #69510e;
+  color: #24384d;
   box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
 }
 

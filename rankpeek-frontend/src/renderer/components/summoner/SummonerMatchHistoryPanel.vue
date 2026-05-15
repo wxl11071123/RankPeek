@@ -2089,6 +2089,12 @@ watch(
     3px 0 11px -6px rgba(var(--match-control-edge-rgb), calc(var(--edge-right-alpha) * 0.48)),
     0 3px 11px -6px rgba(var(--match-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.48)),
     -3px 0 11px -6px rgba(var(--match-control-edge-rgb), calc(var(--edge-left-alpha) * 0.48));
+  --match-module-hover-rgb: 212, 175, 55;
+  --match-module-hover-border: rgba(var(--match-module-hover-rgb), 0.48);
+  --match-module-hover-shadow:
+    0 0 0 1px rgba(var(--match-module-hover-rgb), 0.16),
+    0 0 18px rgba(var(--match-module-hover-rgb), 0.18),
+    0 12px 28px rgba(var(--match-module-hover-rgb), 0.08);
   --match-control-radius: 10px;
   --match-control-bg: var(--bg-secondary);
   --match-control-bg-hover: rgba(28, 36, 48, 0.96);
@@ -2097,7 +2103,7 @@ watch(
       circle at var(--control-glow-x) var(--control-glow-y),
       var(--match-control-border-local-glow) 0%,
       var(--match-control-border-local-glow-fade) 36%,
-      var(--match-control-border) 72%
+      var(--match-control-border-hover) 72%
     ) border-box;
   --match-control-bg-active: rgba(13, 17, 24, 0.98);
   --match-control-bg-active-local: linear-gradient(var(--match-control-bg-active), var(--match-control-bg-active)) padding-box,
@@ -2105,7 +2111,7 @@ watch(
       circle at var(--control-glow-x) var(--control-glow-y),
       var(--match-control-border-local-glow) 0%,
       var(--match-control-border-local-glow-fade) 34%,
-      var(--match-control-border) 72%
+      var(--match-control-border-hover) 72%
     ) border-box;
   --match-control-active-text: var(--text-primary);
   --match-control-border: var(--border-color);
@@ -2124,6 +2130,12 @@ watch(
 }
 
 :global([data-theme="light"] .match-history-view) {
+  --match-module-hover-rgb: 86, 109, 134;
+  --match-module-hover-border: rgba(var(--match-module-hover-rgb), 0.42);
+  --match-module-hover-shadow:
+    0 0 0 1px rgba(var(--match-module-hover-rgb), 0.14),
+    0 0 18px rgba(var(--match-module-hover-rgb), 0.14),
+    0 12px 28px rgba(var(--match-module-hover-rgb), 0.07);
   --rp-light-gold-border: var(--border-color);
   --rp-light-gold-border-hover: var(--border-color);
   --rp-light-gold-edge-core: rgba(255, 218, 76, 0.94);
@@ -2148,7 +2160,7 @@ watch(
   --match-control-bg-active: rgba(15, 22, 34, 0.96);
   --match-control-active-text: #f8fbff;
   --match-control-border: var(--rp-gold-border);
-  --match-control-border-hover: var(--rp-gold-border-hover);
+  --match-control-border-hover: rgba(226, 179, 34, 0.42);
   --match-control-text: #4f421e;
   --match-control-muted: #6b5e38;
   --match-control-shadow: var(--rp-gold-glow-soft);
@@ -2320,6 +2332,35 @@ watch(
     inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
+.match-history-view[data-variant='lookup'] .page-shell,
+.match-history-view[data-variant='lookup'] .history-shell,
+.match-history-view[data-variant='lookup'] .state-card {
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  box-shadow: none;
+}
+
+.match-history-view[data-variant='lookup'] .page-shell::after {
+  display: none;
+}
+
+.match-history-view[data-variant='lookup'] .page-shell:hover,
+.match-history-view[data-variant='lookup'] .page-shell:focus-within,
+.match-history-view[data-variant='lookup'] .history-shell:hover,
+.match-history-view[data-variant='lookup'] .history-shell:focus-within,
+.match-history-view[data-variant='lookup'] .state-card:hover,
+.match-history-view[data-variant='lookup'] .state-card:focus-within {
+  border-color: var(--match-module-hover-border);
+  box-shadow: var(--match-module-hover-shadow);
+}
+
+.match-history-view[data-variant='lookup'] .page-shell.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within),
+.match-history-view[data-variant='lookup'] .history-shell.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within),
+.match-history-view[data-variant='lookup'] .state-card.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within) {
+  border-color: var(--border-color);
+  box-shadow: none;
+}
+
 .page-title-row {
   display: flex;
   align-items: center;
@@ -2438,8 +2479,8 @@ watch(
 
 .lookup-search-icon-btn:hover,
 .lookup-search-icon-btn:focus-visible {
-  border-color: rgba(92, 163, 234, 0);
-  background: transparent;
+  border-color: var(--match-control-border-hover);
+  background: var(--match-control-bg-hover-local);
   color: #fff;
   box-shadow:
     var(--match-control-hover-shadow),
@@ -2454,10 +2495,8 @@ watch(
 
 .lookup-search-input-wrap:hover,
 .lookup-search-input-wrap:focus-within {
-  border-color: var(--match-control-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.025)),
-    var(--match-control-bg-hover);
+  border-color: var(--match-control-border-hover);
+  background: var(--match-control-bg-hover-local);
   box-shadow:
     var(--match-control-hover-shadow),
     var(--match-control-edge-shadow),
@@ -2467,10 +2506,8 @@ watch(
 
 .lookup-search-input-wrap:focus-within,
 .lookup-search-input-wrap:active {
-  border-color: var(--match-control-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.018)),
-    var(--match-control-bg-active);
+  border-color: var(--match-control-border-hover);
+  background: var(--match-control-bg-active-local);
   color: var(--match-control-active-text);
   box-shadow:
     var(--match-control-active-shadow),
@@ -2663,10 +2700,8 @@ watch(
 
 .filter-control:hover,
 .filter-control:focus-within {
-  border-color: var(--match-control-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.025)),
-    var(--match-control-bg-hover);
+  border-color: var(--match-control-border-hover);
+  background: var(--match-control-bg-hover-local);
   box-shadow:
     var(--match-control-hover-shadow),
     var(--match-control-edge-shadow),
@@ -2676,10 +2711,8 @@ watch(
 
 .filter-control:focus-within,
 .filter-control:active {
-  border-color: var(--match-control-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.018)),
-    var(--match-control-bg-active);
+  border-color: var(--match-control-border-hover);
+  background: var(--match-control-bg-active-local);
   color: var(--match-control-active-text);
   box-shadow:
     var(--match-control-active-shadow),

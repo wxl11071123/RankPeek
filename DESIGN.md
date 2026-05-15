@@ -523,6 +523,8 @@ The full border layer should use the hover border token, while the local radial 
 
 Near-glow without hover should stay local and quiet. It should not create a heavy full outer shadow or make the control look selected.
 
+In light mode, module hover borders use gray-blue, but control proximity glow remains gold. The local pointer light should use the light gold edge/core tokens; do not convert proximity glow to gray-blue unless a component has a specific non-home exception.
+
 ### Toolbar Controls
 
 Toolbar controls are compact, utility-first, and stable in size. Segmented controls, selects, icon buttons, switches, and filter buttons should keep:

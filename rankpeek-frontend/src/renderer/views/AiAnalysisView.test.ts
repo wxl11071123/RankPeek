@@ -16,6 +16,30 @@ function readViewSource() {
   return readFileSync(viewUrl, 'utf8')
 }
 
+function extractRule(source: string, selector: string) {
+  const start = source.indexOf(selector)
+  assert.notEqual(start, -1, `${selector} should exist`)
+
+  const open = source.indexOf('{', start)
+  assert.notEqual(open, -1, `${selector} should have a body`)
+
+  let depth = 0
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === '{') {
+      depth += 1
+    }
+
+    if (source[index] === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(open + 1, index)
+      }
+    }
+  }
+
+  assert.fail(`${selector} should close`)
+}
+
 test('AI report center keeps account-scoped local results and local-snapshot logic without model or backend calls', () => {
   const source = readViewSource()
   const localAiAnalysis = readRendererFile('services/localAiAnalysis.ts')
@@ -169,6 +193,38 @@ test('AI report center no longer renders data status or AI service support cards
   assert.doesNotMatch(source, /t\('aiAnalysis\.checkLocalData'\)|t\('aiAnalysis\.checkingData'\)|t\('aiAnalysis\.inputHash'\)/)
   assert.doesNotMatch(source, /t\('aiAnalysis\.serverAiTitle'\)|t\('aiAnalysis\.serverAiPhase'\)|serverAiStatusLabel|serverAiPhaseLabel|isServerAiEnabled/)
   assert.doesNotMatch(source, /class="secondary-action prep-action"|class="data-detail-line"|service-stage|prep-grid|prep-body/)
+})
+
+test('AI report center follows the shared module shell and hover glow contract', () => {
+  const source = readViewSource()
+  const variablesRule = extractRule(source, '.ai-analysis-view')
+  const lightVariablesRule = extractRule(source, ':global([data-theme="light"] .ai-analysis-view)')
+  const moduleBaseRule = extractRule(source, '.hero-panel,')
+  const moduleHoverRule = extractRule(source, '.hero-panel:hover,')
+  const tabHoverRule = extractRule(source, '.report-type-tab:hover,')
+  const rechargeHoverRule = extractRule(source, '.balance-recharge-button:hover,')
+
+  assert.match(variablesRule, /--ai-analysis-module-hover-rgb:\s*212,\s*175,\s*55/)
+  assert.match(variablesRule, /--ai-analysis-module-hover-border:\s*rgba\(var\(--ai-analysis-module-hover-rgb\),\s*0\.48\)/)
+  assert.match(variablesRule, /--ai-analysis-module-hover-shadow:/)
+  assert.match(lightVariablesRule, /--ai-analysis-module-hover-rgb:\s*86,\s*109,\s*134/)
+  assert.match(lightVariablesRule, /--ai-analysis-module-hover-border:\s*rgba\(var\(--ai-analysis-module-hover-rgb\),\s*0\.42\)/)
+
+  assert.match(moduleBaseRule, /background:\s*var\(--bg-secondary\)/)
+  assert.match(moduleBaseRule, /border:\s*1px solid var\(--border-color\)/)
+  assert.match(moduleBaseRule, /border-radius:\s*12px/)
+  assert.match(moduleBaseRule, /box-shadow:\s*none/)
+  assert.doesNotMatch(moduleBaseRule, /linear-gradient|rgba\(var\(--accent-rgb\)|rgba\(41,\s*151,\s*255/)
+
+  assert.match(moduleHoverRule, /border-color:\s*var\(--ai-analysis-module-hover-border\)/)
+  assert.match(moduleHoverRule, /box-shadow:\s*var\(--ai-analysis-module-hover-shadow\)/)
+  assert.doesNotMatch(moduleHoverRule, /inset|animation:/)
+
+  assert.match(tabHoverRule, /border-color:\s*var\(--ai-analysis-control-hover-border\)/)
+  assert.match(tabHoverRule, /box-shadow:\s*var\(--ai-analysis-control-hover-shadow\)/)
+  assert.doesNotMatch(tabHoverRule, /linear-gradient/)
+  assert.match(rechargeHoverRule, /border-color:\s*var\(--ai-analysis-control-hover-border\)/)
+  assert.match(rechargeHoverRule, /box-shadow:\s*var\(--ai-analysis-control-hover-shadow\)/)
 })
 
 test('AI analysis history renders report cards that promote report content over engineering metadata', () => {
