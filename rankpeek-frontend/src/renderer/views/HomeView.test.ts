@@ -27,43 +27,127 @@ function extractRule(source: string, selector: string) {
   assert.fail(`${selector} should close`)
 }
 
-test('light-mode AI report glow assertions use the current coach card selectors', () => {
+function extractLastRule(source: string, selector: string) {
+  const normalizedSource = source.replace(/\r\n/g, '\n')
+  const start = normalizedSource.lastIndexOf(selector)
+  assert.notEqual(start, -1, `${selector} should exist`)
+
+  const open = normalizedSource.indexOf('{', start)
+  assert.notEqual(open, -1, `${selector} should have a body`)
+
+  let depth = 0
+  for (let index = open; index < normalizedSource.length; index += 1) {
+    if (normalizedSource[index] === '{') {
+      depth += 1
+    }
+
+    if (normalizedSource[index] === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return normalizedSource.slice(open + 1, index)
+      }
+    }
+  }
+
+  assert.fail(`${selector} should close`)
+}
+
+test('light-mode AI report keeps coach card internals while inheriting the home outer glow', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
   const coachCards = readFileSync(new URL('../components/AICoachCards.vue', import.meta.url), 'utf8')
   const homeCoachRule = extractRule(source, ':global([data-theme="light"] .home-view .coach-report-panel .ai-coach-cards)')
   const coachLightRule = extractRule(coachCards, ':global([data-theme="light"] .ai-coach-cards)')
+  const coachBaseRule = extractRule(coachCards, '.ai-coach-cards')
 
   assert.match(coachCards, /\.ai-coach-cards:hover \.record-main-card:not\(\.record-main-card-leaving\)/)
   assert.match(coachCards, /\.ai-coach-cards:hover \.record-stack-card/)
+  assert.match(coachBaseRule, /--record-panel-border-hover:\s*var\(--home-module-hover-border, rgba\(212, 175, 55, 0\.48\)\)/)
+  assert.match(coachBaseRule, /--record-panel-hover-shadow:\s*var\(\s*--home-module-hover-shadow,/)
+  assert.match(homeCoachRule, /--record-panel-border-hover:\s*var\(--home-module-hover-border\)/)
+  assert.match(homeCoachRule, /--record-panel-hover-shadow:\s*var\(--coach-report-hover-shadow\)/)
   assert.match(homeCoachRule, /--record-card-border-hover:\s*rgba\(41, 151, 255, 0\.42\)/)
   assert.match(coachLightRule, /--record-card-hover-shadow:/)
   assert.doesNotMatch(source, /coach-stack-card|coach-expanded-card/)
-  assert.doesNotMatch(homeCoachRule, /rgba\(100,\s*116,\s*139/)
+  assert.doesNotMatch(homeCoachRule, /--record-panel-border-hover:\s*rgba\(41, 151, 255/)
 })
 
-test('coach report panel uses the same outer hover strength as adjacent home modules', () => {
+test('home modules have no static outer glow and share hover/focus glow variables', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const rootRule = extractRule(source, '.home-view')
+  const lightRootRule = extractRule(source, ':global([data-theme="light"] .home-view)')
   const baseRule = extractRule(source, '.account-panel,\n.ai-analysis-card,\n.fortune-card,\n.coach-report-panel')
-  const hoverRule = extractRule(source, '.ai-analysis-card:hover,\n.fortune-card:hover,\n.coach-report-panel:hover')
+  const hoverRule = extractRule(
+    source,
+    '.account-panel:hover,\n.account-panel:focus-within,\n.ai-analysis-card:hover,\n.ai-analysis-card:focus-within,\n.fortune-card:hover,\n.fortune-card:focus-within,\n.coach-report-panel:hover,\n.coach-report-panel:focus-within',
+  )
 
+  assert.match(rootRule, /--home-module-hover-rgb:\s*212, 175, 55/)
+  assert.match(lightRootRule, /--home-module-hover-rgb:\s*86, 109, 134/)
   assert.match(baseRule, /background:\s*var\(--bg-secondary\)/)
   assert.match(baseRule, /border:\s*1px solid var\(--border-color\)/)
+  assert.match(baseRule, /box-shadow:\s*none/)
   assert.match(baseRule, /border-radius:\s*12px/)
   assert.match(baseRule, /transition:\s*background 0\.3s ease, border-color 0\.3s ease, box-shadow 0\.3s ease/)
-  assert.match(hoverRule, /background:\s*var\(--home-ai-hover-bg\)/)
-  assert.match(hoverRule, /border-color:\s*var\(--home-ai-hover-border\)/)
-  assert.match(hoverRule, /box-shadow:\s*var\(--home-ai-hover-shadow\)/)
-  assert.match(hoverRule, /animation:\s*home-ai-breathe 2\.6s ease-in-out infinite/)
+  assert.match(hoverRule, /border-color:\s*var\(--home-module-hover-border\)/)
+  assert.match(hoverRule, /box-shadow:\s*var\(--home-module-hover-shadow\)/)
+  assert.doesNotMatch(hoverRule, /home-ai-breathe/)
 })
 
-test('coach report panel keeps its outer hover glow above the embedded coach cards', () => {
+test('coach report panel keeps proximity glow above a reduced outer border shadow', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const coachHoverRule = extractLastRule(source, '.coach-report-panel:hover,\n.coach-report-panel:focus-within')
+  const coachNearRule = extractRule(source, ".coach-report-panel.surface-glow[data-near-glow='true']")
   const glowOverlayRule = extractRule(source, '.coach-report-panel.surface-glow::before')
   const coachCardsRule = extractRule(source, '.coach-report-panel :deep(.ai-coach-cards)')
 
-  assert.match(glowOverlayRule, /z-index:\s*2/)
+  assert.match(source, /--coach-report-hover-shadow:/)
+  assert.match(source, /--coach-report-near-shadow:/)
+  assert.match(source, /--control-edge-width:\s*2px/)
+  assert.match(source, /--control-edge-offset:\s*-2px/)
+  assert.match(coachHoverRule, /box-shadow:\s*var\(--coach-report-hover-shadow\)/)
+  assert.doesNotMatch(coachHoverRule, /--home-module-hover-shadow/)
+  assert.match(coachNearRule, /box-shadow:\s*var\(--coach-report-near-shadow\)/)
+  assert.match(glowOverlayRule, /z-index:\s*3/)
   assert.match(coachCardsRule, /position:\s*relative/)
   assert.match(coachCardsRule, /z-index:\s*1/)
+  assert.match(coachCardsRule, /--record-panel-hover-shadow:\s*var\(--coach-report-hover-shadow\)/)
+})
+
+test('light home hover backgrounds do not tint account or coach interiors', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const lightRootRule = extractRule(source, ':global([data-theme="light"] .home-view)')
+  const accountBackgroundRule = extractRule(source, '.account-panel:hover,\n.account-panel:focus-within')
+  const coachBackgroundRule = extractRule(
+    source,
+    '.ai-analysis-card:hover,\n.ai-analysis-card:focus-within,\n.fortune-card:hover,\n.fortune-card:focus-within,\n.coach-report-panel:hover,\n.coach-report-panel:focus-within',
+  )
+  const outerGlowRule = extractRule(
+    source,
+    '.account-panel:hover,\n.account-panel:focus-within,\n.ai-analysis-card:hover,\n.ai-analysis-card:focus-within,\n.fortune-card:hover,\n.fortune-card:focus-within,\n.coach-report-panel:hover,\n.coach-report-panel:focus-within',
+  )
+
+  assert.match(lightRootRule, /--home-panel-hover-bg:\s*var\(--bg-secondary\)/)
+  assert.match(lightRootRule, /--home-ai-hover-bg:\s*var\(--bg-secondary\)/)
+  assert.match(accountBackgroundRule, /background:\s*var\(--home-panel-hover-bg\)/)
+  assert.match(coachBackgroundRule, /background:\s*var\(--home-ai-hover-bg\)/)
+  assert.match(outerGlowRule, /box-shadow:\s*var\(--home-module-hover-shadow\)/)
+  assert.doesNotMatch(outerGlowRule, /inset|radial-gradient|linear-gradient/)
+})
+
+test('light fortune card removes blue fills from slot and button variables', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+  const fortuneRule = extractRule(source, ':global([data-theme="light"] .home-view .fortune-card)')
+  const disabledRule = extractRule(source, '.primary-btn:disabled,\n.secondary-btn:disabled,\n.fortune-button:disabled')
+
+  assert.match(fortuneRule, /--home-control-bg-hover:\s*rgba\(245, 246, 248, 0\.98\)/)
+  assert.match(fortuneRule, /--home-control-bg-active:\s*rgba\(229, 231, 235, 0\.94\)/)
+  assert.match(fortuneRule, /--home-ai-hover-bg:\s*var\(--bg-secondary\)/)
+  assert.match(fortuneRule, /--slot-window-bg:\s*linear-gradient\(180deg, rgba\(255, 255, 255, 0\.98\), rgba\(246, 247, 249, 0\.94\)\)/)
+  assert.match(fortuneRule, /--slot-window-bottom-fade:\s*linear-gradient\(0deg, rgba\(229, 231, 235, 0\.34\), transparent\)/)
+  assert.match(fortuneRule, /--slot-edge-rgb:\s*86, 109, 134/)
+  assert.match(fortuneRule, /--slot-reel-shadow:\s*none/)
+  assert.doesNotMatch(fortuneRule, /33,\s*196,\s*255|41,\s*151,\s*255|232,\s*248,\s*255|203,\s*238,\s*255|#147fbf/i)
+  assert.doesNotMatch(disabledRule, /background|linear-gradient|33,\s*196,\s*255|41,\s*151,\s*255/)
 })
 
 test('home refresh account button uses the shared refresh icon button', () => {

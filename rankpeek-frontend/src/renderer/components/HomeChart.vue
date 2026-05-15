@@ -743,8 +743,15 @@ function pointAriaLabel(point: ChartPoint): string {
   --module-edge-color: rgba(232, 221, 186, 0.46);
   --module-edge-soft: rgba(212, 175, 55, 0.14);
   --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
-  --chart-hover-border: var(--module-edge-color);
-  --chart-hover-shadow: var(--module-edge-glow);
+  --chart-module-hover-border: var(--home-module-hover-border, rgba(212, 175, 55, 0.48));
+  --chart-module-hover-shadow: var(
+    --home-module-hover-shadow,
+    0 0 0 1px rgba(212, 175, 55, 0.16),
+    0 0 18px rgba(212, 175, 55, 0.18),
+    0 12px 28px rgba(212, 175, 55, 0.08)
+  );
+  --chart-hover-border: var(--chart-module-hover-border);
+  --chart-hover-shadow: var(--chart-module-hover-shadow);
   --chart-bright-blue-rgb: 33, 196, 255;
   --chart-bright-blue: rgb(var(--chart-bright-blue-rgb));
   --control-glow-x: 50%;
@@ -776,7 +783,7 @@ function pointAriaLabel(point: ChartPoint): string {
       circle at var(--control-glow-x) var(--control-glow-y),
       var(--chart-control-border-local-glow) 0%,
       var(--chart-control-border-local-glow-fade) 36%,
-      var(--chart-control-border) 72%
+      var(--chart-control-border-hover) 72%
     ) border-box;
   --chart-control-bg-active: rgba(13, 17, 24, 0.98);
   --chart-control-active-bg: rgba(var(--chart-bright-blue-rgb), 0.78);
@@ -785,7 +792,7 @@ function pointAriaLabel(point: ChartPoint): string {
       circle at var(--control-glow-x) var(--control-glow-y),
       var(--chart-control-border-local-glow) 0%,
       var(--chart-control-border-local-glow-fade) 36%,
-      var(--chart-control-border) 72%
+      var(--chart-control-border-hover) 72%
     ) border-box;
   --chart-control-active-bg-pressed: rgba(var(--chart-bright-blue-rgb), 0.58);
   --chart-control-border: var(--border-color);
@@ -809,12 +816,14 @@ function pointAriaLabel(point: ChartPoint): string {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
+  box-shadow: none;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.home-chart-card:hover {
-  border-color: var(--chart-hover-border);
-  box-shadow: var(--chart-hover-shadow);
+.home-chart-card:hover,
+.home-chart-card:focus-within {
+  border-color: var(--chart-module-hover-border);
+  box-shadow: var(--chart-module-hover-shadow);
 }
 
 .chart-card-header {
@@ -906,6 +915,11 @@ function pointAriaLabel(point: ChartPoint): string {
   opacity: 0.55;
 }
 
+.queue-tabs.control-glow::before,
+.chart-select.control-glow::before {
+  content: none;
+}
+
 .queue-tabs {
   display: inline-flex;
   padding: 4px;
@@ -935,7 +949,15 @@ function pointAriaLabel(point: ChartPoint): string {
 }
 
 .queue-tabs.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
-  box-shadow: var(--chart-control-edge-shadow);
+  border-color: transparent;
+  background: linear-gradient(var(--chart-tab-shell-bg), var(--chart-tab-shell-bg)) padding-box,
+    radial-gradient(
+      circle at var(--control-glow-x) var(--control-glow-y),
+      var(--chart-control-border-local-glow) 0%,
+      var(--chart-control-border-local-glow-fade) 36%,
+      var(--chart-control-border) 72%
+    ) border-box;
+  box-shadow: none;
 }
 
 .queue-tabs button:hover,
@@ -994,7 +1016,15 @@ function pointAriaLabel(point: ChartPoint): string {
 }
 
 .chart-select.control-glow[data-near-glow='true']:not(:hover):not(:focus) {
-  box-shadow: var(--chart-control-edge-shadow);
+  border-color: transparent;
+  background: linear-gradient(var(--chart-control-bg), var(--chart-control-bg)) padding-box,
+    radial-gradient(
+      circle at var(--control-glow-x) var(--control-glow-y),
+      var(--chart-control-border-local-glow) 0%,
+      var(--chart-control-border-local-glow-fade) 36%,
+      var(--chart-control-border) 72%
+    ) border-box;
+  box-shadow: none;
 }
 
 .chart-select:active {
@@ -1191,6 +1221,13 @@ function pointAriaLabel(point: ChartPoint): string {
   --module-edge-color: rgba(226, 179, 34, 0.36);
   --module-edge-soft: rgba(226, 179, 34, 0.1);
   --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
+  --chart-module-hover-border: var(--home-module-hover-border, rgba(86, 109, 134, 0.42));
+  --chart-module-hover-shadow: var(
+    --home-module-hover-shadow,
+    0 0 0 1px rgba(86, 109, 134, 0.14),
+    0 0 18px rgba(86, 109, 134, 0.14),
+    0 12px 28px rgba(86, 109, 134, 0.07)
+  );
   --chart-control-bg: var(--bg-secondary);
   --chart-control-bg-hover: rgba(252, 238, 198, 0.98);
   --chart-control-local-glow: transparent;
@@ -1217,8 +1254,8 @@ function pointAriaLabel(point: ChartPoint): string {
   --chart-tab-shell-bg: var(--bg-secondary);
   --chart-select-menu-bg: #f7f3e6;
   --chart-select-menu-text: #4f421e;
-  --chart-hover-border: var(--module-edge-color);
-  --chart-hover-shadow: var(--module-edge-glow);
+  --chart-hover-border: var(--chart-module-hover-border);
+  --chart-hover-shadow: var(--chart-module-hover-shadow);
   --chart-surface-shadow: inset 0 0 0 1px var(--module-edge-soft);
   --chart-avatar-ring: #ffffff;
   --chart-badge-bg: rgba(255, 255, 255, 0.94);

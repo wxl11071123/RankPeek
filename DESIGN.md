@@ -476,6 +476,98 @@ Coach and analysis cards are the visual exception. They can use gold borders, sm
 
 Match history cards are denser and more utilitarian than dashboard cards. They may use a dark navy-tinted fill, narrow win/loss rails, champion/item imagery, and compact team rosters.
 
+## Home Dashboard Design Contract
+
+The home dashboard is the reference surface for future tactical pages, including live match information and summoner analysis. New pages should inherit its discipline: neutral module shells, local interaction glow, compact controls, and clear separation between outer containers and internal data UI.
+
+### Module Shells
+
+Top-level page modules use a neutral base state:
+
+- `background: var(--bg-secondary)`
+- `border: 1px solid var(--border-color)`
+- `box-shadow: none`
+- `border-radius: 12px`
+
+Do not add static colored borders, permanent gold/blue glow, or breathing animations to module shells. A module may glow only while hovered, focused, or reached by the existing proximity glow system.
+
+Home module hover color is shared through page-level variables. Dark mode uses muted gold:
+
+- `--home-module-hover-rgb: 212, 175, 55`
+- `--home-module-hover-border: rgba(var(--home-module-hover-rgb), 0.48)`
+- `--home-module-hover-shadow` with a 1px ring, soft outer glow, and low vertical glow
+
+Light mode uses gray-blue instead of gold or bright blue:
+
+- `--home-module-hover-rgb: 86, 109, 134`
+- `--home-module-hover-border: rgba(var(--home-module-hover-rgb), 0.42)`
+- `--home-module-hover-shadow` with lower alpha than dark mode
+
+Apply the module hover contract to full module shells such as account, AI analysis, fortune, coach report, and chart cards. Hover/focus must change only the outer border and outer shadow. Avoid inset shadows, large internal tints, radial fills across the module body, and static decorative glows.
+
+### Proximity Glow
+
+RankPeek has two separate glow layers:
+
+- Module glow: whole outer module border and outer shadow on hover/focus.
+- Proximity glow: local border light that follows the pointer near a control or surface edge.
+
+Do not merge these into one rule. Keep the existing `surface-glow`, `control-glow`, and `edge-glow` model: JS writes `--control-glow-x`, `--control-glow-y`, and edge alpha variables; CSS decides how that local light is painted.
+
+Controls that are hovered should stack both effects:
+
+- A full border hover color around the entire control.
+- A brighter local radial glow near the pointer.
+
+The full border layer should use the hover border token, while the local radial layer should use the local glow token. Do not rely only on a radial gradient for hover, because it makes only the pointer side of the border look active.
+
+Near-glow without hover should stay local and quiet. It should not create a heavy full outer shadow or make the control look selected.
+
+### Toolbar Controls
+
+Toolbar controls are compact, utility-first, and stable in size. Segmented controls, selects, icon buttons, switches, and filter buttons should keep:
+
+- 1px border.
+- 8px to 10px control radius, or pill radius for segmented groups.
+- Bold 13px to 14px labels.
+- Neutral graphite or white/light-gray fill in the default state.
+- No large blue fill unless the control is an active primary or selected state.
+
+For select and segmented filter hover states, use a border-box layered background:
+
+- Padding-box layer: the normal hover fill.
+- Border-box layer: radial local glow that fades to the full hover border color.
+
+This gives a complete hover ring and still preserves proximity feedback. Avoid native select pseudo-element tricks if they create inconsistent partial borders.
+
+### Fortune, Coach, and Records
+
+Fortune is a special module but not a blue module. In light mode, fortune surfaces should remain white or neutral gray; slot windows, result areas, and disabled buttons should not use broad blue gradients or blue fills.
+
+Coach and review records may use gold or inherited module glow at the outer container. The internal review card stack is a separate UI object. Do not restyle internal record cards, dots, switching animation, or content layout when only aligning the outer module shell.
+
+### Chart Surface
+
+Charts are data surfaces, not decorative panels. Keep the chart body quiet and readable. Use blue for data lines, active metrics, and focused controls. Use module hover glow only on the chart card shell; do not let the module glow leak into SVG marks, trend points, avatars, badges, or hover badges.
+
+The chart toolbar follows the toolbar control contract above. Queue tabs and selects should look like one family: full hover ring plus local proximity glow, no oversized fill, no layout shift.
+
+### Light Mode
+
+Light mode should be neutral first. Use white, near-white, and cool gray for surfaces. Gray-blue may be used for module hover borders. Bright blue is reserved for primary actions, active controls, and data marks. Avoid light-mode blue washes inside modules unless the specific component is a primary action or active selected control.
+
+### Implementation Checklist
+
+When extending this system to a new page:
+
+- Define page-level module hover variables before writing individual module rules.
+- Give every top-level module a neutral base border and `box-shadow: none`.
+- Put full module glow only on `:hover` and `:focus-within`.
+- Keep proximity glow on controls and edge surfaces through the shared CSS-variable mechanism.
+- For hovered controls, layer full border glow and local pointer glow.
+- Keep internal data cards, badges, charts, avatars, and buttons separate from outer module shell changes.
+- Add focused tests for CSS contracts when changing glow, hover, or light-mode behavior.
+
 ## Do's and Don'ts
 
 - Do keep the default UI dark, quiet, and data-dense.

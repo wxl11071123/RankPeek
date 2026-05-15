@@ -350,12 +350,16 @@ function openActiveReport() {
   --coach-glow-strength: 0.82;
   --record-panel-bg: var(--bg-secondary, #1d1d1f);
   --record-panel-border: var(--border-color, rgba(255, 255, 255, 0.1));
-  --record-panel-border-hover: rgba(88, 166, 255, 0.34);
-  --record-panel-glow: rgba(41, 151, 255, 0.2);
-  --record-panel-glow-soft: rgba(41, 151, 255, 0.08);
-  --record-panel-hover-shadow:
-    0 0 0 1px rgba(41, 151, 255, 0.08),
-    0 12px 24px rgba(41, 151, 255, 0.08);
+  --record-panel-glow-rgb: var(--home-module-hover-rgb, 212, 175, 55);
+  --record-panel-border-hover: var(--home-module-hover-border, rgba(212, 175, 55, 0.48));
+  --record-panel-glow: rgba(var(--record-panel-glow-rgb), 0.18);
+  --record-panel-glow-soft: rgba(var(--record-panel-glow-rgb), 0.08);
+  --record-panel-hover-shadow: var(
+    --home-module-hover-shadow,
+    0 0 0 1px rgba(212, 175, 55, 0.16),
+    0 0 18px rgba(212, 175, 55, 0.18),
+    0 12px 28px rgba(212, 175, 55, 0.08)
+  );
   --record-heading-color: var(--text-primary, rgba(230, 238, 246, 0.96));
   --record-count-color: rgba(190, 212, 232, 0.76);
   --record-card-bg: var(--bg-tertiary, #272729);
@@ -432,7 +436,7 @@ function openActiveReport() {
   border-radius: inherit;
   background: radial-gradient(
     circle 220px at var(--coach-glow-x) var(--coach-glow-y),
-    rgba(41, 151, 255, 0.055),
+    rgba(var(--record-panel-glow-rgb), 0.055),
     transparent 68%
   );
 }
@@ -852,12 +856,16 @@ function openActiveReport() {
 :global([data-theme="light"] .ai-coach-cards) {
   --record-panel-bg: var(--bg-secondary, #ffffff);
   --record-panel-border: var(--border-color, rgba(0, 0, 0, 0.1));
-  --record-panel-border-hover: rgba(41, 151, 255, 0.3);
-  --record-panel-glow: rgba(41, 151, 255, 0.2);
-  --record-panel-glow-soft: rgba(41, 151, 255, 0.065);
-  --record-panel-hover-shadow:
-    0 0 0 1px rgba(41, 151, 255, 0.08),
-    0 10px 22px rgba(41, 151, 255, 0.08);
+  --record-panel-glow-rgb: var(--home-module-hover-rgb, 86, 109, 134);
+  --record-panel-border-hover: var(--home-module-hover-border, rgba(86, 109, 134, 0.42));
+  --record-panel-glow: rgba(var(--record-panel-glow-rgb), 0.16);
+  --record-panel-glow-soft: rgba(var(--record-panel-glow-rgb), 0.06);
+  --record-panel-hover-shadow: var(
+    --home-module-hover-shadow,
+    0 0 0 1px rgba(86, 109, 134, 0.14),
+    0 0 18px rgba(86, 109, 134, 0.14),
+    0 12px 28px rgba(86, 109, 134, 0.07)
+  );
   --record-heading-color: #2c2c2c;
   --record-count-color: rgba(49, 87, 120, 0.64);
   --record-card-bg: var(--bg-tertiary, #fafafc);

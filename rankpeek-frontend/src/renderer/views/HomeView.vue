@@ -1109,6 +1109,12 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --module-edge-soft: rgba(212, 175, 55, 0.14);
   --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
   --module-edge-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.16), 0 12px 28px rgba(212, 175, 55, 0.11);
+  --home-module-hover-rgb: 212, 175, 55;
+  --home-module-hover-border: rgba(var(--home-module-hover-rgb), 0.48);
+  --home-module-hover-shadow:
+    0 0 0 1px rgba(var(--home-module-hover-rgb), 0.16),
+    0 0 18px rgba(var(--home-module-hover-rgb), 0.18),
+    0 12px 28px rgba(var(--home-module-hover-rgb), 0.08);
   --control-glow-x: 50%;
   --control-glow-y: 50%;
   --control-edge-width: 1px;
@@ -1146,11 +1152,11 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --home-control-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 0 16px rgba(41, 151, 255, 0.22);
   --home-control-active-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(41, 151, 255, 0.14);
   --home-panel-hover-bg: #2a2a2d;
-  --home-panel-hover-border: var(--module-edge-color);
-  --home-panel-hover-shadow: var(--module-edge-glow);
+  --home-panel-hover-border: var(--home-module-hover-border);
+  --home-panel-hover-shadow: var(--home-module-hover-shadow);
   --home-ai-hover-bg: rgba(42, 42, 45, 0.86);
-  --home-ai-hover-border: var(--module-edge-color);
-  --home-ai-hover-shadow: var(--module-edge-glow);
+  --home-ai-hover-border: var(--home-module-hover-border);
+  --home-ai-hover-shadow: var(--home-module-hover-shadow);
   --control-hover-shadow: var(--home-control-hover-shadow);
   --coach-gold: rgba(238, 205, 112, 0.96);
   --coach-gold-muted: rgba(232, 221, 186, 0.72);
@@ -1191,22 +1197,34 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
+  box-shadow: none;
   transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.account-panel:hover {
+.account-panel:hover,
+.account-panel:focus-within {
   background: var(--home-panel-hover-bg);
-  border-color: var(--home-panel-hover-border);
-  box-shadow: var(--home-panel-hover-shadow);
 }
 
 .ai-analysis-card:hover,
+.ai-analysis-card:focus-within,
 .fortune-card:hover,
-.coach-report-panel:hover {
+.fortune-card:focus-within,
+.coach-report-panel:hover,
+.coach-report-panel:focus-within {
   background: var(--home-ai-hover-bg);
-  border-color: var(--home-ai-hover-border);
-  box-shadow: var(--home-ai-hover-shadow);
-  animation: home-ai-breathe 2.6s ease-in-out infinite;
+}
+
+.account-panel:hover,
+.account-panel:focus-within,
+.ai-analysis-card:hover,
+.ai-analysis-card:focus-within,
+.fortune-card:hover,
+.fortune-card:focus-within,
+.coach-report-panel:hover,
+.coach-report-panel:focus-within {
+  border-color: var(--home-module-hover-border);
+  box-shadow: var(--home-module-hover-shadow);
 }
 
 .account-main p,
@@ -1488,8 +1506,8 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --home-control-border-local-glow: rgba(255, 218, 76, 0.92);
   --home-control-border-local-glow-fade: rgba(244, 183, 24, 0.42);
   --home-control-edge-rgb: 255, 210, 62;
-  --home-ai-hover-border: rgba(232, 221, 186, 0.46);
-  --home-ai-hover-shadow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
+  --home-ai-hover-border: var(--home-module-hover-border);
+  --home-ai-hover-shadow: var(--home-module-hover-shadow);
   --slot-window-border: rgba(232, 221, 186, 0.16);
   --slot-window-active-border: rgba(232, 221, 186, 0.3);
   --slot-edge-rgb: 255, 210, 62;
@@ -1754,19 +1772,35 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --module-edge-soft: rgba(41, 151, 255, 0.14);
   --module-edge-glow: 0 0 0 1px rgba(41, 151, 255, 0.14), 0 10px 24px rgba(41, 151, 255, 0.1);
   --module-edge-glow-strong: 0 0 0 1px rgba(41, 151, 255, 0.16), 0 12px 28px rgba(41, 151, 255, 0.11);
-  --home-ai-hover-border: var(--module-edge-color);
-  --home-ai-hover-shadow: var(--module-edge-glow);
+  --coach-report-hover-shadow:
+    0 0 0 1px rgba(var(--home-module-hover-rgb), 0.08),
+    0 0 10px rgba(var(--home-module-hover-rgb), 0.08);
+  --coach-report-near-shadow: none;
+  --home-ai-hover-border: var(--home-module-hover-border);
+  --home-ai-hover-shadow: var(--home-module-hover-shadow);
   --home-control-border-local-glow: rgba(120, 190, 255, 0.78);
   --home-control-border-local-glow-fade: rgba(77, 143, 204, 0.3);
   --home-control-edge-rgb: 120, 190, 255;
+  --control-edge-width: 2px;
+  --control-edge-offset: -2px;
   --edge-glow-size: 188px;
 }
 
+.coach-report-panel:hover,
+.coach-report-panel:focus-within {
+  box-shadow: var(--coach-report-hover-shadow);
+}
+
+.coach-report-panel.surface-glow[data-near-glow='true'] {
+  box-shadow: var(--coach-report-near-shadow);
+}
+
 .coach-report-panel.surface-glow::before {
-  z-index: 2;
+  z-index: 3;
 }
 
 .coach-report-panel :deep(.ai-coach-cards) {
+  --record-panel-hover-shadow: var(--coach-report-hover-shadow);
   position: relative;
   z-index: 1;
   min-height: var(--coach-report-height);
@@ -1836,6 +1870,12 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --module-edge-soft: rgba(226, 179, 34, 0.1);
   --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
   --module-edge-glow-strong: 0 0 0 1px rgba(226, 179, 34, 0.13), 0 12px 26px rgba(226, 179, 34, 0.1);
+  --home-module-hover-rgb: 86, 109, 134;
+  --home-module-hover-border: rgba(var(--home-module-hover-rgb), 0.42);
+  --home-module-hover-shadow:
+    0 0 0 1px rgba(var(--home-module-hover-rgb), 0.14),
+    0 0 18px rgba(var(--home-module-hover-rgb), 0.14),
+    0 12px 28px rgba(var(--home-module-hover-rgb), 0.07);
   --home-control-bg: var(--bg-secondary);
   --home-control-bg-hover: rgba(252, 238, 198, 0.98);
   --home-control-local-glow: transparent;
@@ -1852,12 +1892,12 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --home-control-shadow: var(--rp-gold-glow-soft);
   --home-control-hover-shadow: var(--rp-gold-glow-hover);
   --home-control-active-shadow: var(--rp-gold-glow-active);
-  --home-panel-hover-bg: #ededf2;
-  --home-panel-hover-border: var(--module-edge-color);
-  --home-panel-hover-shadow: var(--module-edge-glow);
-  --home-ai-hover-bg: rgba(237, 237, 242, 0.88);
-  --home-ai-hover-border: var(--module-edge-color);
-  --home-ai-hover-shadow: var(--module-edge-glow);
+  --home-panel-hover-bg: var(--bg-secondary);
+  --home-panel-hover-border: var(--home-module-hover-border);
+  --home-panel-hover-shadow: var(--home-module-hover-shadow);
+  --home-ai-hover-bg: var(--bg-secondary);
+  --home-ai-hover-border: var(--home-module-hover-border);
+  --home-ai-hover-shadow: var(--home-module-hover-shadow);
   --control-hover-shadow: var(--home-control-hover-shadow);
   --coach-gold: #6f5b19;
   --coach-gold-muted: rgba(111, 91, 25, 0.64);
@@ -1889,54 +1929,53 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --module-edge-color: var(--rp-fortune-blue-border-strong);
   --module-edge-soft: rgba(41, 151, 255, 0.12);
   --module-edge-glow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 10px 24px rgba(33, 196, 255, 0.12);
-  --home-ai-hover-border: var(--rp-fortune-blue-border-strong);
-  --home-ai-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 10px 24px rgba(33, 196, 255, 0.12);
+  --home-ai-hover-border: var(--home-module-hover-border);
+  --home-ai-hover-shadow: var(--home-module-hover-shadow);
   --home-control-border-local-glow: var(--rp-fortune-blue-edge-core);
   --home-control-border-local-glow-fade: var(--rp-fortune-blue-edge-fade);
   --home-control-edge-rgb: 33, 196, 255;
 }
 
 :global([data-theme="light"] .home-view .coach-report-panel .ai-coach-cards) {
-  --record-panel-border-hover: rgba(41, 151, 255, 0.32);
-  --record-panel-glow: rgba(41, 151, 255, 0.2);
-  --record-panel-glow-soft: rgba(41, 151, 255, 0.065);
-  --record-panel-hover-shadow:
-    0 0 0 1px rgba(41, 151, 255, 0.08),
-    0 10px 22px rgba(41, 151, 255, 0.08);
+  --record-panel-border-hover: var(--home-module-hover-border);
+  --record-panel-glow-rgb: var(--home-module-hover-rgb);
+  --record-panel-glow: rgba(var(--record-panel-glow-rgb), 0.16);
+  --record-panel-glow-soft: rgba(var(--record-panel-glow-rgb), 0.06);
+  --record-panel-hover-shadow: var(--coach-report-hover-shadow);
   --record-card-border-hover: rgba(41, 151, 255, 0.42);
   --record-card-local-glow: rgba(41, 151, 255, 0.12);
   --record-stack-border-hover: rgba(41, 151, 255, 0.18);
 }
 
 :global([data-theme="light"] .home-view .fortune-card) {
-  --home-control-bg-hover: rgba(224, 246, 255, 0.96);
-  --home-control-bg-active: rgba(200, 235, 250, 0.94);
-  --home-control-border: var(--rp-fortune-blue-border);
-  --home-control-border-hover: var(--rp-fortune-blue-border);
-  --home-control-border-local-glow: var(--rp-fortune-blue-edge-core);
-  --home-control-border-local-glow-fade: var(--rp-fortune-blue-edge-fade);
-  --home-control-edge-rgb: 33, 196, 255;
-  --home-control-hover-shadow: var(--rp-fortune-blue-glow);
-  --home-control-active-shadow: var(--rp-fortune-blue-glow-active);
-  --control-hover-shadow: var(--rp-fortune-blue-glow);
-  --home-ai-hover-bg: rgba(229, 247, 255, 0.82);
-  --home-ai-hover-border: var(--rp-fortune-blue-border-strong);
-  --home-ai-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 10px 24px rgba(33, 196, 255, 0.12);
-  --coach-gold: #147fbf;
-  --coach-gold-muted: rgba(20, 127, 191, 0.66);
-  --slot-window-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(232, 248, 255, 0.92));
-  --slot-window-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.82), transparent 44%, rgba(33, 196, 255, 0.06));
-  --slot-window-border: var(--rp-fortune-blue-border);
-  --slot-window-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.86), inset 0 -1px 2px rgba(15, 66, 100, 0.04), 0 8px 18px rgba(15, 66, 100, 0.06);
+  --home-control-bg-hover: rgba(245, 246, 248, 0.98);
+  --home-control-bg-active: rgba(229, 231, 235, 0.94);
+  --home-control-border: rgba(86, 109, 134, 0.22);
+  --home-control-border-hover: rgba(86, 109, 134, 0.3);
+  --home-control-border-local-glow: rgba(86, 109, 134, 0.72);
+  --home-control-border-local-glow-fade: rgba(86, 109, 134, 0.28);
+  --home-control-edge-rgb: 86, 109, 134;
+  --home-control-hover-shadow: 0 0 0 1px rgba(86, 109, 134, 0.1), 0 0 10px rgba(86, 109, 134, 0.1);
+  --home-control-active-shadow: inset 0 1px 2px rgba(31, 41, 55, 0.1), 0 0 0 1px rgba(86, 109, 134, 0.08);
+  --control-hover-shadow: var(--home-control-hover-shadow);
+  --home-ai-hover-bg: var(--bg-secondary);
+  --home-ai-hover-border: var(--home-module-hover-border);
+  --home-ai-hover-shadow: var(--home-module-hover-shadow);
+  --coach-gold: #4f421e;
+  --coach-gold-muted: rgba(79, 66, 30, 0.64);
+  --slot-window-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 247, 249, 0.94));
+  --slot-window-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.82), transparent 44%, rgba(229, 231, 235, 0.18));
+  --slot-window-border: rgba(86, 109, 134, 0.18);
+  --slot-window-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.86), inset 0 -1px 2px rgba(31, 41, 55, 0.04), 0 8px 18px rgba(31, 41, 55, 0.055);
   --slot-window-top-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.64), transparent);
-  --slot-window-bottom-fade: linear-gradient(0deg, rgba(203, 238, 255, 0.34), transparent);
-  --slot-window-active-border: var(--rp-fortune-blue-border-strong);
-  --slot-edge-rgb: 33, 196, 255;
-  --slot-edge-core: var(--rp-fortune-blue-edge-core);
-  --slot-edge-fade: var(--rp-fortune-blue-edge-fade);
+  --slot-window-bottom-fade: linear-gradient(0deg, rgba(229, 231, 235, 0.34), transparent);
+  --slot-window-active-border: rgba(86, 109, 134, 0.32);
+  --slot-edge-rgb: 86, 109, 134;
+  --slot-edge-core: rgba(86, 109, 134, 0.72);
+  --slot-edge-fade: rgba(86, 109, 134, 0.28);
   --slot-edge-inset-alpha: 0.56;
   --slot-edge-outer-alpha: 0.22;
-  --slot-reel-shadow: 0 0 12px rgba(33, 196, 255, 0.16);
+  --slot-reel-shadow: none;
 }
 
 .fortune-card {
@@ -2105,20 +2144,6 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   overflow-wrap: anywhere;
 }
 
-@keyframes home-ai-breathe {
-  0% {
-    box-shadow: var(--home-ai-hover-shadow);
-  }
-
-  50% {
-    box-shadow: var(--module-edge-glow-strong);
-  }
-
-  100% {
-    box-shadow: var(--home-ai-hover-shadow);
-  }
-}
-
 @keyframes slot-spin {
   0% {
     transform: translateY(0);
@@ -2142,8 +2167,6 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-analysis-card:hover,
-  .fortune-card:hover,
   .slot-reel-list.rolling {
     animation: none;
   }
