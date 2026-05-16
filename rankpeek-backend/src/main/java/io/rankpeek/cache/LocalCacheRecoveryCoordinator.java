@@ -6,8 +6,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -17,7 +19,7 @@ public class LocalCacheRecoveryCoordinator {
 
     private final LocalCacheRecoveryService recoveryService;
     private final Clock clock;
-    private final ObjectProvider<LocalCacheSchemaInitializer> schemaInitializerProvider;
+    private final Supplier<LocalCacheSchemaInitializer> schemaInitializerSupplier;
     private final AtomicBoolean recoveryInProgress = new AtomicBoolean(false);
     private final AtomicLong lastRecoveryAttemptMillis = new AtomicLong(0);
 
@@ -25,23 +27,30 @@ public class LocalCacheRecoveryCoordinator {
     public LocalCacheRecoveryCoordinator(
             LocalCacheRecoveryService recoveryService,
             ObjectProvider<LocalCacheSchemaInitializer> schemaInitializerProvider) {
-        this(recoveryService, Clock.systemDefaultZone(), schemaInitializerProvider);
+        this(recoveryService, Clock.systemDefaultZone(), () -> schemaInitializerProvider.getIfAvailable());
     }
 
     public LocalCacheRecoveryCoordinator(LocalCacheRecoveryService recoveryService, Clock clock) {
-        this(recoveryService, clock, null);
+        this(recoveryService, clock, (Supplier<LocalCacheSchemaInitializer>) null);
     }
 
     public LocalCacheRecoveryCoordinator(
             LocalCacheRecoveryService recoveryService,
             Clock clock,
-            ObjectProvider<LocalCacheSchemaInitializer> schemaInitializerProvider) {
+            Supplier<LocalCacheSchemaInitializer> schemaInitializerSupplier) {
         this.recoveryService = recoveryService;
         this.clock = clock;
-        this.schemaInitializerProvider = schemaInitializerProvider;
+        this.schemaInitializerSupplier = schemaInitializerSupplier;
     }
 
     public CoordinatedRecoveryResult recoverIfCorrupt(Throwable error, String trigger) {
+        return recoverIfCorrupt(error, trigger, true);
+    }
+
+    public CoordinatedRecoveryResult recoverIfCorrupt(
+            Throwable error,
+            String trigger,
+            boolean initializeSchemaAfterRecovery) {
         if (recoveryService == null || !recoveryService.isRecoverableCorruption(error)) {
             return CoordinatedRecoveryResult.notAttempted("error is not recognized as local H2 corruption");
         }
@@ -62,7 +71,6 @@ public class LocalCacheRecoveryCoordinator {
             return CoordinatedRecoveryResult.throttled("local H2 recovery already in progress");
         }
 
-        lastRecoveryAttemptMillis.set(now);
         try {
             log.warn("Starting local H2 recovery: trigger={}, rootCause={}",
                     trigger,
@@ -71,16 +79,19 @@ public class LocalCacheRecoveryCoordinator {
                     recoveryService.quarantineIfRecoverable(error);
             boolean schemaInitialized = false;
             if (recoveryResult.recovered()) {
-                LocalCacheSchemaInitializer schemaInitializer = schemaInitializerProvider == null
-                        ? null
-                        : schemaInitializerProvider.getIfAvailable();
-                if (schemaInitializer != null) {
-                    schemaInitialized = schemaInitializer.initializeSchemaIfPossible();
-                    if (schemaInitialized) {
-                        log.info("Local cache schema initialized after coordinated H2 recovery: trigger={}", trigger);
-                    } else {
-                        log.warn("Local cache schema initialization failed after coordinated H2 recovery: trigger={}",
-                                trigger);
+                lastRecoveryAttemptMillis.set(clock.millis());
+                if (initializeSchemaAfterRecovery) {
+                    LocalCacheSchemaInitializer schemaInitializer = schemaInitializerSupplier == null
+                            ? null
+                            : schemaInitializerSupplier.get();
+                    if (schemaInitializer != null) {
+                        schemaInitialized = schemaInitializer.initializeSchemaIfPossible();
+                        if (schemaInitialized) {
+                            log.info("Local cache schema initialized after coordinated H2 recovery: trigger={}", trigger);
+                        } else {
+                            log.warn("Local cache schema initialization failed after coordinated H2 recovery: trigger={}",
+                                    trigger);
+                        }
                     }
                 }
             }
@@ -107,6 +118,10 @@ public class LocalCacheRecoveryCoordinator {
 
     public String rootCauseSummary(Throwable error) {
         return recoveryService == null ? "" : recoveryService.rootCauseSummary(error);
+    }
+
+    public Optional<LocalCacheRecoveryService.RecoveryResult> getLastRecoveryResult() {
+        return recoveryService == null ? Optional.empty() : recoveryService.getLastRecoveryResult();
     }
 
     public record CoordinatedRecoveryResult(

@@ -14,6 +14,11 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class LocalCacheSchemaInitializerRecoveryTest {
 
@@ -47,6 +52,32 @@ class LocalCacheSchemaInitializerRecoveryTest {
         } finally {
             dataSource.close();
         }
+    }
+
+    @Test
+    void initializeSchema_usesCoordinatorRecoveryGate() {
+        RuntimeException corruption = new RuntimeException("File corrupted while reading record");
+        JdbcTemplate brokenJdbcTemplate = mock(JdbcTemplate.class);
+        doThrow(corruption).when(brokenJdbcTemplate).execute(anyString());
+        LocalCacheRecoveryCoordinator recoveryCoordinator = mock(LocalCacheRecoveryCoordinator.class);
+        when(recoveryCoordinator.isRecoverableCorruption(corruption)).thenReturn(true);
+        when(recoveryCoordinator.rootCauseSummary(corruption)).thenReturn("RuntimeException: corrupt");
+        when(recoveryCoordinator.recoverIfCorrupt(corruption, "schema.initialize", false))
+                .thenReturn(new LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult(
+                        false,
+                        false,
+                        false,
+                        true,
+                        "local H2 recovery already in progress",
+                        null
+                ));
+        LocalCacheSchemaInitializer initializer =
+                new LocalCacheSchemaInitializer(brokenJdbcTemplate, recoveryCoordinator);
+
+        boolean initialized = initializer.initializeSchemaIfPossible();
+
+        assertThat(initialized).isFalse();
+        verify(recoveryCoordinator).recoverIfCorrupt(corruption, "schema.initialize", false);
     }
 
     private HikariDataSource createDataSource(Path databasePath) {

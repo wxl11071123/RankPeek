@@ -20,6 +20,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -224,6 +226,23 @@ class MatchHistoryServiceTest {
         assertThat(matches).extracting(MatchHistory::getGameId).containsExactly(9L);
         verify(sgpMatchHistoryProvider).fetchMatchHistory("puuid-1", limitOptions(MatchHistorySource.AUTO, 50));
         verify(matchHistoryProvider).fetchMatchHistory("puuid-1", limitOptions(MatchHistorySource.LCU, 50));
+    }
+
+    @Test
+    void shutdownAsyncExecutors_shutsDownCacheWriteAndSgpBackfillExecutors() {
+        ExecutorService cacheWriteExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService sgpBackfillExecutor = Executors.newSingleThreadExecutor();
+        MatchHistoryService service = new MatchHistoryService(
+                List.of(matchHistoryProvider),
+                cacheRepository,
+                cacheWriteExecutor,
+                sgpBackfillExecutor
+        );
+
+        service.shutdownAsyncExecutors();
+
+        assertThat(cacheWriteExecutor.isShutdown()).isTrue();
+        assertThat(sgpBackfillExecutor.isShutdown()).isTrue();
     }
 
     @Test

@@ -16,6 +16,7 @@ import io.rankpeek.service.matchhistory.MatchHistoryQueryOptions;
 import io.rankpeek.service.matchhistory.MatchHistorySource;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -65,34 +66,6 @@ public class MatchHistoryService {
     private static final int REMAKE_MAX_GAME_DURATION_SECONDS = 300;
     private static final AtomicInteger CACHE_WRITE_THREAD_SEQUENCE = new AtomicInteger();
     private static final AtomicInteger SGP_BACKFILL_THREAD_SEQUENCE = new AtomicInteger();
-    private static final ExecutorService CACHE_WRITE_EXECUTOR = new ThreadPoolExecutor(
-            CACHE_WRITE_THREADS,
-            CACHE_WRITE_THREADS,
-            0L,
-            TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(CACHE_WRITE_QUEUE_CAPACITY),
-            runnable -> {
-                Thread thread = new Thread(runnable,
-                        "match-history-cache-write-" + CACHE_WRITE_THREAD_SEQUENCE.incrementAndGet());
-                thread.setDaemon(true);
-                return thread;
-            },
-            new ThreadPoolExecutor.AbortPolicy()
-    );
-    private static final ExecutorService SGP_BACKFILL_EXECUTOR = new ThreadPoolExecutor(
-            SGP_BACKFILL_THREADS,
-            SGP_BACKFILL_THREADS,
-            0L,
-            TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(SGP_BACKFILL_QUEUE_CAPACITY),
-            runnable -> {
-                Thread thread = new Thread(runnable,
-                        "sgp-match-backfill-" + SGP_BACKFILL_THREAD_SEQUENCE.incrementAndGet());
-                thread.setDaemon(true);
-                return thread;
-            },
-            new ThreadPoolExecutor.AbortPolicy()
-    );
     private static final Set<Long> SGP_TIMELINE_BACKFILL_IN_FLIGHT = ConcurrentHashMap.newKeySet();
     private static final String POSITION_TOP = "TOP";
     private static final String POSITION_JUNGLE = "JUNGLE";
@@ -102,6 +75,8 @@ public class MatchHistoryService {
 
     private final Map<MatchHistorySource, MatchHistoryProvider> matchHistoryProviders;
     private final MatchHistoryCacheRepository cacheRepository;
+    private final ExecutorService cacheWriteExecutor;
+    private final ExecutorService sgpBackfillExecutor;
 
     private Cache<String, MatchHistoryFetchResult> matchHistoryCache;
     private Cache<String, GameDetail> gameDetailCache;
@@ -125,8 +100,51 @@ public class MatchHistoryService {
     }
 
     public MatchHistoryService(List<MatchHistoryProvider> matchHistoryProviders, MatchHistoryCacheRepository cacheRepository) {
+        this(matchHistoryProviders, cacheRepository, createCacheWriteExecutor(), createSgpBackfillExecutor());
+    }
+
+    MatchHistoryService(List<MatchHistoryProvider> matchHistoryProviders,
+                        MatchHistoryCacheRepository cacheRepository,
+                        ExecutorService cacheWriteExecutor,
+                        ExecutorService sgpBackfillExecutor) {
         this.matchHistoryProviders = indexProviders(matchHistoryProviders);
         this.cacheRepository = cacheRepository;
+        this.cacheWriteExecutor = cacheWriteExecutor;
+        this.sgpBackfillExecutor = sgpBackfillExecutor;
+    }
+
+    private static ExecutorService createCacheWriteExecutor() {
+        return new ThreadPoolExecutor(
+                CACHE_WRITE_THREADS,
+                CACHE_WRITE_THREADS,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(CACHE_WRITE_QUEUE_CAPACITY),
+                runnable -> {
+                    Thread thread = new Thread(runnable,
+                            "match-history-cache-write-" + CACHE_WRITE_THREAD_SEQUENCE.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+    }
+
+    private static ExecutorService createSgpBackfillExecutor() {
+        return new ThreadPoolExecutor(
+                SGP_BACKFILL_THREADS,
+                SGP_BACKFILL_THREADS,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(SGP_BACKFILL_QUEUE_CAPACITY),
+                runnable -> {
+                    Thread thread = new Thread(runnable,
+                            "sgp-match-backfill-" + SGP_BACKFILL_THREAD_SEQUENCE.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     private Map<MatchHistorySource, MatchHistoryProvider> indexProviders(List<MatchHistoryProvider> providers) {
@@ -168,6 +186,36 @@ public class MatchHistoryService {
                 .expireAfterWrite(30, TimeUnit.MINUTES)
                 .build();
         log.info("战绩服务初始化完成");
+    }
+
+    @PreDestroy
+    public void shutdownAsyncExecutors() {
+        shutdownExecutor("match-history cache write", cacheWriteExecutor);
+        shutdownExecutor("SGP match backfill", sgpBackfillExecutor);
+    }
+
+    private void shutdownExecutor(String name, ExecutorService executor) {
+        if (executor == null) {
+            return;
+        }
+
+        log.info("Shutting down {} executor", name);
+        executor.shutdown();
+        try {
+            if (executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.info("{} executor stopped gracefully", name);
+                return;
+            }
+            log.warn("{} executor did not stop within timeout; forcing shutdown", name);
+            List<Runnable> droppedTasks = executor.shutdownNow();
+            log.warn("{} executor forced shutdown; droppedTasks={}", name, droppedTasks.size());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            List<Runnable> droppedTasks = executor.shutdownNow();
+            log.warn("{} executor shutdown interrupted; forced shutdown; droppedTasks={}",
+                    name,
+                    droppedTasks.size());
+        }
     }
 
     private int matchHistoryCacheWeight(MatchHistoryFetchResult result) {
@@ -591,7 +639,7 @@ public class MatchHistoryService {
         }
 
         try {
-            SGP_BACKFILL_EXECUTOR.execute(() -> {
+            sgpBackfillExecutor.execute(() -> {
                 try {
                     MatchTimelineFetchResult result = sgpProvider.fetchGameTimeline(gameId, options);
                     String status = result == null || result.getStatus() == null ? "UNKNOWN" : result.getStatus();
@@ -835,7 +883,7 @@ public class MatchHistoryService {
             return;
         }
         try {
-            CACHE_WRITE_EXECUTOR.execute(() -> {
+            cacheWriteExecutor.execute(() -> {
                 try {
                     if (!snapshot.isEmpty()) {
                         cacheRepository.saveMatchHistory(puuid, snapshot);

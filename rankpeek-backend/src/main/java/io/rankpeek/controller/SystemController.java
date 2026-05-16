@@ -1,10 +1,13 @@
 package io.rankpeek.controller;
 
 import io.rankpeek.model.ApiResponse;
+import io.rankpeek.model.SystemIdentity;
+import io.rankpeek.service.SystemIdentityService;
 import io.rankpeek.service.SystemShutdownService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,6 +22,12 @@ import java.util.Map;
 public class SystemController {
 
     private final SystemShutdownService shutdownService;
+    private final SystemIdentityService identityService;
+
+    @GetMapping("/identity")
+    public ApiResponse<SystemIdentity> identity() {
+        return ApiResponse.success(identityService.getIdentity());
+    }
 
     @PostMapping("/shutdown")
     public ApiResponse<Map<String, String>> shutdown(HttpServletRequest request) {

@@ -9,6 +9,7 @@ import {
   registerDatabaseIpcHandlers,
   type LocalDatabaseLogger
 } from './database/index'
+import { BackendIdentityMismatchError, createBackendInstanceId, fetchBackendIdentity, waitForBackend } from './backendStartup'
 import { getTrayMenuEntries, getWindowCloseAction, getWindowMinimizeAction, type TrayMenuAction } from './trayBehavior'
 
 let mainWindow: BrowserWindow | null = null
@@ -24,6 +25,7 @@ let startupExitStarted = false
 let startupStartedAt = 0
 let backendShutdownInProgress = false
 let backendShutdownCompleted = false
+let backendInstanceId: string | null = null
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
@@ -580,11 +582,17 @@ async function startBackend(): Promise<void> {
     }
 
     const exePath = join(process.resourcesPath, 'backend', 'rankpeek-backend.exe')
+    const spawnedBackendInstanceId = createBackendInstanceId()
+    backendInstanceId = spawnedBackendInstanceId
     log('INFO', `Starting backend from ${exePath}`)
 
     backendProcess = spawn(exePath, [], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true
+      windowsHide: true,
+      env: {
+        ...process.env,
+        RANKPEEK_BACKEND_INSTANCE_ID: spawnedBackendInstanceId
+      }
     })
     backendShutdownCompleted = false
 
@@ -607,10 +615,19 @@ async function startBackend(): Promise<void> {
       log('INFO', `Backend process exited: code=${String(code)}, signal=${String(signal)}`)
       if (backendProcess === spawnedBackendProcess) {
         backendProcess = null
+        backendInstanceId = null
       }
     })
 
-    void waitForBackend().then(resolve).catch(reject)
+    void waitForBackend({
+      expectedInstanceId: spawnedBackendInstanceId,
+      log: (message) => log('INFO', message)
+    }).then(resolve).catch((error) => {
+      if (error instanceof BackendIdentityMismatchError) {
+        log('ERROR', error.message)
+      }
+      reject(error)
+    })
   })
 }
 
@@ -625,27 +642,6 @@ function writeBackendOutput(streamName: 'stdout' | 'stderr', data: Buffer | stri
   }
 }
 
-async function waitForBackend(): Promise<void> {
-  const maxRetries = 30
-  const retryInterval = 500
-
-  for (let index = 0; index < maxRetries; index += 1) {
-    try {
-      const response = await fetch('http://127.0.0.1:8080/actuator/health')
-      if (response.ok) {
-        log('INFO', 'Backend is ready')
-        return
-      }
-    } catch {
-      // Keep waiting until the backend answers.
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, retryInterval))
-  }
-
-  throw new Error('Backend failed to start within timeout')
-}
-
 async function stopBackend(): Promise<void> {
   if (isDev) {
     log('INFO', 'Development mode: leaving manually started backend running')
@@ -658,26 +654,44 @@ async function stopBackend(): Promise<void> {
   }
 
   log('INFO', 'Requesting backend graceful shutdown')
-  await requestBackendShutdown()
+  const shutdownRequested = await requestBackendShutdown(backendInstanceId)
 
   const exited = await waitForBackendExit(processToStop, BACKEND_GRACEFUL_EXIT_TIMEOUT_MS)
   if (exited) {
     log('INFO', 'Backend exited after graceful shutdown request')
     if (backendProcess === processToStop) {
       backendProcess = null
+      backendInstanceId = null
     }
     return
   }
 
-  log('WARN', 'Backend did not exit before timeout; falling back to process kill')
+  log('WARN', shutdownRequested
+    ? 'Backend did not exit before timeout; falling back to process kill'
+    : 'Backend shutdown request was skipped because port 8080 belongs to another backend; killing spawned process'
+  )
   processToStop.kill()
   await waitForBackendExit(processToStop, 2000)
   if (backendProcess === processToStop) {
     backendProcess = null
+    backendInstanceId = null
   }
 }
 
-async function requestBackendShutdown(): Promise<void> {
+async function requestBackendShutdown(expectedInstanceId: string | null): Promise<boolean> {
+  if (expectedInstanceId) {
+    try {
+      const identity = await fetchBackendIdentity()
+      if (identity.instanceId !== expectedInstanceId) {
+        log('WARN', 'Skipping backend graceful shutdown because port 8080 does not belong to the spawned backend')
+        return false
+      }
+    } catch (error) {
+      log('WARN', `Could not verify backend identity before shutdown request: ${String(error)}`)
+      return false
+    }
+  }
+
   const controller = new AbortController()
   const timeout = setTimeout(() => {
     controller.abort()
@@ -689,8 +703,10 @@ async function requestBackendShutdown(): Promise<void> {
       signal: controller.signal
     })
     log('INFO', `Backend shutdown request completed: status=${response.status}`)
+    return true
   } catch (error) {
     log('WARN', `Backend shutdown request failed; will wait before fallback kill: ${String(error)}`)
+    return false
   } finally {
     clearTimeout(timeout)
   }

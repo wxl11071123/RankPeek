@@ -2,6 +2,7 @@ package io.rankpeek.service;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.rankpeek.cache.LocalCacheRecoveryCoordinator;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
 import io.rankpeek.cache.LocalCacheRecoveryService;
 import io.rankpeek.config.LocalDataPathService;
@@ -21,6 +22,7 @@ import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CacheStatusServiceTest {
@@ -140,6 +142,37 @@ class CacheStatusServiceTest {
         assertThat(status.getPlayerMatchIndexCount()).isZero();
         assertThat(status.getTrackedPlayerCount()).isZero();
         assertThat(status.getLatestMatchCreation()).isNull();
+    }
+
+    @Test
+    void getStatus_recoversCorruptLocalDatabaseThroughCoordinator() {
+        RuntimeException corruption = new RuntimeException("File corrupted while reading record");
+        JdbcTemplate brokenJdbcTemplate = mock(JdbcTemplate.class);
+        when(brokenJdbcTemplate.queryForObject("SELECT COUNT(*) FROM summoner_cache", Long.class))
+                .thenThrow(corruption);
+        LocalCacheRecoveryCoordinator recoveryCoordinator = mock(LocalCacheRecoveryCoordinator.class);
+        when(recoveryCoordinator.isRecoverableCorruption(corruption)).thenReturn(true);
+        when(recoveryCoordinator.rootCauseSummary(corruption)).thenReturn("RuntimeException: corrupt");
+        when(recoveryCoordinator.recoverIfCorrupt(corruption, "status.getStatus"))
+                .thenReturn(new LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult(
+                        false,
+                        false,
+                        false,
+                        true,
+                        "local H2 recovery already in progress",
+                        null
+                ));
+        CacheStatusService brokenService = new CacheStatusService(
+                brokenJdbcTemplate,
+                localDataPathService,
+                recoveryCoordinator
+        );
+
+        CacheStatus status = brokenService.getStatus();
+
+        assertThat(status.isEnabled()).isFalse();
+        assertThat(status.getHealth()).isEqualTo(CacheStatus.Health.CORRUPT);
+        verify(recoveryCoordinator).recoverIfCorrupt(corruption, "status.getStatus");
     }
 
     @Test

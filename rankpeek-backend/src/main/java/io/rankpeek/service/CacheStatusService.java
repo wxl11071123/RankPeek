@@ -1,6 +1,7 @@
 package io.rankpeek.service;
 
 import io.rankpeek.cache.LocalCacheRecoveryService;
+import io.rankpeek.cache.LocalCacheRecoveryCoordinator;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
 import io.rankpeek.config.LocalDataPathService;
 import io.rankpeek.model.CacheStatus;
@@ -18,22 +19,31 @@ public class CacheStatusService {
 
     private final JdbcTemplate jdbcTemplate;
     private final LocalDataPathService localDataPathService;
-    private final LocalCacheRecoveryService recoveryService;
-    private final LocalCacheSchemaInitializer schemaInitializer;
+    private final LocalCacheRecoveryCoordinator recoveryCoordinator;
 
     @Autowired
     public CacheStatusService(JdbcTemplate jdbcTemplate,
                               LocalDataPathService localDataPathService,
-                              LocalCacheRecoveryService recoveryService,
-                              LocalCacheSchemaInitializer schemaInitializer) {
+                              LocalCacheRecoveryCoordinator recoveryCoordinator) {
         this.jdbcTemplate = jdbcTemplate;
         this.localDataPathService = localDataPathService;
-        this.recoveryService = recoveryService;
-        this.schemaInitializer = schemaInitializer;
+        this.recoveryCoordinator = recoveryCoordinator;
     }
 
     public CacheStatusService(JdbcTemplate jdbcTemplate, LocalDataPathService localDataPathService) {
-        this(jdbcTemplate, localDataPathService, null, null);
+        this(jdbcTemplate, localDataPathService, (LocalCacheRecoveryCoordinator) null);
+    }
+
+    public CacheStatusService(JdbcTemplate jdbcTemplate,
+                              LocalDataPathService localDataPathService,
+                              LocalCacheRecoveryService recoveryService,
+                              LocalCacheSchemaInitializer schemaInitializer) {
+        this(jdbcTemplate, localDataPathService, recoveryService == null
+                ? null
+                : new LocalCacheRecoveryCoordinator(
+                        recoveryService,
+                        java.time.Clock.systemDefaultZone(),
+                        () -> schemaInitializer));
     }
 
     public CacheStatus getStatus() {
@@ -42,7 +52,7 @@ public class CacheStatusService {
 
     private CacheStatus getStatus(
             boolean recoveryAlreadyAttempted,
-            LocalCacheRecoveryService.RecoveryResult recoveryResult) {
+            LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult recoveryResult) {
         Path databasePath = resolveDatabasePath();
         String databasePathText = databasePath != null ? databasePath.toString() : "";
         long databaseSizeBytes = readDatabaseSizeBytes(databasePath);
@@ -70,10 +80,12 @@ public class CacheStatusService {
                     .latestMatchCreation(queryLong("SELECT MAX(game_creation) FROM match_cache"))
                     .build();
         } catch (Exception e) {
-            LocalCacheRecoveryService.RecoveryResult attemptedRecovery = null;
+            LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult attemptedRecovery = null;
             if (!recoveryAlreadyAttempted) {
                 attemptedRecovery = recoverCorruptCache(e);
-                if (attemptedRecovery != null && attemptedRecovery.recovered()) {
+                if (attemptedRecovery != null
+                        && attemptedRecovery.recovered()
+                        && attemptedRecovery.schemaInitialized()) {
                     return getStatus(true, attemptedRecovery);
                 }
             }
@@ -91,27 +103,27 @@ public class CacheStatusService {
         }
     }
 
-    private LocalCacheRecoveryService.RecoveryResult recoverCorruptCache(Exception error) {
-        if (recoveryService == null || schemaInitializer == null || !recoveryService.isRecoverableCorruption(error)) {
+    private LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult recoverCorruptCache(Exception error) {
+        if (recoveryCoordinator == null || !recoveryCoordinator.isRecoverableCorruption(error)) {
             return null;
         }
 
         log.warn("Detected local H2 cache corruption while reading status; attempting cache recovery: rootCause={}",
-                recoveryService.rootCauseSummary(error));
-        LocalCacheRecoveryService.RecoveryResult recoveryResult = recoveryService.quarantineIfRecoverable(error);
+                recoveryCoordinator.rootCauseSummary(error));
+        LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult recoveryResult =
+                recoveryCoordinator.recoverIfCorrupt(error, "status.getStatus");
         if (!recoveryResult.recovered()) {
             log.warn("Local H2 cache recovery from status check failed: {}", recoveryResult.message(),
-                    recoveryResult.failure());
+                    recoveryResult.recoveryResult() == null ? error : recoveryResult.recoveryResult().failure());
             return recoveryResult;
         }
 
-        boolean initialized = schemaInitializer.initializeSchemaIfPossible();
-        if (initialized) {
+        if (recoveryResult.schemaInitialized()) {
             log.info("Local cache schema initialized after status-triggered H2 cache recovery");
         } else {
             log.warn("Local cache schema initialization failed after status-triggered H2 cache recovery");
         }
-        return initialized ? recoveryResult : null;
+        return recoveryResult;
     }
 
     private CacheStatus disabledStatus(
@@ -161,23 +173,25 @@ public class CacheStatusService {
     }
 
     private CacheStatus.Health failureHealth(Exception error) {
-        if (recoveryService != null && recoveryService.isRecoverableCorruption(error)) {
+        if (recoveryCoordinator != null && recoveryCoordinator.isRecoverableCorruption(error)) {
             return CacheStatus.Health.CORRUPT;
         }
-        if (recoveryService != null && recoveryService.isLockedOrUnavailable(error)) {
+        if (recoveryCoordinator != null && recoveryCoordinator.isLockedOrUnavailable(error)) {
             return CacheStatus.Health.LOCKED;
         }
         return CacheStatus.Health.ERROR;
     }
 
-    private String recoveryDirectoryText(LocalCacheRecoveryService.RecoveryResult recoveryResult) {
-        if (recoveryResult != null && recoveryResult.quarantineDirectory() != null) {
-            return recoveryResult.quarantineDirectory().toString();
+    private String recoveryDirectoryText(LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult recoveryResult) {
+        if (recoveryResult != null
+                && recoveryResult.recoveryResult() != null
+                && recoveryResult.recoveryResult().quarantineDirectory() != null) {
+            return recoveryResult.recoveryResult().quarantineDirectory().toString();
         }
-        if (recoveryService == null) {
+        if (recoveryCoordinator == null) {
             return null;
         }
-        return recoveryService.getLastRecoveryResult()
+        return recoveryCoordinator.getLastRecoveryResult()
                 .filter(LocalCacheRecoveryService.RecoveryResult::recovered)
                 .map(LocalCacheRecoveryService.RecoveryResult::quarantineDirectory)
                 .map(Path::toString)
@@ -185,8 +199,8 @@ public class CacheStatusService {
     }
 
     private String rootCauseSummary(Exception error) {
-        if (recoveryService != null) {
-            return recoveryService.rootCauseSummary(error);
+        if (recoveryCoordinator != null) {
+            return recoveryCoordinator.rootCauseSummary(error);
         }
 
         Throwable current = error;

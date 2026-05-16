@@ -105,6 +105,29 @@ class LocalCacheRecoveryServiceTest {
         }
     }
 
+    @Test
+    void quarantineIfRecoverable_doesNotMoveFilesForLockedDatabase() throws Exception {
+        Path databasePath = tempDir.resolve("rankpeek-cache");
+        Path h2File = databasePath.resolveSibling("rankpeek-cache.mv.db");
+        Files.writeString(h2File, "keep");
+        LocalCacheRecoveryService service = new LocalCacheRecoveryService(pathService(databasePath), fixedClock());
+
+        LocalCacheRecoveryService.RecoveryResult result = service.quarantineIfRecoverable(
+                new RuntimeException("Database may be already in use: Locked by another process")
+        );
+
+        assertThat(result.attempted()).isFalse();
+        assertThat(result.recovered()).isFalse();
+        assertThat(service.isLockedOrUnavailable(
+                new RuntimeException("Database may be already in use: Locked by another process")
+        )).isTrue();
+        assertThat(Files.readString(h2File)).isEqualTo("keep");
+        try (var paths = Files.list(tempDir)) {
+            assertThat(paths)
+                    .noneMatch(path -> path.getFileName().toString().contains(".corrupt."));
+        }
+    }
+
     private LocalDataPathService pathService(Path databasePath) {
         return new LocalDataPathService() {
             @Override

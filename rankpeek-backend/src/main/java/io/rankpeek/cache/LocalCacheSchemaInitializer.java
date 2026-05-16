@@ -11,16 +11,22 @@ import org.springframework.stereotype.Component;
 public class LocalCacheSchemaInitializer {
 
     private final JdbcTemplate jdbcTemplate;
-    private final LocalCacheRecoveryService recoveryService;
+    private final LocalCacheRecoveryCoordinator recoveryCoordinator;
 
     @Autowired
-    public LocalCacheSchemaInitializer(JdbcTemplate jdbcTemplate, LocalCacheRecoveryService recoveryService) {
+    public LocalCacheSchemaInitializer(JdbcTemplate jdbcTemplate, LocalCacheRecoveryCoordinator recoveryCoordinator) {
         this.jdbcTemplate = jdbcTemplate;
-        this.recoveryService = recoveryService;
+        this.recoveryCoordinator = recoveryCoordinator;
+    }
+
+    public LocalCacheSchemaInitializer(JdbcTemplate jdbcTemplate, LocalCacheRecoveryService recoveryService) {
+        this(jdbcTemplate, recoveryService == null
+                ? null
+                : new LocalCacheRecoveryCoordinator(recoveryService, java.time.Clock.systemDefaultZone()));
     }
 
     public LocalCacheSchemaInitializer(JdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null);
+        this(jdbcTemplate, (LocalCacheRecoveryCoordinator) null);
     }
 
     @PostConstruct
@@ -39,7 +45,7 @@ public class LocalCacheSchemaInitializer {
     }
 
     private boolean recoverAndRetry(Exception initializationError) {
-        if (recoveryService == null || !recoveryService.isRecoverableCorruption(initializationError)) {
+        if (recoveryCoordinator == null || !recoveryCoordinator.isRecoverableCorruption(initializationError)) {
             log.warn("Failed to initialize local cache schema; persistent cache will be skipped when unavailable: rootCause={}",
                     rootCauseSummary(initializationError),
                     initializationError);
@@ -47,14 +53,14 @@ public class LocalCacheSchemaInitializer {
         }
 
         log.warn("Detected local H2 cache corruption during schema initialization: rootCause={}",
-                recoveryService.rootCauseSummary(initializationError),
+                recoveryCoordinator.rootCauseSummary(initializationError),
                 initializationError);
-        LocalCacheRecoveryService.RecoveryResult recoveryResult =
-                recoveryService.quarantineIfRecoverable(initializationError);
+        LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult recoveryResult =
+                recoveryCoordinator.recoverIfCorrupt(initializationError, "schema.initialize", false);
         if (!recoveryResult.recovered()) {
             log.warn("Detected local H2 cache corruption, but recovery failed; persistent cache will be disabled: {}",
                     recoveryResult.message(),
-                    recoveryResult.failure() == null ? initializationError : recoveryResult.failure());
+                    recoveryFailure(recoveryResult, initializationError));
             return false;
         }
 
@@ -71,8 +77,8 @@ public class LocalCacheSchemaInitializer {
     }
 
     private String rootCauseSummary(Throwable error) {
-        if (recoveryService != null) {
-            return recoveryService.rootCauseSummary(error);
+        if (recoveryCoordinator != null) {
+            return recoveryCoordinator.rootCauseSummary(error);
         }
         Throwable current = error;
         while (current.getCause() != null) {
@@ -83,6 +89,15 @@ public class LocalCacheSchemaInitializer {
             message = error.getMessage();
         }
         return current.getClass().getSimpleName() + ": " + message;
+    }
+
+    private Throwable recoveryFailure(
+            LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult recoveryResult,
+            Throwable fallback) {
+        if (recoveryResult.recoveryResult() == null || recoveryResult.recoveryResult().failure() == null) {
+            return fallback;
+        }
+        return recoveryResult.recoveryResult().failure();
     }
 
     private void runSchemaInitialization() {
