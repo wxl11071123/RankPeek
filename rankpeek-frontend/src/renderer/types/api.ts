@@ -210,8 +210,13 @@ export interface CacheUpdateEvent {
 
 export interface CacheStatus {
   enabled: boolean
+  health?: 'OK' | 'DISABLED' | 'RECOVERED' | 'CORRUPT' | 'LOCKED' | 'ERROR'
   databasePath: string
   databaseSizeBytes: number
+  lastError?: string | null
+  lastRecoveryDirectory?: string | null
+  databaseExists?: boolean
+  lockFileExists?: boolean
   summonerCount: number
   rankCount: number
   matchCount: number
@@ -244,6 +249,17 @@ export interface CacheClearResult {
   cleared: string[]
   failed: CacheClearFailure[]
   deletedRows: number
+  timestamp: number
+}
+
+export interface CacheRepairResult {
+  success: boolean
+  repaired: boolean
+  health: CacheStatus['health']
+  message: string
+  quarantineDirectory?: string | null
+  movedFiles: string[]
+  lastError?: string | null
   timestamp: number
 }
 

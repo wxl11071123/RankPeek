@@ -54,8 +54,13 @@ class CacheStatusServiceTest {
         CacheStatus status = service.getStatus();
 
         assertThat(status.isEnabled()).isTrue();
+        assertThat(status.getHealth()).isEqualTo(CacheStatus.Health.OK);
         assertThat(status.getDatabasePath()).isEqualTo(cacheDatabasePath.toString());
         assertThat(status.getDatabaseSizeBytes()).isZero();
+        assertThat(status.isDatabaseExists()).isFalse();
+        assertThat(status.isLockFileExists()).isFalse();
+        assertThat(status.getLastError()).isNull();
+        assertThat(status.getLastRecoveryDirectory()).isNull();
         assertThat(status.getSummonerCount()).isZero();
         assertThat(status.getRankCount()).isZero();
         assertThat(status.getMatchCount()).isZero();
@@ -69,6 +74,7 @@ class CacheStatusServiceTest {
     @Test
     void getStatus_countsLocalCacheRowsAndDatabaseFileSize() throws Exception {
         Files.writeString(cacheDatabasePath.resolveSibling("rankpeek-cache.mv.db"), "cache-file");
+        Files.writeString(cacheDatabasePath.resolveSibling("rankpeek-cache.lock.db"), "lock");
         jdbcTemplate.update("""
                 INSERT INTO summoner_cache (puuid, raw_json, updated_at)
                 VALUES ('puuid-1', '{}', 1), ('puuid-2', '{}', 1)
@@ -99,6 +105,9 @@ class CacheStatusServiceTest {
         CacheStatus status = service.getStatus();
 
         assertThat(status.isEnabled()).isTrue();
+        assertThat(status.getHealth()).isEqualTo(CacheStatus.Health.OK);
+        assertThat(status.isDatabaseExists()).isTrue();
+        assertThat(status.isLockFileExists()).isTrue();
         assertThat(status.getSummonerCount()).isEqualTo(2);
         assertThat(status.getRankCount()).isEqualTo(1);
         assertThat(status.getMatchCount()).isEqualTo(2);
@@ -120,6 +129,8 @@ class CacheStatusServiceTest {
         CacheStatus status = brokenService.getStatus();
 
         assertThat(status.isEnabled()).isFalse();
+        assertThat(status.getHealth()).isEqualTo(CacheStatus.Health.ERROR);
+        assertThat(status.getLastError()).contains("RuntimeException: database down");
         assertThat(status.getDatabasePath()).isEqualTo(cacheDatabasePath.toString());
         assertThat(status.getSummonerCount()).isZero();
         assertThat(status.getRankCount()).isZero();
@@ -158,6 +169,8 @@ class CacheStatusServiceTest {
             Path quarantineDirectory = recoveringDatabasePath.getParent()
                     .resolve("rankpeek-cache.corrupt.20260501-010203");
             assertThat(status.isEnabled()).isTrue();
+            assertThat(status.getHealth()).isEqualTo(CacheStatus.Health.RECOVERED);
+            assertThat(status.getLastRecoveryDirectory()).isEqualTo(quarantineDirectory.toString());
             assertThat(status.getDatabasePath()).isEqualTo(recoveringDatabasePath.toString());
             assertThat(status.getSummonerCount()).isZero();
             assertThat(status.getMatchCount()).isZero();
@@ -193,6 +206,8 @@ class CacheStatusServiceTest {
         CacheStatus status = brokenService.getStatus();
 
         assertThat(status.isEnabled()).isFalse();
+        assertThat(status.getHealth()).isEqualTo(CacheStatus.Health.LOCKED);
+        assertThat(status.getLastError()).contains("SQLTransientConnectionException");
         assertThat(Files.readString(h2File)).isEqualTo("keep");
         try (var paths = Files.list(nonCorruptDatabasePath.getParent())) {
             assertThat(paths)

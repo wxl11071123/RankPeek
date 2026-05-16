@@ -34,6 +34,7 @@ class LocalCacheRecoveryServiceTest {
         assertThat(service.isRecoverableCorruption(corruption)).isTrue();
         assertThat(service.isRecoverableCorruption(new RuntimeException("File version error"))).isTrue();
         assertThat(service.isRecoverableCorruption(new RuntimeException("Store header is corrupt"))).isTrue();
+        assertThat(service.isRecoverableCorruption(new RuntimeException("File corrupted in chunk 4622"))).isTrue();
         assertThat(service.isRecoverableCorruption(new RuntimeException(
                 "The write format 3 is larger than the supported format 2"))).isTrue();
     }

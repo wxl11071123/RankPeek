@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
@@ -28,6 +30,7 @@ public class LocalCacheRecoveryService {
     private final LocalDataPathService localDataPathService;
     private final Clock clock;
     private final DataSource dataSource;
+    private final AtomicReference<RecoveryResult> lastRecoveryResult = new AtomicReference<>();
 
     @Autowired
     public LocalCacheRecoveryService(LocalDataPathService localDataPathService, DataSource dataSource) {
@@ -80,7 +83,9 @@ public class LocalCacheRecoveryService {
         }
 
         Path databasePath = localDataPathService.getCacheDatabasePath().toAbsolutePath();
-        log.warn("Detected local H2 cache corruption: databasePath={}, error={}", databasePath, summarize(error));
+        log.warn("Detected local H2 cache corruption: databasePath={}, rootCause={}",
+                databasePath,
+                rootCauseSummary(error));
 
         try {
             List<Path> cacheFiles = findH2CacheFiles(databasePath);
@@ -88,7 +93,9 @@ public class LocalCacheRecoveryService {
 
             if (cacheFiles.isEmpty()) {
                 log.warn("No local H2 cache files found to quarantine for databasePath={}", databasePath);
-                return RecoveryResult.recovered(null, List.of(), "no H2 cache files found");
+                RecoveryResult result = RecoveryResult.recovered(null, List.of(), "no H2 cache files found");
+                lastRecoveryResult.set(result);
+                return result;
             }
 
             Path quarantineDirectory = createQuarantineDirectory(databasePath);
@@ -102,17 +109,75 @@ public class LocalCacheRecoveryService {
 
             log.info("Local H2 cache quarantine complete: directory={}, files={}",
                     quarantineDirectory,
-                    quarantinedFiles.size());
-            return RecoveryResult.recovered(quarantineDirectory, List.copyOf(quarantinedFiles),
+                    quarantinedFiles.stream()
+                            .map(path -> path.getFileName().toString())
+                            .toList());
+            RecoveryResult result = RecoveryResult.recovered(quarantineDirectory, List.copyOf(quarantinedFiles),
                     "quarantined corrupt local H2 cache files");
+            lastRecoveryResult.set(result);
+            return result;
         } catch (Exception e) {
-            log.warn("Failed to quarantine corrupt local H2 cache files; persistent cache will remain disabled", e);
-            return RecoveryResult.failed("failed to quarantine corrupt local H2 cache files", e);
+            log.warn("Failed to quarantine corrupt local H2 cache files; persistent cache will remain disabled: rootCause={}",
+                    rootCauseSummary(e),
+                    e);
+            RecoveryResult result = RecoveryResult.failed("failed to quarantine corrupt local H2 cache files", e);
+            lastRecoveryResult.set(result);
+            return result;
         }
+    }
+
+    public boolean isLockedOrUnavailable(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            String className = current.getClass().getName().toLowerCase(Locale.ROOT);
+            String message = current.getMessage() == null
+                    ? ""
+                    : current.getMessage().toLowerCase(Locale.ROOT);
+            String combined = className + " " + message;
+
+            if (combined.contains("database may be already in use")
+                    || combined.contains("locked by another process")
+                    || combined.contains("file locked")
+                    || combined.contains("database is locked")
+                    || combined.contains("connection is not available")
+                    || combined.contains("request timed out")
+                    || combined.contains("sqltransientconnectionexception")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public String rootCauseSummary(Throwable error) {
+        if (error == null) {
+            return "";
+        }
+
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            message = error.getMessage();
+        }
+        if (message == null || message.isBlank()) {
+            message = current.getClass().getSimpleName();
+        }
+        return current.getClass().getSimpleName() + ": " + message;
+    }
+
+    public Optional<RecoveryResult> getLastRecoveryResult() {
+        return Optional.ofNullable(lastRecoveryResult.get());
     }
 
     private boolean containsCorruptionMessage(String text) {
         return text.contains("file corrupted while reading record")
+                || text.contains("file corrupted in chunk")
                 || text.contains("file version error")
                 || text.contains("store header is corrupt")
                 || text.contains("unsupported database file version")
@@ -177,18 +242,6 @@ public class LocalCacheRecoveryService {
                 log.debug("Failed to evict local cache Hikari connections before quarantine", e);
             }
         }
-    }
-
-    private String summarize(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        if (message == null || message.isBlank()) {
-            message = error.getMessage();
-        }
-        return current.getClass().getSimpleName() + ": " + message;
     }
 
     public record RecoveryResult(

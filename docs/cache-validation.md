@@ -14,6 +14,9 @@ RankPeek 的召唤师、段位、战绩和对局详情数据按以下优先级�
    - 内存缓存未命中时读取本地 H2。
    - 保存可复用的召唤师、段位、战绩、对局详情、参与者和玩家对局索引数据。
    - Settings 页的缓存状态面板读取的就是这部分数据库统计。
+   - Windows 正式版默认目录是 `%APPDATA%\RankPeek\cache`。
+   - 日常开发应使用 `scripts\dev-backend.bat` 启动后端；脚本会设置 `RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev`，避免 dev 后端反复读写正式版缓存。
+   - 只有在需要复现用户正式缓存问题时，才显式使用默认 `%APPDATA%\RankPeek` 数据目录启动。
 
 3. **LCU fallback**
    - 内存和 H2 都没有可用数据，或显式 force refresh 时，才回退到 League Client Update API。
@@ -54,7 +57,9 @@ Settings 页新增“本地缓存”区域，用于查看和维护缓存：
 
 - **刷新状态**
   - 调用 `GET /api/v1/cache/status`。
-  - 展示 `enabled`、`databaseSizeBytes`、`summonerCount`、`rankCount`、`matchCount`、`gameDetailCount`、`participantCount`、`trackedPlayerCount`、`latestMatchCreation`。
+  - 返回 `enabled`、`health`、`lastError`、`lastRecoveryDirectory`、`databaseExists`、`lockFileExists`、`databaseSizeBytes`、`summonerCount`、`rankCount`、`matchCount`、`gameDetailCount`、`participantCount`、`trackedPlayerCount`、`latestMatchCreation`。
+  - `health=LOCKED` 通常表示另一个后端或打包版正在占用 H2，不应直接搬库。
+  - `health=RECOVERED` 表示启动、状态读取或 repository 层检测到可恢复 H2 损坏后，已将 `rankpeek-cache.*` 文件隔离并重建 schema。
 
 - **清理内存缓存**
   - 调用 `POST /api/v1/cache/clear?scope=memory&confirm=true`。
@@ -68,22 +73,36 @@ Settings 页新增“本地缓存”区域，用于查看和维护缓存：
   - 调用 `POST /api/v1/cache/clear?scope=all&confirm=true`。
   - 同时清理内存缓存和 H2 本地数据库缓存。
 
+- **手动修复本地 H2 缓存**
+  - 调用 `POST /api/v1/cache/repair?confirm=true`。
+  - 仅在识别为 H2/MVStore 可恢复损坏时隔离 `rankpeek-cache.*` 文件，并重新初始化 schema。
+  - 不会移动 `user-store` 等用户数据文件。
+  - 如果返回 `health=LOCKED`，先退出其他 RankPeek/Java 后端进程，再重试。
+
 所有清理按钮点击后都必须先出现浏览器确认框。用户取消时不应调用后端清理接口。
 
 ## 5. 手动验收步骤
 
-1. 启动后端和前端，确认客户端已连接 LCU。
-2. 打开 Settings 页，进入“本地缓存”区域。
-3. 点击“刷新状态”，确认状态接口成功返回，面板字段正常展示。
-4. 查询一个召唤师或进入 GamingView，让应用触发一次玩家数据加载。
-5. 回到 Settings 页点击“刷新状态”，确认相关计数有增长，例如 `summonerCount`、`rankCount`、`matchCount`。
-6. 进入 BP 阶段，观察队友卡片是否先加载并逐步补齐。
-7. 进入游戏后，观察对手卡片是否继续补齐。
-8. 在预热发生时观察 GamingView：玩家数据应自动刷新，刷新按钮不应频繁闪烁。
-9. 在 Settings 页点击“清理内存缓存”，确认弹出确认框；确认后刷新状态，H2 计数应保持不变。
-10. 点击“清理本地数据库缓存”，确认后刷新状态，H2 计数应归零或明显减少。
-11. 再次查询召唤师或进入对局，确认数据能从 LCU 重新拉取并重新写入缓存。
-12. 点击“清理全部缓存”，确认后再次复测一次查询链路。
+1. 关闭所有 RankPeek/Java 后端进程。
+2. 使用开发数据目录启动后端：
+   ```powershell
+   .\scripts\dev-backend.bat
+   ```
+   确认日志中的 `localDataRoot` 指向 `%LOCALAPPDATA%\RankPeek-dev`，不是 `%APPDATA%\RankPeek`。
+3. 启动前端，确认客户端已连接 LCU。
+4. 打开 Settings 页，进入“本地缓存”区域。
+5. 点击“刷新状态”，确认状态接口成功返回，面板字段正常展示。
+6. 查询一个召唤师或进入 GamingView，让应用触发一次玩家数据加载。
+7. 回到 Settings 页点击“刷新状态”，确认相关计数有增长，例如 `summonerCount`、`rankCount`、`matchCount`。
+8. 进入 BP 阶段，观察队友卡片是否先加载并逐步补齐。
+9. 进入游戏后，观察对手卡片是否继续补齐。
+10. 在预热发生时观察 GamingView：玩家数据应自动刷新，刷新按钮不应频繁闪烁。
+11. 在 Settings 页点击“清理内存缓存”，确认弹出确认框；确认后刷新状态，H2 计数应保持不变。
+12. 点击“清理本地数据库缓存”，确认后刷新状态，H2 计数应归零或明显减少。
+13. 再次查询召唤师或进入对局，确认数据能从 LCU 重新拉取并重新写入缓存。
+14. 点击“清理全部缓存”，确认后再次复测一次查询链路。
+15. 如需复现用户正式缓存问题，停止 dev 后端，显式使用默认 `%APPDATA%\RankPeek` 数据目录启动；如果已有坏库，日志应显示 quarantine 目录和移动文件列表，接口应返回 `health=RECOVERED` 或明确的 `LOCKED/ERROR`。
+16. 打包版退出时检查 Electron `rankpeek.log`，应能看到 shutdown 请求、backend stdout/stderr 以及 backend 正常退出；超时才会出现 fallback kill。
 
 ## 6. 常见问题排查
 
@@ -92,6 +111,8 @@ Settings 页新增“本地缓存”区域，用于查看和维护缓存：
 - 确认已经执行过召唤师查询、GamingView 预热或战绩加载。
 - 点击 Settings 页“刷新状态”，查看 `enabled` 是否为 `true`。
 - 若 `enabled=false`，优先检查后端日志中 H2 初始化、表结构或数据库路径相关错误。
+- 若 `health=LOCKED`，通常是另一个后端或打包版仍在运行，先关闭占用进程，不要直接隔离数据库。
+- 若 `health=CORRUPT` 或 `ERROR`，可使用 `POST /api/v1/cache/repair?confirm=true` 手动修复；修复只会移动 `rankpeek-cache.*` 文件。
 - 若只有内存缓存命中，H2 计数可能暂时不增长；可清理内存缓存后重新查询一次。
 
 ### LCU 未连接

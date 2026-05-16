@@ -40,11 +40,15 @@ public class LocalCacheSchemaInitializer {
 
     private boolean recoverAndRetry(Exception initializationError) {
         if (recoveryService == null || !recoveryService.isRecoverableCorruption(initializationError)) {
-            log.warn("Failed to initialize local cache schema; persistent cache will be skipped when unavailable",
+            log.warn("Failed to initialize local cache schema; persistent cache will be skipped when unavailable: rootCause={}",
+                    rootCauseSummary(initializationError),
                     initializationError);
             return false;
         }
 
+        log.warn("Detected local H2 cache corruption during schema initialization: rootCause={}",
+                recoveryService.rootCauseSummary(initializationError),
+                initializationError);
         LocalCacheRecoveryService.RecoveryResult recoveryResult =
                 recoveryService.quarantineIfRecoverable(initializationError);
         if (!recoveryResult.recovered()) {
@@ -59,10 +63,26 @@ public class LocalCacheSchemaInitializer {
             log.info("Local cache schema is ready after quarantining corrupt H2 cache files");
             return true;
         } catch (Exception retryError) {
-            log.warn("Failed to initialize local cache schema after H2 cache recovery; persistent cache will be disabled",
+            log.warn("Failed to initialize local cache schema after H2 cache recovery; persistent cache will be disabled: rootCause={}",
+                    rootCauseSummary(retryError),
                     retryError);
             return false;
         }
+    }
+
+    private String rootCauseSummary(Throwable error) {
+        if (recoveryService != null) {
+            return recoveryService.rootCauseSummary(error);
+        }
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            message = error.getMessage();
+        }
+        return current.getClass().getSimpleName() + ": " + message;
     }
 
     private void runSchemaInitialization() {

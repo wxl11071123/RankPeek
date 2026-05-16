@@ -10,6 +10,7 @@ import io.rankpeek.model.Rank;
 import io.rankpeek.model.Summoner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
@@ -19,6 +20,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class JdbcMatchHistoryCacheRepositoryTest {
 
@@ -192,6 +196,28 @@ class JdbcMatchHistoryCacheRepositoryTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().getMatches()).extracting(MatchHistory::getGameId).containsExactly(2001L);
+    }
+
+    @Test
+    void findRecentMatchHistory_triggersLocalRecoveryWhenJdbcReportsH2Corruption() {
+        RuntimeException corruption = new RuntimeException(
+                "org.h2.mvstore.MVStoreException: File corrupted while reading record"
+        );
+        JdbcTemplate brokenJdbcTemplate = new JdbcTemplate() {
+            @Override
+            public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... args) {
+                throw corruption;
+            }
+        };
+        LocalCacheRecoveryCoordinator recoveryCoordinator = mock(LocalCacheRecoveryCoordinator.class);
+        JdbcMatchHistoryCacheRepository brokenRepository =
+                new JdbcMatchHistoryCacheRepository(brokenJdbcTemplate, objectMapper, recoveryCoordinator);
+
+        Optional<MatchHistoryFetchResult> result =
+                brokenRepository.findRecentMatchHistory("target-puuid", 10);
+
+        assertThat(result).isEmpty();
+        verify(recoveryCoordinator).recoverIfCorrupt(eq(corruption), eq("repository.findRecentMatchHistory"));
     }
 
     @Test

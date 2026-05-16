@@ -76,11 +76,15 @@ For native packaging, you will also need:
 ### 1. Start the backend
 
 ```powershell
-cd rankpeek-backend
-mvn spring-boot:run
+.\scripts\dev-backend.bat
 ```
 
 The backend runs on `http://127.0.0.1:8080`.
+
+The development script sets `RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev`,
+so local development does not reuse or damage the packaged app cache under
+`%APPDATA%\RankPeek`. Use the default `%APPDATA%\RankPeek` data directory only
+when you explicitly need to reproduce a user production-cache issue.
 
 ### 2. Start the desktop app in development mode
 

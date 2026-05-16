@@ -3248,7 +3248,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
       <div v-else-if="activeTabValue === 'runes'" class="runes-tab">
         <section
-          v-for="(team, teamIndex) in runeTeamSections"
+          v-for="team in runeTeamSections"
           :key="`rune-team-${team.key}`"
           class="rune-team-card"
           :class="team.key"
@@ -3259,7 +3259,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
           <div class="rune-team-players">
             <div
-              v-for="(player, playerIndex) in team.players"
+              v-for="player in team.players"
               :key="`runes-${player.participantId}`"
               class="rune-player-row"
               :class="{

@@ -22,6 +22,8 @@ let noLcuTimeout: ReturnType<typeof setTimeout> | null = null
 let minimumSplashTimer: ReturnType<typeof setTimeout> | null = null
 let startupExitStarted = false
 let startupStartedAt = 0
+let backendShutdownInProgress = false
+let backendShutdownCompleted = false
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
@@ -29,6 +31,8 @@ const STARTUP_CHECK_INTERVAL_MS = 500
 const NO_LCU_TIMEOUT_MS = 6000
 const STARTUP_FORCE_TIMEOUT_MS = 10000
 const MIN_SPLASH_VISIBLE_MS = 3600
+const BACKEND_SHUTDOWN_REQUEST_TIMEOUT_MS = 2000
+const BACKEND_GRACEFUL_EXIT_TIMEOUT_MS = 5000
 
 type StartupExitMode = 'smooth' | 'quick'
 
@@ -582,22 +586,43 @@ async function startBackend(): Promise<void> {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
+    backendShutdownCompleted = false
+
+    const spawnedBackendProcess = backendProcess
 
     backendProcess.stdout?.on('data', (data) => {
-      console.log(`Backend: ${data}`)
+      writeBackendOutput('stdout', data)
     })
 
     backendProcess.stderr?.on('data', (data) => {
-      console.error(`Backend Error: ${data}`)
+      writeBackendOutput('stderr', data)
     })
 
     backendProcess.on('error', (error) => {
-      console.error('Failed to start backend:', error)
+      log('ERROR', `Failed to start backend process: ${String(error)}`)
       reject(error)
+    })
+
+    backendProcess.on('exit', (code, signal) => {
+      log('INFO', `Backend process exited: code=${String(code)}, signal=${String(signal)}`)
+      if (backendProcess === spawnedBackendProcess) {
+        backendProcess = null
+      }
     })
 
     void waitForBackend().then(resolve).catch(reject)
   })
+}
+
+function writeBackendOutput(streamName: 'stdout' | 'stderr', data: Buffer | string) {
+  const text = data.toString()
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim().length === 0) {
+      continue
+    }
+
+    log(streamName === 'stderr' ? 'ERROR' : 'INFO', `Backend ${streamName}: ${line}`)
+  }
 }
 
 async function waitForBackend(): Promise<void> {
@@ -621,14 +646,83 @@ async function waitForBackend(): Promise<void> {
   throw new Error('Backend failed to start within timeout')
 }
 
-function stopBackend() {
-  if (!backendProcess) {
+async function stopBackend(): Promise<void> {
+  if (isDev) {
+    log('INFO', 'Development mode: leaving manually started backend running')
     return
   }
 
-  log('INFO', 'Stopping backend')
-  backendProcess.kill()
-  backendProcess = null
+  const processToStop = backendProcess
+  if (!processToStop) {
+    return
+  }
+
+  log('INFO', 'Requesting backend graceful shutdown')
+  await requestBackendShutdown()
+
+  const exited = await waitForBackendExit(processToStop, BACKEND_GRACEFUL_EXIT_TIMEOUT_MS)
+  if (exited) {
+    log('INFO', 'Backend exited after graceful shutdown request')
+    if (backendProcess === processToStop) {
+      backendProcess = null
+    }
+    return
+  }
+
+  log('WARN', 'Backend did not exit before timeout; falling back to process kill')
+  processToStop.kill()
+  await waitForBackendExit(processToStop, 2000)
+  if (backendProcess === processToStop) {
+    backendProcess = null
+  }
+}
+
+async function requestBackendShutdown(): Promise<void> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, BACKEND_SHUTDOWN_REQUEST_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/system/shutdown`, {
+      method: 'POST',
+      signal: controller.signal
+    })
+    log('INFO', `Backend shutdown request completed: status=${response.status}`)
+  } catch (error) {
+    log('WARN', `Backend shutdown request failed; will wait before fallback kill: ${String(error)}`)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function waitForBackendExit(processToWait: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (processToWait.exitCode !== null || processToWait.signalCode !== null) {
+    return Promise.resolve(true)
+  }
+
+  return new Promise((resolve) => {
+    let settled = false
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return
+      }
+      settled = true
+      processToWait.off('exit', handleExit)
+      resolve(false)
+    }, timeoutMs)
+
+    const handleExit = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timeout)
+      resolve(true)
+    }
+
+    processToWait.once('exit', handleExit)
+  })
 }
 
 ipcMain.handle('window:minimize', () => {
@@ -681,6 +775,7 @@ app.whenReady().then(async () => {
     console.error('Failed to start application:', error)
     closeSplashWindow()
     closeLocalDatabase()
+    await stopBackend()
     app.quit()
   }
 
@@ -691,19 +786,31 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (isQuitting && process.platform !== 'darwin') {
-    stopBackend()
     app.quit()
   }
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isQuitting = true
   clearStartupTimers()
   closeSplashWindow()
   appTray?.destroy()
   appTray = null
   closeLocalDatabase()
-  stopBackend()
+
+  if (!isDev && backendProcess && !backendShutdownCompleted) {
+    event.preventDefault()
+    if (backendShutdownInProgress) {
+      return
+    }
+
+    backendShutdownInProgress = true
+    void stopBackend().finally(() => {
+      backendShutdownCompleted = true
+      backendShutdownInProgress = false
+      app.quit()
+    })
+  }
 })
 
 process.on('uncaughtException', (error) => {

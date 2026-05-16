@@ -9,8 +9,8 @@ import io.rankpeek.model.MatchHistoryFetchResult;
 import io.rankpeek.model.MatchTimeline;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.Summoner;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -28,13 +28,27 @@ import java.util.Set;
 
 @Slf4j
 @Repository
-@RequiredArgsConstructor
 public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheRepository {
 
     private static final int DEFAULT_MATCH_INDEX_KEEP_COUNT = 200;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final LocalCacheRecoveryCoordinator recoveryCoordinator;
+
+    @Autowired
+    public JdbcMatchHistoryCacheRepository(
+            JdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper,
+            LocalCacheRecoveryCoordinator recoveryCoordinator) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
+        this.recoveryCoordinator = recoveryCoordinator;
+    }
+
+    public JdbcMatchHistoryCacheRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+        this(jdbcTemplate, objectMapper, null);
+    }
 
     @Override
     public Optional<MatchHistoryFetchResult> findRecentMatchHistory(String puuid, int limit) {
@@ -84,7 +98,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     .rawEmpty(false)
                     .build());
         } catch (Exception e) {
-            log.warn("Failed to read match history from local cache, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to read match history from local cache, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findRecentMatchHistory");
             return Optional.empty();
         }
     }
@@ -118,7 +136,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 trimPlayerMatchIndex(indexedPuuid, DEFAULT_MATCH_INDEX_KEEP_COUNT);
             }
         } catch (Exception e) {
-            log.warn("Failed to save match history to local cache, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to save match history to local cache, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.saveMatchHistory");
             updatePlayerFetchState(puuid, renderableMatches, "ERROR", e.getMessage());
         }
     }
@@ -139,7 +161,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to read game detail from local cache, gameId={}", gameId, e);
+            log.warn("Failed to read game detail from local cache, gameId={}, rootCause={}",
+                    gameId,
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findGameDetail");
             return Optional.empty();
         }
     }
@@ -162,7 +188,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     now
             );
         } catch (Exception e) {
-            log.warn("Failed to save game detail to local cache, gameId={}", detail.getGameId(), e);
+            log.warn("Failed to save game detail to local cache, gameId={}, rootCause={}",
+                    detail.getGameId(),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.saveGameDetail");
         }
     }
 
@@ -179,7 +209,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             try {
                 saveSgpRawSummary(entry.getKey(), entry.getValue());
             } catch (Exception e) {
-                log.warn("Failed to save SGP raw summary scope, gameId={}", entry.getKey(), e);
+                log.warn("Failed to save SGP raw summary scope, gameId={}, rootCause={}",
+                        entry.getKey(),
+                        rootCauseSummary(e),
+                        e);
+                recoverIfCorrupt(e, "repository.saveSgpRawSummaries");
             }
         }
     }
@@ -227,7 +261,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 );
             }
         } catch (Exception e) {
-            log.warn("Failed to save SGP raw detail scope, gameId={}", gameId, e);
+            log.warn("Failed to save SGP raw detail scope, gameId={}, rootCause={}",
+                    gameId,
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.saveSgpRawDetail");
         }
     }
 
@@ -281,7 +319,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 );
             }
         } catch (Exception e) {
-            log.warn("Failed to save SGP timeline scope, gameId={}", gameId, e);
+            log.warn("Failed to save SGP timeline scope, gameId={}, rootCause={}",
+                    gameId,
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.saveSgpTimeline");
         }
     }
 
@@ -306,7 +348,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to read match data scope cache, gameId={}", gameId, e);
+            log.warn("Failed to read match data scope cache, gameId={}, rootCause={}",
+                    gameId,
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findMatchDataScope");
             return Optional.empty();
         }
     }
@@ -327,7 +373,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to read summoner from local cache, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to read summoner from local cache, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findSummonerByPuuid");
             return Optional.empty();
         }
     }
@@ -372,7 +422,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     .findFirst()
                     .flatMap(rawJson -> readValue(rawJson, Summoner.class, "summoner"));
         } catch (Exception e) {
-            log.warn("Failed to read summoner by name from local cache, name={}", gameName, e);
+            log.warn("Failed to read summoner by name from local cache, name={}, rootCause={}",
+                    gameName,
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findSummonerByName");
             return Optional.empty();
         }
     }
@@ -405,7 +459,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             );
             mergeFetchStateTimestamp(summoner.getPuuid(), "summoner_updated_at", now);
         } catch (Exception e) {
-            log.warn("Failed to save summoner to local cache, puuid={}", puuidPrefix(summoner.getPuuid()), e);
+            log.warn("Failed to save summoner to local cache, puuid={}, rootCause={}",
+                    puuidPrefix(summoner.getPuuid()),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.saveSummoner");
         }
     }
 
@@ -425,7 +483,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to read rank from local cache, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to read rank from local cache, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findRank");
             return Optional.empty();
         }
     }
@@ -449,7 +511,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             );
             mergeFetchStateTimestamp(puuid, "rank_updated_at", now);
         } catch (Exception e) {
-            log.warn("Failed to save rank to local cache, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to save rank to local cache, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.saveRank");
         }
     }
 
@@ -479,7 +545,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     now
             );
         } catch (Exception e) {
-            log.warn("Failed to update local fetch state, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to update local fetch state, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.updatePlayerFetchState");
         }
     }
 
@@ -498,7 +568,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to read match cache timestamp, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to read match cache timestamp, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.getMatchUpdatedAt");
             return Optional.empty();
         }
     }
@@ -529,7 +603,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     keepCount
             );
         } catch (Exception e) {
-            log.warn("Failed to trim local match index, puuid={}", puuidPrefix(puuid), e);
+            log.warn("Failed to trim local match index, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.trimPlayerMatchIndex");
         }
     }
 
@@ -701,8 +779,12 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 );
                 indexedPuuids.add(participantPuuid);
             } catch (Exception e) {
-                log.warn("Failed to save local match index row, puuid={}, gameId={}",
-                        puuidPrefix(participantPuuid), match.getGameId(), e);
+                log.warn("Failed to save local match index row, puuid={}, gameId={}, rootCause={}",
+                        puuidPrefix(participantPuuid),
+                        match.getGameId(),
+                        rootCauseSummary(e),
+                        e);
+                recoverIfCorrupt(e, "repository.savePlayerMatchIndexesForAllParticipants");
             }
         }
         return indexedPuuids;
@@ -848,7 +930,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             match.setParticipants(participants);
             match.setParticipantIdentities(identities);
         } catch (Exception e) {
-            log.debug("Failed to rebuild roster from participant cache, gameId={}", match.getGameId(), e);
+            log.debug("Failed to rebuild roster from participant cache, gameId={}, rootCause={}",
+                    match.getGameId(),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.rebuildRosterFromParticipantCache");
         }
         return match;
     }
@@ -1194,7 +1280,11 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     .rawEmpty(true)
                     .build());
         } catch (Exception e) {
-            log.debug("Failed to read empty match-history cache state, puuid={}", puuidPrefix(puuid), e);
+            log.debug("Failed to read empty match-history cache state, puuid={}, rootCause={}",
+                    puuidPrefix(puuid),
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findEmptyFetchState");
             return Optional.empty();
         }
     }
@@ -1204,6 +1294,35 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             return "null";
         }
         return puuid.substring(0, Math.min(8, puuid.length()));
+    }
+
+    private void recoverIfCorrupt(Exception error, String trigger) {
+        if (recoveryCoordinator == null) {
+            return;
+        }
+        recoveryCoordinator.recoverIfCorrupt(error, trigger);
+    }
+
+    private String rootCauseSummary(Exception error) {
+        if (recoveryCoordinator != null) {
+            String summary = recoveryCoordinator.rootCauseSummary(error);
+            if (summary != null && !summary.isBlank()) {
+                return summary;
+            }
+        }
+
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            message = error.getMessage();
+        }
+        if (message == null || message.isBlank()) {
+            message = current.getClass().getSimpleName();
+        }
+        return current.getClass().getSimpleName() + ": " + message;
     }
 
     private record CachedMatchRow(Long gameId, String rawJson) {

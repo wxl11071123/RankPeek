@@ -112,7 +112,7 @@ async function parseSseStream(
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read()
     if (done) {
       break
@@ -140,7 +140,7 @@ async function parseNdjsonStream(
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read()
     if (done) {
       break

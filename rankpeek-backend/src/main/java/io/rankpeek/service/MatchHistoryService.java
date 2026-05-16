@@ -443,7 +443,13 @@ public class MatchHistoryService {
         FetchedMatchHistory fetched = loadMatchHistory(puuid, forceRefresh, source);
         List<MatchHistory> matches = fetched.result().getMatches();
         List<MatchHistory> sliced = sliceMatches(matches, begIndex, endIndex);
-        return ensureRosterForVisibleMatches(puuid, matches, sliced, fetched.source(), false);
+        return ensureRosterForVisibleMatches(
+                puuid,
+                matches,
+                sliced,
+                fetched.source(),
+                shouldHydrateVisibleMatchesFromDetail(source)
+        );
     }
 
     /**
@@ -1505,7 +1511,13 @@ public class MatchHistoryService {
         if (maxResults > 0 && sliced.size() > maxResults) {
             sliced = new ArrayList<>(sliced.subList(0, maxResults));
         }
-        return ensureRosterForVisibleMatches(puuid, allMatches, sliced, fetched.source(), false);
+        return ensureRosterForVisibleMatches(
+                puuid,
+                allMatches,
+                sliced,
+                fetched.source(),
+                shouldHydrateVisibleMatchesFromDetail(source)
+        );
     }
 
     private List<MatchHistory> filterMatches(List<MatchHistory> matches,
@@ -1622,6 +1634,10 @@ public class MatchHistoryService {
             return true;
         }
         return hasRenderableRoster(match, puuid);
+    }
+
+    private boolean shouldHydrateVisibleMatchesFromDetail(MatchHistorySource requestedSource) {
+        return normalizeSource(requestedSource) != MatchHistorySource.SGP;
     }
 
     private boolean hasRenderableRoster(MatchHistory match, String puuid) {

@@ -5,6 +5,7 @@ import type {
   AssetDetails,
   CacheClearResult,
   CacheClearScope,
+  CacheRepairResult,
   CacheStatus,
   ChampionOption,
   GameDetail,
@@ -415,6 +416,10 @@ class ApiClient {
 
   async clearCache(scope: CacheClearScope, confirm = true): Promise<CacheClearResult> {
     return this.post<CacheClearResult>('/cache/clear', undefined, { scope, confirm })
+  }
+
+  async repairCache(confirm = true): Promise<CacheRepairResult> {
+    return this.post<CacheRepairResult>('/cache/repair', undefined, { confirm })
   }
 
   async getUserStoreStatus(): Promise<UserStoreStatus> {
