@@ -66,10 +66,12 @@ class CacheControllerTest {
     @Test
     void clearCache_returnsSuccessfulApiResponseForConfirmedPost() throws Exception {
         CacheClearResult result = CacheClearResult.builder()
-                .cleared(true)
+                .success(true)
                 .scope("all")
                 .message("cache cleared")
                 .deletedRows(12L)
+                .cleared(java.util.List.of("memory.matchHistory", "localDb.summoner_cache"))
+                .failed(java.util.List.of())
                 .timestamp(1710000000000L)
                 .build();
         when(cacheMaintenanceService.clearCache("all", true)).thenReturn(result);
@@ -80,19 +82,48 @@ class CacheControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.message").value("success"))
-                .andExpect(jsonPath("$.data.cleared").value(true))
+                .andExpect(jsonPath("$.data.success").value(true))
                 .andExpect(jsonPath("$.data.scope").value("all"))
+                .andExpect(jsonPath("$.data.cleared[0]").value("memory.matchHistory"))
+                .andExpect(jsonPath("$.data.failed").isArray())
                 .andExpect(jsonPath("$.data.deletedRows").value(12))
                 .andExpect(jsonPath("$.data.timestamp").value(1710000000000L));
     }
 
     @Test
+    void clearCache_returnsFailedItemDetailsWhenPartialClearFails() throws Exception {
+        CacheClearResult result = CacheClearResult.builder()
+                .success(false)
+                .scope("all")
+                .message("cache clear completed with failures: memory.rank")
+                .deletedRows(7L)
+                .cleared(java.util.List.of("memory.matchHistory", "localDb.summoner_cache"))
+                .failed(java.util.List.of(new CacheClearResult.Failure("memory.rank", "rank cache busy")))
+                .timestamp(1710000000000L)
+                .build();
+        when(cacheMaintenanceService.clearCache("all", true)).thenReturn(result);
+
+        mockMvc.perform(post("/api/v1/cache/clear")
+                        .param("scope", "all")
+                        .param("confirm", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.success").value(false))
+                .andExpect(jsonPath("$.data.cleared[0]").value("memory.matchHistory"))
+                .andExpect(jsonPath("$.data.failed[0].name").value("memory.rank"))
+                .andExpect(jsonPath("$.data.failed[0].message").value("rank cache busy"))
+                .andExpect(jsonPath("$.data.deletedRows").value(7));
+    }
+
+    @Test
     void clearCache_withoutConfirmReturnsNotClearedResult() throws Exception {
         CacheClearResult result = CacheClearResult.builder()
-                .cleared(false)
+                .success(false)
                 .scope("all")
                 .message("confirm=true is required")
                 .deletedRows(0L)
+                .cleared(java.util.List.of())
+                .failed(java.util.List.of(new CacheClearResult.Failure("confirmation", "confirm=true is required")))
                 .timestamp(1710000000000L)
                 .build();
         when(cacheMaintenanceService.clearCache("all", false)).thenReturn(result);
@@ -100,9 +131,10 @@ class CacheControllerTest {
         mockMvc.perform(post("/api/v1/cache/clear"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.cleared").value(false))
+                .andExpect(jsonPath("$.data.success").value(false))
                 .andExpect(jsonPath("$.data.scope").value("all"))
                 .andExpect(jsonPath("$.data.message").value("confirm=true is required"))
+                .andExpect(jsonPath("$.data.failed[0].name").value("confirmation"))
                 .andExpect(jsonPath("$.data.deletedRows").value(0));
     }
 }

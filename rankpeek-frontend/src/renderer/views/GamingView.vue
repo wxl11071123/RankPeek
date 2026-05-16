@@ -144,11 +144,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getGamingSessionData } from '@/api/sessionDataAdapter'
+import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
+import { listenGameflowPhase } from '@/services/gameflowPhaseListener'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import GamingAiAnalysisModal from '@/components/gaming/GamingAiAnalysisModal.vue'
 import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
-import type { CacheUpdateEvent, SessionData, SessionSummoner } from '@/types/api'
+import type { CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
 import {
   createGamingAiAnalysisPreview,
@@ -166,6 +168,16 @@ import {
   isGamingAiAnalysisEnabledQueue,
   normalizeGamingQueueLabel
 } from '@/services/gamingAiQueue'
+import {
+  buildLobbyDisplaySessionSummoners,
+  createGameflowPhaseTransitionTracker,
+  createGamingSessionDataState,
+  formatLobbyQueueName,
+  isGameflowLobbyDisplayPhase,
+  isGameflowSessionClearPhase,
+  isGameflowSessionRefreshPhase,
+  isPostgameNavigationLogPhase
+} from '@/services/gamingSessionFlow'
 import { useI18n, type MessageKey } from '@/i18n'
 
 const { t } = useI18n()
@@ -177,21 +189,29 @@ const PAGE_GLOW_SELECTOR = '.surface-glow, .control-glow'
 
 const gamingViewRef = ref<HTMLElement | null>(null)
 
-const sessionData = ref<SessionData>({
-  phase: '',
-  queueType: '',
-  typeCn: '',
-  queueId: 0,
-  teamOne: [],
-  teamTwo: []
-})
+const sessionState = createGamingSessionDataState()
+const gameflowPhaseTransitions = createGameflowPhaseTransitionTracker()
+const sessionData = ref<SessionData>(sessionState.sessionData)
+const currentGameflowPhase = ref('')
+const lobbyData = ref<Lobby | null>(null)
+const currentSummoner = ref<Summoner | null>(null)
+const lobbyLoading = ref(false)
+const lobbyError = ref('')
 
-const loading = ref(false)
+const initialLoading = ref(false)
+const refreshing = ref(false)
+const lastError = ref('')
+const loading = computed(() => initialLoading.value || refreshing.value)
 let refreshInterval: ReturnType<typeof setInterval> | null = null
+let unsubscribeGameflowPhase: (() => void) | null = null
 let unsubscribeCacheUpdate: (() => void) | null = null
+let unsubscribeLobby: (() => void) | null = null
 let cacheUpdateRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let lastCacheUpdateRefreshAt = 0
 let sessionFetchInFlight = false
+let lobbyFetchInFlight = false
+let lobbyRequestId = 0
+let hasCompletedInitialSessionFetch = false
 const cacheUpdateRefreshDelay = 800
 const minCacheUpdateRefreshInterval = 2500
 
@@ -205,10 +225,16 @@ let autoResumeTimer: ReturnType<typeof setTimeout> | null = null
 
 const hasActiveSession = computed(() => {
   const phase = sessionData.value.phase
-  return Boolean(phase && phase !== 'None')
+  return Boolean(phase && !sessionData.value.stale && !sessionData.value.empty && !isGameflowSessionClearPhase(phase))
 })
+const displayedGameflowPhase = computed(() => currentGameflowPhase.value || sessionData.value.phase)
+const hasLobbyPhase = computed(() => isGameflowLobbyDisplayPhase(displayedGameflowPhase.value))
+const lobbyQueueLabel = computed(() => formatLobbyQueueName(lobbyData.value))
+const lobbyTeamPlayers = computed<SessionSummoner[]>(() =>
+  hasLobbyPhase.value ? buildLobbyDisplaySessionSummoners(lobbyData.value, currentSummoner.value, sessionData.value) : []
+)
 
-const blueTeamPlayers = computed(() => hasActiveSession.value ? (sessionData.value.teamOne || []) : [])
+const blueTeamPlayers = computed(() => hasActiveSession.value ? (sessionData.value.teamOne || []) : lobbyTeamPlayers.value)
 const redTeamPlayers = computed(() => hasActiveSession.value ? (sessionData.value.teamTwo || []) : [])
 const blueTeamCount = computed(() => blueTeamPlayers.value.length)
 const redTeamCount = computed(() => redTeamPlayers.value.length)
@@ -259,8 +285,39 @@ const phaseClass = computed(() => {
   return ''
 })
 
-const queueName = computed(() => hasActiveSession.value ? (sessionData.value.typeCn || t('common.unknownMode')) : '未进入房间')
-const queueUnknown = computed(() => !hasActiveSession.value || !sessionData.value.typeCn)
+const queueName = computed(() => {
+  if (hasActiveSession.value) {
+    return sessionData.value.typeCn || t('common.unknownMode')
+  }
+  if (hasLobbyPhase.value) {
+    if (lobbyQueueLabel.value) {
+      return lobbyQueueLabel.value
+    }
+    if (isGameflowLobbyDisplayPhase(sessionData.value.phase) && sessionData.value.typeCn) {
+      return sessionData.value.typeCn
+    }
+    if (lobbyLoading.value) {
+      return '正在读取大厅'
+    }
+    if (lobbyError.value) {
+      return lobbyError.value
+    }
+    return '大厅'
+  }
+  if (lastError.value) {
+    return lastError.value
+  }
+  return '未进入房间'
+})
+const queueUnknown = computed(() => {
+  if (hasActiveSession.value) {
+    return !sessionData.value.typeCn
+  }
+  if (hasLobbyPhase.value) {
+    return !(lobbyQueueLabel.value || sessionData.value.typeCn)
+  }
+  return true
+})
 const gamingAiQueueLabel = computed(() => normalizeGamingQueueLabel(sessionData.value))
 const gamingAiAnalysisEnabled = computed(() => isGamingAiAnalysisEnabledQueue(sessionData.value))
 const refreshButtonLabel = computed(() => {
@@ -522,26 +579,139 @@ function resetGamingAiStreamState() {
   gamingAiPlayerVerdicts.value = {}
 }
 
-async function fetchSessionData(options: { showLoading?: boolean } = {}) {
-  if (isRefreshPaused.value || sessionFetchInFlight) return
+function syncSessionDataFromState() {
+  sessionData.value = sessionState.sessionData
+}
 
-  const showLoading = options.showLoading !== false
-  sessionFetchInFlight = true
-  if (showLoading) loading.value = true
+function applyLobbyData(lobby: Lobby | null | undefined) {
+  lobbyData.value = lobby || null
+  lobbyError.value = ''
+}
+
+function clearLobbyStatus() {
+  lobbyRequestId += 1
+  lobbyData.value = null
+  currentSummoner.value = null
+  lobbyLoading.value = false
+  lobbyError.value = ''
+  lobbyFetchInFlight = false
+}
+
+async function fetchLobbyData(options: { force?: boolean } = {}) {
+  if (lobbyFetchInFlight || (!options.force && lobbyData.value)) return
+
+  const requestId = ++lobbyRequestId
+  lobbyFetchInFlight = true
+  lobbyLoading.value = true
+  lobbyError.value = ''
+
   try {
-    const data = await getGamingSessionData()
-    sessionData.value = data
-    failCount.value = 0
+    const lobby = await apiClient.getLobby()
+    const state = await apiClient.getGameState().catch(() => null)
+    if (requestId !== lobbyRequestId) return
+    currentSummoner.value = state?.summoner || currentSummoner.value
+    applyLobbyData(lobby)
+  } catch (error) {
+    if (requestId !== lobbyRequestId) return
+    lobbyData.value = null
+    lobbyError.value = extractFetchErrorMessage(error)
+    console.warn('Failed to fetch lobby status', error)
+  } finally {
+    if (requestId === lobbyRequestId) {
+      lobbyLoading.value = false
+      lobbyFetchInFlight = false
+    }
+  }
+}
+
+function clearSessionDataForPhase(phase: string) {
+  sessionState.clearForPhase(phase)
+  syncSessionDataFromState()
+  sessionFetchInFlight = false
+  initialLoading.value = false
+  refreshing.value = false
+  lastError.value = ''
+  retryCount = 0
+}
+
+function handleGameflowPhaseChange(phase: string) {
+  currentGameflowPhase.value = phase
+  console.debug(`[gameflow] phase=${phase}`)
+  if (!gameflowPhaseTransitions.shouldHandlePhase(phase)) {
+    return
+  }
+
+  if (isGameflowSessionRefreshPhase(phase)) {
+    clearLobbyStatus()
+    console.debug('未来这里可跳转到对战信息')
+    retryCount = 0
+    void fetchSessionData({ force: true })
+    return
+  }
+
+  if (isGameflowSessionClearPhase(phase)) {
+    clearSessionDataForPhase(phase)
+    if (isGameflowLobbyDisplayPhase(phase)) {
+      void fetchLobbyData({ force: true })
+      void fetchSessionData({ showLoading: false, force: true })
+    } else {
+      clearLobbyStatus()
+    }
+    if (isPostgameNavigationLogPhase(phase)) {
+      console.debug('未来这里可跳转到我的战绩')
+    }
+  }
+}
+
+async function fetchSessionData(options: { showLoading?: boolean; force?: boolean } = {}) {
+  if (isRefreshPaused.value || (sessionFetchInFlight && !options.force)) return
+
+  const shouldShowFetchState = options.showLoading !== false
+  const showInitialLoading = shouldShowFetchState && !hasCompletedInitialSessionFetch
+  const requestId = sessionState.beginFetch()
+  sessionFetchInFlight = true
+  lastError.value = ''
+  if (showInitialLoading) {
+    initialLoading.value = true
+  } else if (shouldShowFetchState) {
+    refreshing.value = true
+  }
+  try {
+    const data = await getGamingSessionData({ forceRefresh: options.force === true })
+    if (sessionState.applyFetchedData(requestId, data)) {
+      syncSessionDataFromState()
+      if (isGameflowLobbyDisplayPhase(sessionData.value.phase)) {
+        void fetchLobbyData()
+      } else {
+        clearLobbyStatus()
+      }
+      failCount.value = 0
+    }
   } catch (e) {
-    console.error('Failed to fetch session data', e)
-    failCount.value++
-    if (failCount.value >= maxFailCount) {
-      pauseRefresh()
+    if (sessionState.applyFetchFailure(requestId, currentGameflowPhase.value || sessionData.value.phase)) {
+      syncSessionDataFromState()
+      lastError.value = extractFetchErrorMessage(e)
+      console.error('Failed to fetch session data', e)
+      failCount.value++
+      if (failCount.value >= maxFailCount) {
+        pauseRefresh()
+      }
     }
   } finally {
-    if (showLoading) loading.value = false
-    sessionFetchInFlight = false
+    if (sessionState.isCurrentRequest(requestId)) {
+      hasCompletedInitialSessionFetch = true
+      initialLoading.value = false
+      refreshing.value = false
+      sessionFetchInFlight = false
+    }
   }
+}
+
+function extractFetchErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim()
+  }
+  return '对战信息刷新失败'
 }
 
 function collectCurrentSessionPuuids(): Set<string> {
@@ -606,25 +776,32 @@ function pauseRefresh() {
 function resumeRefresh() {
   isRefreshPaused.value = false
   failCount.value = 0
+  lastError.value = ''
   if (autoResumeTimer) {
     clearTimeout(autoResumeTimer)
     autoResumeTimer = null
   }
-  fetchSessionData()
+  fetchSessionData({ showLoading: false })
   if (!refreshInterval) {
-    refreshInterval = setInterval(fetchSessionData, 5000)
+    refreshInterval = setInterval(() => fetchSessionData({ showLoading: false }), 5000)
   }
 }
 
 onMounted(() => {
   fetchSessionData()
-  refreshInterval = setInterval(fetchSessionData, 5000)
+  refreshInterval = setInterval(() => fetchSessionData({ showLoading: false }), 5000)
   window.addEventListener('pointermove', updatePageGlow)
   window.addEventListener('blur', resetPageGlow)
   document.addEventListener('mouseleave', resetPageGlow)
+  unsubscribeGameflowPhase = listenGameflowPhase(handleGameflowPhaseChange)
   unsubscribeCacheUpdate = wsClient.onCacheUpdate((event: CacheUpdateEvent) => {
     if (isCacheUpdateRelevant(event)) {
       scheduleCacheUpdateRefresh()
+    }
+  })
+  unsubscribeLobby = wsClient.onLobby((lobby) => {
+    if (hasLobbyPhase.value) {
+      applyLobbyData(lobby as Lobby)
     }
   })
 })
@@ -647,20 +824,24 @@ watch(sessionData, () => {
 })
 
 watch(() => sessionData.value.phase, (newVal, oldVal) => {
+  if (!hasActiveSession.value) {
+    return
+  }
   if (newVal === 'ChampSelect' && oldVal !== 'ChampSelect') {
     retryCount = 0
-    setTimeout(() => fetchSessionData(), 1000)
+    setTimeout(() => fetchSessionData({ showLoading: false }), 1000)
   }
   if (newVal === 'InProgress' && oldVal !== 'InProgress') {
     retryCount = 0
     setTimeout(() => checkAndRetryFetch(), 2000)
   }
   if (newVal === 'GameStart' && oldVal !== 'GameStart') {
-    setTimeout(() => fetchSessionData(), 1500)
+    setTimeout(() => fetchSessionData({ showLoading: false }), 1500)
   }
 })
 
 function checkAndRetryFetch() {
+  if (!hasActiveSession.value) return
   const phase = sessionData.value.phase
   if (phase === 'InProgress' || phase === 'GameStart' || phase === 'ChampSelect') {
     const enemyMissing =
@@ -672,7 +853,7 @@ function checkAndRetryFetch() {
       retryCount++
       console.log(`Enemy data missing, retry ${retryCount}/${maxRetries} in 3 seconds`)
       setTimeout(() => {
-        fetchSessionData()
+        fetchSessionData({ showLoading: false })
         setTimeout(checkAndRetryFetch, 4000)
       }, 3000)
     }
@@ -690,6 +871,14 @@ onUnmounted(() => {
   if (unsubscribeCacheUpdate) {
     unsubscribeCacheUpdate()
     unsubscribeCacheUpdate = null
+  }
+  if (unsubscribeGameflowPhase) {
+    unsubscribeGameflowPhase()
+    unsubscribeGameflowPhase = null
+  }
+  if (unsubscribeLobby) {
+    unsubscribeLobby()
+    unsubscribeLobby = null
   }
   if (cacheUpdateRefreshTimer) {
     clearTimeout(cacheUpdateRefreshTimer)

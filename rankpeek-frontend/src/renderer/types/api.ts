@@ -232,10 +232,17 @@ export interface UserStoreStatus {
 
 export type CacheClearScope = 'all' | 'memory' | 'localDb'
 
+export interface CacheClearFailure {
+  name: string
+  message: string
+}
+
 export interface CacheClearResult {
-  cleared: boolean
+  success: boolean
   scope: CacheClearScope
   message: string
+  cleared: string[]
+  failed: CacheClearFailure[]
   deletedRows: number
   timestamp: number
 }
@@ -615,12 +622,18 @@ export interface SessionSummoner {
 // 会话数据
 export interface SessionData {
   phase: string
+  sessionKey?: string
+  gameId?: number | null
+  empty?: boolean
+  stale?: boolean
   queueType: string
   typeCn: string
   queueId: number
   teamOne: SessionSummoner[]
   teamTwo: SessionSummoner[]
   source?: string
+  createdAt?: number
+  updatedAt?: number
   simulatorPhase?: string
   roundIndex?: number
   matchId?: string

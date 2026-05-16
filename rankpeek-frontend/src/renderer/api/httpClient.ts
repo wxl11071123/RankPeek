@@ -470,8 +470,11 @@ class ApiClient {
     })
   }
 
-  async getSessionData(mode?: number): Promise<SessionData> {
-    return this.get<SessionData>('/session/data', mode != null ? { mode } : undefined)
+  async getSessionData(mode?: number, options: { forceRefresh?: boolean } = {}): Promise<SessionData> {
+    return this.get<SessionData>(
+      '/session/data',
+      mode != null ? { mode, forceRefresh: options.forceRefresh === true } : { forceRefresh: options.forceRefresh === true }
+    )
   }
 }
 

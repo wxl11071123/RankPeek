@@ -21,7 +21,9 @@ import java.util.concurrent.Executor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -60,95 +62,115 @@ class SessionAnalysisServiceTest {
     }
 
     @Test
-    void lobbyPhaseUsesLobbyQueueIdOverProvidedMode() {
+    void lobbyPhaseBuildsLobbyMembersWithCurrentModeScoutSample() {
         Summoner me = new Summoner();
         me.setPuuid("my-puuid");
         when(summonerService.getMySummoner()).thenReturn(me);
         when(gameFlowService.getGamePhase()).thenReturn("Lobby");
 
         Lobby lobby = new Lobby();
+        Lobby.GameConfig gameConfig = new Lobby.GameConfig();
+        gameConfig.setQueueId(2400);
+        lobby.setGameConfig(gameConfig);
         Lobby.Member member = new Lobby.Member();
         member.setPuuid("player-puuid");
+        member.setPosition("UTILITY");
         lobby.setMembers(List.of(member));
-        lobby.setQueueId(450);
         when(gameFlowService.getLobby()).thenReturn(lobby);
 
-        Summoner player = new Summoner();
-        player.setPuuid("player-puuid");
-        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(player);
+        Summoner summoner = new Summoner();
+        summoner.setPuuid("player-puuid");
+        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(summoner);
+        when(rankService.getRankByPuuid("player-puuid")).thenReturn(new Rank());
+        ScoutTagSample sample = stubScout("player-puuid", 2400, createMatches(20, 2400));
 
-        Rank rank = new Rank();
-        when(rankService.getRankByPuuid("player-puuid")).thenReturn(rank);
+        var data = service.getSessionData(null, true);
 
-        List<MatchHistory> history = createMatches(20, 450);
-        ScoutTagSample sample = stubScout("player-puuid", 450, history);
-
-        var data = service.getSessionData(420);
-
-        assertThat(data.getQueueId()).isEqualTo(450);
-        verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 450, 50, 20);
+        assertThat(data.getPhase()).isEqualTo("Lobby");
+        assertThat(data.isEmpty()).isFalse();
+        assertThat(data.isStale()).isFalse();
+        assertThat(data.getSource()).isEqualTo("LOBBY");
+        assertThat(data.getQueueId()).isEqualTo(2400);
+        assertThat(data.getTeamOne()).hasSize(1);
+        assertThat(data.getTeamTwo()).isEmpty();
+        assertThat(data.getTeamOne().getFirst().getChampionId()).isZero();
+        assertThat(data.getTeamOne().getFirst().getSummoner().getPuuid()).isEqualTo("player-puuid");
+        assertThat(data.getTeamOne().getFirst().getMatchHistory()).hasSize(20);
+        assertThat(data.getTeamOne().getFirst().getUserTag()).isNotNull();
+        assertThat(data.getSessionKey()).contains("phase:Lobby", "queue:2400", "me:my-puuid", "player-puuid");
+        verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 2400, 50, 20);
         verify(scoutTagRuleService).buildTags(
-                anyContextWithQueueAndTeam(450, List.of("player-puuid")),
+                org.mockito.ArgumentMatchers.argThat(context ->
+                        context.getCurrentQueueId() == 2400
+                                && context.getCurrentTeamPuuids().contains("player-puuid")
+                                && "UTILITY".equals(context.getCurrentPosition())
+                                && Integer.valueOf(0).equals(context.getCurrentChampionId())),
                 eq(sample)
         );
     }
 
     @Test
-    void lobbyPhaseUsesGameConfigQueueIdWhenLobbyQueueIsMissing() {
+    void matchmakingPhaseBuildsLobbyMembersWithCurrentModeScoutSample() {
         Summoner me = new Summoner();
         me.setPuuid("my-puuid");
         when(summonerService.getMySummoner()).thenReturn(me);
-        when(gameFlowService.getGamePhase()).thenReturn("Lobby");
+        when(gameFlowService.getGamePhase()).thenReturn("Matchmaking");
 
         Lobby lobby = new Lobby();
+        Lobby.GameConfig gameConfig = new Lobby.GameConfig();
+        gameConfig.setQueueId(2400);
+        lobby.setGameConfig(gameConfig);
         Lobby.Member member = new Lobby.Member();
         member.setPuuid("player-puuid");
+        member.setPosition("UTILITY");
         lobby.setMembers(List.of(member));
-        Lobby.GameConfig gameConfig = new Lobby.GameConfig();
-        gameConfig.setQueueId(440);
-        lobby.setGameConfig(gameConfig);
         when(gameFlowService.getLobby()).thenReturn(lobby);
 
-        Summoner player = new Summoner();
-        player.setPuuid("player-puuid");
-        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(player);
+        Summoner summoner = new Summoner();
+        summoner.setPuuid("player-puuid");
+        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(summoner);
+        when(rankService.getRankByPuuid("player-puuid")).thenReturn(new Rank());
+        stubScout("player-puuid", 2400, createMatches(20, 2400));
 
-        Rank rank = new Rank();
-        when(rankService.getRankByPuuid("player-puuid")).thenReturn(rank);
+        var data = service.getSessionData(null, true);
 
-        stubScout("player-puuid", 440, createMatches(20, 440));
-
-        service.getSessionData(null);
-
-        verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 440, 50, 20);
+        assertThat(data.getPhase()).isEqualTo("Matchmaking");
+        assertThat(data.isEmpty()).isFalse();
+        assertThat(data.getSource()).isEqualTo("LOBBY");
+        assertThat(data.getQueueId()).isEqualTo(2400);
+        assertThat(data.getTeamOne()).hasSize(1);
+        assertThat(data.getTeamOne().getFirst().getSummoner().getPuuid()).isEqualTo("player-puuid");
+        assertThat(data.getTeamOne().getFirst().getMatchHistory()).hasSize(20);
+        assertThat(data.getSessionKey()).contains("phase:Matchmaking", "queue:2400", "me:my-puuid", "player-puuid");
+        verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 2400, 50, 20);
     }
 
     @Test
-    void sessionAnalysisUsesZeroWhenCurrentQueueIsMissingEvenIfModeIsProvided() {
+    void nonePhaseReturnsEmptySessionWithoutCurrentSessionLookup() {
         Summoner me = new Summoner();
         me.setPuuid("my-puuid");
         when(summonerService.getMySummoner()).thenReturn(me);
-        when(gameFlowService.getGamePhase()).thenReturn("Lobby");
+        when(gameFlowService.getGamePhase()).thenReturn("None");
 
-        Lobby lobby = new Lobby();
-        Lobby.Member member = new Lobby.Member();
-        member.setPuuid("player-puuid");
-        lobby.setMembers(List.of(member));
-        when(gameFlowService.getLobby()).thenReturn(lobby);
+        var data = service.getSessionData(null);
 
-        Summoner player = new Summoner();
-        player.setPuuid("player-puuid");
-        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(player);
+        assertEmptySession(data, "None");
+        verify(gameFlowService, never()).getGameSession();
+        verifyNoInteractions(scoutTagSampleService, scoutTagRuleService);
+    }
 
-        Rank rank = new Rank();
-        when(rankService.getRankByPuuid("player-puuid")).thenReturn(rank);
+    @Test
+    void endOfGamePhaseReturnsEmptySessionWithoutPreviousTeams() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("EndOfGame");
 
-        ScoutTagSample sample = stubScout("player-puuid", 0, createMatches(20, 450));
+        var data = service.getSessionData(420);
 
-        service.getSessionData(420);
-
-        verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 0, 50, 20);
-        verify(scoutTagRuleService).buildTags(anyContextWithQueueAndTeam(0, List.of("player-puuid")), eq(sample));
+        assertEmptySession(data, "EndOfGame");
+        verify(gameFlowService, never()).getGameSession();
+        verifyNoInteractions(scoutTagSampleService, scoutTagRuleService);
     }
 
     @Test
@@ -177,6 +199,92 @@ class SessionAnalysisServiceTest {
 
         assertThat(data.getQueueId()).isEqualTo(1700);
         verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 1700, 50, 20);
+    }
+
+    @Test
+    void champSelectPhaseReturnsEmptyWhenCurrentSessionIsMissing() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("ChampSelect");
+        when(championSelectService.getChampionSelectSession()).thenReturn(null);
+
+        var data = service.getSessionData(null);
+
+        assertEmptySession(data, "ChampSelect");
+        verify(gameFlowService, never()).getGameSession();
+        verifyNoInteractions(scoutTagSampleService, scoutTagRuleService);
+    }
+
+    @Test
+    void inProgressReturnsEmptyWhenCurrentGameSessionIsMissing() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("InProgress");
+        when(gameFlowService.getGameSession()).thenReturn(null);
+
+        var data = service.getSessionData(null);
+
+        assertEmptySession(data, "InProgress");
+        verifyNoInteractions(scoutTagSampleService, scoutTagRuleService);
+    }
+
+    @Test
+    void activeGameSessionIncludesSessionKeyFromGameIdentityAndParticipants() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("InProgress");
+
+        GameSession.OnePlayer player = new GameSession.OnePlayer();
+        player.setPuuid("player-puuid");
+        player.setChampionId(221);
+        when(gameFlowService.getGameSession()).thenReturn(gameSession(123L, 420, List.of(player), List.of()));
+
+        Summoner summoner = new Summoner();
+        summoner.setPuuid("player-puuid");
+        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(summoner);
+        when(rankService.getRankByPuuid("player-puuid")).thenReturn(new Rank());
+        stubScout("player-puuid", 420, createMatches(20, 420));
+
+        var data = service.getSessionData(null, true);
+
+        assertThat(data.isEmpty()).isFalse();
+        assertThat(data.isStale()).isFalse();
+        assertThat(data.getGameId()).isEqualTo(123L);
+        assertThat(data.getSessionKey()).contains("phase:InProgress");
+        assertThat(data.getSessionKey()).contains("game:123");
+        assertThat(data.getSessionKey()).contains("queue:420");
+        assertThat(data.getSessionKey()).contains("me:my-puuid");
+        assertThat(data.getSessionKey()).contains("player-puuid");
+        assertThat(data.getSessionKey()).contains("champion:221");
+    }
+
+    @Test
+    void sessionKeyChangesWhenGameIdentityOrParticipantsChange() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("InProgress");
+
+        GameSession.OnePlayer firstPlayer = new GameSession.OnePlayer();
+        firstPlayer.setPuuid("first-player");
+        firstPlayer.setChampionId(11);
+        GameSession.OnePlayer secondPlayer = new GameSession.OnePlayer();
+        secondPlayer.setPuuid("second-player");
+        secondPlayer.setChampionId(22);
+        when(gameFlowService.getGameSession()).thenReturn(
+                gameSession(111L, 420, List.of(firstPlayer), List.of()),
+                gameSession(222L, 420, List.of(secondPlayer), List.of())
+        );
+
+        var first = service.getSessionData(null);
+        var second = service.getSessionData(null);
+
+        assertThat(first.getSessionKey()).isNotBlank();
+        assertThat(second.getSessionKey()).isNotBlank();
+        assertThat(second.getSessionKey()).isNotEqualTo(first.getSessionKey());
     }
 
     @Test
@@ -410,8 +518,13 @@ class SessionAnalysisServiceTest {
     }
 
     private GameSession gameSession(int queueId, List<GameSession.OnePlayer> teamOne, List<GameSession.OnePlayer> teamTwo) {
+        return gameSession(null, queueId, teamOne, teamTwo);
+    }
+
+    private GameSession gameSession(Long gameId, int queueId, List<GameSession.OnePlayer> teamOne, List<GameSession.OnePlayer> teamTwo) {
         GameSession session = new GameSession();
         GameSession.GameData gameData = new GameSession.GameData();
+        gameData.setGameId(gameId);
         GameSession.Queue queue = new GameSession.Queue();
         queue.setId(queueId);
         queue.setType("RANKED_SOLO_5x5");
@@ -420,5 +533,14 @@ class SessionAnalysisServiceTest {
         gameData.setTeamTwo(teamTwo);
         session.setGameData(gameData);
         return session;
+    }
+
+    private void assertEmptySession(io.rankpeek.model.SessionData data, String phase) {
+        assertThat(data.getPhase()).isEqualTo(phase);
+        assertThat(data.isEmpty()).isTrue();
+        assertThat(data.isStale()).isFalse();
+        assertThat(data.getSessionKey()).isNull();
+        assertThat(data.getTeamOne()).isEmpty();
+        assertThat(data.getTeamTwo()).isEmpty();
     }
 }

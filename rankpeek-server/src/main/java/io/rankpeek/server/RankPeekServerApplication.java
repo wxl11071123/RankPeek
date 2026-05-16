@@ -1,12 +1,16 @@
 package io.rankpeek.server;
 
+import io.rankpeek.server.auth.AuthProperties;
+import io.rankpeek.server.cnmeta.sync.CnMetaSyncProperties;
 import io.rankpeek.server.common.ServerProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableConfigurationProperties(ServerProperties.class)
+@EnableScheduling
+@EnableConfigurationProperties({ServerProperties.class, AuthProperties.class, CnMetaSyncProperties.class})
 public class RankPeekServerApplication {
 
     public static void main(String[] args) {

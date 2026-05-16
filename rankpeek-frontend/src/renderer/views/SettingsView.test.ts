@@ -35,8 +35,11 @@ test('settings page keeps only the three common user settings', () => {
   assert.match(source, /async function clearUserCache\(\)/)
   assert.match(source, /clearFrontendTransientCache\(\)/)
   assert.match(source, /apiClient\.clearCache\(['"]all['"]\)/)
+  assert.match(source, /buildCacheClearAlertMessage\(/)
+  assert.match(source, /extractCacheClearErrorMessage\(/)
   assert.match(source, /settings\.clearCacheUser/)
   assert.match(source, /settings\.clearCacheUserDescription/)
+  assert.match(source, /settings\.clearCachePartialFailed/)
   assert.doesNotMatch(source, /@click="clearLocalCache\('memory'\)"/)
   assert.doesNotMatch(source, /@click="clearLocalCache\('localDb'\)"/)
 

@@ -27,8 +27,11 @@ test('cache diagnostics API methods use status and scoped clear endpoints', () =
   assert.match(types, /participantCount: number/)
   assert.match(types, /trackedPlayerCount: number/)
   assert.match(types, /latestMatchCreation: number \| null/)
-  assert.match(types, /export interface CacheClearResult \{[\s\S]*cleared: boolean/)
+  assert.match(types, /export interface CacheClearResult \{[\s\S]*success: boolean/)
+  assert.match(types, /export interface CacheClearFailure \{[\s\S]*name: string/)
   assert.match(types, /scope: CacheClearScope/)
+  assert.match(types, /cleared: string\[]/)
+  assert.match(types, /failed: CacheClearFailure\[]/)
   assert.match(types, /deletedRows: number/)
   assert.match(types, /export type CacheClearScope = 'all' \| 'memory' \| 'localDb'/)
 
@@ -65,6 +68,22 @@ test('connection API exposes checkConnection as the only LCU connection probe', 
   assert.match(source, /async checkConnection\(\): Promise<boolean>/)
   assert.match(source, /return await this\.get<boolean>\('\/session\/connected'\)/)
   assert.doesNotMatch(source, /async isConnected\(/)
+})
+
+test('session data API accepts forceRefresh and sends an explicit query flag', () => {
+  const source = readFileSync(new URL('./httpClient.ts', import.meta.url), 'utf8')
+  const types = readFileSync(new URL('../types/api.ts', import.meta.url), 'utf8')
+
+  assert.match(types, /export interface SessionData \{[\s\S]*sessionKey\?: string/)
+  assert.match(types, /gameId\?: number \| null/)
+  assert.match(types, /empty\?: boolean/)
+  assert.match(types, /stale\?: boolean/)
+  assert.match(
+    source,
+    /async getSessionData\(mode\?: number, options: \{ forceRefresh\?: boolean \} = \{\}\): Promise<SessionData>/
+  )
+  assert.match(source, /forceRefresh: options\.forceRefresh === true/)
+  assert.match(source, /mode != null \? \{ mode, forceRefresh: options\.forceRefresh === true \} : \{ forceRefresh: options\.forceRefresh === true \}/)
 })
 
 test('user tag summary can be calculated from prefetched match history', () => {

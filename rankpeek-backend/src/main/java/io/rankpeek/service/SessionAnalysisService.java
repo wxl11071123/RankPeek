@@ -37,6 +37,7 @@ public class SessionAnalysisService {
     /** 近期战绩查询数量 */
     private static final int SCOUT_LOOKBACK_LIMIT = 50;
     private static final int SCOUT_SAMPLE_LIMIT = 20;
+    private static final Set<String> LOBBY_DISPLAY_PHASES = Set.of("Lobby", "Matchmaking", "ReadyCheck");
     /** 预组队判定阈值：同队场次 */
     private static final int PRE_GROUP_FRIEND_THRESHOLD = 3;
     /** 预组队最小人数 */
@@ -51,27 +52,35 @@ public class SessionAnalysisService {
      * 获取完整会话数据（包含所有玩家信息）
      */
     public SessionData getSessionData(Integer mode) {
+        return getSessionData(mode, false);
+    }
+
+    public SessionData getSessionData(Integer mode, boolean forceRefresh) {
         Summoner mySummoner = summonerService.getMySummoner();
         if (mySummoner == null) {
             log.warn("无法获取当前召唤师信息");
-            return SessionData.builder().build();
+            return emptySession("None", "NO_SUMMONER");
         }
 
-        String phase = gameFlowService.getGamePhase();
+        String phase;
+        try {
+            phase = gameFlowService.getGamePhase();
+        } catch (Exception e) {
+            log.warn("Failed to resolve gameflow phase while building session data: {}", e.getMessage());
+            return emptySession("None", "PHASE_UNAVAILABLE");
+        }
         log.info("getSessionData: phase={}, myPuuid={}", phase, mySummoner.getPuuid() != null ? mySummoner.getPuuid().substring(0, Math.min(8, mySummoner.getPuuid().length())) : "null");
-
-        List<String> lobbyPhases = List.of("Lobby", "Matchmaking", "ReadyCheck");
-        if (lobbyPhases.contains(phase)) {
-            return processLobbyPhase(phase, mode);
-        }
 
         if ("ChampSelect".equals(phase)) {
             return processChampSelectPhase(mySummoner, mode);
         }
 
-        List<String> validPhases = List.of("GameStart", "InProgress", "PreEndOfGame", "EndOfGame");
-        if (!validPhases.contains(phase)) {
-            return SessionData.builder().phase(phase).build();
+        if (LOBBY_DISPLAY_PHASES.contains(phase)) {
+            return processLobbyPhase(phase, mySummoner, mode);
+        }
+
+        if (!"InProgress".equals(phase)) {
+            return emptySession(phase, "INACTIVE_PHASE");
         }
 
         return processGamePhase(phase, mySummoner, mode);
@@ -80,12 +89,15 @@ public class SessionAnalysisService {
     private SessionData processChampSelectPhase(Summoner mySummoner, Integer mode) {
         ChampionSelectSession selectSession = championSelectService.getChampionSelectSession();
         if (selectSession == null) {
-            log.warn("ChampSelect 阶段但获取不到选人会话数据，尝试从 GameSession 获取");
-            return processGamePhase("ChampSelect", mySummoner, mode);
+            log.warn("ChampSelect session is unavailable; returning empty session data");
+            return emptySession("ChampSelect", "CHAMP_SELECT_EMPTY");
         }
 
         List<ChampionSelectSession.Player> myTeam = selectSession.getMyTeam();
         List<ChampionSelectSession.Player> theirTeam = selectSession.getTheirTeam();
+        if (!hasAnyChampSelectPlayer(myTeam, theirTeam)) {
+            return emptySession("ChampSelect", "CHAMP_SELECT_EMPTY");
+        }
         log.info("ChampSelect 直接模式: myTeam={}, theirTeam={}",
                 myTeam != null ? myTeam.size() : 0,
                 theirTeam != null ? theirTeam.size() : 0);
@@ -107,9 +119,17 @@ public class SessionAnalysisService {
         addPreGroupMarkers(teamOne, teamTwo);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
         rememberSessionPuuids(teamOne, teamTwo);
+        long now = System.currentTimeMillis();
 
         return SessionData.builder()
                 .phase("ChampSelect")
+                .sessionKey(buildChampSelectSessionKey(selectSession, currentQueueId, mySummoner.getPuuid()))
+                .gameId(selectSession.getGameId())
+                .empty(false)
+                .stale(false)
+                .source("CHAMP_SELECT")
+                .createdAt(now)
+                .updatedAt(now)
                 .queueType(queueType)
                 .typeCn(typeCn)
                 .queueId(currentQueueId)
@@ -225,7 +245,11 @@ public class SessionAnalysisService {
                         .build();
             }
             log.warn("阶段 {} 但 session 数据为空", phase);
-            return SessionData.builder().phase(phase).build();
+            return emptySession(phase, "GAME_SESSION_EMPTY");
+        }
+
+        if (!hasAnyGamePlayer(session)) {
+            return emptySession(phase, "GAME_SESSION_EMPTY");
         }
 
         log.info("GamePhase: phase={}, teamOne={}, teamTwo={}, selections={}",
@@ -266,9 +290,17 @@ public class SessionAnalysisService {
         addPreGroupMarkers(teamOne, teamTwo);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
         rememberSessionPuuids(teamOne, teamTwo);
+        long now = System.currentTimeMillis();
 
         return SessionData.builder()
                 .phase(phase)
+                .sessionKey(buildGameSessionKey(phase, session, currentQueueId, mySummoner.getPuuid()))
+                .gameId(session.getGameData().getGameId())
+                .empty(false)
+                .stale(false)
+                .source("GAME_SESSION")
+                .createdAt(now)
+                .updatedAt(now)
                 .queueType(queueType)
                 .typeCn(typeCn)
                 .queueId(currentQueueId)
@@ -281,17 +313,11 @@ public class SessionAnalysisService {
      * 处理大厅阶段数据
      * 从 Lobby API 获取队列信息和队友列表
      */
-    private SessionData processLobbyPhase(String phase, Integer mode) {
+    private SessionData processLobbyPhase(String phase, Summoner mySummoner, Integer mode) {
         try {
             Lobby lobby = gameFlowService.getLobby();
             if (lobby == null) {
-                log.debug("Lobby 数据为空，返回默认值");
-                return SessionData.builder()
-                    .phase(phase)
-                    .typeCn("未知模式")
-                    .teamOne(List.of())
-                    .teamTwo(List.of())
-                    .build();
+                return emptySession(phase, "LOBBY_EMPTY");
             }
 
             // 获取队列 ID
@@ -312,9 +338,16 @@ public class SessionAnalysisService {
 
             // 从 Lobby 成员构建队伍数据
             List<SessionSummoner> teamOne = buildTeamFromLobbyMembers(lobby.getMembers(), currentQueueId);
+            long now = System.currentTimeMillis();
 
             return SessionData.builder()
                 .phase(phase)
+                .sessionKey(buildLobbySessionKey(phase, lobby, currentQueueId, mySummoner != null ? mySummoner.getPuuid() : null))
+                .empty(teamOne.isEmpty())
+                .stale(false)
+                .source("LOBBY")
+                .createdAt(now)
+                .updatedAt(now)
                 .queueType("")
                 .typeCn(typeCn)
                 .queueId(currentQueueId)
@@ -323,17 +356,150 @@ public class SessionAnalysisService {
                 .build();
         } catch (Exception e) {
             log.warn("获取大厅数据失败: {}", e.getMessage());
-            return SessionData.builder()
-                .phase(phase)
-                .typeCn("未知模式")
-                .teamOne(List.of())
-                .teamTwo(List.of())
-                .build();
+            return emptySession(phase, "LOBBY_ERROR");
         }
     }
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private SessionData emptySession(String phase, String source) {
+        long now = System.currentTimeMillis();
+        return SessionData.builder()
+                .phase(hasText(phase) ? phase : "None")
+                .sessionKey(null)
+                .gameId(null)
+                .empty(true)
+                .stale(false)
+                .source(source)
+                .createdAt(now)
+                .updatedAt(now)
+                .queueType("")
+                .typeCn("")
+                .queueId(0)
+                .teamOne(List.of())
+                .teamTwo(List.of())
+                .build();
+    }
+
+    private boolean hasAnyChampSelectPlayer(List<ChampionSelectSession.Player> myTeam,
+                                            List<ChampionSelectSession.Player> theirTeam) {
+        return hasAnyChampSelectPlayer(myTeam) || hasAnyChampSelectPlayer(theirTeam);
+    }
+
+    private boolean hasAnyChampSelectPlayer(List<ChampionSelectSession.Player> players) {
+        return players != null && players.stream().anyMatch(Objects::nonNull);
+    }
+
+    private boolean hasAnyGamePlayer(GameSession session) {
+        if (session == null || session.getGameData() == null) {
+            return false;
+        }
+        GameSession.GameData gameData = session.getGameData();
+        return hasAnyGamePlayer(gameData.getTeamOne())
+                || hasAnyGamePlayer(gameData.getTeamTwo())
+                || hasAnyChampionSelection(gameData.getPlayerChampionSelections());
+    }
+
+    private boolean hasAnyGamePlayer(List<GameSession.OnePlayer> players) {
+        return players != null && players.stream().anyMatch(Objects::nonNull);
+    }
+
+    private boolean hasAnyChampionSelection(List<GameSession.PlayerChampionSelection> selections) {
+        return selections != null && selections.stream().anyMatch(Objects::nonNull);
+    }
+
+    private String buildChampSelectSessionKey(ChampionSelectSession session, int queueId, String myPuuid) {
+        return String.join("|",
+                "phase:ChampSelect",
+                "game:" + keyPart(session != null ? session.getGameId() : null),
+                "queue:" + queueId,
+                "me:" + keyPart(myPuuid),
+                "ally:" + champSelectFingerprints(session != null ? session.getMyTeam() : null),
+                "enemy:" + champSelectFingerprints(session != null ? session.getTheirTeam() : null)
+        );
+    }
+
+    private String buildGameSessionKey(String phase, GameSession session, int queueId, String myPuuid) {
+        GameSession.GameData gameData = session != null ? session.getGameData() : null;
+        return String.join("|",
+                "phase:" + keyPart(phase),
+                "game:" + keyPart(gameData != null ? gameData.getGameId() : null),
+                "queue:" + queueId,
+                "me:" + keyPart(myPuuid),
+                "ally:" + gamePlayerFingerprints(gameData != null ? gameData.getTeamOne() : null),
+                "enemy:" + gamePlayerFingerprints(gameData != null ? gameData.getTeamTwo() : null),
+                "selections:" + championSelectionFingerprints(gameData != null ? gameData.getPlayerChampionSelections() : null)
+        );
+    }
+
+    private String buildLobbySessionKey(String phase, Lobby lobby, int queueId, String myPuuid) {
+        return String.join("|",
+                "phase:" + keyPart(phase),
+                "lobby:" + keyPart(lobby != null ? lobby.getLobbyId() : null),
+                "queue:" + queueId,
+                "me:" + keyPart(myPuuid),
+                "members:" + lobbyMemberFingerprints(lobby != null ? lobby.getMembers() : null)
+        );
+    }
+
+    private List<String> champSelectFingerprints(List<ChampionSelectSession.Player> players) {
+        if (players == null || players.isEmpty()) {
+            return List.of();
+        }
+        return players.stream()
+                .filter(Objects::nonNull)
+                .map(player -> "puuid:" + keyPart(player.getPuuid())
+                        + "|summoner:" + keyPart(player.getSummonerId())
+                        + "|cell:" + keyPart(player.getCellId())
+                        + "|champion:" + keyPart(player.getChampionId()))
+                .sorted()
+                .toList();
+    }
+
+    private List<String> gamePlayerFingerprints(List<GameSession.OnePlayer> players) {
+        if (players == null || players.isEmpty()) {
+            return List.of();
+        }
+        return players.stream()
+                .filter(Objects::nonNull)
+                .map(player -> "puuid:" + keyPart(player.getPuuid())
+                        + "|champion:" + keyPart(player.getChampionId()))
+                .sorted()
+                .toList();
+    }
+
+    private List<String> lobbyMemberFingerprints(List<Lobby.Member> members) {
+        if (members == null || members.isEmpty()) {
+            return List.of();
+        }
+        return members.stream()
+                .filter(Objects::nonNull)
+                .map(member -> "puuid:" + keyPart(member.getPuuid())
+                        + "|summoner:" + keyPart(member.getSummonerId())
+                        + "|team:" + keyPart(member.getTeamId()))
+                .sorted()
+                .toList();
+    }
+
+    private List<String> championSelectionFingerprints(List<GameSession.PlayerChampionSelection> selections) {
+        if (selections == null || selections.isEmpty()) {
+            return List.of();
+        }
+        return selections.stream()
+                .filter(Objects::nonNull)
+                .map(selection -> "puuid:" + keyPart(selection.getPuuid())
+                        + "|champion:" + keyPart(selection.getChampionId()))
+                .sorted()
+                .toList();
+    }
+
+    private String keyPart(Object value) {
+        if (value == null) {
+            return "";
+        }
+        return String.valueOf(value).trim();
     }
 
     /**

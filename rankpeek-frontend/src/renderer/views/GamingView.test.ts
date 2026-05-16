@@ -119,7 +119,7 @@ test('uses compact team panels and reads session data through the gaming adapter
   assert.match(source, /class="team-analysis-btn team-analysis-btn-blue control-glow"/)
   assert.match(source, /class="team-analysis-btn team-analysis-btn-red control-glow"/)
   assert.match(source, /<PlayerCard[\s\S]*class="gaming-player-card surface-glow"[\s\S]*:session-summoner="player"[\s\S]*:selected="isParticipantExpanded\(player\)"[\s\S]*@select-player="toggleParticipantRecentMatches\(player\)"/)
-  assert.match(source, /const data = await getGamingSessionData\(\)/)
+  assert.match(source, /const data = await getGamingSessionData\(\{ forceRefresh: options\.force === true \}\)/)
   assert.doesNotMatch(source, /apiClient\.getSessionData\(\)/)
   assert.doesNotMatch(source, /DEFAULT_ANALYSIS_QUEUE_MODE/)
   assert.doesNotMatch(source, /apiClient\.getSessionData\([^)]*mode/)
@@ -132,7 +132,7 @@ test('subscribes to cache update events and refreshes only relevant current-sess
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /import \{ wsClient \} from '@\/api\/websocketClient'/)
-  assert.match(source, /import type \{ CacheUpdateEvent, SessionData, SessionSummoner \} from '@\/types\/api'/)
+  assert.match(source, /import type \{ CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner \} from '@\/types\/api'/)
   assert.match(source, /let unsubscribeCacheUpdate: \(\(\) => void\) \| null = null/)
   assert.match(source, /unsubscribeCacheUpdate = wsClient\.onCacheUpdate\(\(event: CacheUpdateEvent\) => \{/)
   assert.match(source, /if \(isCacheUpdateRelevant\(event\)\) \{\s*scheduleCacheUpdateRefresh\(\)/)
@@ -141,9 +141,116 @@ test('subscribes to cache update events and refreshes only relevant current-sess
   assert.match(source, /for \(const player of sessionData\.value\.teamTwo \|\| \[\]\)/)
   assert.match(source, /const puuid = player\?\.summoner\?\.puuid/)
   assert.match(source, /return currentPuuids\.has\(event\.puuid\)/)
-  assert.match(source, /getGamingSessionData\(\)/)
+  assert.match(source, /getGamingSessionData\(\{ forceRefresh: options\.force === true \}\)/)
   assert.doesNotMatch(source, /apiClient\.getSessionData\(\)/)
   assert.doesNotMatch(source, /DEFAULT_ANALYSIS_QUEUE_MODE/)
+})
+
+test('subscribes to renderer gameflow phase changes and cleans up the listener', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const mountBlock = source.match(/onMounted\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+  const unmountBlock = source.match(/onUnmounted\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+
+  assert.match(source, /import \{ listenGameflowPhase \} from '@\/services\/gameflowPhaseListener'/)
+  assert.match(source, /let unsubscribeGameflowPhase: \(\(\) => void\) \| null = null/)
+  assert.match(mountBlock, /unsubscribeGameflowPhase = listenGameflowPhase\(handleGameflowPhaseChange\)/)
+  assert.match(unmountBlock, /if \(unsubscribeGameflowPhase\) \{/)
+  assert.match(unmountBlock, /unsubscribeGameflowPhase\(\)/)
+  assert.match(unmountBlock, /unsubscribeGameflowPhase = null/)
+})
+
+test('gameflow phase handler refreshes active scout phases and clears stale lobby or post-game data without navigation', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const handler = source.match(/function handleGameflowPhaseChange\(phase: string\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /createGameflowPhaseTransitionTracker/)
+  assert.match(source, /const gameflowPhaseTransitions = createGameflowPhaseTransitionTracker\(\)/)
+  assert.match(source, /isGameflowLobbyDisplayPhase/)
+  assert.match(source, /isGameflowSessionRefreshPhase/)
+  assert.match(source, /isGameflowSessionClearPhase/)
+  assert.match(handler, /console\.debug\(`\[gameflow\] phase=\$\{phase\}`\)/)
+  assert.match(handler, /if \(!gameflowPhaseTransitions\.shouldHandlePhase\(phase\)\) \{[\s\S]*return[\s\S]*\}/)
+  assert.match(handler, /isGameflowSessionRefreshPhase\(phase\)[\s\S]*fetchSessionData\(\{ force: true \}\)/)
+  assert.match(handler, /未来这里可跳转到对战信息/)
+  assert.match(handler, /isGameflowSessionClearPhase\(phase\)[\s\S]*clearSessionDataForPhase\(phase\)/)
+  assert.match(handler, /未来这里可跳转到我的战绩/)
+  assert.doesNotMatch(handler, /router\.push|useRouter/)
+})
+
+test('lobby phase reads lobby status separately without restoring cleared scout teams', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const handler = source.match(/function handleGameflowPhaseChange\(phase: string\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const queueName = source.match(/const queueName = computed\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+
+  assert.match(source, /import \{ apiClient \} from '@\/api\/httpClient'/)
+  assert.match(source, /import type \{ CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner \} from '@\/types\/api'/)
+  assert.match(source, /formatLobbyQueueName/)
+  assert.match(source, /isGameflowLobbyDisplayPhase/)
+  assert.match(source, /buildLobbyDisplaySessionSummoners/)
+  assert.match(source, /const lobbyData = ref<Lobby \| null>\(null\)/)
+  assert.match(source, /const currentSummoner = ref<Summoner \| null>\(null\)/)
+  assert.match(source, /const lobbyTeamPlayers = computed<SessionSummoner\[\]>/)
+  assert.match(source, /buildLobbyDisplaySessionSummoners\(lobbyData\.value, currentSummoner\.value, sessionData\.value\)/)
+  assert.match(source, /const blueTeamPlayers = computed\(\(\) => hasActiveSession\.value \? \(sessionData\.value\.teamOne \|\| \[\]\) : lobbyTeamPlayers\.value\)/)
+  assert.match(source, /let unsubscribeLobby: \(\(\) => void\) \| null = null/)
+  assert.match(source, /async function fetchLobbyData/)
+  assert.match(source, /const lobby = await apiClient\.getLobby\(\)/)
+  assert.match(source, /apiClient\.getGameState\(\)/)
+  assert.match(handler, /isGameflowLobbyDisplayPhase\(phase\)[\s\S]*fetchLobbyData\(\{ force: true \}\)/)
+  assert.match(handler, /isGameflowLobbyDisplayPhase\(phase\)[\s\S]*fetchSessionData\(\{ showLoading: false, force: true \}\)/)
+  assert.match(handler, /clearLobbyStatus\(\)/)
+  assert.match(source, /unsubscribeLobby = wsClient\.onLobby/)
+  assert.match(queueName, /hasLobbyPhase\.value[\s\S]*lobbyQueueLabel\.value/)
+  assert.match(queueName, /isGameflowLobbyDisplayPhase\(sessionData\.value\.phase\)[\s\S]*sessionData\.value\.typeCn/)
+  assert.match(queueName, /return '大厅'/)
+  assert.doesNotMatch(handler, /router\.push|useRouter/)
+})
+
+test('session fetches use request ids, support forced refresh, and clear teams on API failure', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const fetchFunction = source.match(/async function fetchSessionData\([\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /createGamingSessionDataState/)
+  assert.match(source, /const sessionState = createGamingSessionDataState\(\)/)
+  assert.match(source, /const initialLoading = ref\(false\)/)
+  assert.match(source, /const refreshing = ref\(false\)/)
+  assert.match(source, /const lastError = ref\(''\)/)
+  assert.match(source, /const loading = computed\(\(\) => initialLoading\.value \|\| refreshing\.value\)/)
+  assert.match(fetchFunction, /options: \{ showLoading\?: boolean; force\?: boolean \} = \{\}/)
+  assert.match(fetchFunction, /if \(isRefreshPaused\.value \|\| \(sessionFetchInFlight && !options\.force\)\) return/)
+  assert.match(fetchFunction, /const shouldShowFetchState = options\.showLoading !== false/)
+  assert.match(fetchFunction, /const showInitialLoading = shouldShowFetchState && !hasCompletedInitialSessionFetch/)
+  assert.match(fetchFunction, /const requestId = sessionState\.beginFetch\(\)/)
+  assert.match(fetchFunction, /const data = await getGamingSessionData\(\{ forceRefresh: options\.force === true \}\)/)
+  assert.match(fetchFunction, /sessionState\.applyFetchedData\(requestId, data\)/)
+  assert.match(fetchFunction, /sessionState\.applyFetchFailure\(requestId, currentGameflowPhase\.value \|\| sessionData\.value\.phase\)/)
+  assert.match(fetchFunction, /lastError\.value = extractFetchErrorMessage\(e\)/)
+  assert.match(fetchFunction, /syncSessionDataFromState\(\)/)
+  assert.match(fetchFunction, /sessionState\.isCurrentRequest\(requestId\)/)
+  assert.match(fetchFunction, /initialLoading\.value = false/)
+  assert.match(fetchFunction, /refreshing\.value = false/)
+})
+
+test('background polling and retries stay quiet instead of showing global loading', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const mountBlock = source.match(/onMounted\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+  const watcherBlock = source.match(/watch\(\(\) => sessionData\.value\.phase,[\s\S]*?\n\}\)/)?.[0] || ''
+  const retryFunction = source.match(/function checkAndRetryFetch\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(mountBlock, /refreshInterval = setInterval\(\(\) => fetchSessionData\(\{ showLoading: false \}\), 5000\)/)
+  assert.match(watcherBlock, /if \(!hasActiveSession\.value\) \{[\s\S]*return[\s\S]*\}/)
+  assert.match(watcherBlock, /fetchSessionData\(\{ showLoading: false \}\)/)
+  assert.match(retryFunction, /if \(!hasActiveSession\.value\) return/)
+  assert.match(retryFunction, /fetchSessionData\(\{ showLoading: false \}\)/)
+})
+
+test('active session visibility rejects stale or empty session payloads', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const hasActiveSession = source.match(/const hasActiveSession = computed\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+
+  assert.match(hasActiveSession, /!sessionData\.value\.stale/)
+  assert.match(hasActiveSession, /!sessionData\.value\.empty/)
+  assert.match(hasActiveSession, /!isGameflowSessionClearPhase\(phase\)/)
 })
 
 test('gaming phase labels include simulator post-game variants', () => {
@@ -179,12 +286,14 @@ test('cache update refreshes stay quiet and do not overlap polling requests', ()
   const scheduleFunction = source.match(/function scheduleCacheUpdateRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
   assert.match(source, /let sessionFetchInFlight = false/)
-  assert.match(fetchFunction, /options: \{ showLoading\?: boolean \} = \{\}/)
-  assert.match(fetchFunction, /if \(isRefreshPaused\.value \|\| sessionFetchInFlight\) return/)
-  assert.match(fetchFunction, /const showLoading = options\.showLoading !== false/)
+  assert.match(fetchFunction, /options: \{ showLoading\?: boolean; force\?: boolean \} = \{\}/)
+  assert.match(fetchFunction, /if \(isRefreshPaused\.value \|\| \(sessionFetchInFlight && !options\.force\)\) return/)
+  assert.match(fetchFunction, /const shouldShowFetchState = options\.showLoading !== false/)
   assert.match(fetchFunction, /sessionFetchInFlight = true/)
-  assert.match(fetchFunction, /if \(showLoading\) loading\.value = true/)
-  assert.match(fetchFunction, /if \(showLoading\) loading\.value = false/)
+  assert.match(fetchFunction, /if \(showInitialLoading\) \{[\s\S]*initialLoading\.value = true/)
+  assert.match(fetchFunction, /else if \(shouldShowFetchState\) \{[\s\S]*refreshing\.value = true/)
+  assert.match(fetchFunction, /initialLoading\.value = false/)
+  assert.match(fetchFunction, /refreshing\.value = false/)
   assert.match(fetchFunction, /sessionFetchInFlight = false/)
   assert.match(scheduleFunction, /fetchSessionData\(\{ showLoading: false \}\)/)
 })
@@ -207,7 +316,7 @@ test('gaming player cards render per-card inline recent panels with independent 
   const cleanupWatcher = source.match(/watch\(\s*\(\) => allSessionPlayers\.value\.map\(getParticipantKey\)\.join\('\|'\),[\s\S]*?\n\)/)?.[0] || ''
 
   assert.match(source, /import ParticipantRecentMatchesPanel from '@\/components\/gaming\/ParticipantRecentMatchesPanel\.vue'/)
-  assert.match(source, /import type \{ CacheUpdateEvent, SessionData, SessionSummoner \} from '@\/types\/api'/)
+  assert.match(source, /import type \{ CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner \} from '@\/types\/api'/)
   assert.match(source, /const expandedParticipantKeys = ref<Set<string>>\(new Set\(\)\)/)
   assert.match(source, /function getParticipantKey\(player: SessionSummoner \| null \| undefined\): string/)
   assert.match(source, /return `puuid:\$\{puuid\}`/)

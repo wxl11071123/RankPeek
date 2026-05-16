@@ -15,6 +15,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.mock;
@@ -49,11 +50,15 @@ class CacheMaintenanceServiceTest {
 
         CacheClearResult result = service.clearCache("all", false);
 
-        assertThat(result.isCleared()).isFalse();
+        assertThat(result.isSuccess()).isFalse();
         assertThat(result.getScope()).isEqualTo("all");
         assertThat(result.getMessage()).isEqualTo("confirm=true is required");
         assertThat(result.getDeletedRows()).isZero();
-        assertThat(totalLocalCacheRows()).isEqualTo(9);
+        assertThat(result.getCleared()).isEmpty();
+        assertThat(result.getFailed())
+                .extracting(CacheClearResult.Failure::getName)
+                .containsExactly("confirmation");
+        assertThat(totalLocalCacheRows()).isEqualTo(10);
         verifyNoInteractions(matchHistoryService, rankService, summonerService);
     }
 
@@ -63,10 +68,16 @@ class CacheMaintenanceServiceTest {
 
         CacheClearResult result = service.clearCache("memory", true);
 
-        assertThat(result.isCleared()).isTrue();
+        assertThat(result.isSuccess()).isTrue();
         assertThat(result.getScope()).isEqualTo("memory");
         assertThat(result.getDeletedRows()).isZero();
-        assertThat(totalLocalCacheRows()).isEqualTo(9);
+        assertThat(result.getCleared()).containsExactly(
+                "memory.matchHistory",
+                "memory.rank",
+                "memory.summoner"
+        );
+        assertThat(result.getFailed()).isEmpty();
+        assertThat(totalLocalCacheRows()).isEqualTo(10);
         verify(matchHistoryService).refreshAllCache();
         verify(rankService).refreshAllCache();
         verify(summonerService).refreshAllCache();
@@ -78,9 +89,20 @@ class CacheMaintenanceServiceTest {
 
         CacheClearResult result = service.clearCache("localDb", true);
 
-        assertThat(result.isCleared()).isTrue();
+        assertThat(result.isSuccess()).isTrue();
         assertThat(result.getScope()).isEqualTo("localDb");
-        assertThat(result.getDeletedRows()).isEqualTo(9);
+        assertThat(result.getDeletedRows()).isEqualTo(10);
+        assertThat(result.getCleared()).contains(
+                "localDb.player_fetch_state",
+                "localDb.player_match_index",
+                "localDb.match_participant_cache",
+                "localDb.game_detail_cache",
+                "localDb.match_data_scope_cache",
+                "localDb.match_cache",
+                "localDb.rank_cache",
+                "localDb.summoner_cache"
+        );
+        assertThat(result.getFailed()).isEmpty();
         assertThat(totalLocalCacheRows()).isZero();
         verifyNoInteractions(matchHistoryService, rankService, summonerService);
     }
@@ -91,9 +113,43 @@ class CacheMaintenanceServiceTest {
 
         CacheClearResult result = service.clearCache(null, true);
 
-        assertThat(result.isCleared()).isTrue();
+        assertThat(result.isSuccess()).isTrue();
         assertThat(result.getScope()).isEqualTo("all");
-        assertThat(result.getDeletedRows()).isEqualTo(9);
+        assertThat(result.getDeletedRows()).isEqualTo(10);
+        assertThat(result.getCleared()).contains(
+                "memory.matchHistory",
+                "memory.rank",
+                "memory.summoner",
+                "localDb.player_fetch_state",
+                "localDb.match_data_scope_cache"
+        );
+        assertThat(result.getFailed()).isEmpty();
+        assertThat(totalLocalCacheRows()).isZero();
+        verify(matchHistoryService).refreshAllCache();
+        verify(rankService).refreshAllCache();
+        verify(summonerService).refreshAllCache();
+    }
+
+    @Test
+    void clearCache_allReturnsFailedItemsAndContinuesWhenOneItemFails() {
+        insertCacheRows();
+        doThrow(new IllegalStateException("rank cache busy")).when(rankService).refreshAllCache();
+
+        CacheClearResult result = service.clearCache("all", true);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getScope()).isEqualTo("all");
+        assertThat(result.getDeletedRows()).isEqualTo(10);
+        assertThat(result.getCleared()).contains(
+                "memory.matchHistory",
+                "memory.summoner",
+                "localDb.player_fetch_state",
+                "localDb.summoner_cache"
+        );
+        assertThat(result.getFailed())
+                .extracting(CacheClearResult.Failure::getName)
+                .containsExactly("memory.rank");
+        assertThat(result.getFailed().getFirst().getMessage()).contains("rank cache busy");
         assertThat(totalLocalCacheRows()).isZero();
         verify(matchHistoryService).refreshAllCache();
         verify(rankService).refreshAllCache();
@@ -106,11 +162,15 @@ class CacheMaintenanceServiceTest {
 
         CacheClearResult result = service.clearCache("files", true);
 
-        assertThat(result.isCleared()).isFalse();
+        assertThat(result.isSuccess()).isFalse();
         assertThat(result.getScope()).isEqualTo("files");
         assertThat(result.getMessage()).contains("Unsupported cache clear scope");
         assertThat(result.getDeletedRows()).isZero();
-        assertThat(totalLocalCacheRows()).isEqualTo(9);
+        assertThat(result.getCleared()).isEmpty();
+        assertThat(result.getFailed())
+                .extracting(CacheClearResult.Failure::getName)
+                .containsExactly("scope");
+        assertThat(totalLocalCacheRows()).isEqualTo(10);
         verify(matchHistoryService, never()).refreshAllCache();
         verify(rankService, never()).refreshAllCache();
         verify(summonerService, never()).refreshAllCache();
@@ -149,6 +209,10 @@ class CacheMaintenanceServiceTest {
                 VALUES (1001, '{}', 1)
                 """);
         jdbcTemplate.update("""
+                INSERT INTO match_data_scope_cache (game_id, source, updated_at)
+                VALUES (1001, 'lcu', 1)
+                """);
+        jdbcTemplate.update("""
                 INSERT INTO match_participant_cache (game_id, puuid, participant_id, updated_at)
                 VALUES (1001, 'puuid-1', 1, 1), (1001, 'puuid-2', 2, 1)
                 """);
@@ -168,6 +232,7 @@ class CacheMaintenanceServiceTest {
                 + count("rank_cache")
                 + count("match_cache")
                 + count("game_detail_cache")
+                + count("match_data_scope_cache")
                 + count("match_participant_cache")
                 + count("player_match_index")
                 + count("player_fetch_state");

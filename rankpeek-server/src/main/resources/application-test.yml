@@ -20,3 +20,15 @@ rankpeek:
     service: rankpeek-server
     mode: test
     version: 0.1.0
+  auth:
+    access-token-secret: rankpeek-test-access-token-secret-change-me
+    access-token-ttl-seconds: 3600
+    refresh-token-ttl-seconds: 2592000
+  cn-meta:
+    sync:
+      enabled: false
+      allow-manual: false
+      source: mock
+      request-delay-ms: 0
+      real-source-enabled: false
+      real-endpoint-template: ""

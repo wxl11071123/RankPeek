@@ -8,8 +8,9 @@ export interface SimulatorSessionDataFlagContext {
 }
 
 export interface GamingSessionDataSources {
+  forceRefresh?: boolean
   flagContext?: SimulatorSessionDataFlagContext
-  getLiveSessionData?: () => Promise<SessionData>
+  getLiveSessionData?: (options: { forceRefresh: boolean }) => Promise<SessionData>
   getSimulatorSessionData?: () => Promise<SessionData>
 }
 
@@ -31,6 +32,8 @@ export function isSimulatorSessionDataEnabled(context: SimulatorSessionDataFlagC
 }
 
 export async function getGamingSessionData(sources: GamingSessionDataSources = {}): Promise<SessionData> {
+  const options = { forceRefresh: sources.forceRefresh === true }
+
   if (isSimulatorSessionDataEnabled(sources.flagContext)) {
     if (sources.getSimulatorSessionData) {
       return sources.getSimulatorSessionData()
@@ -40,8 +43,8 @@ export async function getGamingSessionData(sources: GamingSessionDataSources = {
   }
 
   if (sources.getLiveSessionData) {
-    return sources.getLiveSessionData()
+    return sources.getLiveSessionData(options)
   }
   const { apiClient } = await import('./httpClient.ts')
-  return apiClient.getSessionData()
+  return apiClient.getSessionData(undefined, options)
 }

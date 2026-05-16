@@ -4,6 +4,10 @@ import { apiClient } from '@/api/httpClient'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from '@/i18n'
 import type { GameModeOption } from '@/types/api'
+import {
+  buildCacheClearAlertMessage,
+  extractCacheClearErrorMessage
+} from '@/services/cacheClearFeedback'
 import { clearFrontendTransientCache } from '@/utils/frontendCache'
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from '@/utils/matchPreferences'
 import brandSymbolBlack from '@/assets/branding/rankpeek-symbol-black.png'
@@ -87,10 +91,15 @@ async function clearUserCache() {
   try {
     clearFrontendTransientCache()
     const result = await apiClient.clearCache('all')
-    window.alert(result.message || t('settings.cacheCleared'))
+    window.alert(buildCacheClearAlertMessage(result, {
+      cleared: t('settings.cacheCleared'),
+      partial: t('settings.clearCachePartialFailed'),
+      failed: t('settings.clearCacheFailed')
+    }))
   } catch (error) {
     console.error('Failed to clear cache', error)
-    window.alert(t('settings.clearCacheFailed'))
+    const message = extractCacheClearErrorMessage(error)
+    window.alert(message ? `${t('settings.clearCacheFailed')}：${message}` : t('settings.clearCacheFailed'))
   } finally {
     clearingUserCache.value = false
   }

@@ -13,7 +13,17 @@ public record CnChampionMeta(
         BigDecimal pickRate,
         BigDecimal banRate,
         BigDecimal avgKda,
+        BigDecimal avgGold,
+        BigDecimal avgDamage,
+        BigDecimal avgDamageTaken,
+        BigDecimal avgHeal,
+        Integer avgDurationSeconds,
+        BigDecimal avgKills,
+        BigDecimal avgAssists,
+        BigDecimal avgDamageShare,
+        BigDecimal avgDamageTakenShare,
         Integer rankIndex,
-        String sampleNote
+        String sampleNote,
+        String dataSourceNote
 ) {
 }

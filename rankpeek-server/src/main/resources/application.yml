@@ -20,9 +20,38 @@ rankpeek:
     service: rankpeek-server
     mode: local-dev
     version: 0.1.0
+  auth:
+    access-token-secret: ${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET:rankpeek-local-dev-access-token-secret-change-me}
+    access-token-ttl-seconds: 3600
+    refresh-token-ttl-seconds: 2592000
+  cn-meta:
+    sync:
+      enabled: false
+      allow-manual: false
+      source: mock
+      cron: "0 30 4 * * *"
+      zone: "Asia/Shanghai"
+      request-delay-ms: 3000
+      max-retries: 2
+      stop-on-http-status: [401, 403, 429]
+      default-queue-id: 420
+      tiers: ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND", "MASTER_PLUS"]
+      roles: ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
+      real-source-enabled: false
+      real-endpoint-template: ""
+      real-time-type: 1
+      real-champion-id: 666
+      real-data-date-offset-days: 1
+      real-tier-code-map:
+        PLATINUM: "20"
+      real-user-agent: "RankPeek/dev-public-aggregate-client"
+      real-connect-timeout-ms: 5000
+      real-read-timeout-ms: 10000
+      real-max-response-bytes: 1000000
 
 # Production placeholder only. Do not use a real database URL or secret in this repo.
 # Future PostgreSQL example:
 # spring.datasource.url: jdbc:postgresql://localhost:5432/rankpeek_server
 # spring.datasource.username: rankpeek
 # spring.datasource.password: ${RANKPEEK_SERVER_DB_PASSWORD}
+# rankpeek.auth.access-token-secret: ${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}

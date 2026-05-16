@@ -31,8 +31,18 @@ public class CnMetaRepository {
             rs.getBigDecimal("pick_rate"),
             rs.getBigDecimal("ban_rate"),
             rs.getBigDecimal("avg_kda"),
+            rs.getBigDecimal("avg_gold"),
+            rs.getBigDecimal("avg_damage"),
+            rs.getBigDecimal("avg_damage_taken"),
+            rs.getBigDecimal("avg_heal"),
+            rs.getObject("avg_duration_seconds", Integer.class),
+            rs.getBigDecimal("avg_kills"),
+            rs.getBigDecimal("avg_assists"),
+            rs.getBigDecimal("avg_damage_share"),
+            rs.getBigDecimal("avg_damage_taken_share"),
             rs.getInt("rank_index"),
-            rs.getString("sample_note")
+            rs.getString("sample_note"),
+            rs.getString("data_source_note")
     );
 
     public CnMetaRepository(JdbcTemplate jdbcTemplate) {
@@ -40,7 +50,7 @@ public class CnMetaRepository {
     }
 
     public CnChampionMeta saveMockSnapshot(String patchKey, Integer championId, String role) {
-        List<CnChampionMeta> existing = findChampionMeta(patchKey, championId, role, MOCK_TIER_SCOPE);
+        List<CnChampionMeta> existing = findChampionMetaByRole(patchKey, championId, role, MOCK_TIER_SCOPE);
         if (!existing.isEmpty()) {
             return existing.getFirst();
         }
@@ -91,11 +101,22 @@ public class CnMetaRepository {
     }
 
     public List<CnChampionMeta> findChampionMeta(String patchKey, Integer championId, String role, String tierScope) {
+        List<CnChampionMeta> exact = findChampionMetaByRole(patchKey, championId, role, tierScope);
+        if (!exact.isEmpty() || CnMetaRoles.ALL.equalsIgnoreCase(role)) {
+            return exact;
+        }
+        return findChampionMetaByRole(patchKey, championId, CnMetaRoles.ALL, tierScope);
+    }
+
+    private List<CnChampionMeta> findChampionMetaByRole(String patchKey, Integer championId, String role, String tierScope) {
         return jdbcTemplate.query(
                 """
                         select s.source, s.patch_key, s.queue_id, s.tier_scope,
                                c.champion_id, c.role, c.win_rate, c.pick_rate, c.ban_rate,
-                               c.avg_kda, c.rank_index, c.sample_note
+                               c.avg_kda, c.avg_gold, c.avg_damage, c.avg_damage_taken,
+                               c.avg_heal, c.avg_duration_seconds, c.avg_kills, c.avg_assists,
+                               c.avg_damage_share, c.avg_damage_taken_share,
+                               c.rank_index, c.sample_note, c.data_source_note
                         from cn_champion_stats c
                         join cn_meta_snapshots s on s.id = c.snapshot_id
                         where s.patch_key = ? and c.champion_id = ? and c.role = ? and c.tier_scope = ?

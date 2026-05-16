@@ -122,7 +122,9 @@ public class SessionController {
      * @return 完整会话数据
      */
     @GetMapping("/data")
-    public ApiResponse<SessionData> getSessionData(@RequestParam(required = false) Integer mode) {
-        return ApiResponse.success(sessionAnalysisService.getSessionData(mode));
+    public ApiResponse<SessionData> getSessionData(
+            @RequestParam(required = false) Integer mode,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        return ApiResponse.success(sessionAnalysisService.getSessionData(mode, forceRefresh));
     }
 }

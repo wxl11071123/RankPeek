@@ -25,6 +25,20 @@ public class SessionData {
      */
     private String phase;
 
+    private String sessionKey;
+
+    private Long gameId;
+
+    private boolean empty;
+
+    private boolean stale;
+
+    private String source;
+
+    private Long createdAt;
+
+    private Long updatedAt;
+
     /**
      * 队列类型
      */

@@ -33,7 +33,11 @@ class FlywayMigrationTest {
                 "lpl_player_game_stats",
                 "playstyle_cards",
                 "playstyle_card_sources",
-                "patch_relevance_rules"
+                "patch_relevance_rules",
+                "users",
+                "auth_refresh_tokens",
+                "cn_meta_sync_jobs",
+                "cn_meta_source_documents"
         );
 
         for (String table : tables) {

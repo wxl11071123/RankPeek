@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -54,5 +55,12 @@ class SessionControllerTest {
         assertThat(response.getData().isConnected()).isTrue();
         assertThat(response.getData().getPhase()).isEqualTo("Lobby");
         assertThat(response.getData().getSummoner()).isNull();
+    }
+
+    @Test
+    void getSessionDataPassesForceRefreshToAnalysisService() {
+        controller.getSessionData(null, true);
+
+        verify(sessionAnalysisService).getSessionData(null, true);
     }
 }

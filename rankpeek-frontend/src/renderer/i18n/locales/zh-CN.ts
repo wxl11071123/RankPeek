@@ -169,6 +169,7 @@ const zhCN = {
   'settings.defaultModeSaved': '默认查战绩模式已保存',
   'settings.saveFailed': '保存失败',
   'settings.cacheCleared': '缓存已清理',
+  'settings.clearCachePartialFailed': '部分缓存清理失败',
   'settings.clearCacheFailed': '清理缓存失败',
   'settings.exportFailed': '导出配置失败',
   'settings.configImported': '配置已导入',

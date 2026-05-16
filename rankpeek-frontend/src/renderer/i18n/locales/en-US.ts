@@ -171,6 +171,7 @@ const enUS: Record<MessageKey, string> = {
   'settings.defaultModeSaved': 'Default match mode saved',
   'settings.saveFailed': 'Save failed',
   'settings.cacheCleared': 'Cache cleared',
+  'settings.clearCachePartialFailed': 'Partially failed to clear cache',
   'settings.clearCacheFailed': 'Failed to clear cache',
   'settings.exportFailed': 'Failed to export config',
   'settings.configImported': 'Config imported',

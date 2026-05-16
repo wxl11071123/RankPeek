@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 @Service
@@ -16,6 +18,16 @@ public class CacheMaintenanceService {
     private static final String SCOPE_ALL = "all";
     private static final String SCOPE_MEMORY = "memory";
     private static final String SCOPE_LOCAL_DB = "localDb";
+    private static final List<String> LOCAL_CACHE_TABLES = List.of(
+            "player_fetch_state",
+            "player_match_index",
+            "match_participant_cache",
+            "game_detail_cache",
+            "match_data_scope_cache",
+            "match_cache",
+            "rank_cache",
+            "summoner_cache"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final MatchHistoryService matchHistoryService;
@@ -26,51 +38,60 @@ public class CacheMaintenanceService {
         String normalizedScope = normalizeScope(scope);
 
         if (!confirm) {
-            return result(false, normalizedScope, "confirm=true is required", 0);
+            return result(false, normalizedScope, "confirm=true is required", List.of(), List.of(
+                    new CacheClearResult.Failure("confirmation", "confirm=true is required")
+            ), 0);
         }
 
         if (!isSupportedScope(normalizedScope)) {
-            return result(false, normalizedScope, "Unsupported cache clear scope: " + normalizedScope, 0);
+            String message = "Unsupported cache clear scope: " + normalizedScope;
+            return result(false, normalizedScope, message, List.of(), List.of(
+                    new CacheClearResult.Failure("scope", message)
+            ), 0);
         }
 
-        try {
-            return switch (normalizedScope) {
-                case SCOPE_MEMORY -> {
-                    clearMemoryCache();
-                    yield result(true, normalizedScope, "memory cache cleared", 0);
-                }
-                case SCOPE_LOCAL_DB -> {
-                    long deletedRows = clearLocalDatabaseCache();
-                    yield result(true, normalizedScope, "local database cache cleared", deletedRows);
-                }
-                case SCOPE_ALL -> {
-                    clearMemoryCache();
-                    long deletedRows = clearLocalDatabaseCache();
-                    yield result(true, normalizedScope, "memory and local database cache cleared", deletedRows);
-                }
-                default -> result(false, normalizedScope, "Unsupported cache clear scope: " + normalizedScope, 0);
-            };
-        } catch (Exception e) {
-            log.warn("Failed to clear cache: scope={}, error={}", normalizedScope, e.getMessage());
-            return result(false, normalizedScope, "Failed to clear cache: " + e.getMessage(), 0);
-        }
-    }
-
-    private void clearMemoryCache() {
-        matchHistoryService.refreshAllCache();
-        rankService.refreshAllCache();
-        summonerService.refreshAllCache();
-    }
-
-    private long clearLocalDatabaseCache() {
+        List<String> cleared = new ArrayList<>();
+        List<CacheClearResult.Failure> failed = new ArrayList<>();
         long deletedRows = 0;
-        deletedRows += deleteTable("player_fetch_state");
-        deletedRows += deleteTable("player_match_index");
-        deletedRows += deleteTable("match_participant_cache");
-        deletedRows += deleteTable("game_detail_cache");
-        deletedRows += deleteTable("match_cache");
-        deletedRows += deleteTable("rank_cache");
-        deletedRows += deleteTable("summoner_cache");
+
+        if (SCOPE_MEMORY.equals(normalizedScope) || SCOPE_ALL.equals(normalizedScope)) {
+            clearMemoryCache(cleared, failed);
+        }
+
+        if (SCOPE_LOCAL_DB.equals(normalizedScope) || SCOPE_ALL.equals(normalizedScope)) {
+            deletedRows = clearLocalDatabaseCache(cleared, failed);
+        }
+
+        boolean success = failed.isEmpty();
+        return result(
+                success,
+                normalizedScope,
+                message(success, cleared, failed),
+                List.copyOf(cleared),
+                List.copyOf(failed),
+                deletedRows
+        );
+    }
+
+    private void clearMemoryCache(List<String> cleared, List<CacheClearResult.Failure> failed) {
+        clearItem("memory.matchHistory", () -> matchHistoryService.refreshAllCache(), cleared, failed);
+        clearItem("memory.rank", () -> rankService.refreshAllCache(), cleared, failed);
+        clearItem("memory.summoner", () -> summonerService.refreshAllCache(), cleared, failed);
+    }
+
+    private long clearLocalDatabaseCache(List<String> cleared, List<CacheClearResult.Failure> failed) {
+        long deletedRows = 0;
+        for (String tableName : LOCAL_CACHE_TABLES) {
+            String itemName = "localDb." + tableName;
+            try {
+                deletedRows += deleteTable(tableName);
+                cleared.add(itemName);
+            } catch (Exception e) {
+                String message = rootMessage(e);
+                log.warn("Failed to clear cache item: name={}, error={}", itemName, message);
+                failed.add(new CacheClearResult.Failure(itemName, message));
+            }
+        }
         return deletedRows;
     }
 
@@ -81,6 +102,50 @@ public class CacheMaintenanceService {
             log.warn("Failed to clear local cache table: table={}, error={}", tableName, e.getMessage());
             throw new IllegalStateException("failed to clear local database table " + tableName, e);
         }
+    }
+
+    private void clearItem(
+            String name,
+            Runnable operation,
+            List<String> cleared,
+            List<CacheClearResult.Failure> failed) {
+        try {
+            operation.run();
+            cleared.add(name);
+        } catch (Exception e) {
+            String message = rootMessage(e);
+            log.warn("Failed to clear cache item: name={}, error={}", name, message);
+            failed.add(new CacheClearResult.Failure(name, message));
+        }
+    }
+
+    private String rootMessage(Exception e) {
+        Throwable current = e;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private String message(
+            boolean success,
+            List<String> cleared,
+            List<CacheClearResult.Failure> failed) {
+        if (success) {
+            return "cache cleared";
+        }
+        if (cleared.isEmpty()) {
+            return "cache clear failed: " + failedNames(failed);
+        }
+        return "cache clear completed with failures: " + failedNames(failed);
+    }
+
+    private String failedNames(List<CacheClearResult.Failure> failed) {
+        return failed.stream()
+                .map(CacheClearResult.Failure::getName)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("unknown");
     }
 
     private String normalizeScope(String scope) {
@@ -102,11 +167,19 @@ public class CacheMaintenanceService {
         return SCOPE_ALL.equals(scope) || SCOPE_MEMORY.equals(scope) || SCOPE_LOCAL_DB.equals(scope);
     }
 
-    private CacheClearResult result(boolean cleared, String scope, String message, long deletedRows) {
+    private CacheClearResult result(
+            boolean success,
+            String scope,
+            String message,
+            List<String> cleared,
+            List<CacheClearResult.Failure> failed,
+            long deletedRows) {
         return CacheClearResult.builder()
-                .cleared(cleared)
+                .success(success)
                 .scope(scope)
                 .message(message)
+                .cleared(cleared)
+                .failed(failed)
                 .deletedRows(deletedRows)
                 .timestamp(System.currentTimeMillis())
                 .build();

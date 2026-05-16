@@ -38,8 +38,8 @@ test('gaming session data uses live endpoint when simulator flag is off', async 
 
   const data = await getGamingSessionData({
     flagContext: { isDev: true, getFlag: () => null },
-    getLiveSessionData: async () => {
-      calls.push('live')
+    getLiveSessionData: async (options) => {
+      calls.push(`live:${options.forceRefresh}`)
       return liveSession
     },
     getSimulatorSessionData: async () => {
@@ -49,7 +49,23 @@ test('gaming session data uses live endpoint when simulator flag is off', async 
   })
 
   assert.equal(data, liveSession)
-  assert.deepEqual(calls, ['live'])
+  assert.deepEqual(calls, ['live:false'])
+})
+
+test('gaming session data forwards forceRefresh to the live endpoint', async () => {
+  const calls: boolean[] = []
+
+  const data = await getGamingSessionData({
+    forceRefresh: true,
+    flagContext: { isDev: true, getFlag: () => null },
+    getLiveSessionData: async (options) => {
+      calls.push(options.forceRefresh)
+      return liveSession
+    }
+  })
+
+  assert.equal(data, liveSession)
+  assert.deepEqual(calls, [true])
 })
 
 test('gaming session data uses simulator endpoint only when dev flag is on', async () => {
@@ -76,8 +92,8 @@ test('simulator localStorage flag is ignored outside dev mode', async () => {
 
   const data = await getGamingSessionData({
     flagContext: { isDev: false, getFlag: () => '1' },
-    getLiveSessionData: async () => {
-      calls.push('live')
+    getLiveSessionData: async (options) => {
+      calls.push(`live:${options.forceRefresh}`)
       return liveSession
     },
     getSimulatorSessionData: async () => {
@@ -87,7 +103,7 @@ test('simulator localStorage flag is ignored outside dev mode', async () => {
   })
 
   assert.equal(data, liveSession)
-  assert.deepEqual(calls, ['live'])
+  assert.deepEqual(calls, ['live:false'])
 })
 
 test('simulator endpoint failures do not fall back to live session data', async () => {
