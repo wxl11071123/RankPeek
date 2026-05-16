@@ -9,6 +9,8 @@ import {
   buildLobbySessionSummoners,
   formatLobbyQueueName,
   isGameflowLobbyDisplayPhase,
+  isGameflowAutoGamingRoutePhase,
+  isGameflowPostgameNavigationPhase,
   isGameflowSessionClearPhase,
   isGameflowSessionRefreshPhase,
   resolveLobbyQueueId
@@ -52,6 +54,22 @@ test('gameflow phase policy refreshes only scout-active phases requested for thi
   assert.equal(isGameflowSessionRefreshPhase('InProgress'), true)
   assert.equal(isGameflowSessionRefreshPhase('Lobby'), false)
   assert.equal(isGameflowSessionRefreshPhase('EndOfGame'), false)
+})
+
+test('gameflow phase policy routes only champ select and game start to gaming view', () => {
+  assert.equal(isGameflowAutoGamingRoutePhase('ChampSelect'), true)
+  assert.equal(isGameflowAutoGamingRoutePhase('GameStart'), true)
+  assert.equal(isGameflowAutoGamingRoutePhase('InProgress'), false)
+  assert.equal(isGameflowAutoGamingRoutePhase('Lobby'), false)
+  assert.equal(isGameflowAutoGamingRoutePhase('EndOfGame'), false)
+})
+
+test('gameflow phase policy routes postgame phases to match history detail', () => {
+  assert.equal(isGameflowPostgameNavigationPhase('EndOfGame'), true)
+  assert.equal(isGameflowPostgameNavigationPhase('WaitingForStats'), true)
+  assert.equal(isGameflowPostgameNavigationPhase('GameStart'), false)
+  assert.equal(isGameflowPostgameNavigationPhase('InProgress'), false)
+  assert.equal(isGameflowPostgameNavigationPhase('Lobby'), false)
 })
 
 test('gameflow phase policy clears lobby and post-game phases', () => {
@@ -169,7 +187,7 @@ test('lobby display players prefer computed session data over temporary lobby ca
     ]
   }
 
-  const computedSession = {
+  const computedSession: SessionData = {
     ...createEmptyGamingSessionData('Lobby'),
     empty: false,
     stale: false,
@@ -250,7 +268,7 @@ test('lobby display players prefer computed session data during matchmaking', ()
     ]
   }
 
-  const computedSession = {
+  const computedSession: SessionData = {
     ...session('Matchmaking', 'computed-name'),
     source: 'LOBBY',
     queueId: 2400

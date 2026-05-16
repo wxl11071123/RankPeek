@@ -4,7 +4,9 @@ import { GAME_MODE_OPTIONS } from '../utils/constants.ts'
 export const GAMEFLOW_SESSION_REFRESH_PHASES = ['ChampSelect', 'GameStart', 'InProgress'] as const
 export const GAMEFLOW_LOBBY_DISPLAY_PHASES = ['Lobby', 'Matchmaking', 'ReadyCheck'] as const
 export const GAMEFLOW_SESSION_CLEAR_PHASES = ['Lobby', 'Matchmaking', 'ReadyCheck', 'None', 'EndOfGame', 'WaitingForStats'] as const
-export const GAMEFLOW_POSTGAME_NAVIGATION_LOG_PHASES = ['EndOfGame', 'WaitingForStats'] as const
+export const GAMEFLOW_AUTO_GAMING_ROUTE_PHASES = ['ChampSelect', 'GameStart'] as const
+export const GAMEFLOW_POSTGAME_NAVIGATION_PHASES = ['EndOfGame', 'WaitingForStats'] as const
+export const GAMEFLOW_POSTGAME_NAVIGATION_LOG_PHASES = GAMEFLOW_POSTGAME_NAVIGATION_PHASES
 export const GAMEFLOW_ACTIVE_TRANSITION_PHASES = ['GameStart', 'InProgress'] as const
 
 export function createEmptyGamingSessionData(phase = ''): SessionData {
@@ -37,8 +39,16 @@ export function isGameflowActiveTransitionPhase(phase: string): boolean {
   return (GAMEFLOW_ACTIVE_TRANSITION_PHASES as readonly string[]).includes(phase)
 }
 
+export function isGameflowAutoGamingRoutePhase(phase: string): boolean {
+  return (GAMEFLOW_AUTO_GAMING_ROUTE_PHASES as readonly string[]).includes(phase)
+}
+
+export function isGameflowPostgameNavigationPhase(phase: string): boolean {
+  return (GAMEFLOW_POSTGAME_NAVIGATION_PHASES as readonly string[]).includes(phase)
+}
+
 export function isPostgameNavigationLogPhase(phase: string): boolean {
-  return (GAMEFLOW_POSTGAME_NAVIGATION_LOG_PHASES as readonly string[]).includes(phase)
+  return isGameflowPostgameNavigationPhase(phase)
 }
 
 export function resolveLobbyQueueId(lobby: Lobby | null | undefined): number {

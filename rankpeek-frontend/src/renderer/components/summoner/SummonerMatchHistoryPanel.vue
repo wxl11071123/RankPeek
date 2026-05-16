@@ -242,6 +242,7 @@ import {
   toMatchDetailCacheKey,
   writeMatchHistoryToLocalCache
 } from '@/services/localMatchCache'
+import { clearPostgameAutoOpenLatestMatchToken } from '@/services/gameflowAutoNavigation'
 import {
   RANKED_OVERVIEW_SAMPLE_LIMIT,
   selectRecentMatchLookback,
@@ -276,12 +277,14 @@ const props = withDefaults(defineProps<{
   variant?: 'mine' | 'lookup'
   connected?: boolean
   localCacheEnabled?: boolean
+  autoOpenLatestMatchToken?: string
   lookupQuery?: string
   lookupLoading?: boolean
   lookupError?: string
 }>(), {
   variant: 'mine',
   localCacheEnabled: false,
+  autoOpenLatestMatchToken: '',
   lookupQuery: '',
   lookupLoading: false,
   lookupError: ''
@@ -297,6 +300,7 @@ interface MatchHistoryLoadOptions {
   source?: 'auto' | 'sgp' | 'lcu' | 'cache'
   throwOnError?: boolean
   requestId?: number
+  autoOpenLatestMatchToken?: string
 }
 
 interface MatchHistoryLoadResult {
@@ -516,6 +520,8 @@ const activeInlineDetailTabByGameId = ref<Record<string, InlineDetailTabKey>>({}
 const selectedGameDetail = ref<GameDetail | null>(null)
 const selectedMatchHistory = ref<MatchHistory | null>(null)
 const selectedGameDetailStatus = ref<DetailLoadStatus>('idle')
+const pendingAutoOpenLatestMatchToken = ref('')
+const consumedAutoOpenLatestMatchToken = ref('')
 const matchHistoryViewRef = ref<HTMLElement | null>(null)
 let settingsLoadPromise: Promise<void> | null = null
 let matchHistoryRequestId = 0
@@ -524,6 +530,7 @@ let activeListLoadingRequestId: number | null = null
 let activeRefreshRunId: number | null = null
 let refreshRunSequence = 0
 let refreshIndicatorStopTimer: number | null = null
+let autoOpenLatestMatchRefreshToken = ''
 let overviewUserTagAbortController: AbortController | null = null
 let summariesAbortController: AbortController | null = null
 let unsubscribeCacheUpdate: (() => void) | null = null
@@ -1491,26 +1498,33 @@ async function refreshRemoteMatchHistory(options: MatchHistoryLoadOptions = {}) 
   const requestId = options.requestId ?? matchHistoryRequestId
   const refreshRunId = startRefreshing(requestId)
   rankLoadStatus.value = 'loading'
+  let visibleListUpdated = false
   void loadRankSummary(puuid, requestId)
   void loadOverviewUserTagSummary(puuid, requestId)
 
   try {
     try {
-      await loadMatchHistoryFromSource('sgp', options, requestId)
+      const sgpResult = await loadMatchHistoryFromSource('sgp', options, requestId)
+      visibleListUpdated = visibleListUpdated || sgpResult?.visibleListUpdated === true
     } catch (sgpErr) {
       if (requestId !== matchHistoryRequestId) {
         return
       }
       console.warn('SGP match history refresh failed, falling back to LCU', sgpErr)
       try {
-        await loadMatchHistoryFromSource('lcu', options, requestId)
+        const lcuResult = await loadMatchHistoryFromSource('lcu', options, requestId)
+        visibleListUpdated = visibleListUpdated || lcuResult?.visibleListUpdated === true
       } catch (lcuErr) {
         if (requestId !== matchHistoryRequestId) {
           return
         }
         console.warn('LCU match history refresh failed, retrying SGP once', lcuErr)
-        await loadMatchHistoryFromSource('sgp', options, requestId)
+        const retrySgpResult = await loadMatchHistoryFromSource('sgp', options, requestId)
+        visibleListUpdated = visibleListUpdated || retrySgpResult?.visibleListUpdated === true
       }
+    }
+    if (options.autoOpenLatestMatchToken && visibleListUpdated && requestId === matchHistoryRequestId) {
+      await openPendingAutoLatestMatch(options.autoOpenLatestMatchToken, requestId)
     }
   } catch (err) {
     if (requestId !== matchHistoryRequestId) {
@@ -1824,6 +1838,14 @@ async function toggleInlineDetail(match: MatchHistory) {
     return
   }
 
+  await openInlineDetail(match)
+}
+
+async function openInlineDetail(match: MatchHistory) {
+  if (expandedGameId.value === match.gameId && selectedMatchHistory.value?.gameId === match.gameId) {
+    return
+  }
+
   const previousExpandedGameId = expandedGameId.value
   if (previousExpandedGameId !== null) {
     clearInlineDetailTab(previousExpandedGameId)
@@ -1894,6 +1916,28 @@ async function toggleInlineDetail(match: MatchHistory) {
       console.error('Failed to load game detail', err)
     }
   }
+}
+
+async function openPendingAutoLatestMatch(token: string, requestId = matchHistoryRequestId): Promise<boolean> {
+  if (
+    !token ||
+    token !== pendingAutoOpenLatestMatchToken.value ||
+    token === consumedAutoOpenLatestMatchToken.value ||
+    requestId !== matchHistoryRequestId
+  ) {
+    return false
+  }
+
+  const latestMatch = matchHistory.value[0]
+  if (!latestMatch) {
+    return false
+  }
+
+  consumedAutoOpenLatestMatchToken.value = token
+  pendingAutoOpenLatestMatchToken.value = ''
+  await openInlineDetail(latestMatch)
+  clearPostgameAutoOpenLatestMatchToken(token)
+  return true
 }
 
 function collapseInlineDetail() {
@@ -1980,6 +2024,37 @@ function clearMatchHistoryWhenLocalCacheMisses(requestId: number, hydrated: bool
   userTagSummaries.value = {}
 }
 
+function requestAutoOpenLatestMatch(token: string) {
+  if (!token || token === consumedAutoOpenLatestMatchToken.value) {
+    return
+  }
+
+  pendingAutoOpenLatestMatchToken.value = token
+  if (!currentSummoner.value?.puuid) {
+    return
+  }
+  if (autoOpenLatestMatchRefreshToken === token) {
+    return
+  }
+
+  filterChampionId.value = -1
+  filterQueueId.value = 0
+  selectedLimit.value = 20
+
+  const requestId = beginMatchHistoryRequest()
+  autoOpenLatestMatchRefreshToken = token
+  const refreshTask = (async () => {
+    const hydrated = await hydrateMatchHistoryFromLocalCache(requestId)
+    clearMatchHistoryWhenLocalCacheMisses(requestId, hydrated)
+    await refreshRemoteMatchHistory({ forceRefresh: true, requestId, autoOpenLatestMatchToken: token })
+  })()
+  void refreshTask.finally(() => {
+    if (autoOpenLatestMatchRefreshToken === token) {
+      autoOpenLatestMatchRefreshToken = ''
+    }
+  })
+}
+
 async function applyDefaultFiltersAfterSettings(requestId: number) {
   await ensurePageSettingsLoaded()
   if (requestId !== matchHistoryRequestId) {
@@ -2005,6 +2080,7 @@ onMounted(async () => {
     if (isMatchHistoryCacheUpdateRelevant(event)) {
       await hydrateMatchHistoryFromLocalCache()
       await hydrateOverviewLookbackMatches()
+      await openPendingAutoLatestMatch(pendingAutoOpenLatestMatchToken.value)
       if (currentSummoner.value?.puuid) {
         void loadOverviewUserTagSummary(currentSummoner.value.puuid)
       }
@@ -2042,6 +2118,10 @@ watch(
     const requestId = matchHistoryRequestId
     await hydrateMatchHistoryFromLocalCache(requestId)
     void hydrateOverviewLookbackMatches(requestId)
+    if (props.autoOpenLatestMatchToken) {
+      requestAutoOpenLatestMatch(props.autoOpenLatestMatchToken)
+      return
+    }
     void refreshRemoteMatchHistory({ forceRefresh: true, requestId })
     void applyDefaultFiltersAfterSettings(requestId)
   }
@@ -2061,8 +2141,20 @@ watch(
     }
     await hydrateMatchHistoryFromLocalCache(requestId)
     void hydrateOverviewLookbackMatches(requestId)
+    if (props.autoOpenLatestMatchToken) {
+      requestAutoOpenLatestMatch(props.autoOpenLatestMatchToken)
+      return
+    }
     void refreshRemoteMatchHistory({ forceRefresh: true, requestId })
     void applyDefaultFiltersAfterSettings(requestId)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.autoOpenLatestMatchToken,
+  token => {
+    requestAutoOpenLatestMatch(token)
   },
   { immediate: true }
 )

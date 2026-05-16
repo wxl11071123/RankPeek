@@ -124,3 +124,26 @@ test('inline detail toggle folds the same match and keeps only one expanded game
   assert.match(source, /function isActiveMatchDetailRequest\(requestId: number, matchId: string\): boolean \{[\s\S]*requestId === matchDetailRequestId[\s\S]*String\(expandedGameId\.value\) === matchId[\s\S]*\}/)
   assert.match(source, /function isActiveUserTagSummaryRequest\(requestId: number, matchId: string\): boolean \{[\s\S]*String\(expandedGameId\.value\) === matchId/)
 })
+
+test('postgame auto-open token triggers an all-mode refresh and opens the latest visible match once', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const propsBlock = source.match(/const props = withDefaults\(defineProps<\{[\s\S]*?\}>\(\), \{[\s\S]*?\}\)/)?.[0] || ''
+  const refreshFunction = source.match(/async function refreshRemoteMatchHistory\(options: MatchHistoryLoadOptions = \{\}\) \{[\s\S]*?async function handleRemoteMatchHistoryFailure/)?.[0] || ''
+  const tokenWatcher = source.match(/watch\(\s*\(\) => props\.autoOpenLatestMatchToken,[\s\S]*?\n\)/)?.[0] || ''
+  const autoOpenFunction = source.match(/async function openPendingAutoLatestMatch\(token: string, requestId = matchHistoryRequestId\): Promise<boolean> \{[\s\S]*?\n\}/)?.[0] || ''
+  const cacheUpdateBlock = source.match(/unsubscribeCacheUpdate = wsClient\.onCacheUpdate\(async \(event: CacheUpdateEvent\) => \{[\s\S]*?\n\s*\}\)/)?.[0] || ''
+
+  assert.match(propsBlock, /autoOpenLatestMatchToken\?: string/)
+  assert.match(source, /import \{ clearPostgameAutoOpenLatestMatchToken \} from '@\/services\/gameflowAutoNavigation'/)
+  assert.match(source, /const pendingAutoOpenLatestMatchToken = ref\(''\)/)
+  assert.match(source, /function requestAutoOpenLatestMatch\(token: string\)/)
+  assert.match(tokenWatcher, /requestAutoOpenLatestMatch\(token\)/)
+  assert.match(source, /filterChampionId\.value = -1/)
+  assert.match(source, /filterQueueId\.value = 0/)
+  assert.match(source, /await refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId, autoOpenLatestMatchToken: token \}\)/)
+  assert.match(refreshFunction, /if \(options\.autoOpenLatestMatchToken && visibleListUpdated && requestId === matchHistoryRequestId\) \{[\s\S]*await openPendingAutoLatestMatch\(options\.autoOpenLatestMatchToken, requestId\)/)
+  assert.match(autoOpenFunction, /const latestMatch = matchHistory\.value\[0\]/)
+  assert.match(autoOpenFunction, /await openInlineDetail\(latestMatch\)/)
+  assert.match(autoOpenFunction, /clearPostgameAutoOpenLatestMatchToken\(token\)/)
+  assert.match(cacheUpdateBlock, /await openPendingAutoLatestMatch\(pendingAutoOpenLatestMatchToken\.value\)/)
+})

@@ -3,16 +3,20 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import Sidebar from '@/components/layout/Sidebar.vue'
+import { createGameflowAutoNavigator } from '@/services/gameflowAutoNavigation'
 import { useGameStore } from '@/stores/game'
 
 const gameStore = useGameStore()
 const router = useRouter()
 
 let removeTrayNavigateListener: (() => void) | null = null
+let stopGameflowAutoNavigation: (() => void) | null = null
 
 gameStore.initConnection()
 
 onMounted(() => {
+  stopGameflowAutoNavigation = createGameflowAutoNavigator(router)
+
   if (!window.electronAPI?.onTrayNavigate) {
     return
   }
@@ -29,6 +33,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   removeTrayNavigateListener?.()
   removeTrayNavigateListener = null
+  stopGameflowAutoNavigation?.()
+  stopGameflowAutoNavigation = null
 })
 </script>
 

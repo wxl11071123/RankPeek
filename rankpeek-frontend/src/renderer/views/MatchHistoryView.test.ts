@@ -530,3 +530,11 @@ test('match history view delegates logged-in body to summoner match history pane
   assert.doesNotMatch(source, /async function loadMatchHistory/)
   assert.doesNotMatch(source, /async function loadVisibleUserTagSummaries/)
 })
+
+test('match history view forwards postgame auto-open token to the panel', () => {
+  const source = readFileSync(new URL('./MatchHistoryView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import \{ postgameAutoOpenLatestMatchToken \} from '@\/services\/gameflowAutoNavigation'/)
+  assert.match(source, /:auto-open-latest-match-token="postgameAutoOpenLatestMatchToken"/)
+  assert.match(source, /variant="mine"/)
+})

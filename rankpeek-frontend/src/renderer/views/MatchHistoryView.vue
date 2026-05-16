@@ -3,6 +3,7 @@
     v-if="currentSummoner"
     :summoner="currentSummoner"
     :connected="gameStore.connected"
+    :auto-open-latest-match-token="postgameAutoOpenLatestMatchToken"
     variant="mine"
   />
 
@@ -24,6 +25,7 @@
 import { computed } from 'vue'
 import SummonerMatchHistoryPanel from '@/components/summoner/SummonerMatchHistoryPanel.vue'
 import { useI18n } from '@/i18n'
+import { postgameAutoOpenLatestMatchToken } from '@/services/gameflowAutoNavigation'
 import { useGameStore } from '@/stores/game'
 
 const gameStore = useGameStore()
