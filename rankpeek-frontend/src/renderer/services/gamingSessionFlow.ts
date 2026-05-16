@@ -1,10 +1,11 @@
 import type { Lobby, QueueInfo, SessionData, SessionSummoner, Summoner } from '../types/api.ts'
 import { GAME_MODE_OPTIONS } from '../utils/constants.ts'
 
-export const GAMEFLOW_SESSION_REFRESH_PHASES = ['ChampSelect', 'InProgress'] as const
+export const GAMEFLOW_SESSION_REFRESH_PHASES = ['ChampSelect', 'GameStart', 'InProgress'] as const
 export const GAMEFLOW_LOBBY_DISPLAY_PHASES = ['Lobby', 'Matchmaking', 'ReadyCheck'] as const
 export const GAMEFLOW_SESSION_CLEAR_PHASES = ['Lobby', 'Matchmaking', 'ReadyCheck', 'None', 'EndOfGame', 'WaitingForStats'] as const
 export const GAMEFLOW_POSTGAME_NAVIGATION_LOG_PHASES = ['EndOfGame', 'WaitingForStats'] as const
+export const GAMEFLOW_ACTIVE_TRANSITION_PHASES = ['GameStart', 'InProgress'] as const
 
 export function createEmptyGamingSessionData(phase = ''): SessionData {
   return {
@@ -30,6 +31,10 @@ export function isGameflowLobbyDisplayPhase(phase: string): boolean {
 
 export function isGameflowSessionClearPhase(phase: string): boolean {
   return (GAMEFLOW_SESSION_CLEAR_PHASES as readonly string[]).includes(phase)
+}
+
+export function isGameflowActiveTransitionPhase(phase: string): boolean {
+  return (GAMEFLOW_ACTIVE_TRANSITION_PHASES as readonly string[]).includes(phase)
 }
 
 export function isPostgameNavigationLogPhase(phase: string): boolean {
@@ -162,6 +167,18 @@ export function createGamingSessionDataState(
         return false
       }
       if (!shouldDisplaySessionData(data)) {
+        if (shouldRetainActiveSessionData(data, sessionData)) {
+          sessionData = {
+            ...sessionData,
+            phase: data.phase || sessionData.phase,
+            source: data.source ?? sessionData.source,
+            updatedAt: data.updatedAt ?? sessionData.updatedAt,
+            empty: false,
+            stale: false
+          }
+          return true
+        }
+
         sessionData = {
           ...createEmptyGamingSessionData(data.phase || sessionData.phase),
           source: data.source,
@@ -206,6 +223,17 @@ function shouldDisplaySessionData(data: SessionData): boolean {
     return false
   }
   return hasPlayers(data.teamOne) || hasPlayers(data.teamTwo)
+}
+
+function shouldRetainActiveSessionData(incoming: SessionData, current: SessionData): boolean {
+  const incomingPhase = incoming.phase || ''
+  const currentPhase = current.phase || ''
+  return Boolean(
+    incoming.stale !== true &&
+      isGameflowActiveTransitionPhase(incomingPhase) &&
+      shouldDisplaySessionData(current) &&
+      !isGameflowSessionClearPhase(currentPhase)
+  )
 }
 
 function hasPlayers(players: SessionData['teamOne']): boolean {

@@ -231,6 +231,107 @@ class SessionAnalysisServiceTest {
     }
 
     @Test
+    void gameStartWithValidGameSessionReturnsActivePlayers() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("GameStart");
+
+        GameSession.OnePlayer ally = gamePlayer("my-puuid", 221, "MIDDLE");
+        GameSession.OnePlayer enemy = gamePlayer("enemy-puuid", 222, "TOP");
+        when(gameFlowService.getGameSession()).thenReturn(gameSession(123L, 420, List.of(ally), List.of(enemy)));
+
+        stubPlayerProfile("my-puuid");
+        stubPlayerProfile("enemy-puuid");
+        stubScout("my-puuid", 420, createMatches(20, 420));
+        stubScout("enemy-puuid", 420, createMatches(20, 420));
+
+        var data = service.getSessionData(null, true);
+
+        assertThat(data.getPhase()).isEqualTo("GameStart");
+        assertThat(data.isEmpty()).isFalse();
+        assertThat(data.isStale()).isFalse();
+        assertThat(data.getSource()).isEqualTo("GAME_SESSION");
+        assertThat(data.getGameId()).isEqualTo(123L);
+        assertThat(data.getQueueId()).isEqualTo(420);
+        assertThat(data.getTeamOne()).hasSize(1);
+        assertThat(data.getTeamTwo()).hasSize(1);
+        assertThat(data.getTeamOne().getFirst().getSummoner().getPuuid()).isEqualTo("my-puuid");
+        assertThat(data.getTeamTwo().getFirst().getSummoner().getPuuid()).isEqualTo("enemy-puuid");
+        assertThat(data.getSessionKey()).contains("phase:GameStart", "game:123", "queue:420", "my-puuid", "enemy-puuid");
+    }
+
+    @Test
+    void gameStartUsesGameSessionQueueIdAndChampionSelectionsForScoutSamples() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("GameStart");
+
+        GameSession session = gameSession(456L, 1700, List.of(), List.of());
+        session.getGameData().setPlayerChampionSelections(List.of(
+                championSelection("my-puuid", 901),
+                championSelection("enemy-puuid", 902)
+        ));
+        when(gameFlowService.getGameSession()).thenReturn(session);
+
+        stubPlayerProfile("my-puuid");
+        stubPlayerProfile("enemy-puuid");
+        ScoutTagSample sample = stubScout("my-puuid", 1700, createMatches(20, 1700));
+        stubScout("enemy-puuid", 1700, createMatches(20, 1700));
+
+        var data = service.getSessionData(null, true);
+
+        assertThat(data.getPhase()).isEqualTo("GameStart");
+        assertThat(data.isEmpty()).isFalse();
+        assertThat(data.getSource()).isEqualTo("GAME_SESSION");
+        assertThat(data.getQueueId()).isEqualTo(1700);
+        assertThat(data.getTeamOne()).hasSize(1);
+        assertThat(data.getTeamTwo()).hasSize(1);
+        assertThat(data.getTeamOne().getFirst().getChampionId()).isEqualTo(901);
+        assertThat(data.getTeamTwo().getFirst().getChampionId()).isEqualTo(902);
+        verify(scoutTagSampleService).getCurrentModeSample("my-puuid", 1700, 50, 20);
+        verify(scoutTagRuleService).buildTags(
+                org.mockito.ArgumentMatchers.argThat(context ->
+                        context.getCurrentQueueId() == 1700
+                                && context.getCurrentTeamPuuids().contains("my-puuid")
+                                && Integer.valueOf(901).equals(context.getCurrentChampionId())),
+                eq(sample)
+        );
+    }
+
+    @Test
+    void gameStartWithoutCurrentGameSessionReturnsTransientEmptySource() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("GameStart");
+        when(gameFlowService.getGameSession()).thenReturn(null);
+
+        var data = service.getSessionData(null);
+
+        assertEmptySession(data, "GameStart");
+        assertThat(data.getSource()).isEqualTo("GAMESTART_TRANSIENT_EMPTY");
+        verifyNoInteractions(scoutTagSampleService, scoutTagRuleService);
+    }
+
+    @Test
+    void lobbyPhaseWithMissingLobbyReturnsLobbyEmptyWithoutGameSessionLookup() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("Lobby");
+        when(gameFlowService.getLobby()).thenReturn(null);
+
+        var data = service.getSessionData(null);
+
+        assertEmptySession(data, "Lobby");
+        assertThat(data.getSource()).isEqualTo("LOBBY_EMPTY");
+        verify(gameFlowService, never()).getGameSession();
+        verifyNoInteractions(scoutTagSampleService, scoutTagRuleService);
+    }
+
+    @Test
     void activeGameSessionIncludesSessionKeyFromGameIdentityAndParticipants() {
         Summoner me = new Summoner();
         me.setPuuid("my-puuid");
@@ -434,6 +535,13 @@ class SessionAnalysisServiceTest {
         return sample;
     }
 
+    private void stubPlayerProfile(String puuid) {
+        Summoner summoner = new Summoner();
+        summoner.setPuuid(puuid);
+        when(summonerService.getSummonerByPuuid(puuid)).thenReturn(summoner);
+        when(rankService.getRankByPuuid(puuid)).thenReturn(new Rank());
+    }
+
     private ScoutTagContext anyContextWithQueueAndTeam(int queueId, List<String> teamPuuids) {
         return org.mockito.ArgumentMatchers.argThat(context ->
                 context != null
@@ -533,6 +641,21 @@ class SessionAnalysisServiceTest {
         gameData.setTeamTwo(teamTwo);
         session.setGameData(gameData);
         return session;
+    }
+
+    private GameSession.OnePlayer gamePlayer(String puuid, int championId, String position) {
+        GameSession.OnePlayer player = new GameSession.OnePlayer();
+        player.setPuuid(puuid);
+        player.setChampionId(championId);
+        player.setSelectedPosition(position);
+        return player;
+    }
+
+    private GameSession.PlayerChampionSelection championSelection(String puuid, int championId) {
+        GameSession.PlayerChampionSelection selection = new GameSession.PlayerChampionSelection();
+        selection.setPuuid(puuid);
+        selection.setChampionId(championId);
+        return selection;
     }
 
     private void assertEmptySession(io.rankpeek.model.SessionData data, String phase) {

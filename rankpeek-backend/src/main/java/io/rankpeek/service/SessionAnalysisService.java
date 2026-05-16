@@ -38,6 +38,7 @@ public class SessionAnalysisService {
     private static final int SCOUT_LOOKBACK_LIMIT = 50;
     private static final int SCOUT_SAMPLE_LIMIT = 20;
     private static final Set<String> LOBBY_DISPLAY_PHASES = Set.of("Lobby", "Matchmaking", "ReadyCheck");
+    private static final Set<String> ACTIVE_GAME_PHASES = Set.of("GameStart", "InProgress");
     /** 预组队判定阈值：同队场次 */
     private static final int PRE_GROUP_FRIEND_THRESHOLD = 3;
     /** 预组队最小人数 */
@@ -79,7 +80,7 @@ public class SessionAnalysisService {
             return processLobbyPhase(phase, mySummoner, mode);
         }
 
-        if (!"InProgress".equals(phase)) {
+        if (!ACTIVE_GAME_PHASES.contains(phase)) {
             return emptySession(phase, "INACTIVE_PHASE");
         }
 
@@ -235,21 +236,14 @@ public class SessionAnalysisService {
         if (session == null || session.getGameData() == null) {
             if ("GameStart".equals(phase)) {
                 log.info("GameStart 阶段，session 数据不完整");
-                return SessionData.builder()
-                        .phase(phase)
-                        .queueType("")
-                        .typeCn("匹配中")
-                        .queueId(0)
-                        .teamOne(List.of())
-                        .teamTwo(List.of())
-                        .build();
+                return emptySession(phase, "GAMESTART_TRANSIENT_EMPTY");
             }
             log.warn("阶段 {} 但 session 数据为空", phase);
-            return emptySession(phase, "GAME_SESSION_EMPTY");
+            return emptySession(phase, emptyGameSessionSource(phase));
         }
 
         if (!hasAnyGamePlayer(session)) {
-            return emptySession(phase, "GAME_SESSION_EMPTY");
+            return emptySession(phase, emptyGameSessionSource(phase));
         }
 
         log.info("GamePhase: phase={}, teamOne={}, teamTwo={}, selections={}",
@@ -381,6 +375,10 @@ public class SessionAnalysisService {
                 .teamOne(List.of())
                 .teamTwo(List.of())
                 .build();
+    }
+
+    private String emptyGameSessionSource(String phase) {
+        return "GameStart".equals(phase) ? "GAMESTART_TRANSIENT_EMPTY" : "GAME_SESSION_EMPTY";
     }
 
     private boolean hasAnyChampSelectPlayer(List<ChampionSelectSession.Player> myTeam,

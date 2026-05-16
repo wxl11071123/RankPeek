@@ -48,6 +48,7 @@ function session(phase: string, playerName: string, sessionKey = `${phase}:${pla
 
 test('gameflow phase policy refreshes only scout-active phases requested for this pass', () => {
   assert.equal(isGameflowSessionRefreshPhase('ChampSelect'), true)
+  assert.equal(isGameflowSessionRefreshPhase('GameStart'), true)
   assert.equal(isGameflowSessionRefreshPhase('InProgress'), true)
   assert.equal(isGameflowSessionRefreshPhase('Lobby'), false)
   assert.equal(isGameflowSessionRefreshPhase('EndOfGame'), false)
@@ -353,6 +354,67 @@ test('empty fetched session data clears previous teams and invalidates the sessi
   assert.equal(state.sessionData.teamTwo.length, 0)
   assert.equal(state.sessionData.empty, true)
   assert.equal(state.lastSessionKey, '')
+})
+
+test('transient GameStart empty payload preserves previous active scout teams', () => {
+  const state = createGamingSessionDataState(session('ChampSelect', 'old-player', 'old-key'))
+  const requestId = state.beginFetch()
+
+  const applied = state.applyFetchedData(requestId, {
+    ...createEmptyGamingSessionData('GameStart'),
+    source: 'GAMESTART_TRANSIENT_EMPTY',
+    updatedAt: 1234,
+    empty: true
+  })
+
+  assert.equal(applied, true)
+  assert.equal(state.sessionData.phase, 'GameStart')
+  assert.equal(state.sessionData.source, 'GAMESTART_TRANSIENT_EMPTY')
+  assert.equal(state.sessionData.updatedAt, 1234)
+  assert.equal(state.sessionData.empty, false)
+  assert.equal(state.sessionData.stale, false)
+  assert.equal(state.sessionData.teamOne.length, 1)
+  assert.equal(state.sessionData.teamOne[0]?.summoner.gameName, 'old-player')
+  assert.equal(state.sessionData.sessionKey, 'old-key')
+  assert.equal(state.lastSessionKey, 'old-key')
+})
+
+test('transient InProgress empty payload preserves previous active scout teams', () => {
+  const state = createGamingSessionDataState(session('ChampSelect', 'old-player', 'old-key'))
+  const requestId = state.beginFetch()
+
+  const applied = state.applyFetchedData(requestId, {
+    ...createEmptyGamingSessionData('InProgress'),
+    source: 'GAME_SESSION_EMPTY',
+    empty: true
+  })
+
+  assert.equal(applied, true)
+  assert.equal(state.sessionData.phase, 'InProgress')
+  assert.equal(state.sessionData.source, 'GAME_SESSION_EMPTY')
+  assert.equal(state.sessionData.empty, false)
+  assert.equal(state.sessionData.teamOne[0]?.summoner.gameName, 'old-player')
+  assert.equal(state.lastSessionKey, 'old-key')
+})
+
+test('empty clear-phase payloads still clear previous active scout teams', () => {
+  for (const phase of ['Lobby', 'Matchmaking', 'ReadyCheck', 'None', 'EndOfGame', 'WaitingForStats']) {
+    const state = createGamingSessionDataState(session('ChampSelect', 'old-player', 'old-key'))
+    const requestId = state.beginFetch()
+
+    const applied = state.applyFetchedData(requestId, {
+      ...createEmptyGamingSessionData(phase),
+      source: `${phase}_EMPTY`,
+      empty: true
+    })
+
+    assert.equal(applied, true)
+    assert.equal(state.sessionData.phase, phase)
+    assert.equal(state.sessionData.teamOne.length, 0)
+    assert.equal(state.sessionData.teamTwo.length, 0)
+    assert.equal(state.sessionData.empty, true)
+    assert.equal(state.lastSessionKey, '')
+  }
 })
 
 test('session key changes replace previous session data normally', () => {
