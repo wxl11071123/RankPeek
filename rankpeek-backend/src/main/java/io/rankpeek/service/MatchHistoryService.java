@@ -26,7 +26,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
@@ -47,10 +46,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class MatchHistoryService {
 
-    private static final int SUMMONER_SPELL_SMITE = 11;
-    private static final int SUMMONER_SPELL_TELEPORT = 12;
-    private static final int SUMMONER_SPELL_HEAL = 7;
-    private static final int SUMMONER_SPELL_BARRIER = 21;
     private static final int SUMMONERS_RIFT_MAP_ID = 11;
     private static final int VISIBLE_MATCH_HISTORY_LIMIT = 50;
     private static final int MATCH_HISTORY_PAGE_LIMIT = 200;
@@ -72,6 +67,13 @@ public class MatchHistoryService {
     private static final String POSITION_MIDDLE = "MIDDLE";
     private static final String POSITION_BOTTOM = "BOTTOM";
     private static final String POSITION_SUPPORT = "SUPPORT";
+    private static final List<String> TEAM_ORDER_POSITIONS = List.of(
+            POSITION_TOP,
+            POSITION_JUNGLE,
+            POSITION_MIDDLE,
+            POSITION_BOTTOM,
+            POSITION_SUPPORT
+    );
 
     private final Map<MatchHistorySource, MatchHistoryProvider> matchHistoryProviders;
     private final MatchHistoryCacheRepository cacheRepository;
@@ -2101,128 +2103,37 @@ public class MatchHistoryService {
             teams.computeIfAbsent(participant.getTeamId(), ignored -> new ArrayList<>()).add(participant);
         }
 
-        for (List<GameDetail.GameParticipant> team : teams.values()) {
-            normalizeTeamPositions(team);
-        }
-    }
-
-    private void normalizeTeamPositions(List<GameDetail.GameParticipant> team) {
-        if (team == null || team.isEmpty()) {
+        if (!shouldAssignTeamOrderPositions(detail, teams)) {
             return;
         }
-
-        Map<GameDetail.GameParticipant, String> assignedPositions = new HashMap<>();
-        Set<GameDetail.GameParticipant> assignedParticipants = new HashSet<>();
-
-        assignPosition(team, assignedPositions, assignedParticipants, POSITION_JUNGLE, this::chooseJungle);
-        assignPosition(team, assignedPositions, assignedParticipants, POSITION_SUPPORT, this::chooseSupport);
-        assignPosition(team, assignedPositions, assignedParticipants, POSITION_BOTTOM, this::chooseBottom);
-        assignPosition(team, assignedPositions, assignedParticipants, POSITION_MIDDLE, this::chooseMiddle);
-        assignPosition(team, assignedPositions, assignedParticipants, POSITION_TOP, this::chooseTop);
-
-        for (GameDetail.GameParticipant participant : team) {
-            if (!assignedPositions.containsKey(participant)) {
-                String fallbackPosition = firstUnusedPosition(assignedPositions);
-                if (fallbackPosition != null) {
-                    assignedPositions.put(participant, fallbackPosition);
-                }
-            }
-        }
-
-        assignedPositions.forEach(this::applyNormalizedPosition);
-    }
-
-    private void assignPosition(
-            List<GameDetail.GameParticipant> team,
-            Map<GameDetail.GameParticipant, String> positions,
-            Set<GameDetail.GameParticipant> used,
-            String position,
-            PositionChooser chooser) {
-        GameDetail.GameParticipant participant = chooser.choose(team, used);
-        if (participant != null) {
-            positions.put(participant, position);
-            used.add(participant);
+        for (List<GameDetail.GameParticipant> team : teams.values()) {
+            assignTeamOrderPositions(team);
         }
     }
 
-    private GameDetail.GameParticipant chooseJungle(List<GameDetail.GameParticipant> team, Set<GameDetail.GameParticipant> used) {
-        return team.stream()
-                .filter(participant -> !used.contains(participant))
-                .max(Comparator
-                        .comparingInt((GameDetail.GameParticipant participant) -> hasSmite(participant) ? 1 : 0)
-                        .thenComparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getNeutralMinionsKilled())))
-                .filter(participant -> hasSmite(participant)
-                        || (participant.getStats() != null && intValue(participant.getStats().getNeutralMinionsKilled()) >= 20))
-                .orElse(null);
+    private boolean shouldAssignTeamOrderPositions(
+            GameDetail detail,
+            Map<Integer, List<GameDetail.GameParticipant>> teams) {
+        return detail != null
+                && Integer.valueOf(SUMMONERS_RIFT_MAP_ID).equals(detail.getMapId())
+                && QueueType.isRanked(detail.getQueueId())
+                && teams.size() == 2
+                && teams.values().stream().allMatch(this::isCompleteOrderedTeam);
     }
 
-    private GameDetail.GameParticipant chooseSupport(List<GameDetail.GameParticipant> team, Set<GameDetail.GameParticipant> used) {
-        return team.stream()
-                .filter(participant -> !used.contains(participant))
-                .filter(participant -> POSITION_SUPPORT.equals(rawPosition(participant)) || supportScore(participant) > 0)
-                .max(Comparator.comparingInt(this::supportScore))
-                .orElseGet(() -> team.stream()
-                        .filter(participant -> !used.contains(participant))
-                        .min(Comparator.comparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                        .orElse(null));
+    private boolean isCompleteOrderedTeam(List<GameDetail.GameParticipant> team) {
+        return team != null
+                && team.size() == TEAM_ORDER_POSITIONS.size()
+                && team.stream().allMatch(participant -> participant != null && participant.getParticipantId() != null);
     }
 
-    private GameDetail.GameParticipant chooseBottom(List<GameDetail.GameParticipant> team, Set<GameDetail.GameParticipant> used) {
-        return team.stream()
-                .filter(participant -> !used.contains(participant))
-                .filter(participant -> POSITION_BOTTOM.equals(rawPosition(participant)) || hasBottomCarrySpell(participant))
-                .max(Comparator
-                        .comparingInt((GameDetail.GameParticipant participant) -> POSITION_BOTTOM.equals(rawPosition(participant)) ? 1000 : 0)
-                        .thenComparingInt(participant -> hasBottomCarrySpell(participant) ? 200 : 0)
-                        .thenComparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                .orElseGet(() -> team.stream()
-                        .filter(participant -> !used.contains(participant))
-                        .max(Comparator.comparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                        .orElse(null));
-    }
-
-    private GameDetail.GameParticipant chooseMiddle(List<GameDetail.GameParticipant> team, Set<GameDetail.GameParticipant> used) {
-        return team.stream()
-                .filter(participant -> !used.contains(participant))
-                .filter(participant -> POSITION_MIDDLE.equals(rawPosition(participant)) || hasTeleport(participant))
-                .max(Comparator
-                        .comparingInt((GameDetail.GameParticipant participant) -> POSITION_MIDDLE.equals(rawPosition(participant)) ? 1000 : 0)
-                        .thenComparingInt(participant -> hasTeleport(participant) ? 200 : 0)
-                        .thenComparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                .orElseGet(() -> team.stream()
-                        .filter(participant -> !used.contains(participant))
-                        .max(Comparator.comparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                        .orElse(null));
-    }
-
-    private GameDetail.GameParticipant chooseTop(List<GameDetail.GameParticipant> team, Set<GameDetail.GameParticipant> used) {
-        return team.stream()
-                .filter(participant -> !used.contains(participant))
-                .filter(participant -> POSITION_TOP.equals(rawPosition(participant)) || hasTeleport(participant))
-                .max(Comparator
-                        .comparingInt((GameDetail.GameParticipant participant) -> POSITION_TOP.equals(rawPosition(participant)) ? 1000 : 0)
-                        .thenComparingInt(participant -> hasTeleport(participant) ? 200 : 0)
-                        .thenComparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                .orElseGet(() -> team.stream()
-                        .filter(participant -> !used.contains(participant))
-                        .max(Comparator.comparingInt(participant -> intValue(participant.getStats() == null
-                                ? null
-                                : participant.getStats().getTotalMinionsKilled())))
-                        .orElse(null));
+    private void assignTeamOrderPositions(List<GameDetail.GameParticipant> team) {
+        List<GameDetail.GameParticipant> orderedTeam = team.stream()
+                .sorted(Comparator.comparing(GameDetail.GameParticipant::getParticipantId))
+                .toList();
+        for (int index = 0; index < orderedTeam.size(); index++) {
+            applyNormalizedPosition(orderedTeam.get(index), TEAM_ORDER_POSITIONS.get(index));
+        }
     }
 
     private void applyNormalizedPosition(GameDetail.GameParticipant participant, String position) {
@@ -2336,85 +2247,6 @@ public class MatchHistoryService {
         }
     }
 
-    private String rawPosition(GameDetail.GameParticipant participant) {
-        if (participant == null || participant.getTimeline() == null) {
-            return null;
-        }
-
-        String explicitPosition = normalizePosition(participant.getTeamPosition());
-        if (!isKnownPosition(explicitPosition)) {
-            explicitPosition = normalizePosition(participant.getIndividualPosition());
-        }
-        if (isKnownPosition(explicitPosition)) {
-            return explicitPosition;
-        }
-
-        String lane = normalizePosition(participant.getTimeline().getRawLane());
-        String role = normalizePosition(participant.getTimeline().getRawRole());
-
-        if ("TOP".equals(lane)) {
-            return POSITION_TOP;
-        }
-        if ("MIDDLE".equals(lane) || "MID".equals(lane)) {
-            return POSITION_MIDDLE;
-        }
-        if ("BOTTOM".equals(lane) || "BOT".equals(lane)) {
-            if (role != null && role.contains("SUPPORT")) {
-                return POSITION_SUPPORT;
-            }
-            return POSITION_BOTTOM;
-        }
-        if ("UTILITY".equals(lane) || "SUPPORT".equals(lane)) {
-            return POSITION_SUPPORT;
-        }
-        return null;
-    }
-
-    private String firstUnusedPosition(Map<GameDetail.GameParticipant, String> assignedPositions) {
-        for (String position : List.of(POSITION_TOP, POSITION_JUNGLE, POSITION_MIDDLE, POSITION_BOTTOM, POSITION_SUPPORT)) {
-            if (!assignedPositions.containsValue(position)) {
-                return position;
-            }
-        }
-        return null;
-    }
-
-    private boolean hasSmite(GameDetail.GameParticipant participant) {
-        return spellEquals(participant, SUMMONER_SPELL_SMITE);
-    }
-
-    private boolean hasTeleport(GameDetail.GameParticipant participant) {
-        return spellEquals(participant, SUMMONER_SPELL_TELEPORT);
-    }
-
-    private boolean hasBottomCarrySpell(GameDetail.GameParticipant participant) {
-        return spellEquals(participant, SUMMONER_SPELL_HEAL) || spellEquals(participant, SUMMONER_SPELL_BARRIER);
-    }
-
-    private boolean spellEquals(GameDetail.GameParticipant participant, int spellId) {
-        return participant != null && (Integer.valueOf(spellId).equals(participant.getSpell1Id())
-                || Integer.valueOf(spellId).equals(participant.getSpell2Id()));
-    }
-
-    private int supportScore(GameDetail.GameParticipant participant) {
-        if (participant == null || participant.getStats() == null) {
-            return 0;
-        }
-
-        int score = 0;
-        if (POSITION_SUPPORT.equals(rawPosition(participant))) {
-            score += 1000;
-        }
-        String role = participant.getTimeline() == null ? null : normalizePosition(participant.getTimeline().getRawRole());
-        if (role != null && role.contains("SUPPORT")) {
-            score += 300;
-        }
-        score += intValue(participant.getStats().getVisionScore()) * 4;
-        score -= intValue(participant.getStats().getTotalMinionsKilled()) * 2;
-        score -= intValue(participant.getStats().getNeutralMinionsKilled()) * 4;
-        return score;
-    }
-
     private boolean isKnownPosition(String position) {
         return POSITION_TOP.equals(position)
                 || POSITION_JUNGLE.equals(position)
@@ -2432,11 +2264,6 @@ public class MatchHistoryService {
             case POSITION_SUPPORT -> "辅助";
             default -> "未知";
         };
-    }
-
-    @FunctionalInterface
-    private interface PositionChooser {
-        GameDetail.GameParticipant choose(List<GameDetail.GameParticipant> team, Set<GameDetail.GameParticipant> used);
     }
 
     private record ResolvedProvider(MatchHistoryProvider provider, MatchHistorySource source) {

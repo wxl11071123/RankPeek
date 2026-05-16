@@ -292,6 +292,25 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getGameDetailById_assignsRankedSummonersRiftPositionsByTeamOrder() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        var detail = rankedSummonersRiftDetailWithMisleadingTopMidStats(121L);
+        when(matchHistoryProvider.fetchGameDetail(121L, options(MatchHistorySource.LCU, false)))
+                .thenReturn(detail);
+
+        var result = sourceAwareService.getGameDetailById(121L, MatchHistorySource.LCU);
+
+        assertThat(orderedTeamPositions(result, 100))
+                .containsExactly("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "SUPPORT");
+        assertThat(orderedTimelinePositions(result, 100))
+                .containsExactly("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "SUPPORT");
+        assertThat(orderedTeamPositions(result, 200))
+                .containsExactly("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "SUPPORT");
+        assertThat(orderedTimelinePositions(result, 200))
+                .containsExactly("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "SUPPORT");
+    }
+
+    @Test
     void getGameTimelineById_sourceSgpReturnsFetchedTimeline() {
         MatchHistoryService sourceAwareService = sourceAwareService();
         MatchTimeline timeline = new MatchTimeline();
@@ -1479,6 +1498,105 @@ class MatchHistoryServiceTest {
         identity.setPlayer(player);
         detail.setParticipantIdentities(List.of(identity));
         return detail;
+    }
+
+    private io.rankpeek.model.GameDetail rankedSummonersRiftDetailWithMisleadingTopMidStats(long gameId) {
+        io.rankpeek.model.GameDetail detail = new io.rankpeek.model.GameDetail();
+        detail.setGameId(gameId);
+        detail.setMapId(11);
+        detail.setQueueId(420);
+        detail.setGameDuration(1800L);
+
+        List<io.rankpeek.model.GameDetail.GameParticipant> participants = new java.util.ArrayList<>();
+        List<io.rankpeek.model.GameDetail.ParticipantIdentity> identities = new java.util.ArrayList<>();
+        for (int participantId = 1; participantId <= 10; participantId++) {
+            int slot = (participantId - 1) % 5;
+            int teamId = participantId <= 5 ? 100 : 200;
+            int totalMinionsKilled = switch (slot) {
+                case 0 -> 260;
+                case 1 -> 30;
+                case 2 -> 190;
+                case 3 -> 210;
+                default -> 20;
+            };
+            int neutralMinionsKilled = slot == 1 ? 120 : 0;
+            int visionScore = slot == 4 ? 75 : 12;
+            participants.add(gameParticipant(
+                    participantId,
+                    teamId,
+                    100 + participantId,
+                    slot == 1 ? 11 : 4,
+                    switch (slot) {
+                        case 0, 2 -> 12;
+                        case 3 -> 7;
+                        default -> 14;
+                    },
+                    totalMinionsKilled,
+                    neutralMinionsKilled,
+                    visionScore
+            ));
+            identities.add(detailIdentity(participantId, "player-" + participantId));
+        }
+
+        detail.setParticipants(participants);
+        detail.setParticipantIdentities(identities);
+        return detail;
+    }
+
+    private io.rankpeek.model.GameDetail.GameParticipant gameParticipant(
+            int participantId,
+            int teamId,
+            int championId,
+            int spell1Id,
+            int spell2Id,
+            int totalMinionsKilled,
+            int neutralMinionsKilled,
+            int visionScore) {
+        io.rankpeek.model.GameDetail.GameParticipant participant = new io.rankpeek.model.GameDetail.GameParticipant();
+        participant.setParticipantId(participantId);
+        participant.setTeamId(teamId);
+        participant.setChampionId(championId);
+        participant.setSpell1Id(spell1Id);
+        participant.setSpell2Id(spell2Id);
+
+        io.rankpeek.model.GameDetail.Stats stats = new io.rankpeek.model.GameDetail.Stats();
+        stats.setWin(teamId == 100);
+        stats.setKills(participantId);
+        stats.setDeaths(2);
+        stats.setAssists(3);
+        stats.setTotalMinionsKilled(totalMinionsKilled);
+        stats.setNeutralMinionsKilled(neutralMinionsKilled);
+        stats.setVisionScore(visionScore);
+        stats.setGoldEarned(9000L + participantId);
+        stats.setTotalDamageDealtToChampions(12000L + participantId);
+        stats.setTotalDamageTaken(15000L + participantId);
+        participant.setStats(stats);
+        return participant;
+    }
+
+    private io.rankpeek.model.GameDetail.ParticipantIdentity detailIdentity(int participantId, String puuid) {
+        io.rankpeek.model.GameDetail.ParticipantIdentity identity = new io.rankpeek.model.GameDetail.ParticipantIdentity();
+        identity.setParticipantId(participantId);
+        io.rankpeek.model.GameDetail.Player player = new io.rankpeek.model.GameDetail.Player();
+        player.setPuuid(puuid);
+        identity.setPlayer(player);
+        return identity;
+    }
+
+    private List<String> orderedTeamPositions(io.rankpeek.model.GameDetail detail, int teamId) {
+        return detail.getParticipants().stream()
+                .filter(participant -> participant.getTeamId() == teamId)
+                .sorted(java.util.Comparator.comparing(io.rankpeek.model.GameDetail.GameParticipant::getParticipantId))
+                .map(io.rankpeek.model.GameDetail.GameParticipant::getTeamPosition)
+                .toList();
+    }
+
+    private List<String> orderedTimelinePositions(io.rankpeek.model.GameDetail detail, int teamId) {
+        return detail.getParticipants().stream()
+                .filter(participant -> participant.getTeamId() == teamId)
+                .sorted(java.util.Comparator.comparing(io.rankpeek.model.GameDetail.GameParticipant::getParticipantId))
+                .map(participant -> participant.getTimeline() == null ? null : participant.getTimeline().getTeamPosition())
+                .toList();
     }
 
     private io.rankpeek.model.GameDetail.TeamObjectiveSummary teamObjectiveSummary(
