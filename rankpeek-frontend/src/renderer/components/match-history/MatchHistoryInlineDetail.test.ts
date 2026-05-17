@@ -518,7 +518,7 @@ test('timeline axis hover synchronizes chart crosshair without showing chart too
   const chartStageBlock = source.match(/<div v-if="selectedGoldDiffSeries\.points\.length" class="timeline-chart-stage"[\s\S]*?<div v-else class="timeline-chart-metric-empty">/)?.[0] || ''
   const crosshairBlock = chartStageBlock.match(/<line[\s\S]*class="timeline-chart-crosshair"[\s\S]*?\/>/)?.[0] || ''
   const chartTooltipBlock = chartStageBlock.match(/<div[\s\S]*class="timeline-chart-tooltip timeline-chart-tooltip--bubble"[\s\S]*?<\/div>/)?.[0] || ''
-  const activeTimestampComputed = source.match(/const activeChartCrosshairTimestamp = computed[\s\S]*?\)\n/)?.[0] || ''
+  const activeTimestampComputed = source.match(/const activeChartCrosshairTimestamp = computed[\s\S]*?\)\r?\n/)?.[0] || ''
   const showAxisFunction = readFunctionBlock(source, 'function showTimelineEventTooltip')
   const hideAxisFunction = readFunctionBlock(source, 'function hideTimelineEventTooltip')
 
