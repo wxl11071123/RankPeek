@@ -256,6 +256,8 @@ const CHART_PADDING = {
 }
 const CHART_PLOT_WIDTH = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
 const CHART_PLOT_HEIGHT = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
+const CHART_Y_TICK_LABEL_MIN_GAP = 28
+const MAX_CHART_Y_TICK_COUNT = Math.max(3, Math.floor(CHART_PLOT_HEIGHT / CHART_Y_TICK_LABEL_MIN_GAP) + 1)
 const LANE_WATERMARK_SIZE = 46
 const LANE_WATERMARK_AXIS_GAP = 8
 const TEAM_WATERMARK_SIZE = 34
@@ -526,10 +528,13 @@ const displayGameDetail = computed<GameDetail | null>(() => {
 const blueTeamPlayers = computed(() => getTeamParticipants(displayGameDetail.value, 100, props.currentPuuid))
 const redTeamPlayers = computed(() => getTeamParticipants(displayGameDetail.value, 200, props.currentPuuid))
 const allPlayers = computed(() => [...blueTeamPlayers.value, ...redTeamPlayers.value])
-const runeTeamSections = computed<RuneTeamSection[]>(() => [
-  { key: 'blue', teamId: 100, label: t('common.blueTeam'), players: blueTeamPlayers.value },
-  { key: 'red', teamId: 200, label: t('common.redTeam'), players: redTeamPlayers.value }
-].filter(section => section.players.length > 0))
+const runeTeamSections = computed<RuneTeamSection[]>(() => {
+  const sections: RuneTeamSection[] = [
+    { key: 'blue', teamId: 100, label: t('common.blueTeam'), players: blueTeamPlayers.value },
+    { key: 'red', teamId: 200, label: t('common.redTeam'), players: redTeamPlayers.value }
+  ]
+  return sections.filter(section => section.players.length > 0)
+})
 const blueTeamTotals = computed(() => sumTeamStats(blueTeamPlayers.value))
 const redTeamTotals = computed(() => sumTeamStats(redTeamPlayers.value))
 const maxChampionDamage = computed(() => maxPlayerMetric(player => readStatNumber(player, 'totalDamageDealtToChampions')))
@@ -556,7 +561,7 @@ const hoveredEventCluster = ref<TimelineEventCluster | null>(null)
 const hoveredEventTooltipAnchor = ref<TimelineEventTooltipAnchor | null>(null)
 const timelineChartModel = computed(() => createTimelineChartModel(timelineData.value, displayGameDetail.value))
 const selectedGoldDiffSeries = computed<GoldDiffSeries>(() => timelineChartModel.value.seriesByMetric[selectedGoldDiffMetric.value])
-const selectedGoldDiffDomain = computed(() => createGoldDiffDomain(selectedGoldDiffSeries.value.points))
+const selectedGoldDiffDomain = computed(() => createGoldDiffDomain(selectedGoldDiffSeries.value.points, { maxTickCount: MAX_CHART_Y_TICK_COUNT }))
 const chartEventClusters = computed(() => timelineChartModel.value.eventClusters)
 const timelineMaxTimestamp = computed(() => Math.max(
   timelineChartModel.value.maxTimestamp,
@@ -574,6 +579,7 @@ const zeroAxisY = computed(() => getChartY(0))
 const positiveDiffFillHeight = computed(() => Math.max(0, zeroAxisY.value - CHART_PADDING.top))
 const negativeDiffFillHeight = computed(() => Math.max(0, CHART_HEIGHT - CHART_PADDING.bottom - zeroAxisY.value))
 const selectedGoldDiffMetricLabel = computed(() => getGoldDiffMetricLabel(selectedGoldDiffMetric.value))
+const selectedLaneParticipantIds = computed<Set<number>>(() => createSelectedLaneParticipantIdSet())
 const laneMatchupWatermarks = computed<LaneMatchupWatermark[]>(() => createLaneMatchupWatermarks())
 const teamAverageWatermarkGroups = computed<TeamAverageWatermarkGroup[]>(() => createTeamAverageWatermarkGroups())
 const timelineEventTracks = computed<TimelineEventTrack[]>(() => createTimelineEventTracks())
@@ -1209,6 +1215,61 @@ function createTimelineEventTracks(): TimelineEventTrack[] {
     { key: 'blue', clusters: blueClusters },
     { key: 'red', clusters: redClusters }
   ]
+}
+
+function createSelectedLaneParticipantIdSet(): Set<number> {
+  const metric = selectedGoldDiffMetric.value
+  if (metric === 'teamAverage') {
+    return new Set()
+  }
+
+  const matchup = timelineChartModel.value.laneMatchups[metric]
+  return new Set(
+    [matchup?.blue?.participantId, matchup?.red?.participantId]
+      .filter((participantId): participantId is number => (
+        typeof participantId === 'number' && Number.isFinite(participantId)
+      ))
+  )
+}
+
+function getTimelineClusterRelevanceClass(cluster: TimelineEventCluster): string {
+  if (!shouldHighlightSelectedLaneTimelineEvents()) {
+    return ''
+  }
+  return isTimelineClusterRelatedToSelectedLane(cluster)
+    ? 'timeline-axis-marker--related'
+    : 'timeline-axis-marker--dimmed'
+}
+
+function shouldHighlightSelectedLaneTimelineEvents(): boolean {
+  return selectedGoldDiffMetric.value !== 'teamAverage' && selectedLaneParticipantIds.value.size > 0
+}
+
+function isTimelineClusterRelatedToSelectedLane(cluster: TimelineEventCluster): boolean {
+  return cluster.items.some(marker => isTimelineEventMarkerRelatedToSelectedLane(marker))
+}
+
+function isTimelineEventMarkerRelatedToSelectedLane(marker: TimelineEventMarker): boolean {
+  return isTimelineEventMarkerRelatedToParticipantIds(marker, selectedLaneParticipantIds.value)
+}
+
+function isTimelineEventMarkerRelatedToParticipantIds(
+  marker: TimelineEventMarker,
+  participantIds: Set<number>
+): boolean {
+  if (!participantIds.size) {
+    return false
+  }
+
+  if (
+    (marker.participantId !== null && participantIds.has(marker.participantId))
+    || (marker.killerId !== null && participantIds.has(marker.killerId))
+    || (marker.victimId !== null && participantIds.has(marker.victimId))
+  ) {
+    return true
+  }
+
+  return (marker.assistingParticipantIds ?? []).some(participantId => participantIds.has(participantId))
 }
 
 function clusterTimelineAxisMarkers(
@@ -3248,8 +3309,9 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
       <div v-else-if="activeTabValue === 'runes'" class="runes-tab">
         <section
-          v-for="team in runeTeamSections"
+          v-for="(team, teamIndex) in runeTeamSections"
           :key="`rune-team-${team.key}`"
+          :data-team-index="teamIndex"
           class="rune-team-card"
           :class="team.key"
         >
@@ -3259,8 +3321,9 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
           <div class="rune-team-players">
             <div
-              v-for="player in team.players"
+              v-for="(player, playerIndex) in team.players"
               :key="`runes-${player.participantId}`"
+              :data-player-index="playerIndex"
               class="rune-player-row"
               :class="{
                 me: player.isCurrentPlayer,
@@ -3743,7 +3806,8 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
                     class="timeline-axis-marker"
                     :class="[
                       track.key === 'blue' ? 'timeline-axis-marker--blue' : 'timeline-axis-marker--red',
-                      cluster.count > 1 ? 'timeline-axis-marker--cluster' : 'timeline-axis-marker--single'
+                      cluster.count > 1 ? 'timeline-axis-marker--cluster' : 'timeline-axis-marker--single',
+                      getTimelineClusterRelevanceClass(cluster)
                     ]"
                     :style="getTimelineClusterStyle(cluster)"
                     :aria-label="`${formatTimelineTime(cluster.timestamp)} ${getTimelineClusterLabel(cluster)}`"
@@ -5138,6 +5202,29 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   box-shadow:
     0 0 0 2px rgba(7, 14, 24, 0.38),
     0 0 12px rgba(255, 101, 119, 0.24);
+}
+
+.timeline-axis-marker--related {
+  z-index: 14;
+  border-color: rgba(247, 252, 255, 0.72);
+  opacity: 1;
+}
+
+.timeline-axis-marker--related.timeline-axis-marker--blue {
+  box-shadow:
+    0 0 0 2px rgba(7, 14, 24, 0.42),
+    0 0 14px rgba(85, 170, 255, 0.36);
+}
+
+.timeline-axis-marker--related.timeline-axis-marker--red {
+  box-shadow:
+    0 0 0 2px rgba(7, 14, 24, 0.42),
+    0 0 14px rgba(255, 101, 119, 0.34);
+}
+
+.timeline-axis-marker--dimmed {
+  border-color: rgba(237, 246, 255, 0.12);
+  opacity: 0.28;
 }
 
 .timeline-axis-marker:hover,

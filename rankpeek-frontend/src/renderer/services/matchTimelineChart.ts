@@ -30,6 +30,10 @@ export interface GoldDiffDomain {
   ticks: number[]
 }
 
+export interface GoldDiffDomainOptions {
+  maxTickCount?: number
+}
+
 export interface TimelineEventMarker {
   key: string
   type: TimelineEventMarkerType
@@ -38,6 +42,7 @@ export interface TimelineEventMarker {
   participantId: number | null
   killerId: number | null
   victimId: number | null
+  assistingParticipantIds: number[]
   killerChampionId: number | null
   victimChampionId: number | null
   participantChampionId: number | null
@@ -309,29 +314,42 @@ export function formatGoldDiffTick(value: number | null | undefined): string {
 
   const prefix = rounded < 0 ? '-' : ''
   const absoluteValue = Math.abs(rounded)
+  if (absoluteValue >= 10000) {
+    const compact = absoluteValue / 1000
+    const compactText = Number.isInteger(compact)
+      ? String(compact)
+      : compact.toFixed(1).replace(/\.0$/, '')
+    return `${prefix}${compactText}k`
+  }
   return `${prefix}${absoluteValue}`
 }
 
-export function createGoldDiffDomain(points: GoldDiffPoint[]): GoldDiffDomain {
+export function createGoldDiffDomain(
+  points: GoldDiffPoint[],
+  options: GoldDiffDomainOptions = {}
+): GoldDiffDomain {
   const values = points
     .map(point => toFiniteNumber(point.diff))
     .filter((value): value is number => value !== null)
 
   if (!values.length) {
-    return createSymmetricGoldDiffDomain(1000)
+    return createSymmetricGoldDiffDomain(1000, options)
   }
 
   const maxAbsoluteValue = Math.max(...values.map(value => Math.abs(value)))
-  return createSymmetricGoldDiffDomain(getNiceGoldDiffLimit(maxAbsoluteValue))
+  return createSymmetricGoldDiffDomain(getNiceGoldDiffLimit(maxAbsoluteValue), options)
 }
 
-function createSymmetricGoldDiffDomain(limit: number): GoldDiffDomain {
+function createSymmetricGoldDiffDomain(
+  limit: number,
+  options: GoldDiffDomainOptions = {}
+): GoldDiffDomain {
   const safeLimit = Math.max(100, Math.round(limit))
   return {
     min: -safeLimit,
     max: safeLimit,
     zeroY: 0.5,
-    ticks: createSymmetricGoldDiffTicks(safeLimit)
+    ticks: createSymmetricGoldDiffTicks(safeLimit, options.maxTickCount)
   }
 }
 
@@ -348,10 +366,32 @@ function getNiceGoldDiffLimit(maxAbsoluteValue: number): number {
   return Math.ceil(maxAbsoluteValue / 1000) * 1000
 }
 
-function createSymmetricGoldDiffTicks(limit: number): number[] {
-  const step = getGoldDiffTickStep(limit)
+function createSymmetricGoldDiffTicks(limit: number, maxTickCount?: number): number[] {
+  const safeMaxTickCount = Number.isFinite(maxTickCount)
+    ? Math.max(3, Math.floor(maxTickCount ?? 0))
+    : Number.POSITIVE_INFINITY
+  let step = getGoldDiffTickStep(limit)
+  let ticks = buildSymmetricGoldDiffTicks(limit, step)
+
+  while (ticks.length > safeMaxTickCount) {
+    const nextStep = getNextGoldDiffTickStep(step)
+    if (nextStep <= step) {
+      break
+    }
+    step = nextStep
+    ticks = buildSymmetricGoldDiffTicks(limit, step)
+  }
+
+  return ticks
+}
+
+function buildSymmetricGoldDiffTicks(limit: number, step: number): number[] {
   const ticks: number[] = []
-  for (let value = -limit; value <= limit; value += step) {
+  const maxTick = Math.floor(limit / step) * step
+  if (maxTick <= 0) {
+    return [-limit, 0, limit]
+  }
+  for (let value = -maxTick; value <= maxTick; value += step) {
     ticks.push(value)
   }
   if (!ticks.includes(0)) {
@@ -368,6 +408,15 @@ function getGoldDiffTickStep(limit: number): number {
     return 250
   }
   return 1000
+}
+
+function getNextGoldDiffTickStep(step: number): number {
+  const niceSteps = [100, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000]
+  const nextNiceStep = niceSteps.find(candidate => candidate > step)
+  if (nextNiceStep !== undefined) {
+    return nextNiceStep
+  }
+  return step * 2
 }
 
 function createTeamTotalGoldPoint(
@@ -513,6 +562,9 @@ function createTimelineEventMarker(
   const killerId = toFiniteNumber(event.killerId)
   const victimId = toFiniteNumber(event.victimId)
   const participantId = toFiniteNumber(event.participantId)
+  const assistingParticipantIds = (event.assistingParticipantIds ?? [])
+    .map(id => toFiniteNumber(id))
+    .filter((id): id is number => id !== null)
   const teamId = resolveEventTeamId(event, participantsById)
   const killerParticipant = killerId === null ? undefined : participantsById.get(killerId)
   const victimParticipant = victimId === null ? undefined : participantsById.get(victimId)
@@ -526,6 +578,7 @@ function createTimelineEventMarker(
     participantId,
     killerId,
     victimId,
+    assistingParticipantIds,
     killerChampionId: readChampionId(killerParticipant),
     victimChampionId: readChampionId(victimParticipant),
     participantChampionId: readChampionId(participant),

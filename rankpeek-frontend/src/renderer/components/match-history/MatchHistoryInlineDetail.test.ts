@@ -70,6 +70,15 @@ interface TimelineAxisClusterHarness {
   }>
 }
 
+interface TimelineLaneRelevanceHarness {
+  getTimelineClusterRelevanceClass: (cluster: { items: Array<Record<string, unknown>> }) => string
+  isTimelineClusterRelatedToSelectedLane: (cluster: { items: Array<Record<string, unknown>> }) => boolean
+  isTimelineEventMarkerRelatedToParticipantIds: (
+    marker: Record<string, unknown>,
+    participantIds: Set<number>
+  ) => boolean
+}
+
 interface ChartTooltipHarness {
   formatChartTooltipMetricLine: (label: string, point: { diff: number | null }) => string
 }
@@ -192,6 +201,36 @@ function createTimelineAxisClusterHarness(): TimelineAxisClusterHarness {
   const context = createContext({})
   runInContext(compiled, context)
   return (context as { __timelineAxisClusterHarness: TimelineAxisClusterHarness }).__timelineAxisClusterHarness
+}
+
+function createTimelineLaneRelevanceHarness(
+  metric = 'top',
+  participantIds: number[] = [1, 6]
+): TimelineLaneRelevanceHarness {
+  const source = readInlineDetailSource()
+  const script = `
+    const selectedGoldDiffMetric = { value: '${metric}' }
+    const selectedLaneParticipantIds = { value: new Set(${JSON.stringify(participantIds)}) }
+    ${readFunctionBlock(source, 'function getTimelineClusterRelevanceClass(')}
+    ${readFunctionBlock(source, 'function shouldHighlightSelectedLaneTimelineEvents(')}
+    ${readFunctionBlock(source, 'function isTimelineClusterRelatedToSelectedLane(')}
+    ${readFunctionBlock(source, 'function isTimelineEventMarkerRelatedToSelectedLane(')}
+    ${readFunctionBlock(source, 'function isTimelineEventMarkerRelatedToParticipantIds(')}
+    globalThis.__timelineLaneRelevanceHarness = {
+      getTimelineClusterRelevanceClass,
+      isTimelineClusterRelatedToSelectedLane,
+      isTimelineEventMarkerRelatedToParticipantIds
+    }
+  `
+  const compiled = ts.transpileModule(script, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText
+  const context = createContext({ Set })
+  runInContext(compiled, context)
+  return (context as { __timelineLaneRelevanceHarness: TimelineLaneRelevanceHarness }).__timelineLaneRelevanceHarness
 }
 
 function createObjectiveCountHarness(gameDetail: Record<string, unknown>): ObjectiveCountHarness {
@@ -545,6 +584,38 @@ test('chart timeline axis renders team-isolated blue and red dot markers', () =>
   assert.doesNotMatch(tracksFunction, /teamId !== 100 && cluster\.teamId !== 200|neutral/)
   assert.match(markerButtonBlock, /track\.key === 'blue'\s*\?\s*'timeline-axis-marker--blue'\s*:\s*'timeline-axis-marker--red'/)
   assert.doesNotMatch(markerButtonBlock, /`event-\$\{cluster\.type\}`|`team-\$\{track\.key\}`/)
+})
+
+test('chart timeline axis emphasizes markers related to the selected lane matchup', () => {
+  const source = readInlineDetailSource()
+  const markerButtonBlock = source.match(/class="timeline-axis-marker[\s\S]*?<\/button>/)?.[0] || ''
+  const relatedRule = source.match(/\.timeline-axis-marker--related \{[\s\S]*?\n\}/)?.[0] || ''
+  const dimmedRule = source.match(/\.timeline-axis-marker--dimmed \{[\s\S]*?\n\}/)?.[0] || ''
+  const harness = createTimelineLaneRelevanceHarness('top', [1, 6])
+
+  assert.match(source, /createGoldDiffDomain\(selectedGoldDiffSeries\.value\.points,\s*\{\s*maxTickCount:\s*MAX_CHART_Y_TICK_COUNT\s*\}\)/)
+  assert.match(markerButtonBlock, /getTimelineClusterRelevanceClass\(cluster\)/)
+  assert.match(relatedRule, /opacity:\s*1/)
+  assert.match(dimmedRule, /opacity:\s*0\.\d+/)
+  assert.equal(harness.getTimelineClusterRelevanceClass({ items: [{ killerId: 1 }] }), 'timeline-axis-marker--related')
+  assert.equal(harness.getTimelineClusterRelevanceClass({ items: [{ victimId: 6 }] }), 'timeline-axis-marker--related')
+  assert.equal(harness.getTimelineClusterRelevanceClass({ items: [{ participantId: 1 }] }), 'timeline-axis-marker--related')
+  assert.equal(
+    harness.getTimelineClusterRelevanceClass({ items: [{ killerId: 4, assistingParticipantIds: [5, 6] }] }),
+    'timeline-axis-marker--related'
+  )
+  assert.equal(harness.getTimelineClusterRelevanceClass({ items: [{ killerId: 4, victimId: 9 }] }), 'timeline-axis-marker--dimmed')
+})
+
+test('team-average timeline axis does not dim unrelated markers', () => {
+  const harness = createTimelineLaneRelevanceHarness('teamAverage', [1, 6])
+
+  assert.equal(harness.getTimelineClusterRelevanceClass({ items: [{ killerId: 4, victimId: 9 }] }), '')
+  assert.equal(harness.isTimelineClusterRelatedToSelectedLane({ items: [{ killerId: 4, victimId: 9 }] }), false)
+  assert.equal(
+    harness.isTimelineEventMarkerRelatedToParticipantIds({ assistingParticipantIds: [6] }, new Set([1, 6])),
+    true
+  )
 })
 
 test('chart timeline axis aggregates nearby same-team markers with a bottom-axis window', () => {

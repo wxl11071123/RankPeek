@@ -197,6 +197,24 @@ test('event markers extract supported events and sort by timestamp', () => {
   assert.equal(markers[0]?.victimChampionId, 109)
 })
 
+test('event markers preserve assisting participant ids for lane relevance checks', () => {
+  const markers = createTimelineEventMarkers({
+    gameId: 7001,
+    frames: [],
+    events: [
+      {
+        eventType: 'CHAMPION_KILL',
+        timestamp: 90000,
+        killerId: 4,
+        victimId: 9,
+        assistingParticipantIds: [1, 5, 10]
+      }
+    ]
+  }, createDetail())
+
+  assert.deepEqual(markers[0]?.assistingParticipantIds, [1, 5, 10])
+})
+
 test('timeline event clusters merge nearby same-team events and retain all items', () => {
   const markers = createTimelineEventMarkers({
     gameId: 7001,
@@ -260,9 +278,34 @@ test('gold diff domain uses nice symmetric ticks instead of raw values', () => {
   assert.deepEqual(domain.ticks, [-2000, -1000, 0, 1000, 2000])
   assert.equal(formatGoldDiffTick(1000), '1000')
   assert.equal(formatGoldDiffTick(-2000), '-2000')
-  assert.equal(formatGoldDiffTick(10000), '10000')
+  assert.equal(formatGoldDiffTick(10000), '10k')
+  assert.equal(formatGoldDiffTick(-12500), '-12.5k')
   assert.notEqual(formatGoldDiffTick(877), '+877')
   assert.doesNotMatch(formatGoldDiffTick(1000), /千|万/)
+})
+
+test('gold diff domain limits large lead tick count while keeping a zero tick', () => {
+  const domain = createGoldDiffDomain([
+    { timestamp: 60000, blueValue: 22000, redValue: 2000, diff: 20000 },
+    { timestamp: 120000, blueValue: 3500, redValue: 18500, diff: -15000 }
+  ], { maxTickCount: 6 })
+
+  assert.equal(domain.min, -20000)
+  assert.equal(domain.max, 20000)
+  assert.ok(domain.ticks.length <= 6)
+  assert.ok(domain.ticks.includes(0))
+  assert.deepEqual(domain.ticks, [-20000, -10000, 0, 10000, 20000])
+
+  const unevenDomain = createGoldDiffDomain([
+    { timestamp: 60000, blueValue: 17000, redValue: 2000, diff: 15000 },
+    { timestamp: 120000, blueValue: 2000, redValue: 17000, diff: -15000 }
+  ], { maxTickCount: 6 })
+
+  assert.equal(unevenDomain.min, -15000)
+  assert.equal(unevenDomain.max, 15000)
+  assert.ok(unevenDomain.ticks.length <= 6)
+  assert.ok(unevenDomain.ticks.includes(0))
+  assert.deepEqual(unevenDomain.ticks, [-10000, 0, 10000])
 })
 
 test('lane resolver and formatters handle aliases and signs', () => {
