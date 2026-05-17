@@ -30,17 +30,7 @@ public class AssetController {
      */
     @GetMapping("/profile/{id}")
     public ResponseEntity<byte[]> getProfileIcon(@PathVariable Long id) {
-        String uri = String.format("/lol-game-data/assets/v1/profile-icons/%d.jpg", id);
-        byte[] imageData = lcuHttpClient.getBytes(uri);
-
-        if (imageData != null && imageData.length > 0) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_JPEG);
-            headers.setCacheControl("public, max-age=86400");
-            return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
-        }
-
-        return ResponseEntity.notFound().build();
+        return getAssetImage(AssetService.AssetKind.PROFILE, id);
     }
 
     /**
@@ -48,17 +38,7 @@ public class AssetController {
      */
     @GetMapping("/champion/{id}")
     public ResponseEntity<byte[]> getChampionIcon(@PathVariable Long id) {
-        String uri = String.format("/lol-game-data/assets/v1/champion-icons/%d.png", id);
-        byte[] imageData = lcuHttpClient.getBytes(uri);
-
-        if (imageData != null && imageData.length > 0) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_PNG);
-            headers.setCacheControl("public, max-age=86400");
-            return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
-        }
-
-        return ResponseEntity.notFound().build();
+        return getAssetImage(AssetService.AssetKind.CHAMPION, id);
     }
 
     /**
@@ -66,20 +46,7 @@ public class AssetController {
      */
     @GetMapping("/item/{id}")
     public ResponseEntity<byte[]> getItemIcon(@PathVariable Long id) {
-        String iconPath = assetService.getItemIconPath(id);
-        if (iconPath == null || iconPath.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        byte[] imageData = lcuHttpClient.getBytes(iconPath);
-        if (imageData != null && imageData.length > 0) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_PNG);
-            headers.setCacheControl("public, max-age=86400");
-            return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
-        }
-
-        return ResponseEntity.notFound().build();
+        return getAssetImage(AssetService.AssetKind.ITEM, id);
     }
 
     /**
@@ -87,20 +54,7 @@ public class AssetController {
      */
     @GetMapping("/spell/{id}")
     public ResponseEntity<byte[]> getSpellIcon(@PathVariable Long id) {
-        String iconPath = assetService.getSpellIconPath(id);
-        if (iconPath == null || iconPath.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        byte[] imageData = lcuHttpClient.getBytes(iconPath);
-        if (imageData != null && imageData.length > 0) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_PNG);
-            headers.setCacheControl("public, max-age=86400");
-            return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
-        }
-
-        return ResponseEntity.notFound().build();
+        return getAssetImage(AssetService.AssetKind.SPELL, id);
     }
 
     /**
@@ -108,20 +62,7 @@ public class AssetController {
      */
     @GetMapping("/augment/{id}")
     public ResponseEntity<byte[]> getAugmentIcon(@PathVariable Long id) {
-        String iconPath = assetService.getAugmentIconPath(id);
-        if (iconPath == null || iconPath.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        byte[] imageData = lcuHttpClient.getBytes(iconPath);
-        if (imageData != null && imageData.length > 0) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_PNG);
-            headers.setCacheControl("public, max-age=86400");
-            return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
-        }
-
-        return ResponseEntity.notFound().build();
+        return getAssetImage(AssetService.AssetKind.AUGMENT, id);
     }
 
     /**
@@ -129,34 +70,21 @@ public class AssetController {
      */
     @GetMapping("/perk/{id}")
     public ResponseEntity<byte[]> getPerkIcon(@PathVariable Long id) {
-        String iconPath = assetService.getPerkIconPath(id);
-        if (iconPath == null || iconPath.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        byte[] imageData = lcuHttpClient.getBytes(iconPath);
-        if (imageData != null && imageData.length > 0) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(mediaTypeForIconPath(iconPath));
-            headers.setCacheControl("public, max-age=86400");
-            return new ResponseEntity<>(imageData, headers, HttpStatus.OK);
-        }
-
-        return ResponseEntity.notFound().build();
+        return getAssetImage(AssetService.AssetKind.PERK, id);
     }
 
     /**
      * 获取海克斯强化稀有度
      */
-    private MediaType mediaTypeForIconPath(String iconPath) {
-        String normalized = iconPath == null ? "" : iconPath.toLowerCase();
-        if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) {
-            return MediaType.IMAGE_JPEG;
-        }
-        if (normalized.endsWith(".svg")) {
-            return MediaType.valueOf("image/svg+xml");
-        }
-        return MediaType.IMAGE_PNG;
+    private ResponseEntity<byte[]> getAssetImage(AssetService.AssetKind kind, Long id) {
+        return assetService.getAssetImage(kind, id)
+                .map(image -> {
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.setContentType(MediaType.valueOf(image.contentType()));
+                    headers.setCacheControl("public, max-age=86400");
+                    return new ResponseEntity<>(image.bytes(), headers, HttpStatus.OK);
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/augment/{id}/rarity")

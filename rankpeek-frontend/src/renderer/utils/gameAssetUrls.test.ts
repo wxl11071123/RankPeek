@@ -186,7 +186,7 @@ test('game asset helpers fall back through local backend before remote URLs', ()
   assert.doesNotMatch(getPerkIconUrl(8005), /raw\.communitydragon\.org\/latest\/plugins\/rcp-be-lol-game-data\/global\/default\/v1\/perks\/8005\.png/)
 })
 
-test('perk icon helper uses metadata local icon paths when manifest is missing', () => {
+test('perk icon helper keeps metadata as text only when manifest is missing', () => {
   resetGameAssetResolverForTest()
   setGameAssetMetadataForTest({
     version: 'test',
@@ -201,9 +201,9 @@ test('perk icon helper uses metadata local icon paths when manifest is missing',
     }
   })
 
-  assert.equal(getPerkIconUrl(8135), './game-assets/perks/8135.png')
+  assert.equal(getPerkIconUrl(8135), 'http://127.0.0.1:8080/api/v1/asset/perk/8135')
   assert.equal(getPerkAssetDetails(8135)?.name, 'Treasure Hunter')
-  assert.doesNotMatch(getPerkIconUrl(8135), /raw\.communitydragon\.org\/latest\/plugins\/rcp-be-lol-game-data\/global\/default\/v1\/perks\/8135\.png/)
+  assert.doesNotMatch(getPerkIconUrl(8135), /game-assets\/perks\/8135\.png/)
 })
 
 test('perk icon helper uses backend proxy for LCU metadata icon paths when manifest is missing', () => {
@@ -389,29 +389,23 @@ test('backend asset details do not advertise DDragon as the primary icon URL', (
   assert.match(source, /\/api\/v1\/asset\/item/)
 })
 
-test('renderer startup mounts after local game assets without waiting for the backend overlay', () => {
+test('renderer startup mounts without bundled game assets and refreshes backend metadata after mount', () => {
   const mainSource = readFileSync(new URL('../main.ts', import.meta.url), 'utf8')
-  const manifest = JSON.parse(readFileSync(new URL('../../../public/game-assets/manifest.json', import.meta.url), 'utf8'))
 
-  assert.match(mainSource, /loadGameAssetManifest/)
-  assert.match(mainSource, /loadGameAssetMetadata/)
   assert.match(mainSource, /loadLcuGameAssetMetadataOverlay/)
-  assert.match(mainSource, /Promise\.all\(\[loadGameAssetManifest\(\), loadGameAssetMetadata\(\)\]\)[\s\S]*\.finally\(\(\) => \{[\s\S]*app\.mount\('#app'\)[\s\S]*void loadLcuGameAssetMetadataOverlay\(\)[\s\S]*\}\)/)
-  assert.doesNotMatch(mainSource, /\.then\(\(\) => loadLcuGameAssetMetadataOverlay\(\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*app\.mount\('#app'\)/)
-  assert.doesNotMatch(mainSource, /Promise\.race|manifestStartupDeadline|setTimeout\(resolve,\s*500\)/)
-  assert.equal(typeof manifest.version, 'string')
-  assert.equal(manifest.locale, 'zh_CN')
-  assert.deepEqual(Object.keys(manifest).sort(), [
-    'augments',
-    'champions',
-    'items',
-    'locale',
-    'objectives',
-    'perks',
-    'profileIcons',
-    'summonerSpells',
-    'version'
-  ])
+  assert.match(mainSource, /app\.mount\('#app'\)[\s\S]*void loadLcuGameAssetMetadataOverlay\(\)/)
+  assert.doesNotMatch(mainSource, /loadGameAssetManifest\(\)|loadGameAssetMetadata\(\)/)
+  assert.doesNotMatch(mainSource, /Promise\.all\(\[loadGameAssetManifest|manifestStartupDeadline|setTimeout\(resolve,\s*500\)/)
+})
+
+test('electron packaging excludes generated game assets from the installer bundle', () => {
+  const packageJson = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'))
+  const viteConfig = readFileSync(new URL('../../../vite.config.mts', import.meta.url), 'utf8')
+  const extraResources = JSON.stringify(packageJson.build?.extraResources ?? [])
+
+  assert.match(extraResources, /!game-assets\/\*\*/)
+  assert.match(viteConfig, /exclude-game-assets-from-renderer-bundle/)
+  assert.match(viteConfig, /rmSync\([\s\S]*game-assets/)
 })
 
 test('local game asset manifest contains selective objective icons for normal rendering', () => {
@@ -507,9 +501,9 @@ test('game asset metadata helpers expose item, perk, augment, and summoner spell
   })
 
   assert.equal(getItemAssetDetails(3153)?.name, 'Blade of the Ruined King')
-  assert.equal(getPerkIconUrl(8000), './game-assets/perks/8000.png')
+  assert.equal(getPerkIconUrl(8000), 'http://127.0.0.1:8080/api/v1/asset/perk/8000')
   assert.equal(getPerkAssetDetails(8000)?.icon, 'perks/8000.png')
-  assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
+  assert.equal(getPerkIconUrl(8005), 'http://127.0.0.1:8080/api/v1/asset/perk/8005')
   assert.equal(getPerkAssetDetails(8005)?.shortDesc, 'Hit three times.')
   assert.deepEqual(getPerkAssetDetails(8005)?.endOfGameStatDescs, ['Damage dealt: @eogvar1@'])
   assert.equal(getPerkAssetDetails(8005)?.endOfGameStatDesc, 'Bonus damage: @eogvar2@')
@@ -609,7 +603,7 @@ test('tooltip details use metadata names, sanitized structured item details, and
   assert.equal(spell?.name, 'Flash')
   assert.equal(spell?.subtitle, '')
   assert.equal(spell?.description, 'Teleports your champion\na short distance & resets.')
-  assert.equal(spell?.iconUrl, './game-assets/summoner-spells/4.png')
+  assert.equal(spell?.iconUrl, 'http://127.0.0.1:8080/api/v1/asset/spell/4')
   assert.doesNotMatch(item?.description || '', RAW_TOOLTIP_PATTERN)
   assert.doesNotMatch(item?.sections?.map(section => `${section.label || ''} ${section.text}`).join('\n') || '', RAW_TOOLTIP_PATTERN)
   assert.doesNotMatch(perk?.description || '', RAW_TOOLTIP_PATTERN)
@@ -716,7 +710,7 @@ test('local game asset metadata resolves screenshot item, augment, and perk tool
   assert.notEqual(perk?.description, perkFallback?.description)
   assert.ok(perk?.description.trim())
   assert.doesNotMatch(perk?.description || '', RAW_TOOLTIP_PATTERN)
-  assert.equal(getPerkIconUrl(8005), './game-assets/perks/8005.png')
+  assert.equal(getPerkIconUrl(8005), 'http://127.0.0.1:8080/api/v1/asset/perk/8005')
 })
 
 test('local game asset metadata resolves screenshot augment with full clean description', () => {

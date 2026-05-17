@@ -3,16 +3,23 @@ package io.rankpeek.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -21,11 +28,57 @@ class AssetServiceTest {
     @Mock
     private LcuHttpClient lcuHttpClient;
 
+    @TempDir
+    private Path assetCacheRoot;
+
     private AssetService service;
 
     @BeforeEach
     void setUp() {
-        service = new AssetService(lcuHttpClient);
+        service = new AssetService(lcuHttpClient, assetCacheRoot);
+    }
+
+    @Test
+    void getAssetImageReadsDiskCacheBeforeLcu() throws Exception {
+        Path cachedIcon = assetCacheRoot.resolve("lcu/item/6610.png");
+        Files.createDirectories(cachedIcon.getParent());
+        byte[] cachedBytes = new byte[]{9, 8, 7};
+        Files.write(cachedIcon, cachedBytes);
+
+        Optional<AssetService.AssetImage> image = service.getAssetImage(AssetService.AssetKind.ITEM, 6610);
+
+        assertThat(image).isPresent();
+        assertThat(image.get().bytes()).isEqualTo(cachedBytes);
+        assertThat(image.get().contentType()).isEqualTo("image/png");
+        verifyNoInteractions(lcuHttpClient);
+    }
+
+    @Test
+    void getAssetImageDownloadsAndCachesLcuBytesWhenCacheMisses() throws Exception {
+        AssetService.Item item = new AssetService.Item();
+        item.setId(6610);
+        item.setIconPath("/lol-game-data/assets/v1/items/6610.png");
+        byte[] lcuBytes = new byte[]{1, 2, 3};
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/items.json"), eq(AssetService.Item[].class)))
+                .thenReturn(new AssetService.Item[]{item});
+        ReflectionTestUtils.invokeMethod(service, "loadItems");
+        when(lcuHttpClient.getBytes("/lol-game-data/assets/v1/items/6610.png")).thenReturn(lcuBytes);
+
+        Optional<AssetService.AssetImage> first = service.getAssetImage(AssetService.AssetKind.ITEM, 6610);
+
+        assertThat(first).isPresent();
+        assertThat(first.get().bytes()).isEqualTo(lcuBytes);
+        assertThat(first.get().contentType()).isEqualTo("image/png");
+        assertThat(Files.readAllBytes(assetCacheRoot.resolve("lcu/item/6610.png"))).isEqualTo(lcuBytes);
+        verify(lcuHttpClient).getBytes("/lol-game-data/assets/v1/items/6610.png");
+
+        reset(lcuHttpClient);
+        Optional<AssetService.AssetImage> second = service.getAssetImage(AssetService.AssetKind.ITEM, 6610);
+
+        assertThat(second).isPresent();
+        assertThat(second.get().bytes()).isEqualTo(lcuBytes);
+        verifyNoInteractions(lcuHttpClient);
     }
 
     @Test

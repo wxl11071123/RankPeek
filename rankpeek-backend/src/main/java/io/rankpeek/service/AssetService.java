@@ -4,16 +4,23 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -22,12 +29,13 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AssetService {
 
     private static final long LCU_PERK_METADATA_REFRESH_INTERVAL_MS = 30_000L;
+    private static final String ASSET_CACHE_VERSION = "lcu";
 
     private final LcuHttpClient lcuHttpClient;
+    private final Path assetCacheRoot;
 
     // 英雄缓存
     private final Map<Long, Champion> championCache = new ConcurrentHashMap<>();
@@ -45,6 +53,16 @@ public class AssetService {
     private final Map<Long, AugmentMetadata> augmentMetadataCache = new ConcurrentHashMap<>();
     // 海克斯强化稀有度缓存 (id -> rarity)
     private final Map<Long, String> augmentRarityCache = new ConcurrentHashMap<>();
+
+    @Autowired
+    public AssetService(LcuHttpClient lcuHttpClient) {
+        this(lcuHttpClient, resolveDefaultAssetCacheRoot());
+    }
+
+    AssetService(LcuHttpClient lcuHttpClient, Path assetCacheRoot) {
+        this.lcuHttpClient = lcuHttpClient;
+        this.assetCacheRoot = assetCacheRoot;
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
@@ -370,6 +388,135 @@ public class AssetService {
     /**
      * 获取装备图标路径
      */
+    public Optional<AssetImage> getAssetImage(AssetKind kind, long id) {
+        if (kind == null || id <= 0) {
+            return Optional.empty();
+        }
+
+        Optional<AssetImage> cached = readCachedAssetImage(kind, id);
+        if (cached.isPresent()) {
+            return cached;
+        }
+
+        String iconPath = resolveLcuIconPath(kind, id);
+        if (iconPath == null || iconPath.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            byte[] imageData = lcuHttpClient.getBytes(iconPath);
+            if (imageData == null || imageData.length == 0) {
+                return Optional.empty();
+            }
+            cacheAssetImage(kind, id, iconPath, imageData);
+            return Optional.of(new AssetImage(imageData, contentTypeForIconPath(iconPath)));
+        } catch (Exception e) {
+            log.warn("Failed to load asset image from LCU: kind={}, id={}, path={}, rootCause={}",
+                    kind.wireName, id, iconPath, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private Optional<AssetImage> readCachedAssetImage(AssetKind kind, long id) {
+        try {
+            Optional<Path> cachedPath = findCachedAssetPath(kind, id);
+            if (cachedPath.isEmpty()) {
+                return Optional.empty();
+            }
+            Path path = cachedPath.get();
+            byte[] bytes = Files.readAllBytes(path);
+            if (bytes.length == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(new AssetImage(bytes, contentTypeForIconPath(path.getFileName().toString())));
+        } catch (IOException e) {
+            log.debug("Failed to read cached asset image: kind={}, id={}, rootCause={}",
+                    kind.wireName, id, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private Optional<Path> findCachedAssetPath(AssetKind kind, long id) throws IOException {
+        Path directory = assetCacheRoot.resolve(ASSET_CACHE_VERSION).resolve(kind.cacheDirectory);
+        if (!Files.isDirectory(directory)) {
+            return Optional.empty();
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, id + ".*")) {
+            for (Path path : stream) {
+                if (Files.isRegularFile(path)) {
+                    return Optional.of(path);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void cacheAssetImage(AssetKind kind, long id, String iconPath, byte[] imageData) {
+        Path target = assetCacheRoot
+                .resolve(ASSET_CACHE_VERSION)
+                .resolve(kind.cacheDirectory)
+                .resolve(id + "." + extensionForIconPath(iconPath, kind.defaultExtension));
+        try {
+            Files.createDirectories(target.getParent());
+            deleteSiblingCacheFiles(kind, id, target);
+            Files.write(target, imageData);
+        } catch (IOException e) {
+            log.debug("Failed to write cached asset image: kind={}, id={}, path={}, rootCause={}",
+                    kind.wireName, id, target, e.getMessage());
+        }
+    }
+
+    private void deleteSiblingCacheFiles(AssetKind kind, long id, Path target) throws IOException {
+        Path directory = target.getParent();
+        if (!Files.isDirectory(directory)) {
+            return;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, id + ".*")) {
+            for (Path path : stream) {
+                if (!path.equals(target)) {
+                    Files.deleteIfExists(path);
+                }
+            }
+        }
+    }
+
+    private String resolveLcuIconPath(AssetKind kind, long id) {
+        return switch (kind) {
+            case CHAMPION -> String.format("/lol-game-data/assets/v1/champion-icons/%d.png", id);
+            case PROFILE -> String.format("/lol-game-data/assets/v1/profile-icons/%d.jpg", id);
+            case ITEM -> resolveItemIconPath(id);
+            case SPELL -> resolveSpellIconPath(id);
+            case PERK -> getPerkIconPath(id);
+            case AUGMENT -> resolveAugmentIconPath(id);
+        };
+    }
+
+    private String resolveItemIconPath(long id) {
+        String path = getItemIconPath(id);
+        if (path == null || path.isBlank()) {
+            loadItems();
+            path = getItemIconPath(id);
+        }
+        return path;
+    }
+
+    private String resolveSpellIconPath(long id) {
+        String path = getSpellIconPath(id);
+        if (path == null || path.isBlank()) {
+            loadSpells();
+            path = getSpellIconPath(id);
+        }
+        return path;
+    }
+
+    private String resolveAugmentIconPath(long id) {
+        String path = augmentIconPathCache.get(id);
+        if (path == null || path.isBlank()) {
+            loadAugments();
+        }
+        return getAugmentIconPath(id);
+    }
+
     public String getItemIconPath(long id) {
         return itemIconPathCache.get(id);
     }
@@ -617,6 +764,65 @@ public class AssetService {
             fileName = id + ".png";
         }
         return directory + "/" + fileName;
+    }
+
+    private static Path resolveDefaultAssetCacheRoot() {
+        String appData = System.getenv("APPDATA");
+        if (appData != null && !appData.isBlank()) {
+            return Paths.get(appData, "RankPeek", "game-assets");
+        }
+        String home = System.getProperty("user.home", ".");
+        return Paths.get(home, ".rankpeek", "game-assets");
+    }
+
+    private static String extensionForIconPath(String iconPath, String defaultExtension) {
+        String normalized = iconPath == null ? "" : iconPath.replace('\\', '/');
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+        int slashIndex = normalized.lastIndexOf('/');
+        String fileName = slashIndex >= 0 ? normalized.substring(slashIndex + 1) : normalized;
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex >= 0 && dotIndex + 1 < fileName.length()) {
+            String extension = fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+            if (extension.matches("[a-z0-9]{1,5}")) {
+                return extension;
+            }
+        }
+        return defaultExtension;
+    }
+
+    private static String contentTypeForIconPath(String iconPath) {
+        String extension = extensionForIconPath(iconPath, "png");
+        return switch (extension) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "svg" -> "image/svg+xml";
+            case "webp" -> "image/webp";
+            default -> "image/png";
+        };
+    }
+
+    public enum AssetKind {
+        CHAMPION("champion", "champion", "png"),
+        ITEM("item", "item", "png"),
+        SPELL("spell", "spell", "png"),
+        PERK("perk", "perk", "png"),
+        AUGMENT("augment", "augment", "png"),
+        PROFILE("profile", "profile", "jpg");
+
+        private final String wireName;
+        private final String cacheDirectory;
+        private final String defaultExtension;
+
+        AssetKind(String wireName, String cacheDirectory, String defaultExtension) {
+            this.wireName = wireName;
+            this.cacheDirectory = cacheDirectory;
+            this.defaultExtension = defaultExtension;
+        }
+    }
+
+    public record AssetImage(byte[] bytes, String contentType) {
     }
 
     // ========== 内部模型 ==========

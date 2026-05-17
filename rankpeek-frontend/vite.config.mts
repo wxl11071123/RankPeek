@@ -1,9 +1,18 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { rmSync } from 'fs'
 import { resolve } from 'path'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: 'exclude-game-assets-from-renderer-bundle',
+      closeBundle() {
+        rmSync(resolve(__dirname, 'dist/renderer/game-assets'), { recursive: true, force: true })
+      }
+    }
+  ],
   base: './',
   root: 'src/renderer',
   publicDir: resolve(__dirname, 'public'),

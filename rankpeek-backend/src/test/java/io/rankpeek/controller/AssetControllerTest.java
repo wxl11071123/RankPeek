@@ -12,7 +12,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.Map;
 import java.util.List;
+import java.util.Optional;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -107,13 +109,13 @@ class AssetControllerTest {
     @Test
     void perkIconEndpointProxiesLcuPerkIconPath() throws Exception {
         byte[] image = new byte[]{1, 2, 3};
-        String iconPath = "/lol-game-data/assets/v1/perk-images/Styles/Sorcery/DFT.jpg";
-        when(assetService.getPerkIconPath(8992L)).thenReturn(iconPath);
-        when(lcuHttpClient.getBytes(iconPath)).thenReturn(image);
+        when(assetService.getAssetImage(AssetService.AssetKind.PERK, 8992L))
+                .thenReturn(Optional.of(new AssetService.AssetImage(image, "image/jpeg")));
 
         mockMvc.perform(get("/api/v1/asset/perk/8992"))
                 .andExpect(status().isOk())
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsByteArray()).isEqualTo(image))
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentType()).isEqualTo("image/jpeg"));
+        verifyNoInteractions(lcuHttpClient);
     }
 }

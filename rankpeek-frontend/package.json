@@ -63,7 +63,8 @@
         "from": "public",
         "to": "public",
         "filter": [
-          "**/*"
+          "**/*",
+          "!game-assets/**"
         ]
       },
       {

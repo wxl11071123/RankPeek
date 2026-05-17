@@ -33,7 +33,6 @@ export type ObjectiveIconKind =
 export type GameAssetFallbackState = 'empty' | 'failed'
 type GameAssetManifestSection = Record<string, string>
 type GameAssetStats = Record<string, number>
-type LocalAssetCacheResolver = (kind: GameAssetKind, id: number) => string | null | undefined
 
 const VERIFIED_OBJECTIVE_MINIMAP_FILES: Partial<Record<ObjectiveIconKind, string>> = {
   turret: 'tower.png',
@@ -175,7 +174,6 @@ let manifest: GameAssetManifest = normalizeManifest(EMPTY_MANIFEST)
 let bundledMetadata: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 let metadataOverlay: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 let metadata: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
-let localAssetCacheResolver: LocalAssetCacheResolver | null = null
 const failedAssetUrls = new Set<string>()
 const fallbackChains = new Map<string, string[]>()
 
@@ -293,11 +291,6 @@ export function setGameAssetManifest(nextManifest: Partial<GameAssetManifest>): 
   fallbackChains.clear()
 }
 
-export function setLocalAssetCacheResolver(resolver: LocalAssetCacheResolver | null): void {
-  localAssetCacheResolver = resolver
-  fallbackChains.clear()
-}
-
 export async function loadGameAssetManifest(url = `${PUBLIC_GAME_ASSET_BASE}/manifest.json`): Promise<void> {
   if (typeof fetch !== 'function') {
     return
@@ -378,7 +371,6 @@ export function resetGameAssetResolverForTest(): void {
   bundledMetadata = normalizeMetadata(EMPTY_METADATA)
   metadataOverlay = normalizeMetadata(EMPTY_METADATA)
   metadata = normalizeMetadata(EMPTY_METADATA)
-  localAssetCacheResolver = null
   failedAssetUrls.clear()
   fallbackChains.clear()
 }
@@ -866,8 +858,6 @@ function decodeHtmlEntities(value: string): string {
 function buildAssetCandidates(kind: GameAssetKind, id: number): string[] {
   return uniqueNonEmpty([
     getManifestAssetUrl(kind, id),
-    localAssetCacheResolver?.(kind, id) || '',
-    getMetadataAssetUrl(kind, id),
     getBackendAssetUrl(kind, id),
     ...getRemoteAssetUrls(kind, id)
   ])
@@ -898,24 +888,6 @@ function getManifestSection(kind: GameAssetKind): GameAssetManifestSection {
     case 'profile':
       return manifest.profileIcons || {}
   }
-}
-
-function getMetadataAssetUrl(kind: GameAssetKind, id: number): string {
-  if (kind !== 'perk' && kind !== 'spell') {
-    return ''
-  }
-
-  const value = kind === 'spell'
-    ? metadata.summonerSpells[String(id)]?.icon
-    : metadata.perks[String(id)]?.icon
-  if (kind === 'perk' && isLcuGameDataAssetPath(value)) {
-    return getBackendAssetUrl(kind, id)
-  }
-  return value ? normalizeManifestAssetPath(value) : ''
-}
-
-function isLcuGameDataAssetPath(value: unknown): boolean {
-  return typeof value === 'string' && /^\/?lol-game-data\/assets\//i.test(value.trim())
 }
 
 function getManifestObjectiveIconUrl(kind: ObjectiveIconKind): string {
