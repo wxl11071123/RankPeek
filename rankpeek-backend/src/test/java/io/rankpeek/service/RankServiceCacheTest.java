@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,28 +32,34 @@ class RankServiceCacheTest {
     }
 
     @Test
-    void getRankByPuuid_usesDatabaseOnCacheMiss() {
-        Rank cached = createRank("GOLD");
-        when(repository.findRank("puuid-1")).thenReturn(Optional.of(cached));
+    void getRankByPuuid_fetchesLcuBeforeDatabaseCache() {
+        Rank fresh = createRank("EMERALD");
+        when(lcuHttpClient.get("lol-ranked/v1/ranked-stats/puuid-1", Rank.class)).thenReturn(fresh);
 
-        assertThat(service.getRankByPuuid("puuid-1")).isSameAs(cached);
+        assertThat(service.getRankByPuuid("puuid-1")).isSameAs(fresh);
+
+        verify(repository, never()).findRank("puuid-1");
+        verify(repository).saveRank("puuid-1", fresh);
     }
 
     @Test
-    void getRankByPuuid_savesLcuResultAndFallsBackToDatabaseOnFailure() {
+    void getRankByPuuid_fallsBackToDatabaseOnLcuFailure() {
+        Rank stale = createRank("GOLD");
+        when(lcuHttpClient.get("lol-ranked/v1/ranked-stats/puuid-2", Rank.class))
+                .thenThrow(new RuntimeException("LCU down"));
+        when(repository.findRank("puuid-2")).thenReturn(Optional.of(stale));
+
+        assertThat(service.getRankByPuuid("puuid-2")).isSameAs(stale);
+        verify(lcuHttpClient).get("lol-ranked/v1/ranked-stats/puuid-2", Rank.class);
+    }
+
+    @Test
+    void getRankByPuuid_savesLcuResult() {
         Rank fetched = createRank("PLATINUM");
-        when(repository.findRank("puuid-1")).thenReturn(Optional.empty());
         when(lcuHttpClient.get("lol-ranked/v1/ranked-stats/puuid-1", Rank.class)).thenReturn(fetched);
 
         assertThat(service.getRankByPuuid("puuid-1")).isSameAs(fetched);
         verify(repository).saveRank("puuid-1", fetched);
-
-        Rank stale = createRank("GOLD");
-        when(repository.findRank("puuid-2")).thenReturn(Optional.empty(), Optional.of(stale));
-        when(lcuHttpClient.get("lol-ranked/v1/ranked-stats/puuid-2", Rank.class))
-                .thenThrow(new RuntimeException("LCU down"));
-
-        assertThat(service.getRankByPuuid("puuid-2")).isSameAs(stale);
     }
 
     private Rank createRank(String tier) {

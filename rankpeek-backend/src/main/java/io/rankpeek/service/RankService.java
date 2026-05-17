@@ -54,17 +54,6 @@ public class RankService {
      * 获取召唤师段位信息
      */
     public Rank getRankByPuuid(String puuid) {
-        Rank memoryRank = rankCache.getIfPresent(puuid);
-        if (memoryRank != null) {
-            return memoryRank;
-        }
-
-        Optional<Rank> databaseRank = findCachedRank(puuid);
-        if (databaseRank.isPresent()) {
-            rankCache.put(puuid, databaseRank.get());
-            return databaseRank.get();
-        }
-
         try {
             String uri = String.format("lol-ranked/v1/ranked-stats/%s", puuid);
             Rank rank = lcuHttpClient.get(uri, Rank.class);
@@ -72,12 +61,12 @@ public class RankService {
             if (rank != null) {
                 rankCache.put(puuid, rank);
                 saveRankToLocalCache(puuid, rank);
+                return rank;
             }
-            return rank;
+            return findFallbackRank(puuid).orElse(null);
         } catch (Exception e) {
-            Optional<Rank> fallback = findCachedRank(puuid);
+            Optional<Rank> fallback = findFallbackRank(puuid);
             if (fallback.isPresent()) {
-                rankCache.put(puuid, fallback.get());
                 return fallback.get();
             }
             if (e instanceof RuntimeException runtimeException) {
@@ -85,6 +74,17 @@ public class RankService {
             }
             throw new RuntimeException(e);
         }
+    }
+
+    private Optional<Rank> findFallbackRank(String puuid) {
+        Rank memoryRank = rankCache.getIfPresent(puuid);
+        if (memoryRank != null) {
+            return Optional.of(memoryRank);
+        }
+
+        Optional<Rank> databaseRank = findCachedRank(puuid);
+        databaseRank.ifPresent(rank -> rankCache.put(puuid, rank));
+        return databaseRank;
     }
 
     private Optional<Rank> findCachedRank(String puuid) {
