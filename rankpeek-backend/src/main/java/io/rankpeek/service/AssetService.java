@@ -3,6 +3,7 @@ package io.rankpeek.service;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +35,8 @@ public class AssetService {
 
     private static final long LCU_PERK_METADATA_REFRESH_INTERVAL_MS = 30_000L;
     private static final String ASSET_CACHE_VERSION = "lcu";
+    private static final String BUILT_IN_CHAMPIONS_RESOURCE = "/assets/champions-16.10.1-zh_CN.json";
+    private static final ObjectMapper BUILT_IN_CHAMPION_MAPPER = new ObjectMapper();
 
     private final LcuHttpClient lcuHttpClient;
     private final Path assetCacheRoot;
@@ -197,6 +201,10 @@ public class AssetService {
     }
 
     private void loadBuiltInChampions() {
+        if (loadBuiltInChampionSnapshot()) {
+            return;
+        }
+
         // 常用英雄数据
         Map<Long, Champion> builtIn = Map.ofEntries(
                 createChampion(1, "安妮", "Annie"),
@@ -360,6 +368,29 @@ public class AssetService {
                 createChampion(951, "纳亚菲莉", "Naafiri")
         );
         championCache.putAll(builtIn);
+    }
+
+    private boolean loadBuiltInChampionSnapshot() {
+        try (InputStream input = AssetService.class.getResourceAsStream(BUILT_IN_CHAMPIONS_RESOURCE)) {
+            if (input == null) {
+                log.warn("内置英雄资源不存在: {}", BUILT_IN_CHAMPIONS_RESOURCE);
+                return false;
+            }
+
+            Champion[] champions = BUILT_IN_CHAMPION_MAPPER.readValue(input, Champion[].class);
+            Map<Long, Champion> builtIn = new LinkedHashMap<>();
+            for (Champion champion : champions) {
+                if (champion != null && champion.id > 0 && champion.name != null && !champion.name.isBlank()) {
+                    builtIn.put(champion.id, champion);
+                }
+            }
+            championCache.putAll(builtIn);
+            log.info("内置英雄资源加载完成: {}", builtIn.size());
+            return !builtIn.isEmpty();
+        } catch (IOException e) {
+            log.warn("读取内置英雄资源失败: {}", e.getMessage());
+            return false;
+        }
     }
 
     private Map.Entry<Long, Champion> createChampion(long id, String name, String alias) {

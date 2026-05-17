@@ -57,6 +57,7 @@ public class MatchHistoryService {
     private static final int SGP_BACKFILL_THREADS = 2;
     private static final int SGP_BACKFILL_QUEUE_CAPACITY = 64;
     private static final int SGP_TIMELINE_BACKFILL_PER_PAGE = 5;
+    private static final int SGP_MATCH_HISTORY_MAX_ATTEMPTS = 3;
     private static final int MIN_TRUSTED_SGP_FORCE_REFRESH_ROWS = 2;
     private static final int REMAKE_MAX_GAME_DURATION_SECONDS = 300;
     private static final AtomicInteger CACHE_WRITE_THREAD_SEQUENCE = new AtomicInteger();
@@ -231,7 +232,13 @@ public class MatchHistoryService {
         MatchHistorySource preferredSource = normalizeSource(options == null ? null : options.preferredSource());
         if (preferredSource == MatchHistorySource.AUTO) {
             MatchHistoryProvider sgpProvider = matchHistoryProviders.get(MatchHistorySource.SGP);
-            if (sgpProvider != null && sgpProvider.supports(options)) {
+            if (sgpProvider != null) {
+                try {
+                    sgpProvider.supports(options);
+                } catch (Exception e) {
+                    log.debug("SGP match-history support check failed; SGP will still be attempted: {}",
+                            e.getMessage());
+                }
                 return new ResolvedProvider(sgpProvider, MatchHistorySource.SGP);
             }
             return requireProvider(MatchHistorySource.LCU);
@@ -367,16 +374,7 @@ public class MatchHistoryService {
             log.info("Force refreshing match history fetch result: puuid={}, source={}",
                     puuidPrefix(puuid), resolvedProvider.source());
             matchHistoryCache.invalidate(cacheKey);
-            try {
-                return fetchProviderMatchHistoryWithDatabaseFallback(puuid, options, resolvedProvider, cacheKey);
-            } catch (Exception e) {
-                if (isAutoSgpAttempt(options, resolvedProvider.source())) {
-                    log.warn("SGP match history refresh failed in auto mode, falling back to LCU: puuid={}, error={}",
-                            puuidPrefix(puuid), e.getMessage());
-                    return loadMatchHistory(puuid, withPreferredSource(options, MatchHistorySource.LCU));
-                }
-                throw e;
-            }
+            return fetchProviderMatchHistoryWithDatabaseFallback(puuid, options, resolvedProvider, cacheKey);
         }
 
         MatchHistoryFetchResult memoryResult = matchHistoryCache.getIfPresent(cacheKey);
@@ -385,23 +383,14 @@ public class MatchHistoryService {
         }
 
         Optional<MatchHistoryFetchResult> databaseResult = shouldReadDatabaseBeforeProvider(options, resolvedProvider.source())
-                ? findCachedMatchHistory(puuid, resolvedProvider.source(), options)
+                ? findCompleteCachedMatchHistory(puuid, resolvedProvider.source(), options)
                 : Optional.empty();
         if (databaseResult.isPresent()) {
             matchHistoryCache.put(cacheKey, databaseResult.get());
             return new FetchedMatchHistory(databaseResult.get(), resolvedProvider.source(), options);
         }
 
-        try {
-            return fetchProviderMatchHistoryWithDatabaseFallback(puuid, options, resolvedProvider, cacheKey);
-        } catch (Exception e) {
-            if (isAutoSgpAttempt(options, resolvedProvider.source())) {
-                log.warn("SGP match history failed in auto mode, falling back to LCU: puuid={}, error={}",
-                        puuidPrefix(puuid), e.getMessage());
-                return loadMatchHistory(puuid, withPreferredSource(options, MatchHistorySource.LCU));
-            }
-            throw e;
-        }
+        return fetchProviderMatchHistoryWithDatabaseFallback(puuid, options, resolvedProvider, cacheKey);
     }
 
     private FetchedMatchHistory loadCachedMatchHistory(String puuid, MatchHistoryQueryOptions options) {
@@ -441,13 +430,7 @@ public class MatchHistoryService {
      */
     public List<MatchHistory> getMatchHistory(String puuid, int begIndex, int endIndex, int fetchLimit) {
         int normalizedFetchLimit = Math.max(1, Math.max(fetchLimit, endIndex + 1));
-        try {
-            return getMatchHistoryWithLimit(puuid, begIndex, endIndex, normalizedFetchLimit, MatchHistorySource.AUTO);
-        } catch (Exception e) {
-            log.warn("Preferred match-history fetch failed, falling back to LCU: puuid={}, error={}",
-                    puuidPrefix(puuid), e.getMessage());
-            return getMatchHistoryWithLimit(puuid, begIndex, endIndex, normalizedFetchLimit, MatchHistorySource.LCU);
-        }
+        return getMatchHistoryWithLimit(puuid, begIndex, endIndex, normalizedFetchLimit, MatchHistorySource.AUTO);
     }
 
     private List<MatchHistory> getMatchHistoryWithLimit(String puuid,
@@ -533,7 +516,7 @@ public class MatchHistoryService {
         MatchHistorySource requestedSource = source == null || source.isBlank()
                 ? MatchHistorySource.AUTO
                 : MatchHistorySource.fromRequest(source);
-        int fetchLimit = normalizeMatchHistoryFetchLimit(normalizedPage, normalizedPageSize);
+        int fetchLimit = normalizeMatchHistoryFetchLimit(normalizedPage, normalizedPageSize, queueId, championId);
 
         MatchHistoryQueryOptions queryOptions = MatchHistoryQueryOptions.forLimit(
                 requestedSource,
@@ -551,7 +534,7 @@ public class MatchHistoryService {
             pageMatches = new ArrayList<>(pageMatches.subList(0, normalizedPageSize));
         }
         if (shouldFallbackFromSgpPage(puuid, pageMatches, fetched.source())) {
-            log.warn("SGP match-history page missing renderable current-player summaries, falling back: puuid={}, source={}",
+            log.warn("SGP match-history page missing renderable current-player summaries: puuid={}, source={}",
                     puuidPrefix(puuid), requestedSource);
             Optional<MatchHistoryPageResponse> cachedFallback = getCachedMatchHistoryPage(
                     puuid,
@@ -563,18 +546,6 @@ public class MatchHistoryService {
             );
             if (cachedFallback.isPresent()) {
                 return cachedFallback.get();
-            }
-            if (requestedSource != MatchHistorySource.LCU) {
-                return getMatchHistoryPage(
-                        puuid,
-                        normalizedPage,
-                        normalizedPageSize,
-                        "lcu",
-                        queueId,
-                        championId,
-                        forceRefresh,
-                        rank
-                );
             }
         }
         pageMatches = ensureRosterForVisibleMatches(puuid, allMatches, pageMatches, fetched.source(), false);
@@ -720,34 +691,87 @@ public class MatchHistoryService {
         return (int) Math.min(MATCH_HISTORY_PAGE_LIMIT, rowsWithLookahead);
     }
 
+    private int normalizeMatchHistoryFetchLimit(int page,
+                                                int pageSize,
+                                                Integer queueId,
+                                                Integer championId) {
+        if (hasMatchHistoryFilters(queueId, championId)) {
+            return MATCH_HISTORY_PAGE_LIMIT;
+        }
+        return normalizeMatchHistoryFetchLimit(page, pageSize);
+    }
+
+    private boolean hasMatchHistoryFilters(Integer queueId, Integer championId) {
+        return (queueId != null && queueId > 0) || (championId != null && championId > 0);
+    }
+
     private FetchedMatchHistory fetchProviderMatchHistoryWithDatabaseFallback(String puuid,
                                                                              MatchHistoryQueryOptions options,
                                                                              ResolvedProvider resolvedProvider,
                                                                              String cacheKey) {
-        try {
-            MatchHistoryFetchResult result = resolvedProvider.provider().fetchMatchHistory(puuid, options);
-            if (shouldRejectSgpForceRefreshResult(puuid, options, resolvedProvider.source(), result)) {
-                throw new IllegalStateException("SGP summary missing renderable current-player data");
+        int maxAttempts = maxProviderMatchHistoryAttempts(resolvedProvider.source());
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                MatchHistoryFetchResult result = resolvedProvider.provider().fetchMatchHistory(puuid, options);
+                if (shouldRejectSgpForceRefreshResult(puuid, options, resolvedProvider.source(), result)) {
+                    throw new IllegalStateException("SGP summary missing renderable current-player data");
+                }
+                saveProviderMatchHistoryToLocalCache(puuid, result, resolvedProvider.source());
+                MatchHistoryFetchResult cacheableResult = withoutRawSummaryJson(result);
+                matchHistoryCache.put(cacheKey, cacheableResult);
+                return new FetchedMatchHistory(cacheableResult, resolvedProvider.source(), options);
+            } catch (Exception e) {
+                if (attempt < maxAttempts) {
+                    log.warn("Retrying match history fetch from {}: puuid={}, attempt={}/{}, error={}",
+                            resolvedProvider.source(),
+                            puuidPrefix(puuid),
+                            attempt + 1,
+                            maxAttempts,
+                            e.getMessage());
+                    continue;
+                }
+
+                log.warn("Failed to fetch match history from {}, puuid={}, attempts={}, error={}",
+                        resolvedProvider.source(), puuidPrefix(puuid), maxAttempts, e.getMessage());
+                log.debug("{} match-history failure details", resolvedProvider.source(), e);
+                if (usesDatabaseCache(resolvedProvider.source()) && cacheRepository != null) {
+                    cacheRepository.updatePlayerFetchState(puuid, List.of(), "ERROR", e.getMessage());
+                }
+                Optional<MatchHistoryFetchResult> fallback =
+                        findCompleteCachedMatchHistory(puuid, resolvedProvider.source(), options);
+                if (fallback.isPresent()) {
+                    MatchHistoryQueryOptions cacheOptions = withPreferredSource(options, MatchHistorySource.CACHE);
+                    String fallbackCacheKey = matchHistoryCacheKey(puuid, cacheOptions, MatchHistorySource.CACHE);
+                    matchHistoryCache.put(fallbackCacheKey, fallback.get());
+                    return new FetchedMatchHistory(fallback.get(), MatchHistorySource.CACHE, cacheOptions);
+                }
+                throw propagateMatchHistoryFailure(e);
             }
-            saveProviderMatchHistoryToLocalCache(puuid, result, resolvedProvider.source());
-            matchHistoryCache.put(cacheKey, result);
-            return new FetchedMatchHistory(result, resolvedProvider.source(), options);
-        } catch (Exception e) {
-            log.warn("Failed to fetch match history from {}, puuid={}, error={}",
-                    resolvedProvider.source(), puuidPrefix(puuid), e.getMessage());
-            log.debug("{} match-history failure details", resolvedProvider.source(), e);
-            if (usesDatabaseCache(resolvedProvider.source()) && cacheRepository != null) {
-                cacheRepository.updatePlayerFetchState(puuid, List.of(), "ERROR", e.getMessage());
-            }
-            Optional<MatchHistoryFetchResult> fallback = findCachedMatchHistory(puuid, resolvedProvider.source(), options);
-            if (fallback.isPresent()) {
-                MatchHistoryQueryOptions cacheOptions = withPreferredSource(options, MatchHistorySource.CACHE);
-                String fallbackCacheKey = matchHistoryCacheKey(puuid, cacheOptions, MatchHistorySource.CACHE);
-                matchHistoryCache.put(fallbackCacheKey, fallback.get());
-                return new FetchedMatchHistory(fallback.get(), MatchHistorySource.CACHE, cacheOptions);
-            }
-            throw e;
         }
+        throw new IllegalStateException("Match-history provider failed without an exception");
+    }
+
+    private RuntimeException propagateMatchHistoryFailure(Exception e) {
+        if (e instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        return new IllegalStateException(e.getMessage(), e);
+    }
+
+    private int maxProviderMatchHistoryAttempts(MatchHistorySource source) {
+        return source == MatchHistorySource.SGP ? SGP_MATCH_HISTORY_MAX_ATTEMPTS : 1;
+    }
+
+    private MatchHistoryFetchResult withoutRawSummaryJson(MatchHistoryFetchResult result) {
+        if (result == null) {
+            return MatchHistoryFetchResult.builder()
+                    .rawEmpty(true)
+                    .build();
+        }
+        return MatchHistoryFetchResult.builder()
+                .matches(result.getMatches())
+                .rawEmpty(result.isRawEmpty())
+                .build();
     }
 
     private boolean shouldRejectSgpForceRefreshResult(String puuid,
@@ -848,6 +872,42 @@ public class MatchHistoryService {
         return cacheRepository.findRecentMatchHistory(puuid, cacheLookupLimit(options));
     }
 
+    private Optional<MatchHistoryFetchResult> findCompleteCachedMatchHistory(String puuid,
+                                                                            MatchHistorySource source,
+                                                                            MatchHistoryQueryOptions options) {
+        Optional<MatchHistoryFetchResult> cached = findCachedMatchHistory(puuid, source, options);
+        if (cached.isEmpty() || isCachedMatchHistoryCompleteForOptions(cached.get(), options)) {
+            return cached;
+        }
+
+        log.info("Ignoring partial match-history cache before provider fetch: puuid={}, cachedRows={}, requestedRows={}",
+                puuidPrefix(puuid),
+                cachedMatchCount(cached.get()),
+                cacheLookupLimit(options));
+        return Optional.empty();
+    }
+
+    private boolean isCachedMatchHistoryCompleteForOptions(MatchHistoryFetchResult result,
+                                                           MatchHistoryQueryOptions options) {
+        if (result == null) {
+            return false;
+        }
+        if (result.isRawEmpty()) {
+            return true;
+        }
+        List<MatchHistory> matches = result.getMatches();
+        return matches != null && matches.size() >= requiredCachedRowsForOptions(options);
+    }
+
+    private int cachedMatchCount(MatchHistoryFetchResult result) {
+        return result == null || result.getMatches() == null ? 0 : result.getMatches().size();
+    }
+
+    private int requiredCachedRowsForOptions(MatchHistoryQueryOptions options) {
+        int lookupLimit = cacheLookupLimit(options);
+        return Math.max(1, lookupLimit - 1);
+    }
+
     private int cacheLookupLimit(MatchHistoryQueryOptions options) {
         if (options == null || options.maxResults() == null || options.maxResults() <= 0) {
             return VISIBLE_MATCH_HISTORY_LIMIT;
@@ -878,10 +938,7 @@ public class MatchHistoryService {
             log.info("Filtered incomplete SGP match history rows before async local cache save: puuid={}, filtered={}, kept={}",
                     puuidPrefix(puuid), matches.size() - snapshot.size(), snapshot.size());
         }
-        Map<Long, String> rawSummarySnapshot = result.getRawSummaryJsonByGameId() == null
-                ? Map.of()
-                : new HashMap<>(result.getRawSummaryJsonByGameId());
-        if (snapshot.isEmpty() && rawSummarySnapshot.isEmpty()) {
+        if (snapshot.isEmpty()) {
             return;
         }
         try {
@@ -890,7 +947,6 @@ public class MatchHistoryService {
                     if (!snapshot.isEmpty()) {
                         cacheRepository.saveMatchHistory(puuid, snapshot);
                     }
-                    cacheRepository.saveSgpRawSummaries(rawSummarySnapshot);
                 } catch (Exception e) {
                     log.warn("Failed to write SGP match history cache asynchronously: puuid={}, matches={}, error={}",
                             puuidPrefix(puuid), snapshot.size(), e.getMessage());

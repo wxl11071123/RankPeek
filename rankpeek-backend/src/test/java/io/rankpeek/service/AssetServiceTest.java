@@ -88,8 +88,28 @@ class AssetServiceTest {
 
         ReflectionTestUtils.invokeMethod(service, "loadChampions");
 
-        assertThat(service.getChampionName(233)).isEqualTo("贝蕾亚");
-        assertThat(service.getChampionName(200)).isEqualTo("卑尔维斯");
+        Map<Long, AssetService.ChampionOption> optionsById = service.getChampionOptions().stream()
+                .collect(java.util.stream.Collectors.toMap(AssetService.ChampionOption::value, option -> option));
+
+        assertThat(optionsById).hasSize(172);
+        assertThat(service.getChampionName(233)).isEqualTo("狂厄蔷薇");
+        assertThat(service.getChampionName(200)).isEqualTo("虚空女皇");
+        assertThat(service.getChampionName(888)).isEqualTo("炼金男爵");
+        assertThat(service.getChampionName(799)).isEqualTo("铁血狼母");
+        assertThat(service.getChampionName(800)).isEqualTo("流光镜影");
+        assertThat(service.getChampionName(804)).isEqualTo("不破之誓");
+        assertThat(service.getChampionName(887)).isEqualTo("灵罗娃娃");
+        assertThat(service.getChampionName(893)).isEqualTo("双界灵兔");
+        assertThat(service.getChampionName(897)).isEqualTo("纳祖芒荣耀");
+        assertThat(service.getChampionName(901)).isEqualTo("炽炎雏龙");
+        assertThat(service.getChampionName(902)).isEqualTo("明烛");
+        assertThat(service.getChampionName(904)).isEqualTo("不落魔锋");
+        assertThat(service.getChampionName(910)).isEqualTo("异画师");
+        assertThat(service.getChampionName(950)).isEqualTo("百裂冥犬");
+        assertThat(optionsById.get(30L).nickname()).isEqualTo("Karthus");
+        assertThat(optionsById.get(166L).nickname()).isEqualTo("Akshan");
+        assertThat(optionsById.get(517L).nickname()).isEqualTo("Sylas");
+        assertThat(optionsById).doesNotContainKeys(52L, 877L, 951L);
     }
 
     @Test

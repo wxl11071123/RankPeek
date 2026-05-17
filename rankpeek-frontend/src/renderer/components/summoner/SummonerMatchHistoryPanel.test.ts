@@ -73,8 +73,13 @@ test('match history page header stays in normal flow above overview and controls
 
   assert.match(pageShellBlock, /<h1>\{\{ panelTitle \}\}<\/h1>/)
   assert.match(source, /: t\('matchHistory\.title'\)/)
-  assert.match(pageShellBlock, /v-model\.number="selectedLimit"/)
-  assert.match(pageShellBlock, /v-model\.number="filterChampionId"/)
+  assert.doesNotMatch(pageShellBlock, /v-model\.number="selectedLimit"/)
+  assert.doesNotMatch(pageShellBlock, /<select[\s\S]*v-model\.number="filterChampionId"/)
+  assert.match(pageShellBlock, /class="filter-select champion-filter-trigger"/)
+  assert.match(pageShellBlock, /class="champion-filter-menu"/)
+  assert.match(pageShellBlock, /v-for="champion in loadedChampionOptions"/)
+  assert.match(pageShellBlock, /class="champion-option-count"/)
+  assert.match(pageShellBlock, /@click="selectChampionFilter\(champion\.value\)"/)
   assert.match(pageShellBlock, /v-model\.number="filterQueueId"/)
   assert.match(pageShellBlock, /<RefreshIconButton[\s\S]*@click="handleRefresh"/)
   assert.doesNotMatch(pageShellBlock, /sticky|fixed|floating|is-sticky|match-history-sticky/)
@@ -83,6 +88,53 @@ test('match history page header stays in normal flow above overview and controls
   assert.doesNotMatch(pageShellStyles, /z-index:\s*80/)
   assert.ok(templateBlock.indexOf('class="page-shell surface-glow"') < templateBlock.indexOf('<SummonerOverviewPanel'))
   assert.ok(templateBlock.indexOf('<SummonerOverviewPanel') < templateBlock.indexOf('<MatchHistoryInlineDetail'))
+})
+
+test('champion filter renders champion names with separately styled game counts', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const selectedChampionOption = computed/)
+  assert.match(source, /function formatChampionFilterLabel\(/)
+  assert.match(source, /function selectChampionFilter\(championId: number\)/)
+  assert.match(source, /<span class="champion-option-name">\{\{ champion\.label \}\}<\/span>/)
+  assert.match(source, /<span class="champion-option-count">\{\{ champion\.games \}\}<\/span>/)
+  assert.match(source, /<span class="champion-option-unit">\{\{ t\('matchHistory\.gamesUnit'\) \}\}<\/span>/)
+})
+
+test('champion filter menu matches trigger width and keeps its scrollbar inset', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const menuRule = source.match(/\.champion-filter-menu \{[\s\S]*?\n\}/)?.[0] || ''
+  const scrollRule = source.match(/\.champion-filter-scroll \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(source, /class="champion-filter-scroll"/)
+  assert.match(menuRule, /left:\s*-1px/)
+  assert.match(menuRule, /right:\s*-1px/)
+  assert.match(menuRule, /width:\s*auto/)
+  assert.doesNotMatch(menuRule, /width:\s*max\(/)
+  assert.match(menuRule, /overflow:\s*hidden/)
+  assert.match(scrollRule, /max-height:\s*272px/)
+  assert.match(scrollRule, /overflow-y:\s*auto/)
+  assert.match(scrollRule, /overflow-x:\s*hidden/)
+  assert.match(scrollRule, /scrollbar-gutter:\s*stable/)
+})
+
+test('load-more footer includes the number of currently loaded visible matches in every state', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const loadedMatchCount = computed\(\(\) => matchHistory\.value\.length\)/)
+  assert.match(source, /t\('matchHistory\.loadingMoreWithCount', \{ count: loadedMatchCount \}\)/)
+  assert.match(source, /t\('matchHistory\.loadMoreWithCount', \{ count: loadedMatchCount \}\)/)
+  assert.match(source, /t\('matchHistory\.loadMoreFailedWithCount', \{ count: loadedMatchCount \}\)/)
+  assert.match(source, /t\('matchHistory\.noMoreMatchesWithCount', \{ count: loadedMatchCount \}\)/)
+})
+
+test('load more continues to remote fetch after a short cached page', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const loadMoreFunction = source.match(/async function loadMoreMatchHistory\(\) \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
+
+  assert.match(loadMoreFunction, /await hydrateMatchHistoryFromLocalCache\(requestId, \{ page, append: true \}\)/)
+  assert.doesNotMatch(loadMoreFunction, /if \(hydrated && !hasNext\.value\) \{[\s\S]*?return[\s\S]*?\}/)
+  assert.match(loadMoreFunction, /await loadMatchHistory\(\{ page, append: true, requestId \}\)/)
 })
 
 test('lookup rank summary is requested with the viewed summoner puuid', () => {

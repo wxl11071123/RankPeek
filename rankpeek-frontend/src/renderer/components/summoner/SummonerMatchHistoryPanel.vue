@@ -49,46 +49,57 @@
 
       <div v-if="currentSummoner" class="page-controls">
         <div class="filters">
-          <span
-            class="filter-control limit-select-control control-glow"
+          <div
+            ref="championFilterRef"
+            class="filter-control champion-select-control champion-filter-dropdown control-glow"
             @pointermove="updateControlGlow"
             @pointerleave="resetControlGlow"
           >
-            <select
-              v-model.number="selectedLimit"
-              class="filter-select limit-select"
-              @change="handleLimitChange"
+            <button
+              type="button"
+              class="filter-select champion-filter-trigger"
+              aria-haspopup="listbox"
+              :aria-expanded="championFilterOpen"
+              @click="toggleChampionFilter"
+              @keydown.esc.prevent.stop="closeChampionFilter"
             >
-              <option
-                v-for="limit in matchHistoryLimits"
-                :key="limit"
-                :value="limit"
-              >
-                {{ limit }} 场
-              </option>
-            </select>
-          </span>
-
-          <span
-            class="filter-control champion-select-control control-glow"
-            @pointermove="updateControlGlow"
-            @pointerleave="resetControlGlow"
-          >
-            <select
-              v-model.number="filterChampionId"
-              class="filter-select champion-select"
-              @change="handleFilterChange"
+              <span class="champion-filter-current">{{ formatChampionFilterLabel() }}</span>
+              <span v-if="selectedChampionOption" class="champion-option-count">{{ selectedChampionOption.games }}</span>
+              <span v-if="selectedChampionOption" class="champion-option-unit">{{ t('matchHistory.gamesUnit') }}</span>
+            </button>
+            <div
+              v-if="championFilterOpen"
+              class="champion-filter-menu"
+              role="listbox"
             >
-              <option :value="-1">{{ t('common.allChampions') }}</option>
-              <option
-                v-for="champion in championOptions"
-                :key="champion.value"
-                :value="champion.value"
-              >
-                {{ champion.label }}
-              </option>
-            </select>
-          </span>
+              <div class="champion-filter-scroll">
+                <button
+                  type="button"
+                  class="champion-filter-option"
+                  :class="{ active: filterChampionId === -1 }"
+                  role="option"
+                  :aria-selected="filterChampionId === -1"
+                  @click="selectChampionFilter(-1)"
+                >
+                  <span class="champion-option-name">{{ t('common.allChampions') }}</span>
+                </button>
+                <button
+                  v-for="champion in loadedChampionOptions"
+                  :key="champion.value"
+                  type="button"
+                  class="champion-filter-option"
+                  :class="{ active: filterChampionId === champion.value }"
+                  role="option"
+                  :aria-selected="filterChampionId === champion.value"
+                  @click="selectChampionFilter(champion.value)"
+                >
+                  <span class="champion-option-name">{{ champion.label }}</span>
+                  <span class="champion-option-count">{{ champion.games }}</span>
+                  <span class="champion-option-unit">{{ t('matchHistory.gamesUnit') }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
           <span
             class="filter-control control-glow"
@@ -217,6 +228,47 @@
                 @navigate-to-player="handleNavigateToPlayer"
               />
             </div>
+            <div
+              ref="loadMoreSentinelRef"
+              class="match-list-sentinel"
+              aria-hidden="true"
+            />
+            <div
+              v-if="loadingMore"
+              class="match-list-footer"
+              role="status"
+            >
+              {{ t('matchHistory.loadingMoreWithCount', { count: loadedMatchCount }) }}
+            </div>
+            <div
+              v-else-if="loadMoreError"
+              class="match-list-footer match-list-footer-error"
+              role="status"
+            >
+              <span>{{ t('matchHistory.loadMoreFailedWithCount', { count: loadedMatchCount }) }}</span>
+              <button
+                type="button"
+                class="load-more-retry"
+                @click="loadMoreMatchHistory"
+              >
+                {{ t('common.retry') }}
+              </button>
+            </div>
+            <button
+              v-else-if="hasNext"
+              type="button"
+              class="match-list-footer load-more-button"
+              @click="loadMoreMatchHistory"
+            >
+              {{ t('matchHistory.loadMoreWithCount', { count: loadedMatchCount }) }}
+            </button>
+            <div
+              v-else
+              class="match-list-footer"
+              role="status"
+            >
+              {{ t('matchHistory.noMoreMatchesWithCount', { count: loadedMatchCount }) }}
+            </div>
           </div>
         </template>
 
@@ -248,6 +300,11 @@ import {
   selectRecentMatchLookback,
   selectRecentRankedSample
 } from '@/utils/matchHistorySampling'
+import {
+  appendUniqueMatches,
+  buildLoadedChampionOptions,
+  type LoadedChampionOption
+} from '@/utils/matchHistoryFilters'
 import {
   hasCompleteParticipantStats,
   isRenderableMatchForPuuid
@@ -300,6 +357,8 @@ interface MatchHistoryLoadOptions {
   source?: 'auto' | 'sgp' | 'lcu' | 'cache'
   throwOnError?: boolean
   requestId?: number
+  page?: number
+  append?: boolean
   autoOpenLatestMatchToken?: string
 }
 
@@ -313,6 +372,14 @@ interface MatchHistoryLoadResult {
   hydratedFromCacheAfterPersist: boolean
   visibleListUpdated: boolean
   visibleMatchesAfterLoad: number
+  page: number
+  hasNext: boolean
+  append: boolean
+}
+
+interface MatchHistoryHydrateOptions {
+  page?: number
+  append?: boolean
 }
 
 type UserTagLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
@@ -336,6 +403,7 @@ const SURFACE_GLOW_RANGE = 220
 const EDGE_GLOW_MIN = 0.03
 const LIVE_MATCH_ONLY_TAG_NAMES = new Set<string>(['\u5f00\u9ed1'])
 const USER_TAG_SUMMARY_BATCH_SIZE = 40
+const MATCH_HISTORY_PAGE_SIZE = 20
 const TAG_OVERVIEW_LOOKBACK_LIMIT = 50
 const TAG_ANALYSIS_MODE = 0
 const REFRESHING_INDICATOR_MAX_MS = 30000
@@ -495,6 +563,7 @@ function handleWindowPointerOut(event: PointerEvent) {
 }
 
 const matchHistory = ref<MatchHistory[]>([])
+const championCandidateMatches = ref<MatchHistory[]>([])
 const overviewLookbackMatches = ref<MatchHistory[]>([])
 const rank = ref<Rank | null>(null)
 const rankLoadStatus = ref<RankLoadStatus>('loading')
@@ -507,10 +576,14 @@ const championOptions = ref<ChampionOption[]>([])
 const modeOptions = ref<GameModeOption[]>([])
 const filterChampionId = ref(-1)
 const filterQueueId = ref(0)
+const championFilterOpen = ref(false)
 const defaultMatchQueueMode = ref(0)
-const matchHistoryLimits = [20, 50, 100, 200] as const
-type MatchHistoryLimit = typeof matchHistoryLimits[number]
-const selectedLimit = ref<MatchHistoryLimit>(20)
+const currentPage = ref(0)
+const hasNext = ref(false)
+const loadingMore = ref(false)
+const loadMoreError = ref(false)
+const loadMoreRetryPage = ref<number | null>(null)
+const loadedPages = ref<number[]>([])
 const loading = ref(false)
 const refreshing = ref(false)
 const summariesLoading = ref(false)
@@ -523,6 +596,8 @@ const selectedGameDetailStatus = ref<DetailLoadStatus>('idle')
 const pendingAutoOpenLatestMatchToken = ref('')
 const consumedAutoOpenLatestMatchToken = ref('')
 const matchHistoryViewRef = ref<HTMLElement | null>(null)
+const championFilterRef = ref<HTMLElement | null>(null)
+const loadMoreSentinelRef = ref<HTMLElement | null>(null)
 let settingsLoadPromise: Promise<void> | null = null
 let matchHistoryRequestId = 0
 let matchDetailRequestId = 0
@@ -534,6 +609,7 @@ let autoOpenLatestMatchRefreshToken = ''
 let overviewUserTagAbortController: AbortController | null = null
 let summariesAbortController: AbortController | null = null
 let unsubscribeCacheUpdate: (() => void) | null = null
+let loadMoreObserver: IntersectionObserver | null = null
 let nearbySurfaceGlowFrame: number | null = null
 let nearbySurfaceGlowPoint: { clientX: number; clientY: number } | null = null
 
@@ -543,6 +619,18 @@ const currentSummonerName = computed(() => formatSummonerName(currentSummoner.va
 const soloRank = computed<QueueInfo | null>(() => rank.value?.queueMap?.RANKED_SOLO_5x5 || null)
 const flexRank = computed<QueueInfo | null>(() => rank.value?.queueMap?.RANKED_FLEX_SR || null)
 const hasFilters = computed(() => filterChampionId.value > 0 || filterQueueId.value > 0)
+const loadedChampionOptions = computed(() =>
+  buildLoadedChampionOptions(
+    championCandidateMatches.value.length > 0 ? championCandidateMatches.value : matchHistory.value,
+    currentSummoner.value?.puuid || '',
+    championOptions.value,
+    filterQueueId.value > 0 ? filterQueueId.value : undefined
+  )
+)
+const selectedChampionOption = computed<LoadedChampionOption | null>(() =>
+  loadedChampionOptions.value.find(option => option.value === filterChampionId.value) || null
+)
+const loadedMatchCount = computed(() => matchHistory.value.length)
 const overviewSampleMatches = computed<MatchHistory[]>(() =>
   selectRecentRankedSample(getQualityOverviewLookbackMatches(), RANKED_OVERVIEW_SAMPLE_LIMIT)
 )
@@ -633,10 +721,6 @@ async function ensurePageSettingsLoaded() {
 function applyDefaultFilters() {
   filterChampionId.value = -1
   filterQueueId.value = defaultMatchQueueMode.value
-}
-
-function normalizeMatchHistoryLimit(value: number): MatchHistoryLimit {
-  return matchHistoryLimits.includes(value as MatchHistoryLimit) ? value as MatchHistoryLimit : 20
 }
 
 function filterLiveMatchOnlyTags(tags: RankTag[]): RankTag[] {
@@ -731,6 +815,57 @@ function stopListLoading(requestId: number) {
   loading.value = false
 }
 
+function startLoadMoreLoading() {
+  loadingMore.value = true
+  loadMoreError.value = false
+}
+
+function stopLoadMoreLoading() {
+  loadingMore.value = false
+}
+
+function resetMatchHistoryPagination() {
+  currentPage.value = 0
+  hasNext.value = false
+  loadingMore.value = false
+  loadMoreError.value = false
+  loadMoreRetryPage.value = null
+  loadedPages.value = []
+}
+
+function getMatchHistoryPageOffset(page: number) {
+  return Math.max(0, page - 1) * MATCH_HISTORY_PAGE_SIZE
+}
+
+function markMatchHistoryPageLoaded(page: number) {
+  if (loadedPages.value.includes(page)) {
+    return
+  }
+
+  loadedPages.value = [...loadedPages.value, page].sort((left, right) => left - right)
+}
+
+function applyMatchHistoryPage(matches: MatchHistory[], page: number, append: boolean) {
+  matchHistory.value = append
+    ? appendUniqueMatches(matchHistory.value, matches)
+    : [...matches]
+  if (filterChampionId.value <= 0) {
+    championCandidateMatches.value = append
+      ? appendUniqueMatches(championCandidateMatches.value, matches)
+      : [...matches]
+  }
+  currentPage.value = Math.max(currentPage.value, page)
+  markMatchHistoryPageLoaded(page)
+}
+
+function shouldLoadMoreMatchHistory() {
+  return Boolean(currentSummoner.value?.puuid) &&
+    hasNext.value &&
+    !loading.value &&
+    !refreshing.value &&
+    !loadingMore.value
+}
+
 function clearRefreshIndicatorStopTimer() {
   if (!refreshIndicatorStopTimer) {
     return
@@ -765,6 +900,7 @@ function clearMatchHistoryLoadingState() {
   activeRefreshRunId = null
   clearRefreshIndicatorStopTimer()
   loading.value = false
+  loadingMore.value = false
   refreshing.value = false
 }
 
@@ -778,6 +914,7 @@ function resetPanelState() {
   matchHistoryRequestId += 1
   matchDetailRequestId += 1
   clearMatchHistoryLoadingState()
+  resetMatchHistoryPagination()
   overviewUserTagAbortController?.abort()
   overviewUserTagAbortController = null
   summariesAbortController?.abort()
@@ -788,6 +925,7 @@ function resetPanelState() {
   overviewLookbackMatches.value = []
   userTagLoadStatus.value = 'idle'
   matchHistory.value = []
+  championCandidateMatches.value = []
   matchRecordStatus.value = null
   userTagSummaries.value = {}
   summariesLoading.value = false
@@ -796,6 +934,7 @@ function resetPanelState() {
   selectedGameDetail.value = null
   selectedMatchHistory.value = null
   selectedGameDetailStatus.value = 'idle'
+  championFilterOpen.value = false
 }
 
 async function refreshLcuConnectionStatus(): Promise<boolean> {
@@ -1314,27 +1453,32 @@ function getCurrentSummonerFallbackRegion(): string | null {
   return typeof summoner?.platformId === 'string' ? summoner.platformId : null
 }
 
-function getLocalCacheListOptions() {
+function getLocalCacheListOptions(page = 1) {
   return {
-    limit: selectedLimit.value,
-    offset: 0,
+    limit: MATCH_HISTORY_PAGE_SIZE,
+    offset: getMatchHistoryPageOffset(page),
     queueId: filterQueueId.value > 0 ? filterQueueId.value : undefined,
     championId: filterChampionId.value > 0 ? filterChampionId.value : undefined
   }
 }
 
-async function hydrateMatchHistoryFromLocalCache(requestId = matchHistoryRequestId): Promise<boolean> {
+async function hydrateMatchHistoryFromLocalCache(
+  requestId = matchHistoryRequestId,
+  options: MatchHistoryHydrateOptions = {}
+): Promise<boolean> {
   const puuid = currentSummoner.value?.puuid
   if (!puuid) {
     return false
   }
 
+  const page = options.page ?? 1
+  const append = options.append === true && page > 1
   const localCacheEnabled = shouldUseLocalMatchCache()
 
   if (localCacheEnabled) {
     const cachedMatches = await readMatchHistoryFromLocalCache({
       accountPuuid: puuid,
-      options: getLocalCacheListOptions()
+      options: getLocalCacheListOptions(page)
     })
 
     if (requestId !== matchHistoryRequestId) {
@@ -1342,27 +1486,35 @@ async function hydrateMatchHistoryFromLocalCache(requestId = matchHistoryRequest
     }
 
     if (cachedMatches.length > 0) {
-      matchHistory.value = cachedMatches
-      userTagSummaries.value = {}
+      applyMatchHistoryPage(cachedMatches, page, append)
+      hasNext.value = cachedMatches.length >= MATCH_HISTORY_PAGE_SIZE
+      if (!append) {
+        userTagSummaries.value = {}
+      }
       void hydrateOverviewLookbackMatches(requestId)
       return true
     }
   }
 
-  const hydratedFromBackendCache = await hydrateMatchHistoryFromBackendCache(requestId)
+  const hydratedFromBackendCache = await hydrateMatchHistoryFromBackendCache(requestId, { page, append })
   return hydratedFromBackendCache
 }
 
-async function hydrateMatchHistoryFromBackendCache(requestId: number): Promise<boolean> {
+async function hydrateMatchHistoryFromBackendCache(
+  requestId: number,
+  options: MatchHistoryHydrateOptions = {}
+): Promise<boolean> {
   const puuid = currentSummoner.value?.puuid
   if (!puuid) {
     return false
   }
 
+  const page = options.page ?? 1
+  const append = options.append === true && page > 1
   try {
     const response = await apiClient.getMatchHistoryPage(puuid, {
-      page: 1,
-      pageSize: selectedLimit.value,
+      page,
+      pageSize: MATCH_HISTORY_PAGE_SIZE,
       source: 'cache',
       championId: filterChampionId.value > 0 ? filterChampionId.value : undefined,
       queueId: filterQueueId.value > 0 ? filterQueueId.value : undefined
@@ -1373,9 +1525,12 @@ async function hydrateMatchHistoryFromBackendCache(requestId: number): Promise<b
       return false
     }
 
-    matchHistory.value = matches
+    applyMatchHistoryPage(matches, page, append)
+    hasNext.value = response.hasNext === true
     matchRecordStatus.value = response.recordStatus
-    userTagSummaries.value = {}
+    if (!append) {
+      userTagSummaries.value = {}
+    }
     void hydrateOverviewLookbackMatches(requestId)
     return true
   } catch (err) {
@@ -1670,13 +1825,19 @@ async function loadMatchHistory(options: MatchHistoryLoadOptions = {}): Promise<
 
   const requestId = options.requestId ?? matchHistoryRequestId
   const requestedSource = options.source ?? 'auto'
-  const pageSize = selectedLimit.value
+  const page = options.page ?? 1
+  const append = options.append === true && page > 1
+  const pageSize = MATCH_HISTORY_PAGE_SIZE
   const queueId = filterQueueId.value > 0 ? filterQueueId.value : undefined
   const championId = filterChampionId.value > 0 ? filterChampionId.value : undefined
-  startListLoading(requestId)
+  if (append) {
+    startLoadMoreLoading()
+  } else {
+    startListLoading(requestId)
+  }
   try {
     const response = await apiClient.getMatchHistoryPage(puuid, {
-      page: 1,
+      page,
       pageSize,
       source: requestedSource,
       championId,
@@ -1696,12 +1857,17 @@ async function loadMatchHistory(options: MatchHistoryLoadOptions = {}): Promise<
     }
 
     matchRecordStatus.value = response.recordStatus
-    userTagSummaries.value = {}
+    hasNext.value = response.hasNext === true
+    loadMoreError.value = false
+    loadMoreRetryPage.value = null
+    if (!append) {
+      userTagSummaries.value = {}
+    }
     const persisted = await persistMatchHistoryToLocalCache(renderableMatches)
-    const hydrated = persisted ? await hydrateMatchHistoryFromLocalCache(requestId) : false
+    const hydrated = persisted ? await hydrateMatchHistoryFromLocalCache(requestId, { page, append }) : false
     let visibleListUpdated = hydrated
     if (!hydrated) {
-      matchHistory.value = [...renderableMatches]
+      applyMatchHistoryPage(renderableMatches, page, append)
       visibleListUpdated = true
     }
     if (requestId !== matchHistoryRequestId) {
@@ -1724,7 +1890,10 @@ async function loadMatchHistory(options: MatchHistoryLoadOptions = {}): Promise<
       persistedToLocalCache: persisted,
       hydratedFromCacheAfterPersist: hydrated,
       visibleListUpdated,
-      visibleMatchesAfterLoad: matchHistory.value.length
+      visibleMatchesAfterLoad: matchHistory.value.length,
+      page,
+      hasNext: response.hasNext === true,
+      append
     }
   } catch (err) {
     if (requestId !== matchHistoryRequestId) {
@@ -1734,9 +1903,48 @@ async function loadMatchHistory(options: MatchHistoryLoadOptions = {}): Promise<
     if (options?.throwOnError === true) {
       throw err
     }
-    await handleRemoteMatchHistoryFailure(requestId, err)
+    if (append) {
+      console.error('Failed to load more match history', err)
+      loadMoreError.value = true
+      loadMoreRetryPage.value = page
+    } else {
+      await handleRemoteMatchHistoryFailure(requestId, err)
+    }
   } finally {
-    stopListLoading(requestId)
+    if (append) {
+      stopLoadMoreLoading()
+    } else {
+      stopListLoading(requestId)
+    }
+  }
+}
+
+async function loadMoreMatchHistory() {
+  if (!shouldLoadMoreMatchHistory()) {
+    return
+  }
+
+  const requestId = matchHistoryRequestId
+  const page = loadMoreRetryPage.value ?? currentPage.value + 1
+  if (loadedPages.value.includes(page) && loadMoreRetryPage.value !== page) {
+    return
+  }
+
+  startLoadMoreLoading()
+  try {
+    await hydrateMatchHistoryFromLocalCache(requestId, { page, append: true })
+    if (requestId !== matchHistoryRequestId) {
+      return
+    }
+
+    const connected = await refreshLcuConnectionStatus()
+    if (!connected || requestId !== matchHistoryRequestId) {
+      return
+    }
+
+    await loadMatchHistory({ page, append: true, requestId })
+  } finally {
+    stopLoadMoreLoading()
   }
 }
 
@@ -1813,15 +2021,53 @@ function collectMatchPuuids(match: MatchHistory): string[] {
   return [...unique]
 }
 
-async function handleFilterChange() {
-  const requestId = beginMatchHistoryRequest()
-  const hydrated = await hydrateMatchHistoryFromLocalCache(requestId)
-  clearMatchHistoryWhenLocalCacheMisses(requestId, hydrated)
-  void refreshRemoteMatchHistory({ forceRefresh: true, requestId })
+function formatChampionFilterLabel(): string {
+  if (filterChampionId.value <= 0) {
+    return t('common.allChampions')
+  }
+
+  const selected = selectedChampionOption.value
+  if (selected) {
+    return selected.label
+  }
+
+  const fallback = championOptions.value.find(option => option.value === filterChampionId.value)
+  return fallback?.label || `未知英雄 ${filterChampionId.value}`
 }
 
-async function handleLimitChange() {
-  selectedLimit.value = normalizeMatchHistoryLimit(selectedLimit.value)
+function toggleChampionFilter() {
+  championFilterOpen.value = !championFilterOpen.value
+}
+
+function closeChampionFilter() {
+  championFilterOpen.value = false
+}
+
+async function selectChampionFilter(championId: number) {
+  championFilterOpen.value = false
+  if (filterChampionId.value === championId) {
+    return
+  }
+
+  filterChampionId.value = championId
+  await handleFilterChange()
+}
+
+function handleWindowPointerDown(event: PointerEvent) {
+  if (!championFilterOpen.value) {
+    return
+  }
+
+  const target = event.target
+  if (target instanceof Node && championFilterRef.value?.contains(target)) {
+    return
+  }
+
+  championFilterOpen.value = false
+}
+
+async function handleFilterChange() {
+  collapseInlineDetail()
   const requestId = beginMatchHistoryRequest()
   const hydrated = await hydrateMatchHistoryFromLocalCache(requestId)
   clearMatchHistoryWhenLocalCacheMisses(requestId, hydrated)
@@ -1829,7 +2075,11 @@ async function handleLimitChange() {
 }
 
 async function handleRefresh() {
-  await refreshRemoteMatchHistory({ forceRefresh: true })
+  collapseInlineDetail()
+  const requestId = beginMatchHistoryRequest()
+  const hydrated = await hydrateMatchHistoryFromLocalCache(requestId)
+  clearMatchHistoryWhenLocalCacheMisses(requestId, hydrated)
+  void refreshRemoteMatchHistory({ forceRefresh: true, requestId })
 }
 
 async function toggleInlineDetail(match: MatchHistory) {
@@ -2011,6 +2261,7 @@ function handleCopyName() {
 function beginMatchHistoryRequest(): number {
   matchHistoryRequestId += 1
   clearMatchHistoryLoadingState()
+  resetMatchHistoryPagination()
   return matchHistoryRequestId
 }
 
@@ -2021,6 +2272,7 @@ function clearMatchHistoryWhenLocalCacheMisses(requestId: number, hydrated: bool
 
   matchHistory.value = []
   matchRecordStatus.value = null
+  hasNext.value = false
   userTagSummaries.value = {}
 }
 
@@ -2039,7 +2291,6 @@ function requestAutoOpenLatestMatch(token: string) {
 
   filterChampionId.value = -1
   filterQueueId.value = 0
-  selectedLimit.value = 20
 
   const requestId = beginMatchHistoryRequest()
   autoOpenLatestMatchRefreshToken = token
@@ -2073,9 +2324,34 @@ async function applyDefaultFiltersAfterSettings(requestId: number) {
   void refreshRemoteMatchHistory({ forceRefresh: true, requestId: nextRequestId })
 }
 
+function disconnectLoadMoreObserver() {
+  loadMoreObserver?.disconnect()
+  loadMoreObserver = null
+}
+
+function observeLoadMoreSentinel() {
+  disconnectLoadMoreObserver()
+  const sentinel = loadMoreSentinelRef.value
+  if (!sentinel || typeof IntersectionObserver === 'undefined') {
+    return
+  }
+
+  loadMoreObserver = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) {
+      void loadMoreMatchHistory()
+    }
+  }, {
+    root: null,
+    rootMargin: '320px 0px',
+    threshold: 0
+  })
+  loadMoreObserver.observe(sentinel)
+}
+
 onMounted(async () => {
   window.addEventListener('pointermove', handleWindowPointerMove, { passive: true })
   window.addEventListener('pointerout', handleWindowPointerOut)
+  window.addEventListener('pointerdown', handleWindowPointerDown, { passive: true })
   unsubscribeCacheUpdate = wsClient.onCacheUpdate(async (event: CacheUpdateEvent) => {
     if (isMatchHistoryCacheUpdateRelevant(event)) {
       await hydrateMatchHistoryFromLocalCache()
@@ -2087,6 +2363,7 @@ onMounted(async () => {
     }
   })
   void ensurePageSettingsLoaded()
+  observeLoadMoreSentinel()
 })
 
 onUnmounted(() => {
@@ -2094,8 +2371,10 @@ onUnmounted(() => {
   clearMatchHistoryLoadingState()
   window.removeEventListener('pointermove', handleWindowPointerMove)
   window.removeEventListener('pointerout', handleWindowPointerOut)
+  window.removeEventListener('pointerdown', handleWindowPointerDown)
   unsubscribeCacheUpdate?.()
   unsubscribeCacheUpdate = null
+  disconnectLoadMoreObserver()
   if (nearbySurfaceGlowFrame) {
     window.cancelAnimationFrame(nearbySurfaceGlowFrame)
     nearbySurfaceGlowFrame = null
@@ -2157,6 +2436,13 @@ watch(
     requestAutoOpenLatestMatch(token)
   },
   { immediate: true }
+)
+
+watch(
+  () => loadMoreSentinelRef.value,
+  () => {
+    observeLoadMoreSentinel()
+  }
 )
 </script>
 
@@ -2360,6 +2646,8 @@ watch(
   justify-content: space-between;
   gap: 12px 16px;
   flex-wrap: nowrap;
+  position: relative;
+  z-index: 20;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
@@ -2714,6 +3002,87 @@ watch(
   color: #f8fbff;
 }
 
+.champion-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  appearance: none;
+}
+
+.champion-filter-current,
+.champion-option-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.champion-option-count {
+  flex: 0 0 auto;
+  color: #4aa3ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.champion-option-unit {
+  flex: 0 0 auto;
+  color: var(--match-control-muted);
+}
+
+.champion-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: -1px;
+  left: -1px;
+  z-index: 60;
+  box-sizing: border-box;
+  width: auto;
+  max-height: 284px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--match-control-border-hover);
+  border-radius: 10px;
+  background: rgba(13, 17, 24, 0.98);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(41, 151, 255, 0.1);
+}
+
+.champion-filter-scroll {
+  max-height: 272px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 7px;
+  scrollbar-gutter: stable;
+}
+
+.champion-filter-option {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  gap: 4px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.champion-filter-option:hover,
+.champion-filter-option:focus-visible,
+.champion-filter-option.active {
+  background: rgba(41, 151, 255, 0.16);
+  outline: none;
+}
+
 .control-glow {
   --control-glow-x: 50%;
   --control-glow-y: 50%;
@@ -2855,15 +3224,9 @@ watch(
 }
 
 .champion-select-control {
-  width: 112px;
-  min-width: 112px;
-  max-width: 112px;
-}
-
-.limit-select-control {
-  width: 84px;
-  min-width: 84px;
-  max-width: 84px;
+  width: 148px;
+  min-width: 148px;
+  max-width: 148px;
 }
 
 .state-card {
@@ -2922,6 +3285,58 @@ watch(
   line-height: 1.4;
 }
 
+.match-list-sentinel {
+  width: 100%;
+  height: 1px;
+  margin-top: -1px;
+}
+
+.match-list-footer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.load-more-button,
+.load-more-retry {
+  cursor: pointer;
+}
+
+.load-more-button:hover,
+.load-more-button:focus-visible,
+.load-more-retry:hover,
+.load-more-retry:focus-visible {
+  border-color: var(--match-control-border-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.load-more-retry {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.match-list-footer-error {
+  border-color: rgba(196, 92, 92, 0.3);
+  color: var(--text-primary);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .page-shell,
   .filter-control {
@@ -2954,23 +3369,18 @@ watch(
     flex: 0 0 auto;
   }
 
-  .filter-control:not(.limit-select-control) {
+  .filter-control {
     width: 108px;
     min-width: 108px;
     max-width: 108px;
   }
 
   .champion-select-control {
-    width: 112px;
-    min-width: 112px;
-    max-width: 112px;
+    width: 148px;
+    min-width: 148px;
+    max-width: 148px;
   }
 
-  .limit-select-control {
-    width: 84px;
-    min-width: 84px;
-    max-width: 84px;
-  }
 }
 
 @media (max-width: 760px) {

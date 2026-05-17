@@ -2,19 +2,26 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-test('match history uses selectable list limits instead of pagination controls', () => {
+test('match history uses fixed twenty-game infinite loading instead of selectable list limits', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /const matchHistoryLimits = \[20, 50, 100, 200\] as const/)
-  assert.match(source, /type MatchHistoryLimit = typeof matchHistoryLimits\[number\]/)
-  assert.match(source, /const selectedLimit = ref<MatchHistoryLimit>\(20\)/)
-  assert.match(source, /v-model\.number="selectedLimit"/)
-  assert.match(source, /@change="handleLimitChange"/)
+  assert.match(source, /const MATCH_HISTORY_PAGE_SIZE = 20/)
+  assert.match(source, /const currentPage = ref\(0\)/)
+  assert.match(source, /const hasNext = ref\(false\)/)
+  assert.match(source, /const loadingMore = ref\(false\)/)
+  assert.match(source, /const loadedPages = ref<number\[\]>\(\[\]\)/)
+  assert.match(source, /const loadMoreSentinelRef = ref<HTMLElement \| null>\(null\)/)
+  assert.match(source, /function loadMoreMatchHistory\(/)
+  assert.match(source, /new IntersectionObserver/)
+  assert.doesNotMatch(source, /const matchHistoryLimits = \[20, 50, 100, 200\] as const/)
+  assert.doesNotMatch(source, /type MatchHistoryLimit = typeof matchHistoryLimits\[number\]/)
+  assert.doesNotMatch(source, /const selectedLimit/)
+  assert.doesNotMatch(source, /v-model\.number="selectedLimit"/)
+  assert.doesNotMatch(source, /@change="handleLimitChange"/)
   assert.match(source, /class="filters"/)
   assert.doesNotMatch(source, /class="pagination"/)
   assert.doesNotMatch(source, /async function nextPage/)
   assert.doesNotMatch(source, /async function prevPage/)
-  assert.doesNotMatch(source, /const currentPage/)
 })
 
 test('match history page header owns the visible matches title without debug metadata', () => {
@@ -82,43 +89,46 @@ test('match history card layout avoids fixed-width overflow traps', () => {
   assert.match(roster, /\.roster-panel \{[\s\S]*min-width: 0/)
 })
 
-test('loadMatchHistory requests the first page with the selected list limit', () => {
+test('loadMatchHistory requests fixed twenty-game pages and appends later pages', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
 
   assert.match(loadFunction, /const puuid = currentSummoner\.value\?\.puuid/)
-  assert.match(loadFunction, /const requestedSource = options\.source \?\? 'auto'[\s\S]*const pageSize = selectedLimit\.value/)
-  assert.match(loadFunction, /getMatchHistoryPage\(puuid, \{[\s\S]*page: 1,[\s\S]*pageSize,[\s\S]*source: requestedSource[\s\S]*forceRefresh: options\.forceRefresh === true/)
+  assert.match(loadFunction, /const requestedSource = options\.source \?\? 'auto'[\s\S]*const page = options\.page \?\? 1[\s\S]*const append = options\.append === true && page > 1/)
+  assert.match(loadFunction, /const pageSize = MATCH_HISTORY_PAGE_SIZE/)
+  assert.match(loadFunction, /getMatchHistoryPage\(puuid, \{[\s\S]*page,[\s\S]*pageSize,[\s\S]*source: requestedSource[\s\S]*forceRefresh: options\.forceRefresh === true/)
   assert.match(loadFunction, /matchRecordStatus\.value = response\.recordStatus/)
-  assert.doesNotMatch(loadFunction, /currentPage/)
+  assert.match(loadFunction, /hasNext\.value = response\.hasNext === true/)
+  assert.match(loadFunction, /applyMatchHistoryPage\(renderableMatches, page, append\)/)
+  assert.match(source, /function applyMatchHistoryPage\(matches: MatchHistory\[\], page: number, append: boolean\)/)
+  assert.match(source, /appendUniqueMatches\(matchHistory\.value, matches\)/)
 })
 
-test('filters and limit changes preserve the current selected limit during local-first refresh', () => {
+test('filter changes reset pagination and hydrate local matches before background remote refresh', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
   const applyDefaultFiltersFunction = source.match(/function applyDefaultFilters\(\) \{[\s\S]*?\n\}/)?.[0] || ''
   const filterFunction = source.match(/async function handleFilterChange\(\) \{[\s\S]*?\n\}/)?.[0] || ''
-  const limitFunction = source.match(/async function handleLimitChange\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
   assert.match(filterFunction, /const requestId = beginMatchHistoryRequest\(\)/)
+  assert.match(filterFunction, /collapseInlineDetail\(\)/)
   assert.match(filterFunction, /await hydrateMatchHistoryFromLocalCache\(requestId\)/)
   assert.match(filterFunction, /void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
-  assert.match(limitFunction, /selectedLimit\.value = normalizeMatchHistoryLimit\(selectedLimit\.value\)/)
-  assert.match(limitFunction, /const requestId = beginMatchHistoryRequest\(\)/)
-  assert.match(limitFunction, /await hydrateMatchHistoryFromLocalCache\(requestId\)/)
-  assert.match(limitFunction, /void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
+  assert.match(source, /function resetMatchHistoryPagination\(\) \{[\s\S]*currentPage\.value = 0[\s\S]*hasNext\.value = false[\s\S]*loadingMore\.value = false[\s\S]*loadedPages\.value = \[\]/)
+  assert.match(source, /function beginMatchHistoryRequest\(\): number \{[\s\S]*resetMatchHistoryPagination\(\)/)
   assert.doesNotMatch(applyDefaultFiltersFunction, /selectedLimit/)
-  assert.doesNotMatch(filterFunction, /currentPage|reachedEnd/)
+  assert.doesNotMatch(source, /async function handleLimitChange/)
+  assert.doesNotMatch(source, /normalizeMatchHistoryLimit/)
 })
 
-test('filters and limit changes hydrate local matches before background remote refresh', () => {
+test('champion filter options use loaded player history while ignoring the active champion filter', () => {
   const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const filterFunction = source.match(/async function handleFilterChange\(\) \{[\s\S]*?\n\}/)?.[0] || ''
-  const limitFunction = source.match(/async function handleLimitChange\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+  const optionsComputed = source.match(/const loadedChampionOptions = computed\(\(\) =>[\s\S]*?\n\)/)?.[0] || ''
+  const applyPageFunction = source.match(/function applyMatchHistoryPage\(matches: MatchHistory\[\], page: number, append: boolean\) \{[\s\S]*?\n\}/)?.[0] || ''
 
-  assert.match(filterFunction, /await hydrateMatchHistoryFromLocalCache\(requestId\)[\s\S]*void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
-  assert.doesNotMatch(filterFunction, /await loadMatchHistory\(\)/)
-  assert.match(limitFunction, /selectedLimit\.value = normalizeMatchHistoryLimit\(selectedLimit\.value\)[\s\S]*await hydrateMatchHistoryFromLocalCache\(requestId\)[\s\S]*void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
-  assert.doesNotMatch(limitFunction, /await loadMatchHistory\(\)/)
+  assert.match(source, /const championCandidateMatches = ref<MatchHistory\[\]>\(\[\]\)/)
+  assert.match(optionsComputed, /buildLoadedChampionOptions\([\s\S]*championCandidateMatches\.value\.length > 0 \? championCandidateMatches\.value : matchHistory\.value[\s\S]*filterQueueId\.value > 0 \? filterQueueId\.value : undefined/)
+  assert.match(applyPageFunction, /if \(filterChampionId\.value <= 0\) \{[\s\S]*championCandidateMatches\.value = append[\s\S]*appendUniqueMatches\(championCandidateMatches\.value, matches\)[\s\S]*: \[\.\.\.matches\]/)
+  assert.match(source, /resetPanelState\(\) \{[\s\S]*championCandidateMatches\.value = \[\]/)
 })
 
 test('overview stats use independent fifty-game ranked sample while user tags only provide badges', () => {
@@ -454,12 +464,12 @@ test('my match history hydrates from local cache and persists remote matches bef
   assert.match(source, /localCacheEnabled\?: boolean/)
   assert.match(source, /localCacheEnabled: false/)
   assert.match(source, /function shouldUseLocalMatchCache\(\) \{[\s\S]*\(props\.variant === 'mine' \|\| props\.localCacheEnabled === true\)[\s\S]*window\.electronAPI\?\.database/)
-  assert.match(source, /async function hydrateMatchHistoryFromLocalCache\(requestId = matchHistoryRequestId\)(?:: Promise<boolean>)? \{/)
-  assert.match(source, /limit: selectedLimit\.value/)
-  assert.match(source, /offset: 0/)
+  assert.match(source, /async function hydrateMatchHistoryFromLocalCache\(\s*requestId = matchHistoryRequestId,\s*options: MatchHistoryHydrateOptions = \{\}\s*\): Promise<boolean> \{/)
+  assert.match(source, /limit: MATCH_HISTORY_PAGE_SIZE/)
+  assert.match(source, /offset: getMatchHistoryPageOffset\(page\)/)
   assert.match(watcher, /const requestId = matchHistoryRequestId[\s\S]*await hydrateMatchHistoryFromLocalCache\(requestId\)[\s\S]*void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
   assert.doesNotMatch(watcher, /await ensurePageSettingsLoaded\(\)[\s\S]*void refreshRemoteMatchHistory/)
-  assert.match(loadFunction, /await persistMatchHistoryToLocalCache\(renderableMatches\)[\s\S]*await hydrateMatchHistoryFromLocalCache\(requestId\)/)
+  assert.match(loadFunction, /await persistMatchHistoryToLocalCache\(renderableMatches\)[\s\S]*await hydrateMatchHistoryFromLocalCache\(requestId, \{ page, append \}\)/)
   assert.match(loadFunction, /void loadOverviewUserTagSummary\(puuid, requestId\)/)
   assert.doesNotMatch(loadFunction, /void persistMatchHistoryToLocalCache\(matches\)/)
   assert.match(failureFunction, /const hasCachedMatches = await hydrateMatchHistoryFromLocalCache\(requestId\)/)
@@ -471,7 +481,7 @@ test('remote match results are persisted then local cache is rehydrated for disp
   const loadFunction = source.match(/async function loadMatchHistory\(options: MatchHistoryLoadOptions = \{\}\)(?:: Promise<MatchHistoryLoadResult \| undefined>)? \{[\s\S]*?(?=async function loadSelectedMatchUserTagSummaries)/)?.[0] || ''
 
   assert.match(loadFunction, /await persistMatchHistoryToLocalCache\(renderableMatches\)/)
-  assert.match(loadFunction, /await hydrateMatchHistoryFromLocalCache\(requestId\)/)
+  assert.match(loadFunction, /await hydrateMatchHistoryFromLocalCache\(requestId, \{ page, append \}\)/)
   assert.doesNotMatch(loadFunction, /matchHistory\.value = matches/)
 })
 
@@ -501,7 +511,7 @@ test('match history refresh button uses the shared refresh icon button', () => {
   assert.match(source, /<RefreshIconButton[\s\S]*:aria-label="refreshing \? t\('common\.refreshing'\) : t\('common\.refresh'\)"[\s\S]*:loading="refreshing"[\s\S]*:disabled="!currentSummoner"[\s\S]*@click="handleRefresh"/)
   assert.doesNotMatch(source, /<RefreshIconButton[\s\S]*class="control-glow"/)
   assert.doesNotMatch(source, /:deep\(\.refresh-icon-btn/)
-  assert.match(source, /async function handleRefresh\(\) \{[\s\S]*await refreshRemoteMatchHistory\(\{ forceRefresh: true \}\)/)
+  assert.match(source, /async function handleRefresh\(\) \{[\s\S]*const requestId = beginMatchHistoryRequest\(\)[\s\S]*await hydrateMatchHistoryFromLocalCache\(requestId\)[\s\S]*void refreshRemoteMatchHistory\(\{ forceRefresh: true, requestId \}\)/)
   assert.doesNotMatch(source, /<button[\s\S]*class="refresh-icon-btn"[\s\S]*@click="loadData"[\s\S]*<\/button>/)
 })
 
