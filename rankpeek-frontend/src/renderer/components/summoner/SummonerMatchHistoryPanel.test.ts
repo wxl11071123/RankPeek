@@ -118,6 +118,19 @@ test('champion filter menu matches trigger width and keeps its scrollbar inset',
   assert.match(scrollRule, /scrollbar-gutter:\s*stable/)
 })
 
+test('match history filter controls receive window-level proximity glow outside the module', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const WINDOW_PROXIMITY_GLOW_SELECTOR = '\.surface-glow, \.filters \.filter-control\.control-glow'/)
+  assert.match(source, /function getWindowProximityGlowElements\(\)/)
+  assert.match(source, /querySelectorAll<HTMLElement>\(WINDOW_PROXIMITY_GLOW_SELECTOR\)/)
+  assert.match(source, /function updateWindowProximityGlowAtPoint\(clientX: number, clientY: number\)/)
+  assert.match(source, /getWindowProximityGlowElements\(\)\.forEach\(element => \{[\s\S]*applyGlowElement\(element, clientX, clientY\)/)
+  assert.match(source, /function resetWindowProximityGlow\(\)/)
+  assert.match(source, /getWindowProximityGlowElements\(\)\.forEach\(resetGlowElement\)/)
+  assert.match(source, /function handleWindowPointerMove\(event: PointerEvent\) \{[\s\S]*scheduleWindowProximityGlow\(event\)/)
+})
+
 test('load-more footer includes the number of currently loaded visible matches in every state', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
 

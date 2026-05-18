@@ -335,6 +335,15 @@ onBeforeUnmount(() => {
   --refresh-edge-size: 86px;
   --refresh-edge-width: 1px;
   --refresh-edge-offset: -1px;
+  --refresh-bg: transparent;
+  --refresh-bg-hover: rgba(41, 151, 255, 0.08);
+  --refresh-bg-active: rgba(41, 151, 255, 0.12);
+  --refresh-border: rgba(255, 255, 255, 0.12);
+  --refresh-border-hover: rgba(92, 181, 255, 0.62);
+  --refresh-border-focus: rgba(92, 181, 255, 0.78);
+  --refresh-border-active: rgba(92, 181, 255, 0.86);
+  --refresh-local-core: rgba(148, 211, 255, 0.96);
+  --refresh-local-fade: rgba(96, 176, 255, 0.38);
   --refresh-edge-rgb: 148, 211, 255;
   --refresh-edge-top-alpha: 0;
   --refresh-edge-right-alpha: 0;
@@ -349,6 +358,15 @@ onBeforeUnmount(() => {
     3px 0 12px -6px rgba(var(--refresh-edge-rgb), calc(var(--refresh-edge-right-alpha) * 0.56)),
     0 3px 12px -6px rgba(var(--refresh-edge-rgb), calc(var(--refresh-edge-bottom-alpha) * 0.56)),
     -3px 0 12px -6px rgba(var(--refresh-edge-rgb), calc(var(--refresh-edge-left-alpha) * 0.56));
+  --refresh-hover-shadow:
+    0 0 0 1px rgba(41, 151, 255, 0.12),
+    0 0 14px rgba(41, 151, 255, 0.2);
+  --refresh-focus-shadow:
+    0 0 0 2px rgba(41, 151, 255, 0.2),
+    0 0 18px rgba(41, 151, 255, 0.26);
+  --refresh-active-shadow:
+    0 0 0 1px rgba(41, 151, 255, 0.16),
+    0 0 18px rgba(41, 151, 255, 0.28);
   box-sizing: border-box;
   width: 42px;
   height: 42px;
@@ -360,9 +378,9 @@ onBeforeUnmount(() => {
   position: relative;
   isolation: isolate;
   overflow: visible;
-  border: 1px solid rgba(92, 163, 234, 0);
+  border: 1px solid var(--refresh-border);
   border-radius: 999px;
-  background: transparent;
+  background: var(--refresh-bg);
   color: #fff;
   box-shadow: none;
   cursor: pointer;
@@ -380,8 +398,8 @@ onBeforeUnmount(() => {
   border-radius: inherit;
   background: radial-gradient(
     circle var(--refresh-edge-size) at calc(var(--refresh-glow-x) + 1px) calc(var(--refresh-glow-y) + 1px),
-    rgba(var(--refresh-edge-rgb), 0.98) 0%,
-    rgba(96, 176, 255, 0.46) 42%,
+    var(--refresh-local-core) 0%,
+    var(--refresh-local-fade) 42%,
     transparent 78%
   );
   padding: var(--refresh-edge-width);
@@ -409,25 +427,37 @@ onBeforeUnmount(() => {
   opacity: 0.55;
 }
 
-.refresh-icon-btn:hover:not(:disabled),
-.refresh-icon-btn[data-near-glow='true']:not(:disabled) {
-  border-color: rgba(92, 163, 234, 0);
+.refresh-icon-btn:hover:not(:disabled) {
+  border-color: var(--refresh-border-hover);
+  background: var(--refresh-bg-hover);
+  box-shadow:
+    var(--refresh-hover-shadow),
+    var(--refresh-edge-shadow);
+  color: #fff;
+  outline: none;
+}
+
+.refresh-icon-btn[data-near-glow='true']:not(:hover):not(:focus-visible):not(:disabled) {
+  border-color: var(--refresh-border);
   box-shadow: var(--refresh-edge-shadow);
   color: #fff;
   outline: none;
 }
 
 .refresh-icon-btn:focus-visible {
-  border-color: rgba(92, 163, 234, 0.7);
-  box-shadow: 0 0 14px rgba(92, 163, 234, 0.28);
+  border-color: var(--refresh-border-focus);
+  box-shadow:
+    var(--refresh-focus-shadow),
+    var(--refresh-edge-shadow);
   color: #fff;
   outline: none;
 }
 
 .refresh-icon-btn:active:not(:disabled) {
-  border-color: rgba(92, 163, 234, 0.82);
+  border-color: var(--refresh-border-active);
+  background: var(--refresh-bg-active);
   box-shadow:
-    0 0 16px rgba(92, 163, 234, 0.32),
+    var(--refresh-active-shadow),
     var(--refresh-edge-shadow);
 }
 
@@ -473,19 +503,47 @@ onBeforeUnmount(() => {
 }
 
 :global([data-theme="light"] .refresh-icon-btn) {
+  --refresh-bg: rgba(255, 255, 255, 0);
+  --refresh-bg-hover: rgba(41, 151, 255, 0.06);
+  --refresh-bg-active: rgba(41, 151, 255, 0.1);
+  --refresh-border: rgba(15, 23, 42, 0.12);
+  --refresh-border-hover: rgba(41, 151, 255, 0.5);
+  --refresh-border-focus: rgba(41, 151, 255, 0.64);
+  --refresh-border-active: rgba(41, 151, 255, 0.72);
+  --refresh-local-core: rgba(226, 179, 34, 0.86);
+  --refresh-local-fade: rgba(226, 179, 34, 0.32);
+  --refresh-edge-rgb: 226, 179, 34;
+  --refresh-hover-shadow:
+    0 0 0 1px rgba(41, 151, 255, 0.08),
+    0 0 12px rgba(41, 151, 255, 0.16);
+  --refresh-focus-shadow:
+    0 0 0 2px rgba(41, 151, 255, 0.18),
+    0 0 16px rgba(41, 151, 255, 0.18);
+  --refresh-active-shadow:
+    0 0 0 1px rgba(41, 151, 255, 0.12),
+    0 0 16px rgba(41, 151, 255, 0.2);
   color: #000 !important;
 }
 
-:global([data-theme="light"] .refresh-icon-btn:hover),
-:global([data-theme="light"] .refresh-icon-btn[data-near-glow='true']) {
-  border-color: rgba(92, 163, 234, 0);
+:global([data-theme="light"] .refresh-icon-btn:hover) {
+  border-color: var(--refresh-border-hover);
+  box-shadow:
+    var(--refresh-hover-shadow),
+    var(--refresh-edge-shadow);
+  color: #000 !important;
+}
+
+:global([data-theme="light"] .refresh-icon-btn[data-near-glow='true']:not(:hover):not(:focus-visible)) {
+  border-color: var(--refresh-border);
   box-shadow: var(--refresh-edge-shadow);
   color: #000 !important;
 }
 
 :global([data-theme="light"] .refresh-icon-btn:focus-visible) {
-  border-color: rgba(92, 163, 234, 0.68);
-  box-shadow: 0 0 14px rgba(92, 163, 234, 0.24);
+  border-color: var(--refresh-border-focus);
+  box-shadow:
+    var(--refresh-focus-shadow),
+    var(--refresh-edge-shadow);
   color: #000 !important;
 }
 

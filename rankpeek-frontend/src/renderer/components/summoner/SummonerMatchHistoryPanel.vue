@@ -401,6 +401,7 @@ const { t } = useI18n()
 const CONTROL_GLOW_RANGE = 96
 const SURFACE_GLOW_RANGE = 220
 const EDGE_GLOW_MIN = 0.03
+const WINDOW_PROXIMITY_GLOW_SELECTOR = '.surface-glow, .filters .filter-control.control-glow'
 const LIVE_MATCH_ONLY_TAG_NAMES = new Set<string>(['\u5f00\u9ed1'])
 const USER_TAG_SUMMARY_BATCH_SIZE = 40
 const MATCH_HISTORY_PAGE_SIZE = 20
@@ -514,21 +515,23 @@ function resetControlGlow(event: PointerEvent) {
   target.querySelectorAll<HTMLElement>('.control-glow').forEach(resetGlowElement)
 }
 
-function getSurfaceGlowElements() {
-  return Array.from(matchHistoryViewRef.value?.querySelectorAll<HTMLElement>('.surface-glow') || [])
+function getWindowProximityGlowElements() {
+  return Array.from(
+    matchHistoryViewRef.value?.querySelectorAll<HTMLElement>(WINDOW_PROXIMITY_GLOW_SELECTOR) || []
+  )
 }
 
-function updateNearbySurfaceGlowAtPoint(clientX: number, clientY: number) {
-  getSurfaceGlowElements().forEach(element => {
+function updateWindowProximityGlowAtPoint(clientX: number, clientY: number) {
+  getWindowProximityGlowElements().forEach(element => {
     applyGlowElement(element, clientX, clientY)
   })
 }
 
-function resetNearbySurfaceGlow() {
-  getSurfaceGlowElements().forEach(resetGlowElement)
+function resetWindowProximityGlow() {
+  getWindowProximityGlowElements().forEach(resetGlowElement)
 }
 
-function scheduleNearbySurfaceGlow(event: PointerEvent) {
+function scheduleWindowProximityGlow(event: PointerEvent) {
   nearbySurfaceGlowPoint = {
     clientX: event.clientX,
     clientY: event.clientY
@@ -543,12 +546,12 @@ function scheduleNearbySurfaceGlow(event: PointerEvent) {
     if (!nearbySurfaceGlowPoint) {
       return
     }
-    updateNearbySurfaceGlowAtPoint(nearbySurfaceGlowPoint.clientX, nearbySurfaceGlowPoint.clientY)
+    updateWindowProximityGlowAtPoint(nearbySurfaceGlowPoint.clientX, nearbySurfaceGlowPoint.clientY)
   })
 }
 
 function handleWindowPointerMove(event: PointerEvent) {
-  scheduleNearbySurfaceGlow(event)
+  scheduleWindowProximityGlow(event)
 }
 
 function handleWindowPointerOut(event: PointerEvent) {
@@ -558,7 +561,7 @@ function handleWindowPointerOut(event: PointerEvent) {
       window.cancelAnimationFrame(nearbySurfaceGlowFrame)
       nearbySurfaceGlowFrame = null
     }
-    resetNearbySurfaceGlow()
+    resetWindowProximityGlow()
   }
 }
 

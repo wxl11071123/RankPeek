@@ -89,9 +89,13 @@ const controlItems = computed(() =>
       }))
     : [{ key: 'empty' }]
 )
-const stackLayers = computed(() => {
-  const layerCount = Math.min(Math.max(displayCount.value - 1, 0), 2)
-  return Array.from({ length: layerCount }, (_item, index) => layerCount - index)
+const deckDecorativeLayers = computed(() => {
+  if (displayCount.value < 2) {
+    return []
+  }
+
+  const layerCount = Math.min(displayCount.value - 1, 2)
+  return Array.from({ length: layerCount }, (_item, index) => (index + 1) as 1 | 2)
 })
 const activeReportForEmit = computed<CoachReport | null>(() =>
   activeReport.value?.isDevPlaceholder ? null : activeReport.value
@@ -295,12 +299,12 @@ function openActiveReport() {
 
     <div class="record-preview" :class="{ empty: !hasDisplayReports }">
       <span
-        v-for="layer in stackLayers"
+        v-for="layer in deckDecorativeLayers"
         :key="layer"
         class="record-stack-card"
-        :class="`layer-${layer}`"
+        :class="`deck-layer-${layer}`"
         aria-hidden="true"
-      ></span>
+      />
 
       <span
         v-if="leavingCard"
@@ -485,56 +489,66 @@ function openActiveReport() {
 
 .record-preview {
   --record-card-width: calc(100% - 8px);
-  --record-card-height: min(154px, 70%);
+  --record-card-height: 136px;
+  --record-deck-layer-one-y: 34px;
+  --record-deck-layer-two-y: 66px;
   position: relative;
   flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 220px;
+  display: block;
   padding: 16px 0 12px;
   isolation: isolate;
   z-index: 1;
+  overflow: visible;
 }
 
 .record-main-card,
 .record-stack-card {
+  position: absolute;
+  top: 16px;
+  left: 50%;
   width: var(--record-card-width);
   height: var(--record-card-height);
   min-height: 118px;
   box-sizing: border-box;
   border-radius: 10px;
+  transform-origin: top center;
 }
 
 .record-stack-card {
-  position: absolute;
-  top: 50%;
-  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 18px 24px;
   border: 1px solid var(--record-stack-border);
   background: var(--record-stack-bg);
+  box-shadow: var(--record-card-shadow);
   pointer-events: none;
+  overflow: hidden;
   transition:
     border-color 0.2s ease,
     opacity 0.2s ease,
+    transform 0.22s ease,
     box-shadow 0.22s ease;
 }
 
-.record-stack-card.layer-1 {
-  z-index: 1;
-  opacity: 0.66;
-  transform: translate(-50%, -50%) translate(7px, 14px);
+.record-stack-card.deck-layer-1 {
+  z-index: 2;
+  opacity: 0.72;
+  transform: translateX(-50%) translateY(var(--record-deck-layer-one-y)) scale(0.94);
 }
 
-.record-stack-card.layer-2 {
-  z-index: 0;
-  opacity: 0.42;
-  transform: translate(-50%, -50%) translate(-7px, 25px);
+.record-stack-card.deck-layer-2 {
+  z-index: 1;
+  opacity: 0.46;
+  transform: translateX(-50%) translateY(var(--record-deck-layer-two-y)) scale(0.88);
 }
 
 .record-main-card {
   --record-card-hover-y: 0px;
-  position: relative;
-  z-index: 2;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -547,7 +561,7 @@ function openActiveReport() {
   color: inherit;
   cursor: pointer;
   overflow: hidden;
-  transform: translate3d(0, var(--record-card-hover-y), 0);
+  transform: translateX(-50%) translateY(var(--record-card-hover-y));
   transition:
     border-color 0.2s ease,
     box-shadow 0.22s ease,
@@ -607,13 +621,10 @@ function openActiveReport() {
 
 .record-main-card-leaving {
   --record-card-hover-y: 0px;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 3;
+  z-index: 4;
   pointer-events: none;
   cursor: default;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
 }
 
 .record-main-card-leaving::before {
@@ -636,26 +647,26 @@ function openActiveReport() {
   animation: record-card-leave-prev var(--record-switch-duration) var(--record-switch-ease) both;
 }
 
-.ai-coach-cards.is-switching.switch-next .record-stack-card.layer-1 {
+.ai-coach-cards.is-switching.switch-next .record-stack-card.deck-layer-1 {
   animation: record-stack-one-next var(--record-switch-duration) var(--record-switch-ease) both;
 }
 
-.ai-coach-cards.is-switching.switch-next .record-stack-card.layer-2 {
+.ai-coach-cards.is-switching.switch-next .record-stack-card.deck-layer-2 {
   animation: record-stack-two-next var(--record-switch-duration) var(--record-switch-ease) both;
 }
 
-.ai-coach-cards.is-switching.switch-prev .record-stack-card.layer-1 {
+.ai-coach-cards.is-switching.switch-prev .record-stack-card.deck-layer-1 {
   animation: record-stack-one-prev var(--record-switch-duration) var(--record-switch-ease) both;
 }
 
-.ai-coach-cards.is-switching.switch-prev .record-stack-card.layer-2 {
+.ai-coach-cards.is-switching.switch-prev .record-stack-card.deck-layer-2 {
   animation: record-stack-two-prev var(--record-switch-duration) var(--record-switch-ease) both;
 }
 
 @keyframes record-card-enter-next {
   0% {
-    opacity: 0.56;
-    transform: translate3d(8px, calc(var(--record-card-hover-y) + 9px), 0);
+    opacity: 0.72;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-one-y)) scale(0.94);
   }
 
   58% {
@@ -664,14 +675,14 @@ function openActiveReport() {
 
   100% {
     opacity: 1;
-    transform: translate3d(0, var(--record-card-hover-y), 0);
+    transform: translateX(-50%) translateY(var(--record-card-hover-y)) scale(1);
   }
 }
 
 @keyframes record-card-enter-prev {
   0% {
-    opacity: 0.56;
-    transform: translate3d(-8px, calc(var(--record-card-hover-y) - 8px), 0);
+    opacity: 0.52;
+    transform: translateX(-50%) translateY(-34px) scale(1.02);
   }
 
   58% {
@@ -680,79 +691,79 @@ function openActiveReport() {
 
   100% {
     opacity: 1;
-    transform: translate3d(0, var(--record-card-hover-y), 0);
+    transform: translateX(-50%) translateY(var(--record-card-hover-y)) scale(1);
   }
 }
 
 @keyframes record-card-leave-next {
   0% {
     opacity: 1;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%) translateY(0) scale(1);
   }
 
   100% {
     opacity: 0;
-    transform: translate(calc(-50% - 6px), calc(-50% - 8px));
+    transform: translateX(-50%) translateY(-40px) scale(0.97);
   }
 }
 
 @keyframes record-card-leave-prev {
   0% {
     opacity: 1;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%) translateY(0) scale(1);
   }
 
   100% {
-    opacity: 0;
-    transform: translate(calc(-50% + 6px), calc(-50% + 8px));
+    opacity: 0.22;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-one-y)) scale(0.94);
   }
 }
 
 @keyframes record-stack-one-next {
   0% {
-    opacity: 0.5;
-    transform: translate(-50%, -50%) translate(11px, 19px);
+    opacity: 0.46;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-two-y)) scale(0.88);
   }
 
   100% {
-    opacity: 0.66;
-    transform: translate(-50%, -50%) translate(7px, 14px);
+    opacity: 0.72;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-one-y)) scale(0.94);
   }
 }
 
 @keyframes record-stack-two-next {
   0% {
-    opacity: 0.28;
-    transform: translate(-50%, -50%) translate(-3px, 29px);
+    opacity: 0;
+    transform: translateX(-50%) translateY(calc(var(--record-deck-layer-two-y) + 30px)) scale(0.82);
   }
 
   100% {
-    opacity: 0.42;
-    transform: translate(-50%, -50%) translate(-7px, 25px);
+    opacity: 0.46;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-two-y)) scale(0.88);
   }
 }
 
 @keyframes record-stack-one-prev {
   0% {
-    opacity: 0.5;
-    transform: translate(-50%, -50%) translate(2px, 9px);
+    opacity: 0.18;
+    transform: translateX(-50%) translateY(-18px) scale(1.01);
   }
 
   100% {
-    opacity: 0.66;
-    transform: translate(-50%, -50%) translate(7px, 14px);
+    opacity: 0.72;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-one-y)) scale(0.94);
   }
 }
 
 @keyframes record-stack-two-prev {
   0% {
-    opacity: 0.28;
-    transform: translate(-50%, -50%) translate(-11px, 21px);
+    opacity: 0.72;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-one-y)) scale(0.94);
   }
 
   100% {
-    opacity: 0.42;
-    transform: translate(-50%, -50%) translate(-7px, 25px);
+    opacity: 0.46;
+    transform: translateX(-50%) translateY(var(--record-deck-layer-two-y)) scale(0.88);
   }
 }
 
@@ -913,7 +924,10 @@ function openActiveReport() {
 
   .record-preview {
     --record-card-width: calc(100% - 6px);
-    --record-card-height: min(136px, 66%);
+    --record-card-height: 126px;
+    --record-deck-layer-one-y: 30px;
+    --record-deck-layer-two-y: 56px;
+    min-height: 198px;
     padding-inline: 0;
   }
 
@@ -947,7 +961,10 @@ function openActiveReport() {
 
   .record-preview {
     --record-card-width: 100%;
-    --record-card-height: min(124px, 64%);
+    --record-card-height: 116px;
+    --record-deck-layer-one-y: 26px;
+    --record-deck-layer-two-y: 48px;
+    min-height: 178px;
     padding-block: 12px 8px;
   }
 
@@ -956,12 +973,8 @@ function openActiveReport() {
     min-height: 100px;
   }
 
-  .record-stack-card.layer-1 {
-    transform: translate(-50%, -50%) translate(7px, 11px);
-  }
-
-  .record-stack-card.layer-2 {
-    transform: translate(-50%, -50%) translate(-7px, 19px);
+  .record-stack-card {
+    padding: 14px 18px;
   }
 }
 </style>
