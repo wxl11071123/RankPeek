@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLocalDatabase } from './index.ts'
-import type { LocalDatabase } from './types.ts'
+import type { LocalDatabase, MatchRecordInput } from './types.ts'
 
 const silentLogger = {
   info: () => undefined,
@@ -25,6 +25,46 @@ function createTempLocalDatabase(): { database: LocalDatabase; databasePath: str
       rmSync(directory, { recursive: true, force: true })
     }
   }
+}
+
+function makeMatchRecord(matchNumber: number, accountPuuid = 'test-puuid'): MatchRecordInput {
+  return {
+    region: 'HN1',
+    matchId: `HN1_${accountPuuid}_${matchNumber}`,
+    accountPuuid,
+    queueId: 420,
+    queueName: 'Ranked Solo',
+    gameMode: 'CLASSIC',
+    gameCreation: matchNumber,
+    gameDuration: 1800,
+    championId: 100 + (matchNumber % 20),
+    win: matchNumber % 2 === 0,
+    kills: matchNumber % 15,
+    deaths: matchNumber % 7,
+    assists: matchNumber % 22,
+    rawSummaryJson: { matchNumber, accountPuuid }
+  }
+}
+
+function countMatchRecords(database: LocalDatabase, accountPuuid: string) {
+  return (database.connection
+    .prepare('SELECT COUNT(*) AS count FROM match_records WHERE account_puuid = ?')
+    .get(accountPuuid) as { count: number }).count
+}
+
+function matchIdAtEdge(database: LocalDatabase, accountPuuid: string, direction: 'newest' | 'oldest') {
+  const order = direction === 'newest' ? 'DESC' : 'ASC'
+  const row = database.connection
+    .prepare(`
+      SELECT match_id AS matchId
+      FROM match_records
+      WHERE account_puuid = ?
+      ORDER BY game_creation ${order}, id ${order}
+      LIMIT 1
+    `)
+    .get(accountPuuid) as { matchId: string } | undefined
+
+  return row?.matchId ?? null
 }
 
 test('initializes database file and records migration version 1 once', () => {
@@ -351,6 +391,135 @@ test('AI analysis repository saves results and queries by account, id, and input
 
     assert.equal(database.aiAnalyses.getAnalysisResultById(saved.id)?.inputHash, 'hash-1')
     assert.equal(database.aiAnalyses.findAnalysisByInputHash('hash-1')?.id, saved.id)
+  } finally {
+    cleanup()
+  }
+})
+
+test('storage retention keeps the newest 500 match records per account', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.matches.upsertMatchRecords(
+      Array.from({ length: 520 }, (_, index) => makeMatchRecord(index + 1, 'test-puuid'))
+    )
+
+    const result = database.runStorageRetention()
+
+    assert.equal(result.matchRecordsDeleted, 20)
+    assert.equal(result.matchRecordsRetained, 500)
+    assert.equal(countMatchRecords(database, 'test-puuid'), 500)
+    assert.equal(matchIdAtEdge(database, 'test-puuid', 'newest'), 'HN1_test-puuid_520')
+    assert.equal(matchIdAtEdge(database, 'test-puuid', 'oldest'), 'HN1_test-puuid_21')
+  } finally {
+    cleanup()
+  }
+})
+
+test('storage retention keeps 500 match records per account without global cross-account pruning', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.matches.upsertMatchRecords([
+      ...Array.from({ length: 510 }, (_, index) => makeMatchRecord(index + 1, 'first-puuid')),
+      ...Array.from({ length: 505 }, (_, index) => makeMatchRecord(index + 1, 'second-puuid'))
+    ])
+
+    const result = database.runStorageRetention()
+
+    assert.equal(result.matchRecordsDeleted, 15)
+    assert.equal(countMatchRecords(database, 'first-puuid'), 500)
+    assert.equal(countMatchRecords(database, 'second-puuid'), 500)
+  } finally {
+    cleanup()
+  }
+})
+
+test('storage retention preserves AI memory and details referenced by AI memory', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.matches.upsertMatchRecords(
+      Array.from({ length: 501 }, (_, index) => makeMatchRecord(index + 1, 'test-puuid'))
+    )
+    database.matches.upsertMatchDetail({
+      region: 'HN1',
+      matchId: 'HN1_test-puuid_1',
+      rawDetailJson: { matchId: 'HN1_test-puuid_1', protectedByAiMemory: true },
+      normalizedDetailJson: { participants: [] }
+    })
+    database.matches.upsertMatchDetail({
+      region: 'HN1',
+      matchId: 'HN1_orphan_detail',
+      rawDetailJson: { matchId: 'HN1_orphan_detail', orphan: true },
+      normalizedDetailJson: { participants: [] }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_test-puuid_1',
+      analysisType: 'match_summary',
+      inputHash: 'ai-memory-1',
+      outputJson: { summary: 'Important long-term memory.' }
+    })
+
+    const result = database.runStorageRetention()
+
+    assert.equal(result.matchRecordsDeleted, 1)
+    assert.equal(result.matchDetailsDeleted, 1)
+    assert.equal(result.aiAnalysisDeleted, 0)
+    assert.equal(database.matches.getMatchDetail('HN1', 'HN1_test-puuid_1')?.matchId, 'HN1_test-puuid_1')
+    assert.equal(database.matches.getMatchDetail('HN1', 'HN1_orphan_detail'), null)
+    assert.equal(database.aiAnalyses.getMemoryStats('test-puuid').totalCount, 1)
+  } finally {
+    cleanup()
+  }
+})
+
+test('AI memory stats and export payload include all account analysis records', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_1',
+      analysisType: 'match_summary',
+      inputHash: 'hash-1',
+      outputJson: { summary: 'First.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_2',
+      analysisType: 'match_summary',
+      inputHash: 'hash-2',
+      outputJson: { summary: 'Second.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      analysisType: 'coach_summary',
+      inputHash: 'hash-3',
+      outputJson: { summary: 'Long-term trend.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'other-puuid',
+      analysisType: 'match_summary',
+      outputJson: { summary: 'Other account.' }
+    })
+
+    const stats = database.aiAnalyses.getMemoryStats('test-puuid')
+    const exportPayload = database.aiAnalyses.exportMemory('test-puuid')
+
+    assert.equal(stats.totalCount, 3)
+    assert.equal(stats.linkedMatchCount, 2)
+    assert.deepEqual(stats.analysisTypeCounts, [
+      { analysisType: 'match_summary', count: 2 },
+      { analysisType: 'coach_summary', count: 1 }
+    ])
+    assert.equal(exportPayload.accountPuuid, 'test-puuid')
+    assert.equal(exportPayload.stats.totalCount, 3)
+    assert.deepEqual(
+      exportPayload.records.map((record) => record.inputHash),
+      ['hash-3', 'hash-2', 'hash-1']
+    )
   } finally {
     cleanup()
   }

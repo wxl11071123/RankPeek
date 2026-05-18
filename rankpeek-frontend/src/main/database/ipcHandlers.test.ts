@@ -28,14 +28,15 @@ const silentLogger = {
   error: () => undefined
 }
 
-function createRegisteredHandlers() {
+function createRegisteredHandlers(options?: Parameters<typeof registerDatabaseIpcHandlers>[3]) {
   const directory = mkdtempSync(join(tmpdir(), 'rankpeek-ipc-db-'))
   const database = createLocalDatabase({ databasePath: join(directory, 'rankpeek.db'), logger: silentLogger })
   const ipcMain = new FakeIpcMain()
-  registerDatabaseIpcHandlers(ipcMain, () => database, silentLogger)
+  registerDatabaseIpcHandlers(ipcMain, () => database, silentLogger, options)
 
   return {
     ipcMain,
+    database,
     cleanup: () => {
       database.close()
       rmSync(directory, { recursive: true, force: true })
@@ -106,6 +107,43 @@ test('database IPC handlers support match record and AI analysis smoke operation
     const analysis = await ipcMain.invoke('db:ai:findByInputHash', 'hash-1')
     assert.equal(analysis.success, true)
     assert.equal(analysis.data.inputHash, 'hash-1')
+  } finally {
+    cleanup()
+  }
+})
+
+test('database IPC handlers expose storage retention and AI memory stats/export without delete APIs', async () => {
+  const { ipcMain, database, cleanup } = createRegisteredHandlers({
+    exportAiMemory: async ({ payload }) => ({
+      filePath: 'C:/RankPeek/ai-memory.json',
+      exportedCount: payload.records.length
+    })
+  })
+
+  try {
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_1',
+      analysisType: 'match_summary',
+      inputHash: 'hash-1',
+      outputJson: { summary: 'Keep farming.' }
+    })
+
+    const stats = await ipcMain.invoke('db:ai:getMemoryStats', 'test-puuid')
+    assert.equal(stats.success, true)
+    assert.equal(stats.data.totalCount, 1)
+
+    const exported = await ipcMain.invoke('db:ai:exportMemory', 'test-puuid')
+    assert.equal(exported.success, true)
+    assert.equal(exported.data.filePath, 'C:/RankPeek/ai-memory.json')
+    assert.equal(exported.data.exportedCount, 1)
+
+    const retention = await ipcMain.invoke('db:storage:runRetention')
+    assert.equal(retention.success, true)
+    assert.equal(retention.data.aiAnalysisDeleted, 0)
+
+    assert.equal(ipcMain.handlers.has('db:ai:deleteMemory'), false)
+    assert.equal(ipcMain.handlers.has('db:ai:clearMemory'), false)
   } finally {
     cleanup()
   }

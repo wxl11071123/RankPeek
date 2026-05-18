@@ -1,4 +1,6 @@
 import type {
+  AiMemoryExportPayload,
+  AiMemoryExportResult,
   AiAnalysisListOptions,
   AiAnalysisResultInput,
   DatabaseIpcResult,
@@ -12,6 +14,14 @@ import type {
 
 type IpcHandler = (_event: unknown, payload?: unknown) => unknown | Promise<unknown>
 
+export interface DatabaseIpcHandlerOptions {
+  exportAiMemory?: (request: {
+    accountPuuid: string
+    payload: AiMemoryExportPayload
+  }) => Promise<AiMemoryExportResult> | AiMemoryExportResult
+  onStorageMutation?: () => void
+}
+
 export interface IpcMainLike {
   handle(channel: string, handler: IpcHandler): void
 }
@@ -19,7 +29,8 @@ export interface IpcMainLike {
 export function registerDatabaseIpcHandlers(
   ipcMain: IpcMainLike,
   getDatabase: () => LocalDatabase,
-  logger: LocalDatabaseLogger
+  logger: LocalDatabaseLogger,
+  options: DatabaseIpcHandlerOptions = {}
 ) {
   ipcMain.handle('db:account:upsert', (_event, payload) => {
     if (!isAccountInput(payload)) {
@@ -54,9 +65,11 @@ export function registerDatabaseIpcHandlers(
       return failure('Invalid match records payload')
     }
 
-    return runDatabaseHandler('db:match:upsertRecords', logger, () => (
-      getDatabase().matches.upsertMatchRecords(payload)
-    ))
+    return runDatabaseHandler('db:match:upsertRecords', logger, () => {
+      const records = getDatabase().matches.upsertMatchRecords(payload)
+      options.onStorageMutation?.()
+      return records
+    })
   })
 
   ipcMain.handle('db:match:listByAccount', (_event, payload) => {
@@ -84,9 +97,11 @@ export function registerDatabaseIpcHandlers(
       return failure('Invalid match detail payload')
     }
 
-    return runDatabaseHandler('db:match:upsertDetail', logger, () => (
-      getDatabase().matches.upsertMatchDetail(payload)
-    ))
+    return runDatabaseHandler('db:match:upsertDetail', logger, () => {
+      const detail = getDatabase().matches.upsertMatchDetail(payload)
+      options.onStorageMutation?.()
+      return detail
+    })
   })
 
   ipcMain.handle('db:ai:saveResult', (_event, payload) => {
@@ -94,9 +109,11 @@ export function registerDatabaseIpcHandlers(
       return failure('Invalid AI analysis payload')
     }
 
-    return runDatabaseHandler('db:ai:saveResult', logger, () => (
-      getDatabase().aiAnalyses.saveAnalysisResult(payload)
-    ))
+    return runDatabaseHandler('db:ai:saveResult', logger, () => {
+      const result = getDatabase().aiAnalyses.saveAnalysisResult(payload)
+      options.onStorageMutation?.()
+      return result
+    })
   })
 
   ipcMain.handle('db:ai:listByAccount', (_event, payload) => {
@@ -128,6 +145,37 @@ export function registerDatabaseIpcHandlers(
       getDatabase().aiAnalyses.findAnalysisByInputHash(payload)
     ))
   })
+
+  ipcMain.handle('db:ai:getMemoryStats', (_event, payload) => {
+    if (!isNonEmptyString(payload)) {
+      return failure('Invalid AI memory account puuid')
+    }
+
+    return runDatabaseHandler('db:ai:getMemoryStats', logger, () => (
+      getDatabase().aiAnalyses.getMemoryStats(payload)
+    ))
+  })
+
+  ipcMain.handle('db:ai:exportMemory', async (_event, payload) => {
+    if (!isNonEmptyString(payload)) {
+      return failure('Invalid AI memory account puuid')
+    }
+    if (!options.exportAiMemory) {
+      return failure('AI memory export is unavailable')
+    }
+
+    return runDatabaseHandlerAsync('db:ai:exportMemory', logger, async () => {
+      const exportPayload = getDatabase().aiAnalyses.exportMemory(payload)
+      return options.exportAiMemory?.({
+        accountPuuid: payload,
+        payload: exportPayload
+      }) as Promise<AiMemoryExportResult> | AiMemoryExportResult
+    })
+  })
+
+  ipcMain.handle('db:storage:runRetention', () => (
+    runDatabaseHandler('db:storage:runRetention', logger, () => getDatabase().runStorageRetention())
+  ))
 }
 
 function runDatabaseHandler<T>(
@@ -139,6 +187,23 @@ function runDatabaseHandler<T>(
     return {
       success: true,
       data: operation()
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error(`Database IPC handler failed (${channel}): ${message}`)
+    return failure(message)
+  }
+}
+
+async function runDatabaseHandlerAsync<T>(
+  channel: string,
+  logger: LocalDatabaseLogger,
+  operation: () => Promise<T> | T
+): Promise<DatabaseIpcResult<T>> {
+  try {
+    return {
+      success: true,
+      data: await operation()
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

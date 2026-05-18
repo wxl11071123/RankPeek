@@ -32,16 +32,21 @@ test('settings page keeps only the three common user settings', () => {
   assert.match(source, /settings\.defaultMatchModeUserDescription/)
   assert.match(source, /settings\.saveDefaultMode/)
 
-  assert.match(source, /async function clearUserCache\(\)/)
+  assert.match(source, /async function clearUserCache\(mode: CacheClearMode\)/)
   assert.match(source, /clearFrontendTransientCache\(\)/)
-  assert.match(source, /apiClient\.clearCache\(['"]all['"]\)/)
+  assert.match(source, /apiClient\.clearCache\(['"]all['"],\s*true,\s*mode\)/)
   assert.match(source, /buildCacheClearAlertMessage\(/)
   assert.match(source, /extractCacheClearErrorMessage\(/)
   assert.match(source, /settings\.clearCacheUser/)
   assert.match(source, /settings\.clearCacheUserDescription/)
+  assert.match(source, /settings\.normalClearCacheAction/)
+  assert.match(source, /settings\.deepClearCacheAction/)
+  assert.match(source, /window\.electronAPI\?\.clearChromiumCache/)
+  assert.match(source, /window\.electronAPI\?\.database\?\.runStorageRetention/)
   assert.match(source, /settings\.clearCachePartialFailed/)
   assert.doesNotMatch(source, /@click="clearLocalCache\('memory'\)"/)
   assert.doesNotMatch(source, /@click="clearLocalCache\('localDb'\)"/)
+  assert.doesNotMatch(source, /deleteAiMemory|clearAiMemory|deleteMemory|clearMemory/)
 
   assert.match(source, /themeStore\.setTheme\('light'\)/)
   assert.match(source, /themeStore\.setTheme\('dark'\)/)
@@ -89,6 +94,8 @@ test('settings copy is user-facing in both locales', () => {
     'settings.defaultMatchModeUserDescription',
     'settings.clearCacheUser',
     'settings.clearCacheUserDescription',
+    'settings.normalClearCacheAction',
+    'settings.deepClearCacheAction',
     'settings.appearanceTheme',
     'settings.appearanceThemeDescription',
     'settings.aboutRankPeek'

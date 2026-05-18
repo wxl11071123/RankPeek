@@ -31,8 +31,9 @@ public class CacheController {
     @PostMapping("/clear")
     public ApiResponse<CacheClearResult> clearCache(
             @RequestParam(defaultValue = "all") String scope,
-            @RequestParam(defaultValue = "false") boolean confirm) {
-        return ApiResponse.success(cacheMaintenanceService.clearCache(scope, confirm));
+            @RequestParam(defaultValue = "false") boolean confirm,
+            @RequestParam(defaultValue = "normal") String mode) {
+        return ApiResponse.success(cacheMaintenanceService.clearCache(scope, confirm, mode));
     }
 
     @PostMapping("/repair")

@@ -15,7 +15,7 @@ class LocalDatabaseConfigTest {
     Path tempDir;
 
     @Test
-    void createsSingleConnectionPoolForEmbeddedH2Cache() {
+    void createsSmallConcurrentConnectionPoolForEmbeddedH2Cache() {
         LocalDataPathService pathService = new LocalDataPathService() {
             @Override
             public Path getCacheDatabasePath() {
@@ -28,10 +28,10 @@ class LocalDatabaseConfigTest {
         assertThat(dataSource).isInstanceOf(HikariDataSource.class);
         HikariDataSource hikariDataSource = (HikariDataSource) dataSource;
         try {
-            assertThat(hikariDataSource.getMaximumPoolSize()).isEqualTo(1);
+            assertThat(hikariDataSource.getMaximumPoolSize()).isEqualTo(4);
             assertThat(hikariDataSource.getMinimumIdle()).isZero();
             assertThat(hikariDataSource.getInitializationFailTimeout()).isLessThan(0);
-            assertThat(hikariDataSource.getConnectionTimeout()).isEqualTo(1_000);
+            assertThat(hikariDataSource.getConnectionTimeout()).isEqualTo(10_000);
             assertThat(hikariDataSource.getJdbcUrl()).startsWith("jdbc:h2:file:");
         } finally {
             hikariDataSource.close();

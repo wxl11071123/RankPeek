@@ -38,4 +38,12 @@ public class CacheStatus {
     private long trackedPlayerCount;
 
     private Long latestMatchCreation;
+
+    private long orphanMatchCount;
+    private long orphanGameDetailCount;
+    private long orphanParticipantCount;
+    private long orphanDataScopeCount;
+    private long quarantineCount;
+    private long traceFileCount;
+    private long corruptFileCount;
 }

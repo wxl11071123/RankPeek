@@ -1,6 +1,5 @@
 package io.rankpeek.sgp;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.model.MatchHistory;
@@ -14,9 +13,6 @@ import java.util.Map;
 
 @Service
 public class SgpMatchHistoryMapper {
-
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
-    };
 
     private final ObjectMapper objectMapper;
 
@@ -144,11 +140,6 @@ public class SgpMatchHistoryMapper {
         stats.setPlayerAugment2(readInt(statsNode, participantNode, "playerAugment2"));
         stats.setPlayerAugment3(readInt(statsNode, participantNode, "playerAugment3"));
         stats.setPlayerAugment4(readInt(statsNode, participantNode, "playerAugment4"));
-        stats.setChallenges(toMap(firstObject(
-                SgpJsonMapperSupport.value(statsNode, "challenges"),
-                SgpJsonMapperSupport.value(participantNode, "challenges")
-        )));
-        stats.setExtraFields(extraFields(participantNode));
         return stats;
     }
 
@@ -157,7 +148,6 @@ public class SgpMatchHistoryMapper {
                 SgpJsonMapperSupport.value(statsNode, "perks"),
                 SgpJsonMapperSupport.value(participantNode, "perks")
         );
-        stats.setPerks(toMap(perksNode));
         stats.setPerk0(firstNonNull(readInt(statsNode, participantNode, "perk0"), readPerk(perksNode, 0)));
         stats.setPerk1(firstNonNull(readInt(statsNode, participantNode, "perk1"), readPerk(perksNode, 1)));
         stats.setPerk2(firstNonNull(readInt(statsNode, participantNode, "perk2"), readPerk(perksNode, 2)));
@@ -228,33 +218,6 @@ public class SgpMatchHistoryMapper {
             return null;
         }
         return styles.get(styleIndex);
-    }
-
-    private Map<String, Object> toMap(JsonNode node) {
-        if (!SgpJsonMapperSupport.isObject(node)) {
-            return null;
-        }
-        return objectMapper.convertValue(node, MAP_TYPE);
-    }
-
-    private Map<String, Object> extraFields(JsonNode participantNode) {
-        Map<String, Object> source = toMap(participantNode);
-        if (source == null || source.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, Object> extra = new LinkedHashMap<>(source);
-        List.of(
-                "participantId", "teamId", "championId", "spell1Id", "spell2Id", "summonerSpell1Id",
-                "summonerSpell2Id", "teamPosition", "individualPosition", "selectedPosition", "lane", "role",
-                "stats", "player", "puuid", "summonerId", "summonerName", "riotIdGameName", "riotIdTagline",
-                "win", "kills", "deaths", "assists", "goldEarned", "totalMinionsKilled",
-                "neutralMinionsKilled", "totalDamageDealtToChampions", "totalDamageTaken", "totalHeal",
-                "visionScore", "item0", "item1", "item2", "item3", "item4", "item5", "item6",
-                "doubleKills", "tripleKills", "quadraKills", "pentaKills", "largestKillingSpree",
-                "legendaryCount", "perk0", "perks", "playerAugment1", "playerAugment2", "playerAugment3",
-                "playerAugment4", "challenges"
-        ).forEach(extra::remove);
-        return extra;
     }
 
     private JsonNode firstObject(JsonNode... nodes) {

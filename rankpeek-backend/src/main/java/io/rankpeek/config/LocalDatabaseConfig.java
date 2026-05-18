@@ -16,6 +16,9 @@ import java.time.Instant;
 @Configuration
 public class LocalDatabaseConfig {
 
+    private static final int LOCAL_CACHE_POOL_SIZE = 4;
+    private static final long LOCAL_CACHE_CONNECTION_TIMEOUT_MS = 10_000;
+
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public DataSource dataSource(LocalDataPathService localDataPathService) {
@@ -28,10 +31,10 @@ public class LocalDatabaseConfig {
         config.setJdbcUrl(url);
         config.setUsername("sa");
         config.setPassword("");
-        config.setMaximumPoolSize(1);
+        config.setMaximumPoolSize(LOCAL_CACHE_POOL_SIZE);
         config.setMinimumIdle(0);
         config.setPoolName("rankpeek-local-cache");
-        config.setConnectionTimeout(1_000);
+        config.setConnectionTimeout(LOCAL_CACHE_CONNECTION_TIMEOUT_MS);
         config.setInitializationFailTimeout(-1);
         logStartupDiagnostics(localDataPathService, databasePath, url);
         return new HikariDataSource(config);

@@ -185,6 +185,49 @@ test('AI report center history section keeps account tabs and report cards witho
   assert.match(source, /result\.createdAtLabel/)
 })
 
+test('AI report center exposes AI memory stats and export without delete actions', () => {
+  const source = readViewSource()
+  const localDatabaseTypes = readRendererFile('types/localDatabase.ts')
+  const electronTypes = readRendererFile('types/electron.ts')
+  const preload = readFileSync(new URL('../../preload/preload.ts', import.meta.url), 'utf8')
+  const zhCN = readRendererFile('i18n/locales/zh-CN.ts')
+  const enUS = readRendererFile('i18n/locales/en-US.ts')
+
+  assert.match(localDatabaseTypes, /interface AiMemoryStats[\s\S]*totalCount: number[\s\S]*analysisTypeCounts: AiMemoryTypeCount\[]/)
+  assert.match(localDatabaseTypes, /getAiMemoryStats\(accountPuuid: string\)/)
+  assert.match(localDatabaseTypes, /exportAiMemory\(accountPuuid: string\)/)
+  assert.match(electronTypes, /database: LocalDatabaseAPI/)
+  assert.match(preload, /ipcRenderer\.invoke\('db:ai:getMemoryStats', accountPuuid\)/)
+  assert.match(preload, /ipcRenderer\.invoke\('db:ai:exportMemory', accountPuuid\)/)
+
+  assert.match(source, /aiMemoryStats/)
+  assert.match(source, /loadAiMemoryStats/)
+  assert.match(source, /exportAiMemory/)
+  assert.match(source, /const database = window\.electronAPI\?\.database/)
+  assert.match(source, /database\.getAiMemoryStats\(puuid\)/)
+  assert.match(source, /database\.exportAiMemory\(puuid\)/)
+  assert.match(source, /class="ai-memory-section"/)
+  assert.match(source, /t\('aiAnalysis\.memoryTitle'\)/)
+  assert.match(source, /t\('aiAnalysis\.memoryExport'\)/)
+  assert.match(source, /memoryTypeDistribution/)
+  assert.doesNotMatch(source, /deleteAiMemory|clearAiMemory|deleteMemory|clearMemory/)
+
+  for (const key of [
+    'aiAnalysis.memoryTitle',
+    'aiAnalysis.memoryDescription',
+    'aiAnalysis.memoryTotal',
+    'aiAnalysis.memoryTypes',
+    'aiAnalysis.memoryLinkedMatches',
+    'aiAnalysis.memoryDateRange',
+    'aiAnalysis.memoryExport',
+    'aiAnalysis.memoryExported',
+    'aiAnalysis.memoryUnavailable'
+  ]) {
+    assert.ok(zhCN.includes(`'${key}'`), `zh-CN should include ${key}`)
+    assert.ok(enUS.includes(`'${key}'`), `en-US should include ${key}`)
+  }
+})
+
 test('AI report center no longer renders data status or AI service support cards', () => {
   const source = readViewSource()
 

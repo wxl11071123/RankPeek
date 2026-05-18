@@ -1,8 +1,12 @@
 package io.rankpeek.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zaxxer.hikari.HikariDataSource;
+import io.rankpeek.cache.LocalCacheRecoveryCoordinator;
+import io.rankpeek.cache.LocalCacheRecoveryService;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
 import io.rankpeek.config.LocalDataPathService;
+import io.rankpeek.config.LocalDatabaseConfig;
 import io.rankpeek.model.CacheClearResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,8 +14,12 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
+import java.sql.Connection;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
@@ -105,6 +113,134 @@ class CacheMaintenanceServiceTest {
         assertThat(result.getFailed()).isEmpty();
         assertThat(totalLocalCacheRows()).isZero();
         verifyNoInteractions(matchHistoryService, rankService, summonerService);
+    }
+
+    @Test
+    void clearCache_localDbCanRunWhileBackgroundCacheConnectionIsActive(@TempDir Path tempDir) throws Exception {
+        LocalDataPathService pathService = new TestLocalDataPathService(tempDir);
+        HikariDataSource dataSource = (HikariDataSource) new LocalDatabaseConfig().dataSource(pathService);
+        try {
+            JdbcTemplate pooledJdbcTemplate = new JdbcTemplate(dataSource);
+            new LocalCacheSchemaInitializer(pooledJdbcTemplate).initializeSchema();
+            try (Connection ignored = dataSource.getConnection()) {
+                CacheMaintenanceService maintenanceService = new CacheMaintenanceService(
+                        pooledJdbcTemplate,
+                        matchHistoryService,
+                        rankService,
+                        summonerService
+                );
+
+                CacheClearResult result = maintenanceService.clearCache("localDb", true, "normal");
+
+                assertThat(result.isSuccess()).isTrue();
+                assertThat(result.getFailed()).isEmpty();
+                assertThat(result.getCleared()).contains(
+                        "localDb.player_fetch_state",
+                        "localDb.match_cache",
+                        "localDb.summoner_cache"
+                );
+            }
+        } finally {
+            dataSource.close();
+        }
+    }
+
+    @Test
+    void clearCache_normalReportsModeRetentionAndDatabaseSize(@TempDir Path tempDir) throws Exception {
+        Files.createDirectories(tempDir.resolve("cache"));
+        Files.writeString(tempDir.resolve("cache").resolve("rankpeek-cache.mv.db"), "cache-file");
+        CacheMaintenanceService maintenanceService = new CacheMaintenanceService(
+                jdbcTemplate,
+                matchHistoryService,
+                rankService,
+                summonerService,
+                new LocalCacheRetentionService(jdbcTemplate, new TestLocalDataPathService(tempDir)),
+                new TestLocalDataPathService(tempDir)
+        );
+        insertCacheRows();
+
+        CacheClearResult result = maintenanceService.clearCache("localDb", true, "normal");
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getMode()).isEqualTo("normal");
+        assertThat(result.isCompacted()).isFalse();
+        assertThat(result.getDatabaseSizeBeforeBytes()).isEqualTo(10);
+        assertThat(result.getDatabaseSizeAfterBytes()).isEqualTo(10);
+        assertThat(result.getRetentionDeletedRows()).isZero();
+        assertThat(result.getDeletedRows()).isEqualTo(10);
+    }
+
+    @Test
+    void clearCache_deepUsesOnlineCheckpointWithoutClosingDataSourceAndPrunesBackupArtifacts(@TempDir Path tempDir)
+            throws Exception {
+        Files.createDirectories(tempDir.resolve("cache"));
+        Files.writeString(tempDir.resolve("cache").resolve("rankpeek-cache.mv.db"), "cache-file");
+        Files.createDirectories(tempDir.resolve("cache").resolve("rankpeek-cache.corrupt.20260501-010201"));
+        Files.createDirectories(tempDir.resolve("cache").resolve("rankpeek-cache.corrupt.20260501-010202"));
+        Files.createDirectories(tempDir.resolve("cache").resolve("rankpeek-cache.corrupt.20260501-010203"));
+        Files.createDirectories(tempDir.resolve("cache").resolve("rankpeek-cache.corrupt.20260501-010204"));
+        CacheMaintenanceService maintenanceService = new CacheMaintenanceService(
+                jdbcTemplate,
+                matchHistoryService,
+                rankService,
+                summonerService,
+                new LocalCacheRetentionService(jdbcTemplate, new TestLocalDataPathService(tempDir)),
+                new TestLocalDataPathService(tempDir)
+        );
+        insertCacheRows();
+
+        CacheClearResult result = maintenanceService.clearCache("all", true, "deep");
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getMode()).isEqualTo("deep");
+        assertThat(result.isCompacted()).isFalse();
+        assertThat(result.getDatabaseSizeBeforeBytes()).isEqualTo(10);
+        assertThat(result.getDatabaseSizeAfterBytes()).isGreaterThanOrEqualTo(0);
+        assertThat(result.getCleared()).contains("localDb.backupArtifacts");
+        assertThat(Files.exists(tempDir.resolve("cache").resolve("rankpeek-cache.corrupt.20260501-010201"))).isFalse();
+        assertThat(jdbcTemplate.queryForObject("SELECT 1", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void clearCache_deepRecoversClosedH2BeforeRetryingLocalDatabaseClear(@TempDir Path tempDir) throws Exception {
+        Path databasePath = tempDir.resolve("cache").resolve("rankpeek-cache");
+        Files.createDirectories(databasePath.getParent());
+        Files.writeString(databasePath.resolveSibling("rankpeek-cache.mv.db"), "closed-cache");
+        JdbcTemplate closedJdbcTemplate = mock(JdbcTemplate.class);
+        RuntimeException closed = new RuntimeException(
+                "org.h2.jdbc.JdbcSQLNonTransientConnectionException: The database has been closed [90098-232]"
+        );
+        doThrow(closed)
+                .doReturn(0)
+                .when(closedJdbcTemplate)
+                .update("DELETE FROM player_fetch_state");
+        LocalDataPathService pathService = new TestLocalDataPathService(tempDir);
+        LocalCacheRecoveryService recoveryService = new LocalCacheRecoveryService(
+                pathService,
+                fixedClock()
+        );
+        LocalCacheSchemaInitializer schemaInitializer = mock(LocalCacheSchemaInitializer.class);
+        org.mockito.Mockito.when(schemaInitializer.initializeSchemaIfPossible()).thenReturn(true);
+        CacheMaintenanceService maintenanceService = new CacheMaintenanceService(
+                closedJdbcTemplate,
+                matchHistoryService,
+                rankService,
+                summonerService,
+                null,
+                pathService,
+                new LocalCacheRecoveryCoordinator(recoveryService, fixedClock()),
+                schemaInitializer
+        );
+
+        CacheClearResult result = maintenanceService.clearCache("localDb", true, "deep");
+
+        Path quarantineDirectory = databasePath.getParent().resolve("rankpeek-cache.corrupt.20260501-010203");
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getCleared()).contains("localDb.recovered", "localDb.player_fetch_state");
+        assertThat(result.getFailed()).isEmpty();
+        assertThat(Files.exists(databasePath.resolveSibling("rankpeek-cache.mv.db"))).isFalse();
+        assertThat(Files.readString(quarantineDirectory.resolve("rankpeek-cache.mv.db")))
+                .isEqualTo("closed-cache");
     }
 
     @Test
@@ -242,6 +378,10 @@ class CacheMaintenanceServiceTest {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + tableName, Long.class);
     }
 
+    private Clock fixedClock() {
+        return Clock.fixed(Instant.parse("2026-05-01T01:02:03Z"), ZoneOffset.UTC);
+    }
+
     private static final class TestLocalDataPathService extends LocalDataPathService {
         private final Path root;
 
@@ -257,6 +397,11 @@ class CacheMaintenanceServiceTest {
         @Override
         public Path getUserStorePath() {
             return getUserDataDirectory().resolve("rankpeek-user-store.json");
+        }
+
+        @Override
+        public Path getCacheDatabasePath() {
+            return root.resolve("cache").resolve("rankpeek-cache");
         }
     }
 }

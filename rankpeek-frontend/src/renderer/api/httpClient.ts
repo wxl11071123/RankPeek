@@ -4,6 +4,7 @@ import type {
   AramBalanceData,
   AssetDetails,
   CacheClearResult,
+  CacheClearMode,
   CacheClearScope,
   CacheRepairResult,
   CacheStatus,
@@ -414,8 +415,8 @@ class ApiClient {
     return this.get<CacheStatus>('/cache/status')
   }
 
-  async clearCache(scope: CacheClearScope, confirm = true): Promise<CacheClearResult> {
-    return this.post<CacheClearResult>('/cache/clear', undefined, { scope, confirm })
+  async clearCache(scope: CacheClearScope, confirm = true, mode: CacheClearMode = 'normal'): Promise<CacheClearResult> {
+    return this.post<CacheClearResult>('/cache/clear', undefined, { scope, confirm, mode })
   }
 
   async repairCache(confirm = true): Promise<CacheRepairResult> {

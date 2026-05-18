@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -78,6 +80,25 @@ public class CacheStatusService {
                     .playerMatchIndexCount(count("SELECT COUNT(*) FROM player_match_index"))
                     .trackedPlayerCount(count("SELECT COUNT(DISTINCT puuid) FROM player_match_index"))
                     .latestMatchCreation(queryLong("SELECT MAX(game_creation) FROM match_cache"))
+                    .orphanMatchCount(countOrphans("match_cache"))
+                    .orphanGameDetailCount(countOrphans("game_detail_cache"))
+                    .orphanParticipantCount(countOrphans("match_participant_cache"))
+                    .orphanDataScopeCount(countOrphans("match_data_scope_cache"))
+                    .quarantineCount(countArtifacts(databasePath, path ->
+                            Files.isDirectory(path)
+                                    && path.getFileName().toString().startsWith("rankpeek-cache.corrupt.")))
+                    .traceFileCount(countArtifacts(databasePath, path -> {
+                        String fileName = path.getFileName().toString();
+                        return Files.isRegularFile(path)
+                                && fileName.startsWith("rankpeek-cache.trace")
+                                && fileName.endsWith(".db");
+                    }))
+                    .corruptFileCount(countArtifacts(databasePath, path -> {
+                        String fileName = path.getFileName().toString();
+                        return Files.isRegularFile(path)
+                                && fileName.startsWith("rankpeek-cache.corrupt")
+                                && fileName.endsWith(".db");
+                    }))
                     .build();
         } catch (Exception e) {
             LocalCacheRecoveryCoordinator.CoordinatedRecoveryResult attemptedRecovery = null;
@@ -161,6 +182,18 @@ public class CacheStatusService {
 
     private Long queryLong(String sql) {
         return jdbcTemplate.queryForObject(sql, Long.class);
+    }
+
+    private long countOrphans(String tableName) {
+        return count("""
+                SELECT COUNT(*)
+                FROM %s
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM player_match_index
+                    WHERE player_match_index.game_id = %s.game_id
+                )
+                """.formatted(tableName, tableName));
     }
 
     private Path resolveDatabasePath() {
@@ -247,5 +280,19 @@ public class CacheStatusService {
         }
         Path lockFile = databasePath.resolveSibling(databasePath.getFileName() + ".lock.db");
         return Files.exists(lockFile);
+    }
+
+    private long countArtifacts(Path databasePath, Predicate<Path> predicate) {
+        if (databasePath == null || databasePath.getParent() == null || !Files.isDirectory(databasePath.getParent())) {
+            return 0;
+        }
+        try (Stream<Path> paths = Files.list(databasePath.getParent())) {
+            return paths.filter(predicate).count();
+        } catch (Exception e) {
+            log.warn("Failed to count local cache artifacts: path={}, error={}",
+                    databasePath.getParent(),
+                    e.getMessage());
+            return 0;
+        }
     }
 }

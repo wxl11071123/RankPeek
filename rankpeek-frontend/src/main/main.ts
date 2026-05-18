@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, Tray, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, Tray, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import * as fs from 'fs'
@@ -35,6 +35,9 @@ const STARTUP_FORCE_TIMEOUT_MS = 10000
 const MIN_SPLASH_VISIBLE_MS = 3600
 const BACKEND_SHUTDOWN_REQUEST_TIMEOUT_MS = 2000
 const BACKEND_GRACEFUL_EXIT_TIMEOUT_MS = 5000
+const LOG_ROTATION_MAX_BYTES = 10 * 1024 * 1024
+const LOG_ROTATION_KEEP_COUNT = 5
+const CORRUPT_BACKUP_KEEP_COUNT = 3
 
 type StartupExitMode = 'smooth' | 'quick'
 
@@ -45,8 +48,30 @@ if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true })
 }
 
+rotateLogFile(logFile)
 const logStream = fs.createWriteStream(logFile, { flags: 'a' })
 const boundsFile = join(app.getPath('userData'), 'window-bounds.json')
+let storageRetentionTimer: NodeJS.Immediate | null = null
+
+function rotateLogFile(filePath: string) {
+  try {
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).size < LOG_ROTATION_MAX_BYTES) {
+      return
+    }
+
+    for (let index = LOG_ROTATION_KEEP_COUNT - 1; index >= 1; index -= 1) {
+      const source = `${filePath}.${index}`
+      const target = `${filePath}.${index + 1}`
+      if (fs.existsSync(source)) {
+        fs.renameSync(source, target)
+      }
+    }
+
+    fs.renameSync(filePath, `${filePath}.1`)
+  } catch (error) {
+    console.warn(`Failed to rotate RankPeek log: ${String(error)}`)
+  }
+}
 
 function log(level: string, message: string) {
   const timestamp = new Date().toISOString()
@@ -73,6 +98,115 @@ function getPublicAssetPath(fileName: string) {
   return isDev
     ? join(__dirname, '../../public', fileName)
     : join(process.resourcesPath, 'public', fileName)
+}
+
+function scheduleLocalStorageRetention() {
+  if (storageRetentionTimer) {
+    return
+  }
+
+  storageRetentionTimer = setImmediate(() => {
+    storageRetentionTimer = null
+    try {
+      const result = getLocalDatabase().runStorageRetention()
+      if (result.matchRecordsDeleted > 0 || result.matchDetailsDeleted > 0) {
+        log(
+          'INFO',
+          `Local database retention applied: matchRecordsDeleted=${result.matchRecordsDeleted}, `
+            + `matchDetailsDeleted=${result.matchDetailsDeleted}`
+        )
+      }
+    } catch (error) {
+      log('WARN', `Local database retention failed: ${String(error)}`)
+    }
+  })
+}
+
+async function saveAiMemoryExport({ payload }: Parameters<NonNullable<Parameters<typeof registerDatabaseIpcHandlers>[3]>['exportAiMemory']>[0]) {
+  const defaultFileName = `rankpeek-ai-memory-${sanitizeFileToken(payload.accountPuuid)}-${Date.now()}.json`
+  const saveResult = await dialog.showSaveDialog(mainWindow ?? undefined, {
+    title: '导出 AI 记忆',
+    defaultPath: join(app.getPath('documents'), defaultFileName),
+    filters: [
+      { name: 'JSON', extensions: ['json'] }
+    ]
+  })
+
+  if (saveResult.canceled || !saveResult.filePath) {
+    return {
+      filePath: null,
+      exportedCount: 0,
+      canceled: true
+    }
+  }
+
+  await fs.promises.writeFile(saveResult.filePath, JSON.stringify(payload, null, 2), 'utf8')
+  return {
+    filePath: saveResult.filePath,
+    exportedCount: payload.records.length,
+    canceled: false
+  }
+}
+
+function sanitizeFileToken(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 32) || 'account'
+}
+
+async function clearElectronCacheArtifacts() {
+  const userDataPath = app.getPath('userData')
+  const deletedPaths: string[] = []
+  const failedPaths: Array<{ path: string; error: string }> = []
+
+  try {
+    await session.defaultSession.clearCache()
+  } catch (error) {
+    failedPaths.push({ path: 'electron-session-cache', error: String(error) })
+  }
+
+  for (const directoryName of ['Cache', 'Code Cache', 'GPUCache']) {
+    const directoryPath = join(userDataPath, directoryName)
+    try {
+      await fs.promises.rm(directoryPath, { recursive: true, force: true })
+      deletedPaths.push(directoryPath)
+    } catch (error) {
+      failedPaths.push({ path: directoryPath, error: String(error) })
+    }
+  }
+
+  for (const directoryPath of [userDataPath, join(userDataPath, 'user-store')]) {
+    const deleted = await pruneCorruptUserStoreBackups(directoryPath)
+    deletedPaths.push(...deleted)
+  }
+
+  return {
+    deletedPaths,
+    failedPaths
+  }
+}
+
+async function pruneCorruptUserStoreBackups(directoryPath: string) {
+  try {
+    const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true })
+    const backups = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && /^rankpeek-user-store\.corrupt-.*\.json$/.test(entry.name))
+        .map(async (entry) => {
+          const filePath = join(directoryPath, entry.name)
+          const stat = await fs.promises.stat(filePath)
+          return { filePath, mtimeMs: stat.mtimeMs }
+        })
+    )
+
+    backups.sort((left, right) => left.mtimeMs - right.mtimeMs || left.filePath.localeCompare(right.filePath))
+    const deleted: string[] = []
+    for (const backup of backups.slice(0, Math.max(0, backups.length - CORRUPT_BACKUP_KEEP_COUNT))) {
+      await fs.promises.rm(backup.filePath, { force: true })
+      deleted.push(backup.filePath)
+    }
+    return deleted
+  } catch {
+    return []
+  }
 }
 
 function loadWindowBounds(): { width: number; height: number; x: number; y: number } | null {
@@ -774,6 +908,20 @@ ipcMain.handle('shell:openExternal', async (_, url: string) => {
 
 ipcMain.handle('app:getVersion', () => app.getVersion())
 
+ipcMain.handle('app:clearChromiumCache', async () => {
+  try {
+    return {
+      success: true,
+      data: await clearElectronCacheArtifacts()
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error)
+    }
+  }
+})
+
 app.whenReady().then(async () => {
   try {
     initLocalDatabase({
@@ -781,7 +929,10 @@ app.whenReady().then(async () => {
       logger: databaseLogger,
       runSmokeTest: process.env.RANKPEEK_DB_SMOKE_TEST === '1'
     })
-    registerDatabaseIpcHandlers(ipcMain, getLocalDatabase, databaseLogger)
+    registerDatabaseIpcHandlers(ipcMain, getLocalDatabase, databaseLogger, {
+      exportAiMemory: saveAiMemoryExport,
+      onStorageMutation: scheduleLocalStorageRetention
+    })
     createSplashWindow()
     createTray()
     await startBackend()

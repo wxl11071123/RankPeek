@@ -4,6 +4,7 @@ import { apiClient } from '@/api/httpClient'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from '@/i18n'
 import type { GameModeOption } from '@/types/api'
+import type { CacheClearMode } from '@/types/api'
 import {
   buildCacheClearAlertMessage,
   extractCacheClearErrorMessage
@@ -22,7 +23,7 @@ const appVersion = ref('1.0.0')
 const defaultMatchQueueMode = ref(0)
 const matchModeOptions = ref<GameModeOption[]>([])
 const savingMatchSettings = ref(false)
-const clearingUserCache = ref(false)
+const clearingUserCacheMode = ref<CacheClearMode | null>(null)
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
 const githubIssuesUrl = 'https://github.com/wxl11071123/rankpeek/issues'
@@ -81,16 +82,28 @@ async function saveMatchSettings() {
   }
 }
 
-async function clearUserCache() {
+async function clearUserCache(mode: CacheClearMode) {
   if (!window.confirm(t('settings.confirmClearCache'))) {
     return
   }
 
-  clearingUserCache.value = true
+  clearingUserCacheMode.value = mode
 
   try {
     clearFrontendTransientCache()
-    const result = await apiClient.clearCache('all')
+    const result = await apiClient.clearCache('all', true, mode)
+    if (mode === 'deep') {
+      const [electronCacheResult, storageRetentionResult] = await Promise.all([
+        window.electronAPI?.clearChromiumCache?.(),
+        window.electronAPI?.database?.runStorageRetention?.()
+      ])
+      if (electronCacheResult && !electronCacheResult.success) {
+        throw new Error(electronCacheResult.error)
+      }
+      if (storageRetentionResult && !storageRetentionResult.success) {
+        throw new Error(storageRetentionResult.error)
+      }
+    }
     window.alert(buildCacheClearAlertMessage(result, {
       cleared: t('settings.cacheCleared'),
       partial: t('settings.clearCachePartialFailed'),
@@ -101,7 +114,7 @@ async function clearUserCache() {
     const message = extractCacheClearErrorMessage(error)
     window.alert(message ? `${t('settings.clearCacheFailed')}：${message}` : t('settings.clearCacheFailed'))
   } finally {
-    clearingUserCache.value = false
+    clearingUserCacheMode.value = null
   }
 }
 
@@ -185,10 +198,18 @@ async function openExternal(url: string) {
             <button
               class="secondary-btn compact"
               type="button"
-              :disabled="clearingUserCache"
-              @click="clearUserCache"
+              :disabled="clearingUserCacheMode !== null"
+              @click="clearUserCache('normal')"
             >
-              {{ clearingUserCache ? t('settings.clearingCache') : t('settings.clearCacheAction') }}
+              {{ clearingUserCacheMode === 'normal' ? t('settings.clearingCache') : t('settings.normalClearCacheAction') }}
+            </button>
+            <button
+              class="secondary-btn compact"
+              type="button"
+              :disabled="clearingUserCacheMode !== null"
+              @click="clearUserCache('deep')"
+            >
+              {{ clearingUserCacheMode === 'deep' ? t('settings.clearingCache') : t('settings.deepClearCacheAction') }}
             </button>
           </div>
         </article>

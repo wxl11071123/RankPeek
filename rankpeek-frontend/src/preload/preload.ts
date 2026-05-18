@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AiAnalysisListOptions,
+  AiMemoryExportResult,
+  AiMemoryStats,
   AiAnalysisResult,
   AiAnalysisResultInput,
   DatabaseResult,
@@ -10,6 +12,7 @@ import type {
   MatchRecord,
   MatchRecordInput,
   MatchRecordListOptions,
+  LocalStorageRetentionResult,
   SummonerAccount,
   SummonerAccountInput
 } from '../renderer/types/localDatabase'
@@ -20,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.invoke('window:close'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<{ success: boolean; error?: string }>,
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  clearChromiumCache: () => ipcRenderer.invoke('app:clearChromiumCache'),
   platform: process.platform,
   onBackendReady: (callback: () => void) => {
     ipcRenderer.on('backend:ready', callback)
@@ -66,6 +70,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     findAnalysisByInputHash: (inputHash: string) => (
       ipcRenderer.invoke('db:ai:findByInputHash', inputHash) as Promise<DatabaseResult<AiAnalysisResult | null>>
+    ),
+    getAiMemoryStats: (accountPuuid: string) => (
+      ipcRenderer.invoke('db:ai:getMemoryStats', accountPuuid) as Promise<DatabaseResult<AiMemoryStats>>
+    ),
+    exportAiMemory: (accountPuuid: string) => (
+      ipcRenderer.invoke('db:ai:exportMemory', accountPuuid) as Promise<DatabaseResult<AiMemoryExportResult>>
+    ),
+    runStorageRetention: () => (
+      ipcRenderer.invoke('db:storage:runRetention') as Promise<DatabaseResult<LocalStorageRetentionResult>>
     )
   }
 } satisfies { database: LocalDatabaseAPI } & Record<string, unknown>)

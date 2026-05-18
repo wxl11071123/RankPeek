@@ -54,6 +54,13 @@ class CacheControllerTest {
                 .playerMatchIndexCount(80L)
                 .trackedPlayerCount(8L)
                 .latestMatchCreation(1710000000000L)
+                .orphanMatchCount(1L)
+                .orphanGameDetailCount(2L)
+                .orphanParticipantCount(3L)
+                .orphanDataScopeCount(4L)
+                .quarantineCount(1L)
+                .traceFileCount(1L)
+                .corruptFileCount(1L)
                 .build();
         when(cacheStatusService.getStatus()).thenReturn(status);
 
@@ -71,7 +78,14 @@ class CacheControllerTest {
                 .andExpect(jsonPath("$.data.participantCount").value(100))
                 .andExpect(jsonPath("$.data.playerMatchIndexCount").value(80))
                 .andExpect(jsonPath("$.data.trackedPlayerCount").value(8))
-                .andExpect(jsonPath("$.data.latestMatchCreation").value(1710000000000L));
+                .andExpect(jsonPath("$.data.latestMatchCreation").value(1710000000000L))
+                .andExpect(jsonPath("$.data.orphanMatchCount").value(1))
+                .andExpect(jsonPath("$.data.orphanGameDetailCount").value(2))
+                .andExpect(jsonPath("$.data.orphanParticipantCount").value(3))
+                .andExpect(jsonPath("$.data.orphanDataScopeCount").value(4))
+                .andExpect(jsonPath("$.data.quarantineCount").value(1))
+                .andExpect(jsonPath("$.data.traceFileCount").value(1))
+                .andExpect(jsonPath("$.data.corruptFileCount").value(1));
     }
 
     @Test
@@ -80,12 +94,17 @@ class CacheControllerTest {
                 .success(true)
                 .scope("all")
                 .message("cache cleared")
+                .mode("normal")
                 .deletedRows(12L)
+                .databaseSizeBeforeBytes(1234L)
+                .databaseSizeAfterBytes(1000L)
+                .retentionDeletedRows(2L)
+                .compacted(false)
                 .cleared(java.util.List.of("memory.matchHistory", "localDb.summoner_cache"))
                 .failed(java.util.List.of())
                 .timestamp(1710000000000L)
                 .build();
-        when(cacheMaintenanceService.clearCache("all", true)).thenReturn(result);
+        when(cacheMaintenanceService.clearCache("all", true, "normal")).thenReturn(result);
 
         mockMvc.perform(post("/api/v1/cache/clear")
                         .param("scope", "all")
@@ -95,10 +114,42 @@ class CacheControllerTest {
                 .andExpect(jsonPath("$.message").value("success"))
                 .andExpect(jsonPath("$.data.success").value(true))
                 .andExpect(jsonPath("$.data.scope").value("all"))
+                .andExpect(jsonPath("$.data.mode").value("normal"))
                 .andExpect(jsonPath("$.data.cleared[0]").value("memory.matchHistory"))
                 .andExpect(jsonPath("$.data.failed").isArray())
                 .andExpect(jsonPath("$.data.deletedRows").value(12))
+                .andExpect(jsonPath("$.data.databaseSizeBeforeBytes").value(1234))
+                .andExpect(jsonPath("$.data.databaseSizeAfterBytes").value(1000))
+                .andExpect(jsonPath("$.data.retentionDeletedRows").value(2))
+                .andExpect(jsonPath("$.data.compacted").value(false))
                 .andExpect(jsonPath("$.data.timestamp").value(1710000000000L));
+    }
+
+    @Test
+    void clearCache_passesDeepModeToMaintenanceService() throws Exception {
+        CacheClearResult result = CacheClearResult.builder()
+                .success(true)
+                .scope("all")
+                .mode("deep")
+                .message("cache cleared")
+                .deletedRows(0L)
+                .databaseSizeBeforeBytes(1234L)
+                .databaseSizeAfterBytes(900L)
+                .retentionDeletedRows(0L)
+                .compacted(true)
+                .cleared(java.util.List.of("memory.matchHistory"))
+                .failed(java.util.List.of())
+                .timestamp(1710000000000L)
+                .build();
+        when(cacheMaintenanceService.clearCache("all", true, "deep")).thenReturn(result);
+
+        mockMvc.perform(post("/api/v1/cache/clear")
+                        .param("scope", "all")
+                        .param("confirm", "true")
+                        .param("mode", "deep"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("deep"))
+                .andExpect(jsonPath("$.data.compacted").value(true));
     }
 
     @Test
@@ -112,7 +163,7 @@ class CacheControllerTest {
                 .failed(java.util.List.of(new CacheClearResult.Failure("memory.rank", "rank cache busy")))
                 .timestamp(1710000000000L)
                 .build();
-        when(cacheMaintenanceService.clearCache("all", true)).thenReturn(result);
+        when(cacheMaintenanceService.clearCache("all", true, "normal")).thenReturn(result);
 
         mockMvc.perform(post("/api/v1/cache/clear")
                         .param("scope", "all")
@@ -137,7 +188,7 @@ class CacheControllerTest {
                 .failed(java.util.List.of(new CacheClearResult.Failure("confirmation", "confirm=true is required")))
                 .timestamp(1710000000000L)
                 .build();
-        when(cacheMaintenanceService.clearCache("all", false)).thenReturn(result);
+        when(cacheMaintenanceService.clearCache("all", false, "normal")).thenReturn(result);
 
         mockMvc.perform(post("/api/v1/cache/clear"))
                 .andExpect(status().isOk())

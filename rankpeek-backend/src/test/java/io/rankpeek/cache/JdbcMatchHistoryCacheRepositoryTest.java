@@ -1,6 +1,7 @@
 package io.rankpeek.cache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.rankpeek.config.LocalDataPathService;
 import io.rankpeek.model.GameDetail;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
@@ -8,12 +9,15 @@ import io.rankpeek.model.MatchDataScopeCache;
 import io.rankpeek.model.MatchTimeline;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.Summoner;
+import io.rankpeek.service.LocalCacheRetentionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +33,8 @@ class JdbcMatchHistoryCacheRepositoryTest {
     private JdbcTemplate jdbcTemplate;
     private JdbcMatchHistoryCacheRepository repository;
     private ObjectMapper objectMapper;
+    @TempDir
+    private Path tempDir;
 
     @BeforeEach
     void setUp() {
@@ -40,7 +46,9 @@ class JdbcMatchHistoryCacheRepositoryTest {
         jdbcTemplate = new JdbcTemplate(dataSource);
         new LocalCacheSchemaInitializer(jdbcTemplate).initializeSchema();
         objectMapper = new ObjectMapper();
-        repository = new JdbcMatchHistoryCacheRepository(jdbcTemplate, objectMapper);
+        LocalDataPathService pathService = new LocalDataPathService(tempDir.toString(), false);
+        LocalCacheRetentionService retentionService = new LocalCacheRetentionService(jdbcTemplate, pathService);
+        repository = new JdbcMatchHistoryCacheRepository(jdbcTemplate, objectMapper, null, retentionService);
     }
 
     @Test
@@ -175,6 +183,72 @@ class JdbcMatchHistoryCacheRepositoryTest {
     }
 
     @Test
+    void saveMatchHistory_usesBatchRetentionInsteadOfPerParticipantTrimQueries() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:rankpeek-cache-counting-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
+                "sa",
+                ""
+        );
+        CountingJdbcTemplate countingJdbcTemplate = new CountingJdbcTemplate(dataSource);
+        new LocalCacheSchemaInitializer(countingJdbcTemplate).initializeSchema();
+        LocalDataPathService pathService = new LocalDataPathService(tempDir.toString(), false);
+        LocalCacheRetentionService retentionService = new LocalCacheRetentionService(countingJdbcTemplate, pathService);
+        JdbcMatchHistoryCacheRepository countingRepository = new JdbcMatchHistoryCacheRepository(
+                countingJdbcTemplate,
+                objectMapper,
+                null,
+                retentionService
+        );
+
+        countingRepository.saveMatchHistory("target-puuid", List.of(createMatch(1300L, "target-puuid", 10)));
+
+        assertThat(countingJdbcTemplate.perParticipantTrimQueries()).isZero();
+        assertThat(countingJdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM player_match_index WHERE game_id = ?",
+                Integer.class,
+                1300L
+        )).isEqualTo(10);
+    }
+
+    @Test
+    void saveMatchHistory_skipsExistingMatchPayloadRowsWhenAppendingNewerSnapshot() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:rankpeek-cache-append-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
+                "sa",
+                ""
+        );
+        CountingJdbcTemplate countingJdbcTemplate = new CountingJdbcTemplate(dataSource);
+        new LocalCacheSchemaInitializer(countingJdbcTemplate).initializeSchema();
+        LocalDataPathService pathService = new LocalDataPathService(tempDir.toString(), false);
+        LocalCacheRetentionService retentionService = new LocalCacheRetentionService(countingJdbcTemplate, pathService);
+        JdbcMatchHistoryCacheRepository countingRepository = new JdbcMatchHistoryCacheRepository(
+                countingJdbcTemplate,
+                objectMapper,
+                null,
+                retentionService
+        );
+        countingRepository.saveMatchHistory("target-puuid", List.of(
+                createMatch(1400L, "target-puuid", 10),
+                createMatch(1401L, "target-puuid", 10)
+        ));
+        countingJdbcTemplate.resetCounts();
+
+        countingRepository.saveMatchHistory("target-puuid", List.of(
+                createMatch(1400L, "target-puuid", 10),
+                createMatch(1401L, "target-puuid", 10),
+                createMatch(1402L, "target-puuid", 10)
+        ));
+
+        assertThat(countingJdbcTemplate.matchPayloadMergeQueries()).isEqualTo(1);
+        assertThat(countingJdbcTemplate.participantPayloadMergeQueries()).isEqualTo(10);
+        assertThat(countingJdbcTemplate.playerIndexMergeQueries()).isEqualTo(10);
+        assertThat(countingRepository.findRecentMatchHistory("target-puuid", 50))
+                .map(MatchHistoryFetchResult::getMatches)
+                .map(matches -> matches.stream().map(MatchHistory::getGameId).toList())
+                .contains(List.of(1402L, 1401L, 1400L));
+    }
+
+    @Test
     void findRecentMatchHistory_skipsCorruptJsonRows() {
         repository.saveMatchHistory("target-puuid", List.of(createMatch(2001L, "target-puuid", 2)));
         jdbcTemplate.update(
@@ -196,6 +270,55 @@ class JdbcMatchHistoryCacheRepositoryTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().getMatches()).extracting(MatchHistory::getGameId).containsExactly(2001L);
+    }
+
+    private static final class CountingJdbcTemplate extends JdbcTemplate {
+        private int perParticipantTrimQueries;
+        private int matchPayloadMergeQueries;
+        private int participantPayloadMergeQueries;
+        private int playerIndexMergeQueries;
+
+        private CountingJdbcTemplate(DriverManagerDataSource dataSource) {
+            super(dataSource);
+        }
+
+        @Override
+        public int update(String sql, Object... args) {
+            String normalizedSql = sql.replaceAll("\\s+", " ").trim();
+            if (normalizedSql.startsWith("DELETE FROM player_match_index WHERE puuid = ?")) {
+                perParticipantTrimQueries++;
+            } else if (normalizedSql.startsWith("MERGE INTO match_cache")) {
+                matchPayloadMergeQueries++;
+            } else if (normalizedSql.startsWith("MERGE INTO match_participant_cache")) {
+                participantPayloadMergeQueries++;
+            } else if (normalizedSql.startsWith("MERGE INTO player_match_index")) {
+                playerIndexMergeQueries++;
+            }
+            return super.update(sql, args);
+        }
+
+        private int perParticipantTrimQueries() {
+            return perParticipantTrimQueries;
+        }
+
+        private int matchPayloadMergeQueries() {
+            return matchPayloadMergeQueries;
+        }
+
+        private int participantPayloadMergeQueries() {
+            return participantPayloadMergeQueries;
+        }
+
+        private int playerIndexMergeQueries() {
+            return playerIndexMergeQueries;
+        }
+
+        private void resetCounts() {
+            perParticipantTrimQueries = 0;
+            matchPayloadMergeQueries = 0;
+            participantPayloadMergeQueries = 0;
+            playerIndexMergeQueries = 0;
+        }
     }
 
     @Test

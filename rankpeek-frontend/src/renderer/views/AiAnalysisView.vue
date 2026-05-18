@@ -6,6 +6,7 @@ import {
   loadLocalAiAnalysisResults,
   type LocalAiAnalysisDisplayResult
 } from '@/services/localAiAnalysis'
+import type { AiMemoryStats } from '@/types/localDatabase'
 import {
   buildAccountAnalysisInputSnapshot,
   type AiAnalysisInputSnapshot
@@ -36,8 +37,14 @@ const preparingInput = ref(false)
 const preparationUnavailable = ref(false)
 const preparationError = ref<string | null>(null)
 const selectedReportType = ref<ReportTypeFilter>('all')
+const aiMemoryStats = ref<AiMemoryStats | null>(null)
+const aiMemoryLoading = ref(false)
+const aiMemoryUnavailable = ref(false)
+const aiMemoryError = ref<string | null>(null)
+const exportingAiMemory = ref(false)
 let loadRequestId = 0
 let prepareRequestId = 0
+let memoryStatsRequestId = 0
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
 const accountPuuid = computed(() => currentSummoner.value?.puuid ?? '')
@@ -64,6 +71,24 @@ const rankpeekBalanceLabel = computed(() => '￥0.00')
 const currentSummonerProfileIconUrl = computed(() => {
   const summoner = currentSummoner.value
   return summoner?.profileIconId ? getProfileIconUrl(summoner.profileIconId) : ''
+})
+const memoryTypeDistribution = computed(() => {
+  const stats = aiMemoryStats.value
+  if (!stats || stats.analysisTypeCounts.length === 0) {
+    return t('common.none')
+  }
+
+  return stats.analysisTypeCounts
+    .map(item => `${getAnalysisTypeLabel(item.analysisType)} ${item.count}`)
+    .join(' / ')
+})
+const aiMemoryDateRange = computed(() => {
+  const stats = aiMemoryStats.value
+  if (!stats || !stats.earliestCreatedAt || !stats.latestCreatedAt) {
+    return t('common.none')
+  }
+
+  return `${formatMemoryDate(stats.earliestCreatedAt)} - ${formatMemoryDate(stats.latestCreatedAt)}`
 })
 const accountInitial = computed(() => {
   const name = currentSummoner.value?.gameName || currentSummonerName.value
@@ -144,6 +169,7 @@ watch(
   () => {
     prepareRequestId += 1
     resetPreparedSnapshot()
+    void loadAiMemoryStats()
     void refreshLocalAnalysisResults()
   },
   { immediate: true }
@@ -212,6 +238,100 @@ function getReportTitle(result: LocalAiAnalysisDisplayResult) {
 
 function getReportScopeLabel(result: LocalAiAnalysisDisplayResult) {
   return result.matchId ? t('aiAnalysis.singleMatchReport') : t('aiAnalysis.accountReport')
+}
+
+function getAnalysisTypeLabel(analysisType: string) {
+  return analysisType
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatMemoryDate(value: string) {
+  const timestamp = Date.parse(value)
+  if (Number.isNaN(timestamp)) {
+    return value
+  }
+
+  return new Date(timestamp).toLocaleDateString()
+}
+
+async function loadAiMemoryStats() {
+  const puuid = accountPuuid.value
+  const requestId = ++memoryStatsRequestId
+  aiMemoryError.value = null
+
+  if (!puuid) {
+    aiMemoryStats.value = null
+    aiMemoryUnavailable.value = false
+    aiMemoryLoading.value = false
+    return
+  }
+
+  const database = window.electronAPI?.database
+  if (!database?.getAiMemoryStats) {
+    aiMemoryStats.value = null
+    aiMemoryUnavailable.value = true
+    aiMemoryLoading.value = false
+    aiMemoryError.value = t('aiAnalysis.memoryUnavailable')
+    return
+  }
+
+  aiMemoryLoading.value = true
+
+  try {
+    const result = await database.getAiMemoryStats(puuid)
+    if (requestId !== memoryStatsRequestId) {
+      return
+    }
+
+    if (!result.success) {
+      throw new Error(result.error)
+    }
+
+    aiMemoryStats.value = result.data
+    aiMemoryUnavailable.value = false
+  } catch (error) {
+    if (requestId !== memoryStatsRequestId) {
+      return
+    }
+
+    aiMemoryStats.value = null
+    aiMemoryUnavailable.value = true
+    aiMemoryError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    if (requestId === memoryStatsRequestId) {
+      aiMemoryLoading.value = false
+    }
+  }
+}
+
+async function exportAiMemory() {
+  const puuid = accountPuuid.value
+  const database = window.electronAPI?.database
+  if (!puuid || !database?.exportAiMemory) {
+    window.alert(t('aiAnalysis.memoryUnavailable'))
+    return
+  }
+
+  exportingAiMemory.value = true
+
+  try {
+    const result = await database.exportAiMemory(puuid)
+    if (!result.success) {
+      throw new Error(result.error)
+    }
+
+    if (!result.data.canceled) {
+      window.alert(t('aiAnalysis.memoryExported', { count: result.data.exportedCount }))
+    }
+  } catch (error) {
+    console.error('Failed to export AI memory', error)
+    window.alert(t('aiAnalysis.memoryExportFailed'))
+  } finally {
+    exportingAiMemory.value = false
+  }
 }
 
 async function prepareAnalysisInputSnapshot() {
@@ -342,6 +462,48 @@ async function refreshLocalAnalysisResults() {
             <span v-for="tag in card.tags" :key="tag">{{ tag }}</span>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="ai-memory-section">
+      <div class="section-heading memory-heading">
+        <span>{{ t('aiAnalysis.memoryTitle') }}</span>
+        <button
+          class="memory-export-button"
+          type="button"
+          :disabled="!accountPuuid || exportingAiMemory || aiMemoryLoading"
+          @click="exportAiMemory"
+        >
+          {{ exportingAiMemory ? t('aiAnalysis.memoryExporting') : t('aiAnalysis.memoryExport') }}
+        </button>
+      </div>
+
+      <div class="memory-card">
+        <p class="memory-description">{{ t('aiAnalysis.memoryDescription') }}</p>
+
+        <div v-if="!currentSummoner" class="memory-state">{{ t('aiAnalysis.noAccountHistoryBody') }}</div>
+        <div v-else-if="aiMemoryLoading" class="memory-state">{{ t('aiAnalysis.memoryLoading') }}</div>
+        <div v-else-if="aiMemoryUnavailable" class="memory-state warning">
+          {{ aiMemoryError || t('aiAnalysis.memoryUnavailable') }}
+        </div>
+        <div v-else class="memory-stats-grid">
+          <div class="memory-stat">
+            <span>{{ t('aiAnalysis.memoryTotal') }}</span>
+            <strong>{{ aiMemoryStats?.totalCount ?? 0 }}</strong>
+          </div>
+          <div class="memory-stat">
+            <span>{{ t('aiAnalysis.memoryLinkedMatches') }}</span>
+            <strong>{{ aiMemoryStats?.linkedMatchCount ?? 0 }}</strong>
+          </div>
+          <div class="memory-stat wide">
+            <span>{{ t('aiAnalysis.memoryTypes') }}</span>
+            <strong>{{ memoryTypeDistribution }}</strong>
+          </div>
+          <div class="memory-stat wide">
+            <span>{{ t('aiAnalysis.memoryDateRange') }}</span>
+            <strong>{{ aiMemoryDateRange }}</strong>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -494,6 +656,7 @@ async function refreshLocalAnalysisResults() {
 .status-card,
 .feature-card,
 .empty-card,
+.memory-card,
 .report-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -640,6 +803,7 @@ async function refreshLocalAnalysisResults() {
 }
 
 .feature-section,
+.ai-memory-section,
 .history-section {
   margin-top: 24px;
 }
@@ -808,6 +972,91 @@ async function refreshLocalAnalysisResults() {
   color: var(--accent-color);
 }
 
+.memory-card {
+  padding: 18px;
+}
+
+.memory-heading {
+  align-items: center;
+}
+
+.memory-export-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.2s ease, color 0.18s ease;
+}
+
+.memory-export-button:hover:not(:disabled),
+.memory-export-button:focus-visible {
+  border-color: var(--ai-analysis-control-hover-border);
+  background: var(--ai-analysis-control-hover-bg);
+  box-shadow: var(--ai-analysis-control-hover-shadow);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.memory-export-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.memory-description,
+.memory-state {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.memory-state {
+  margin-top: 12px;
+}
+
+.memory-state.warning {
+  color: rgb(var(--ai-analysis-accent-rgb));
+}
+
+.memory-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.memory-stat {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
+.memory-stat span,
+.memory-stat strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.memory-stat span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.memory-stat strong {
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 780;
+}
+
 .report-card {
   padding: 18px;
 }
@@ -890,6 +1139,7 @@ async function refreshLocalAnalysisResults() {
 
 @media (max-width: 1120px) {
   .feature-grid,
+  .memory-stats-grid,
   .report-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -917,6 +1167,7 @@ async function refreshLocalAnalysisResults() {
   }
 
   .feature-grid,
+  .memory-stats-grid,
   .report-highlights,
   .report-meta {
     grid-template-columns: 1fr;

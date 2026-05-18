@@ -9,6 +9,7 @@ import io.rankpeek.model.MatchHistoryFetchResult;
 import io.rankpeek.model.MatchTimeline;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.Summoner;
+import io.rankpeek.service.LocalCacheRetentionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -35,19 +36,29 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final LocalCacheRecoveryCoordinator recoveryCoordinator;
+    private final LocalCacheRetentionService retentionService;
 
     @Autowired
     public JdbcMatchHistoryCacheRepository(
             JdbcTemplate jdbcTemplate,
             ObjectMapper objectMapper,
-            LocalCacheRecoveryCoordinator recoveryCoordinator) {
+            LocalCacheRecoveryCoordinator recoveryCoordinator,
+            LocalCacheRetentionService retentionService) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.recoveryCoordinator = recoveryCoordinator;
+        this.retentionService = retentionService;
+    }
+
+    public JdbcMatchHistoryCacheRepository(
+            JdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper,
+            LocalCacheRecoveryCoordinator recoveryCoordinator) {
+        this(jdbcTemplate, objectMapper, recoveryCoordinator, null);
     }
 
     public JdbcMatchHistoryCacheRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
-        this(jdbcTemplate, objectMapper, null);
+        this(jdbcTemplate, objectMapper, null, null);
     }
 
     @Override
@@ -123,18 +134,21 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         }
 
         long now = System.currentTimeMillis();
-        Set<String> indexedPuuids = new HashSet<>();
-        indexedPuuids.add(puuid);
+        Set<Long> existingGameIds = findExistingMatchCacheGameIds(renderableMatches);
+        Map<Long, Integer> existingIndexCounts = findExistingPlayerMatchIndexCounts(renderableMatches);
         try {
             for (MatchHistory match : renderableMatches) {
-                saveMatch(match, now);
-                saveParticipants(match, now);
-                indexedPuuids.addAll(savePlayerMatchIndexesForAllParticipants(match, now));
+                if (match.getGameId() == null || !existingGameIds.contains(match.getGameId())) {
+                    saveMatch(match, now);
+                    saveParticipants(match, now);
+                }
+                if (match.getGameId() == null
+                        || existingIndexCounts.getOrDefault(match.getGameId(), 0) < participantPuuidCount(match)) {
+                    savePlayerMatchIndexesForAllParticipants(match, now);
+                }
             }
             updatePlayerFetchState(puuid, renderableMatches, "OK", null);
-            for (String indexedPuuid : indexedPuuids) {
-                trimPlayerMatchIndex(indexedPuuid, DEFAULT_MATCH_INDEX_KEEP_COUNT);
-            }
+            runRetention();
         } catch (Exception e) {
             log.warn("Failed to save match history to local cache, puuid={}, rootCause={}",
                     puuidPrefix(puuid),
@@ -142,6 +156,82 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                     e);
             recoverIfCorrupt(e, "repository.saveMatchHistory");
             updatePlayerFetchState(puuid, renderableMatches, "ERROR", e.getMessage());
+        }
+    }
+
+    private Map<Long, Integer> findExistingPlayerMatchIndexCounts(List<MatchHistory> matches) {
+        List<Long> gameIds = matches.stream()
+                .filter(match -> match != null && match.getGameId() != null)
+                .map(MatchHistory::getGameId)
+                .distinct()
+                .toList();
+        if (gameIds.isEmpty()) {
+            return Map.of();
+        }
+
+        String placeholders = String.join(",", java.util.Collections.nCopies(gameIds.size(), "?"));
+        try {
+            return jdbcTemplate.query(
+                    "SELECT game_id, COUNT(*) AS row_count FROM player_match_index WHERE game_id IN ("
+                            + placeholders + ") GROUP BY game_id",
+                    rs -> {
+                        Map<Long, Integer> counts = new HashMap<>();
+                        while (rs.next()) {
+                            counts.put(rs.getLong("game_id"), rs.getInt("row_count"));
+                        }
+                        return counts;
+                    },
+                    gameIds.toArray()
+            );
+        } catch (Exception e) {
+            log.warn("Failed to inspect existing match index rows before save, rootCause={}",
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findExistingPlayerMatchIndexCounts");
+            return Map.of();
+        }
+    }
+
+    private int participantPuuidCount(MatchHistory match) {
+        if (match == null || match.getParticipantIdentities() == null || match.getParticipantIdentities().isEmpty()) {
+            return 0;
+        }
+        Set<String> puuids = new HashSet<>();
+        for (MatchHistory.ParticipantIdentity identity : match.getParticipantIdentities()) {
+            if (identity == null || identity.getPlayer() == null) {
+                continue;
+            }
+            String puuid = identity.getPlayer().getPuuid();
+            if (puuid != null && !puuid.isBlank()) {
+                puuids.add(puuid);
+            }
+        }
+        return puuids.size();
+    }
+
+    private Set<Long> findExistingMatchCacheGameIds(List<MatchHistory> matches) {
+        List<Long> gameIds = matches.stream()
+                .filter(match -> match != null && match.getGameId() != null)
+                .map(MatchHistory::getGameId)
+                .distinct()
+                .toList();
+        if (gameIds.isEmpty()) {
+            return Set.of();
+        }
+
+        String placeholders = String.join(",", java.util.Collections.nCopies(gameIds.size(), "?"));
+        try {
+            return new HashSet<>(jdbcTemplate.queryForList(
+                    "SELECT game_id FROM match_cache WHERE game_id IN (" + placeholders + ")",
+                    Long.class,
+                    gameIds.toArray()
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to inspect existing match cache rows before save, rootCause={}",
+                    rootCauseSummary(e),
+                    e);
+            recoverIfCorrupt(e, "repository.findExistingMatchCacheGameIds");
+            return Set.of();
         }
     }
 
@@ -742,10 +832,9 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
         );
     }
 
-    private Set<String> savePlayerMatchIndexesForAllParticipants(MatchHistory match, long now) {
-        Set<String> indexedPuuids = new HashSet<>();
+    private void savePlayerMatchIndexesForAllParticipants(MatchHistory match, long now) {
         if (match.getParticipantIdentities() == null || match.getParticipantIdentities().isEmpty()) {
-            return indexedPuuids;
+            return;
         }
 
         Map<Integer, MatchHistory.Participant> participantByParticipantId = participantsByParticipantId(match);
@@ -777,7 +866,6 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                         stats == null ? null : stats.getWin(),
                         now
                 );
-                indexedPuuids.add(participantPuuid);
             } catch (Exception e) {
                 log.warn("Failed to save local match index row, puuid={}, gameId={}, rootCause={}",
                         puuidPrefix(participantPuuid),
@@ -787,7 +875,6 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
                 recoverIfCorrupt(e, "repository.savePlayerMatchIndexesForAllParticipants");
             }
         }
-        return indexedPuuids;
     }
 
     private void mergeFetchStateTimestamp(String puuid, String columnName, long timestamp) {
@@ -1294,6 +1381,17 @@ public class JdbcMatchHistoryCacheRepository implements MatchHistoryCacheReposit
             return "null";
         }
         return puuid.substring(0, Math.min(8, puuid.length()));
+    }
+
+    private void runRetention() {
+        if (retentionService == null) {
+            return;
+        }
+        LocalCacheRetentionService.RetentionResult result = retentionService.runRetention();
+        if (result.deletedRows() > 0) {
+            log.info("Applied local H2 cache retention after match history save: deletedRows={}",
+                    result.deletedRows());
+        }
     }
 
     private void recoverIfCorrupt(Exception error, String trigger) {

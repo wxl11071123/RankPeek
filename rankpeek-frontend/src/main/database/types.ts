@@ -201,11 +201,47 @@ export interface AiAnalysisListOptions {
   matchId?: string
 }
 
+export interface AiMemoryTypeCount {
+  analysisType: string
+  count: number
+}
+
+export interface AiMemoryStats {
+  accountPuuid: string
+  totalCount: number
+  linkedMatchCount: number
+  earliestCreatedAt: string | null
+  latestCreatedAt: string | null
+  analysisTypeCounts: AiMemoryTypeCount[]
+}
+
+export interface AiMemoryExportPayload {
+  accountPuuid: string
+  exportedAt: string
+  stats: AiMemoryStats
+  records: AiAnalysisResult[]
+}
+
+export interface AiMemoryExportResult {
+  filePath: string | null
+  exportedCount: number
+  canceled?: boolean
+}
+
 export interface AiAnalysisRepository {
   saveAnalysisResult(result: AiAnalysisResultInput): AiAnalysisResult
   listAnalysisResultsByAccount(accountPuuid: string, options?: AiAnalysisListOptions): AiAnalysisResult[]
   getAnalysisResultById(id: number): AiAnalysisResult | null
   findAnalysisByInputHash(inputHash: string): AiAnalysisResult | null
+  getMemoryStats(accountPuuid: string): AiMemoryStats
+  exportMemory(accountPuuid: string): AiMemoryExportPayload
+}
+
+export interface LocalStorageRetentionResult {
+  matchRecordsDeleted: number
+  matchDetailsDeleted: number
+  aiAnalysisDeleted: number
+  matchRecordsRetained: number
 }
 
 export interface LocalDatabase {
@@ -214,6 +250,7 @@ export interface LocalDatabase {
   accounts: AccountRepository
   matches: MatchRepository
   aiAnalyses: AiAnalysisRepository
+  runStorageRetention(): LocalStorageRetentionResult
   close(): void
 }
 

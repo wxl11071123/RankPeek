@@ -47,16 +47,16 @@ class MatchHistoryServiceCacheTest {
 
     @Test
     void getMatchHistoryFetchResult_usesDatabaseOnMemoryMiss() {
-        MatchHistory cachedMatch = createMatch(1L);
         when(repository.findRecentMatchHistory("puuid-1", 50))
                 .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
-                        .matches(List.of(cachedMatch))
+                        .matches(createMatches(1L, 50))
                         .rawEmpty(false)
                         .build()));
 
         MatchHistoryFetchResult result = service.getMatchHistoryFetchResult("puuid-1", false);
 
-        assertThat(result.getMatches()).extracting(MatchHistory::getGameId).containsExactly(1L);
+        assertThat(result.getMatches()).hasSize(50);
+        assertThat(result.getMatches()).first().extracting(MatchHistory::getGameId).isEqualTo(1L);
         verify(matchHistoryProvider, never()).fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class));
     }
 
@@ -128,7 +128,7 @@ class MatchHistoryServiceCacheTest {
         MatchHistoryFetchResult result = sourceAwareService.getMatchHistoryFetchResult("puuid-1", false);
 
         assertThat(result.getMatches()).extracting(MatchHistory::getGameId).containsExactly(30L);
-        verify(sgpProvider).fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, false));
+        verify(sgpProvider, times(3)).fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, false));
         verify(lcuProvider, never()).fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class));
     }
 
@@ -149,7 +149,7 @@ class MatchHistoryServiceCacheTest {
     @Test
     void getMatchHistory_hydratesOnlyVisibleIncompleteRostersAndSavesHydratedCache() {
         List<MatchHistory> cachedMatches = new ArrayList<>();
-        for (long gameId = 1; gameId <= 12; gameId++) {
+        for (long gameId = 1; gameId <= 50; gameId++) {
             cachedMatches.add(createIncompleteMatch(gameId, "puuid-1"));
         }
         when(repository.findRecentMatchHistory("puuid-1", 50))
@@ -173,7 +173,7 @@ class MatchHistoryServiceCacheTest {
         verify(matchHistoryProvider, never()).fetchGameDetail(eq(11L), any(MatchHistoryQueryOptions.class));
         verify(matchHistoryProvider, never()).fetchGameDetail(eq(12L), any(MatchHistoryQueryOptions.class));
         verify(repository).saveMatchHistory(eq("puuid-1"), argThat(matches ->
-                matches.size() == 12
+                matches.size() == 50
                         && matches.get(0).getParticipants().size() == 10
                         && matches.get(9).getParticipantIdentities().size() == 10
                         && matches.get(10).getParticipants().size() == 1
@@ -182,10 +182,12 @@ class MatchHistoryServiceCacheTest {
 
     @Test
     void getMatchHistory_hydratesVisibleRosterWhenCurrentPuuidIsMissingFromSummaryIdentities() {
-        MatchHistory cachedMatch = createCompleteMatchWithoutCurrentPuuid(41L);
+        List<MatchHistory> cachedMatches = new ArrayList<>();
+        cachedMatches.add(createCompleteMatchWithoutCurrentPuuid(41L));
+        cachedMatches.addAll(createMatches(42L, 49, "puuid-1"));
         when(repository.findRecentMatchHistory("puuid-1", 50))
                 .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
-                        .matches(List.of(cachedMatch))
+                        .matches(cachedMatches)
                         .rawEmpty(false)
                         .build()));
         when(repository.findGameDetail(41L)).thenReturn(Optional.empty());
@@ -208,11 +210,14 @@ class MatchHistoryServiceCacheTest {
 
     @Test
     void getFilteredMatchHistory_hydratesSlicedFilteredMatches() {
-        List<MatchHistory> cachedMatches = List.of(
+        List<MatchHistory> cachedMatches = new ArrayList<>(List.of(
                 createIncompleteMatch(21L, "puuid-1", 420, 11),
                 createIncompleteMatch(22L, "puuid-1", 420, 22),
                 createIncompleteMatch(23L, "puuid-1", 420, 22)
-        );
+        ));
+        for (long gameId = 24L; gameId <= 70L; gameId++) {
+            cachedMatches.add(createIncompleteMatch(gameId, "puuid-1", 430, 99));
+        }
         when(repository.findRecentMatchHistory("puuid-1", 50))
                 .thenReturn(Optional.of(MatchHistoryFetchResult.builder()
                         .matches(cachedMatches)

@@ -146,7 +146,7 @@ class SgpMatchHistoryMapperTest {
     }
 
     @Test
-    void mapMatchHistorySummary_readsNestedPerksAndChallengeFieldsFromLiveSgpShape() {
+    void mapMatchHistorySummary_readsNestedPerkIdsAndChallengeDerivedFieldsWithoutRetainingRawMaps() {
         ObjectNode response = objectMapper.createObjectNode();
         ArrayNode games = response.putArray("games");
         ObjectNode game = gameNode(100005L, 1710000009000L, 1900, false, true);
@@ -186,8 +186,9 @@ class SgpMatchHistoryMapperTest {
         assertThat(mappedStats.getPerkPrimaryStyle()).isEqualTo(8000);
         assertThat(mappedStats.getPerkSubStyle()).isEqualTo(8300);
         assertThat(mappedStats.getLegendaryCount()).isEqualTo(2);
-        assertThat(mappedStats.getChallenges()).containsEntry("soloKills", 3);
-        assertThat(mappedStats.getPerks()).isNotEmpty();
+        assertThat(mappedStats.getChallenges()).isNull();
+        assertThat(mappedStats.getPerks()).isNull();
+        assertThat(mappedStats.getExtraFields()).isEmpty();
     }
 
     @Test

@@ -87,6 +87,39 @@ class CacheRepairServiceTest {
     }
 
     @Test
+    void repair_quarantinesClosedH2DatabaseAsRecoverableCacheFailure() throws Exception {
+        Path databasePath = tempDir.resolve("closed-rankpeek-cache");
+        Files.writeString(databasePath.resolveSibling("closed-rankpeek-cache.mv.db"), "closed-cache");
+        RuntimeException closed = new RuntimeException(
+                "org.h2.jdbc.JdbcSQLNonTransientConnectionException: The database has been closed [90098-232]"
+        );
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.queryForObject("SELECT 1", Integer.class)).thenThrow(closed);
+        LocalDataPathService pathService = pathService(databasePath);
+        LocalCacheRecoveryService recoveryService = new LocalCacheRecoveryService(pathService, fixedClock());
+        LocalCacheSchemaInitializer initializer = mock(LocalCacheSchemaInitializer.class);
+        when(initializer.initializeSchemaIfPossible()).thenReturn(true);
+        CacheRepairService service = new CacheRepairService(
+                jdbcTemplate,
+                pathService,
+                new LocalCacheRecoveryCoordinator(recoveryService, fixedClock()),
+                initializer
+        );
+
+        CacheRepairResult result = service.repair(true);
+
+        Path quarantineDirectory = tempDir.resolve("closed-rankpeek-cache.corrupt.20260501-010203");
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.isRepaired()).isTrue();
+        assertThat(result.getHealth()).isEqualTo(CacheStatus.Health.RECOVERED);
+        assertThat(result.getQuarantineDirectory()).isEqualTo(quarantineDirectory.toString());
+        assertThat(result.getMovedFiles()).containsExactly("closed-rankpeek-cache.mv.db");
+        assertThat(Files.exists(databasePath.resolveSibling("closed-rankpeek-cache.mv.db"))).isFalse();
+        assertThat(Files.readString(quarantineDirectory.resolve("closed-rankpeek-cache.mv.db")))
+                .isEqualTo("closed-cache");
+    }
+
+    @Test
     void repair_doesNotQuarantineLockedOrTimedOutDatabase() throws Exception {
         Path databasePath = tempDir.resolve("rankpeek-cache");
         Path h2File = databasePath.resolveSibling("rankpeek-cache.mv.db");

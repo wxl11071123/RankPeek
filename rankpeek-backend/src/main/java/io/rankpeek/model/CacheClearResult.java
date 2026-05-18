@@ -15,10 +15,15 @@ public class CacheClearResult {
 
     private boolean success;
     private String scope;
+    private String mode;
     private String message;
     private List<String> cleared;
     private List<Failure> failed;
     private long deletedRows;
+    private long databaseSizeBeforeBytes;
+    private long databaseSizeAfterBytes;
+    private boolean compacted;
+    private long retentionDeletedRows;
     private long timestamp;
 
     @Data

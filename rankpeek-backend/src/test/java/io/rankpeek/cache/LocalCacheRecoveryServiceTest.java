@@ -37,6 +37,13 @@ class LocalCacheRecoveryServiceTest {
         assertThat(service.isRecoverableCorruption(new RuntimeException("File corrupted in chunk 4622"))).isTrue();
         assertThat(service.isRecoverableCorruption(new RuntimeException(
                 "The write format 3 is larger than the supported format 2"))).isTrue();
+        assertThat(service.isRecoverableCorruption(new RuntimeException(
+                "org.h2.jdbc.JdbcSQLNonTransientConnectionException: The database has been closed [90098-232]"
+        ))).isTrue();
+        assertThat(service.isRecoverableCorruption(new RuntimeException(
+                "org.h2.mvstore.MVStoreException: java.lang.OutOfMemoryError: Capacity: 7077888 [2.3.232/3]",
+                new OutOfMemoryError("Java heap space")
+        ))).isTrue();
     }
 
     @Test

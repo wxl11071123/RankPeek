@@ -172,6 +172,33 @@ export interface AiAnalysisListOptions {
   matchId?: string
 }
 
+export interface AiMemoryTypeCount {
+  analysisType: string
+  count: number
+}
+
+export interface AiMemoryStats {
+  accountPuuid: string
+  totalCount: number
+  linkedMatchCount: number
+  earliestCreatedAt: string | null
+  latestCreatedAt: string | null
+  analysisTypeCounts: AiMemoryTypeCount[]
+}
+
+export interface AiMemoryExportResult {
+  filePath: string | null
+  exportedCount: number
+  canceled?: boolean
+}
+
+export interface LocalStorageRetentionResult {
+  matchRecordsDeleted: number
+  matchDetailsDeleted: number
+  aiAnalysisDeleted: number
+  matchRecordsRetained: number
+}
+
 export interface LocalDatabaseAPI {
   upsertAccount(account: SummonerAccountInput): Promise<DatabaseResult<SummonerAccount>>
   listAccounts(): Promise<DatabaseResult<SummonerAccount[]>>
@@ -191,4 +218,7 @@ export interface LocalDatabaseAPI {
   ): Promise<DatabaseResult<AiAnalysisResult[]>>
   getAnalysisResultById(id: number): Promise<DatabaseResult<AiAnalysisResult | null>>
   findAnalysisByInputHash(inputHash: string): Promise<DatabaseResult<AiAnalysisResult | null>>
+  getAiMemoryStats(accountPuuid: string): Promise<DatabaseResult<AiMemoryStats>>
+  exportAiMemory(accountPuuid: string): Promise<DatabaseResult<AiMemoryExportResult>>
+  runStorageRetention(): Promise<DatabaseResult<LocalStorageRetentionResult>>
 }

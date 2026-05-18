@@ -1,4 +1,6 @@
 import type {
+  AiMemoryExportPayload,
+  AiMemoryStats,
   AiAnalysisListOptions,
   AiAnalysisRepository,
   AiAnalysisResult,
@@ -20,6 +22,18 @@ interface AiAnalysisResultRow {
   output_json: string
   created_at: string
   updated_at: string
+}
+
+interface AiMemoryTypeCountRow {
+  analysis_type: string
+  count: number
+}
+
+interface AiMemorySummaryRow {
+  total_count: number
+  linked_match_count: number
+  earliest_created_at: string | null
+  latest_created_at: string | null
 }
 
 export function createAiAnalysisRepository(connection: SqliteDatabase): AiAnalysisRepository {
@@ -81,6 +95,19 @@ export function createAiAnalysisRepository(connection: SqliteDatabase): AiAnalys
         .get(inputHash) as AiAnalysisResultRow | undefined
 
       return row ? mapAiAnalysisResultRow(row) : null
+    },
+
+    getMemoryStats(accountPuuid) {
+      return getMemoryStats(connection, accountPuuid)
+    },
+
+    exportMemory(accountPuuid) {
+      return {
+        accountPuuid,
+        exportedAt: new Date().toISOString(),
+        stats: getMemoryStats(connection, accountPuuid),
+        records: listAllAnalysisResults(connection, accountPuuid)
+      } satisfies AiMemoryExportPayload
     }
   }
 }
@@ -118,6 +145,55 @@ function listAnalysisResults(
     .all(parameters) as AiAnalysisResultRow[]
 
   return rows.map(mapAiAnalysisResultRow)
+}
+
+function listAllAnalysisResults(connection: SqliteDatabase, accountPuuid: string): AiAnalysisResult[] {
+  const rows = connection
+    .prepare(`
+      SELECT *
+      FROM ai_analysis_results
+      WHERE account_puuid = @accountPuuid
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all({ accountPuuid }) as AiAnalysisResultRow[]
+
+  return rows.map(mapAiAnalysisResultRow)
+}
+
+function getMemoryStats(connection: SqliteDatabase, accountPuuid: string): AiMemoryStats {
+  const summary = connection
+    .prepare(`
+      SELECT
+        COUNT(*) AS total_count,
+        COUNT(DISTINCT CASE WHEN match_id IS NOT NULL AND match_id <> '' THEN match_id END) AS linked_match_count,
+        MIN(created_at) AS earliest_created_at,
+        MAX(created_at) AS latest_created_at
+      FROM ai_analysis_results
+      WHERE account_puuid = @accountPuuid
+    `)
+    .get({ accountPuuid }) as AiMemorySummaryRow
+
+  const typeCounts = connection
+    .prepare(`
+      SELECT analysis_type, COUNT(*) AS count
+      FROM ai_analysis_results
+      WHERE account_puuid = @accountPuuid
+      GROUP BY analysis_type
+      ORDER BY count DESC, analysis_type ASC
+    `)
+    .all({ accountPuuid }) as AiMemoryTypeCountRow[]
+
+  return {
+    accountPuuid,
+    totalCount: summary.total_count,
+    linkedMatchCount: summary.linked_match_count,
+    earliestCreatedAt: summary.earliest_created_at,
+    latestCreatedAt: summary.latest_created_at,
+    analysisTypeCounts: typeCounts.map((row) => ({
+      analysisType: row.analysis_type,
+      count: row.count
+    }))
+  }
 }
 
 function toAiAnalysisParameters(result: AiAnalysisResultInput) {

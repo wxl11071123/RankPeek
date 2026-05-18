@@ -20,12 +20,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.lenient;
@@ -57,13 +61,13 @@ class MatchHistoryServiceTest {
     @Test
     void getMatchHistoryFetchResult_usesProviderAndCachesOnRepeatedReads() {
         when(matchHistoryProvider.fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class)))
-                .thenReturn(resultWithMatch(1L));
+                .thenReturn(resultWithSequentialMatches(1L, 50));
 
         MatchHistoryFetchResult first = matchHistoryService.getMatchHistoryFetchResult("puuid-1");
         MatchHistoryFetchResult second = matchHistoryService.getMatchHistoryFetchResult("puuid-1");
 
-        assertThat(first.getMatches()).hasSize(1);
-        assertThat(second.getMatches()).hasSize(1);
+        assertThat(first.getMatches()).hasSize(50);
+        assertThat(second.getMatches()).hasSize(50);
         verify(matchHistoryProvider, times(1))
                 .fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, false));
     }
@@ -71,15 +75,15 @@ class MatchHistoryServiceTest {
     @Test
     void getMatchHistoryFetchResult_forceRefreshInvalidatesCachedEntryAndPassesRefreshOption() {
         when(matchHistoryProvider.fetchMatchHistory(any(String.class), any(MatchHistoryQueryOptions.class)))
-                .thenReturn(resultWithMatch(1L), resultWithMatch(2L));
+                .thenReturn(resultWithSequentialMatches(1L, 50), resultWithSequentialMatches(1001L, 50));
 
         MatchHistoryFetchResult cached = matchHistoryService.getMatchHistoryFetchResult("puuid-1");
         MatchHistoryFetchResult stillCached = matchHistoryService.getMatchHistoryFetchResult("puuid-1");
         MatchHistoryFetchResult refreshed = matchHistoryService.getMatchHistoryFetchResult("puuid-1", true);
 
-        assertThat(cached.getMatches()).extracting(MatchHistory::getGameId).containsExactly(1L);
-        assertThat(stillCached.getMatches()).extracting(MatchHistory::getGameId).containsExactly(1L);
-        assertThat(refreshed.getMatches()).extracting(MatchHistory::getGameId).containsExactly(2L);
+        assertThat(cached.getMatches()).first().extracting(MatchHistory::getGameId).isEqualTo(1L);
+        assertThat(stillCached.getMatches()).first().extracting(MatchHistory::getGameId).isEqualTo(1L);
+        assertThat(refreshed.getMatches()).first().extracting(MatchHistory::getGameId).isEqualTo(1001L);
         verify(matchHistoryProvider).fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, false));
         verify(matchHistoryProvider).fetchMatchHistory("puuid-1", options(MatchHistorySource.AUTO, true));
     }
@@ -1316,6 +1320,136 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getMatchHistoryPage_skipsDuplicateAsyncSgpCacheWritesForSamePuuidWhileWriteIsQueued() {
+        ManualExecutorService cacheWriteExecutor = new ManualExecutorService();
+        ExecutorService sgpBackfillExecutor = Executors.newSingleThreadExecutor();
+        when(matchHistoryProvider.source()).thenReturn(MatchHistorySource.LCU);
+        when(sgpMatchHistoryProvider.source()).thenReturn(MatchHistorySource.SGP);
+        MatchHistoryService sourceAwareService = new MatchHistoryService(
+                List.of(matchHistoryProvider, sgpMatchHistoryProvider),
+                cacheRepository,
+                cacheWriteExecutor,
+                sgpBackfillExecutor
+        );
+        sourceAwareService.init();
+
+        lenient().when(cacheRepository.findRecentMatchHistory(eq("puuid-1"), anyInt()))
+                .thenReturn(Optional.empty());
+        when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, false, 21))).thenReturn(true);
+        when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, false, 41))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 21)))
+                .thenReturn(resultWithMatches(renderableCurrentOnlyMatch(3001L, 420, "puuid-1", 11)));
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 41)))
+                .thenReturn(resultWithMatches(renderableCurrentOnlyMatch(3002L, 420, "puuid-1", 11)));
+
+        try {
+            sourceAwareService.getMatchHistoryPage("puuid-1", 1, 20, "auto", null, null, false, null);
+            sourceAwareService.getMatchHistoryPage("puuid-1", 2, 20, "auto", null, null, false, null);
+
+            assertThat(cacheWriteExecutor.queuedTaskCount()).isEqualTo(1);
+        } finally {
+            cacheWriteExecutor.runQueuedTasks();
+            sourceAwareService.shutdownAsyncExecutors();
+        }
+    }
+
+    @Test
+    void getMatchHistoryPage_reusesLargerInMemorySgpResultForSmallerLaterPages() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        MatchHistory[] matches = new MatchHistory[61];
+        for (int index = 0; index < matches.length; index++) {
+            matches[index] = match(4000L + index, 420, "puuid-1", 11);
+        }
+        when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, false, 61))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 61)))
+                .thenReturn(resultWithMatches(matches));
+
+        MatchHistoryPageResponse pageThree = sourceAwareService.getMatchHistoryPage(
+                "puuid-1",
+                3,
+                20,
+                "auto",
+                null,
+                null,
+                false,
+                null
+        );
+        MatchHistoryPageResponse pageTwo = sourceAwareService.getMatchHistoryPage(
+                "puuid-1",
+                2,
+                20,
+                "auto",
+                null,
+                null,
+                false,
+                null
+        );
+
+        assertThat(pageThree.getMatches()).hasSize(20);
+        assertThat(pageTwo.getMatches()).hasSize(20);
+        assertThat(pageTwo.getMatches()).extracting(MatchHistory::getGameId)
+                .containsExactlyElementsOf(
+                        java.util.Arrays.stream(matches, 20, 40)
+                                .map(MatchHistory::getGameId)
+                                .toList()
+                );
+        verify(sgpMatchHistoryProvider, times(1))
+                .fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 61));
+        verify(sgpMatchHistoryProvider, never())
+                .fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 41));
+    }
+
+    @Test
+    void getMatchHistoryPage_fetchesOnlyWhenCachedSgpResultDoesNotSatisfyRequestedRows() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        MatchHistory[] oneHundredOneMatches = new MatchHistory[101];
+        for (int index = 0; index < oneHundredOneMatches.length; index++) {
+            oneHundredOneMatches[index] = match(5000L + index, 420, "puuid-1", 11);
+        }
+        MatchHistory[] oneHundredFortyOneMatches = new MatchHistory[141];
+        for (int index = 0; index < oneHundredFortyOneMatches.length; index++) {
+            oneHundredFortyOneMatches[index] = match(6000L + index, 420, "puuid-1", 11);
+        }
+        when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, false, 101))).thenReturn(true);
+        when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, false, 141))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 101)))
+                .thenReturn(resultWithMatches(oneHundredOneMatches));
+        when(sgpMatchHistoryProvider.fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 141)))
+                .thenReturn(resultWithMatches(oneHundredFortyOneMatches));
+
+        sourceAwareService.getMatchHistoryPage("puuid-1", 5, 20, "auto", null, null, false, null);
+        MatchHistoryPageResponse smallerPage = sourceAwareService.getMatchHistoryPage(
+                "puuid-1",
+                4,
+                20,
+                "auto",
+                null,
+                null,
+                false,
+                null
+        );
+        MatchHistoryPageResponse largerPage = sourceAwareService.getMatchHistoryPage(
+                "puuid-1",
+                7,
+                20,
+                "auto",
+                null,
+                null,
+                false,
+                null
+        );
+
+        assertThat(smallerPage.getMatches()).hasSize(20);
+        assertThat(largerPage.getMatches()).hasSize(20);
+        verify(sgpMatchHistoryProvider, times(1))
+                .fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 101));
+        verify(sgpMatchHistoryProvider, never())
+                .fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 81));
+        verify(sgpMatchHistoryProvider, times(1))
+                .fetchMatchHistory("puuid-1", pageOptions(MatchHistorySource.AUTO, false, 141));
+    }
+
+    @Test
     void getMatchHistoryPage_sourceAutoFailsAfterThreeNonRenderableSgpResultsWithoutLcuFallback() {
         MatchHistoryService sourceAwareService = sourceAwareService();
         when(sgpMatchHistoryProvider.supports(pageOptions(MatchHistorySource.AUTO, true, 11))).thenReturn(true);
@@ -1634,6 +1768,19 @@ class MatchHistoryServiceTest {
         return MatchHistoryFetchResult.builder()
                 .matches(List.of(matches))
                 .rawEmpty(matches.length == 0)
+                .build();
+    }
+
+    private MatchHistoryFetchResult resultWithSequentialMatches(long firstGameId, int count) {
+        List<MatchHistory> matches = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            MatchHistory match = new MatchHistory();
+            match.setGameId(firstGameId + index);
+            matches.add(match);
+        }
+        return MatchHistoryFetchResult.builder()
+                .matches(matches)
+                .rawEmpty(matches.isEmpty())
                 .build();
     }
 
@@ -1986,5 +2133,53 @@ class MatchHistoryServiceTest {
                 null,
                 null
         );
+    }
+
+    private static final class ManualExecutorService extends AbstractExecutorService {
+        private final List<Runnable> tasks = new ArrayList<>();
+        private boolean shutdown;
+
+        @Override
+        public void shutdown() {
+            shutdown = true;
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            shutdown = true;
+            List<Runnable> queued = new ArrayList<>(tasks);
+            tasks.clear();
+            return queued;
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown && tasks.isEmpty();
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return isTerminated();
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
+        }
+
+        private int queuedTaskCount() {
+            return tasks.size();
+        }
+
+        private void runQueuedTasks() {
+            List<Runnable> queued = new ArrayList<>(tasks);
+            tasks.clear();
+            queued.forEach(Runnable::run);
+        }
     }
 }

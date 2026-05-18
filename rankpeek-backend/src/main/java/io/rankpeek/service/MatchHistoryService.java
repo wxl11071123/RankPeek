@@ -52,7 +52,7 @@ public class MatchHistoryService {
     private static final int DEFAULT_MATCH_HISTORY_PAGE_SIZE = 20;
     private static final long MATCH_HISTORY_CACHE_MAX_WEIGHT = 2_000;
     private static final long GAME_DETAIL_CACHE_MAX_ENTRIES = 200;
-    private static final int CACHE_WRITE_THREADS = 2;
+    private static final int CACHE_WRITE_THREADS = 1;
     private static final int CACHE_WRITE_QUEUE_CAPACITY = 64;
     private static final int SGP_BACKFILL_THREADS = 2;
     private static final int SGP_BACKFILL_QUEUE_CAPACITY = 64;
@@ -62,6 +62,7 @@ public class MatchHistoryService {
     private static final int REMAKE_MAX_GAME_DURATION_SECONDS = 300;
     private static final AtomicInteger CACHE_WRITE_THREAD_SEQUENCE = new AtomicInteger();
     private static final AtomicInteger SGP_BACKFILL_THREAD_SEQUENCE = new AtomicInteger();
+    private static final Set<String> MATCH_HISTORY_CACHE_WRITE_IN_FLIGHT = ConcurrentHashMap.newKeySet();
     private static final Set<Long> SGP_TIMELINE_BACKFILL_IN_FLIGHT = ConcurrentHashMap.newKeySet();
     private static final String POSITION_TOP = "TOP";
     private static final String POSITION_JUNGLE = "JUNGLE";
@@ -309,9 +310,6 @@ public class MatchHistoryService {
     private String matchHistoryCacheKey(String puuid, MatchHistoryQueryOptions options, MatchHistorySource source) {
         return String.join("|",
                 normalizeSource(source).name(),
-                String.valueOf(options == null ? 0 : options.begIndex()),
-                String.valueOf(options == null ? 0 : options.endIndex()),
-                String.valueOf(options == null ? 0 : options.maxResults()),
                 cachePart(options == null ? null : options.sgpServerId()),
                 cachePart(options == null ? null : options.tag()),
                 cachePart(puuid));
@@ -378,7 +376,7 @@ public class MatchHistoryService {
         }
 
         MatchHistoryFetchResult memoryResult = matchHistoryCache.getIfPresent(cacheKey);
-        if (memoryResult != null) {
+        if (memoryResult != null && isCachedMatchHistoryCompleteForOptions(memoryResult, options)) {
             return new FetchedMatchHistory(memoryResult, resolvedProvider.source(), options);
         }
 
@@ -401,7 +399,7 @@ public class MatchHistoryService {
 
         if (!safeOptions.forceRefresh()) {
             MatchHistoryFetchResult memoryResult = matchHistoryCache.getIfPresent(cacheKey);
-            if (memoryResult != null) {
+            if (memoryResult != null && isCachedMatchHistoryCompleteForOptions(memoryResult, safeOptions)) {
                 return new FetchedMatchHistory(memoryResult, MatchHistorySource.CACHE, safeOptions);
             }
         } else {
@@ -738,7 +736,7 @@ public class MatchHistoryService {
                     cacheRepository.updatePlayerFetchState(puuid, List.of(), "ERROR", e.getMessage());
                 }
                 Optional<MatchHistoryFetchResult> fallback =
-                        findCompleteCachedMatchHistory(puuid, resolvedProvider.source(), options);
+                        findCachedMatchHistory(puuid, resolvedProvider.source(), options);
                 if (fallback.isPresent()) {
                     MatchHistoryQueryOptions cacheOptions = withPreferredSource(options, MatchHistorySource.CACHE);
                     String fallbackCacheKey = matchHistoryCacheKey(puuid, cacheOptions, MatchHistorySource.CACHE);
@@ -941,6 +939,11 @@ public class MatchHistoryService {
         if (snapshot.isEmpty()) {
             return;
         }
+        if (!MATCH_HISTORY_CACHE_WRITE_IN_FLIGHT.add(puuid)) {
+            log.debug("Skipping duplicate SGP match history cache write while previous write is in flight: puuid={}, matches={}",
+                    puuidPrefix(puuid), snapshot.size());
+            return;
+        }
         try {
             cacheWriteExecutor.execute(() -> {
                 try {
@@ -951,9 +954,12 @@ public class MatchHistoryService {
                     log.warn("Failed to write SGP match history cache asynchronously: puuid={}, matches={}, error={}",
                             puuidPrefix(puuid), snapshot.size(), e.getMessage());
                     log.debug("SGP async match-history cache write failure details", e);
+                } finally {
+                    MATCH_HISTORY_CACHE_WRITE_IN_FLIGHT.remove(puuid);
                 }
             });
         } catch (RejectedExecutionException e) {
+            MATCH_HISTORY_CACHE_WRITE_IN_FLIGHT.remove(puuid);
             log.warn("SGP match history cache write queue is full, skipping async save: puuid={}, matches={}",
                     puuidPrefix(puuid), snapshot.size());
             log.debug("SGP async match-history cache write rejected", e);

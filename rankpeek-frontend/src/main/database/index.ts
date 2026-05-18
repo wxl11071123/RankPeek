@@ -5,6 +5,7 @@ import { runMigrations } from './migrations.ts'
 import { createAccountRepository } from './repositories/accountRepository.ts'
 import { createAiAnalysisRepository } from './repositories/aiAnalysisRepository.ts'
 import { createMatchRepository } from './repositories/matchRepository.ts'
+import { runStorageRetention } from './repositories/storageMaintenanceRepository.ts'
 import type { CreateLocalDatabaseOptions, InitLocalDatabaseOptions, LocalDatabase } from './types.ts'
 
 let localDatabase: LocalDatabase | null = null
@@ -28,6 +29,9 @@ export function createLocalDatabase({ databasePath, logger }: CreateLocalDatabas
     accounts: createAccountRepository(connection),
     matches: createMatchRepository(connection),
     aiAnalyses: createAiAnalysisRepository(connection),
+    runStorageRetention() {
+      return runStorageRetention(connection)
+    },
     close() {
       connection.close()
     }
@@ -43,6 +47,18 @@ export function initLocalDatabase(options: InitLocalDatabaseOptions): LocalDatab
 
   if (options.runSmokeTest) {
     runLocalDatabaseSmokeTest(localDatabase, options.logger)
+  }
+
+  try {
+    const result = localDatabase.runStorageRetention()
+    if (result.matchRecordsDeleted > 0 || result.matchDetailsDeleted > 0) {
+      options.logger.info(
+        `Local database retention applied at startup: matchRecordsDeleted=${result.matchRecordsDeleted}, `
+          + `matchDetailsDeleted=${result.matchDetailsDeleted}`
+      )
+    }
+  } catch (error) {
+    options.logger.warn(`Local database startup retention failed: ${String(error)}`)
   }
 
   return localDatabase

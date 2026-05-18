@@ -32,13 +32,19 @@ test('cache diagnostics API methods use status and scoped clear endpoints', () =
   assert.match(types, /participantCount: number/)
   assert.match(types, /trackedPlayerCount: number/)
   assert.match(types, /latestMatchCreation: number \| null/)
+  assert.match(types, /orphanMatchCount\?: number/)
+  assert.match(types, /quarantineCount\?: number/)
   assert.match(types, /export interface CacheClearResult \{[\s\S]*success: boolean/)
   assert.match(types, /export interface CacheClearFailure \{[\s\S]*name: string/)
   assert.match(types, /scope: CacheClearScope/)
+  assert.match(types, /mode\?: CacheClearMode/)
   assert.match(types, /cleared: string\[]/)
   assert.match(types, /failed: CacheClearFailure\[]/)
   assert.match(types, /deletedRows: number/)
+  assert.match(types, /databaseSizeBeforeBytes\?: number/)
+  assert.match(types, /retentionDeletedRows\?: number/)
   assert.match(types, /export type CacheClearScope = 'all' \| 'memory' \| 'localDb'/)
+  assert.match(types, /export type CacheClearMode = 'normal' \| 'deep'/)
   assert.match(types, /export interface CacheRepairResult \{[\s\S]*repaired: boolean/)
   assert.match(types, /quarantineDirectory\?: string \| null/)
   assert.match(types, /movedFiles: string\[]/)
@@ -51,9 +57,9 @@ test('cache diagnostics API methods use status and scoped clear endpoints', () =
   assert.match(source, /return this\.get<CacheStatus>\('\/cache\/status'\)/)
   assert.match(
     source,
-    /async clearCache\(scope: CacheClearScope, confirm = true\): Promise<CacheClearResult>/
+    /async clearCache\(scope: CacheClearScope, confirm = true, mode: CacheClearMode = 'normal'\): Promise<CacheClearResult>/
   )
-  assert.match(source, /return this\.post<CacheClearResult>\('\/cache\/clear', undefined, \{ scope, confirm \}\)/)
+  assert.match(source, /return this\.post<CacheClearResult>\('\/cache\/clear', undefined, \{ scope, confirm, mode \}\)/)
   assert.match(source, /async repairCache\(confirm = true\): Promise<CacheRepairResult>/)
   assert.match(source, /return this\.post<CacheRepairResult>\('\/cache\/repair', undefined, \{ confirm \}\)/)
 })

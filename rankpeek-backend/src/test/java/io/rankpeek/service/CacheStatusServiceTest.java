@@ -71,6 +71,13 @@ class CacheStatusServiceTest {
         assertThat(status.getPlayerMatchIndexCount()).isZero();
         assertThat(status.getTrackedPlayerCount()).isZero();
         assertThat(status.getLatestMatchCreation()).isNull();
+        assertThat(status.getOrphanMatchCount()).isZero();
+        assertThat(status.getOrphanGameDetailCount()).isZero();
+        assertThat(status.getOrphanParticipantCount()).isZero();
+        assertThat(status.getOrphanDataScopeCount()).isZero();
+        assertThat(status.getQuarantineCount()).isZero();
+        assertThat(status.getTraceFileCount()).isZero();
+        assertThat(status.getCorruptFileCount()).isZero();
     }
 
     @Test
@@ -119,6 +126,44 @@ class CacheStatusServiceTest {
         assertThat(status.getTrackedPlayerCount()).isEqualTo(2);
         assertThat(status.getLatestMatchCreation()).isEqualTo(1710000001000L);
         assertThat(status.getDatabaseSizeBytes()).isEqualTo(10);
+    }
+
+    @Test
+    void getStatus_reportsRetentionAndBackupArtifactStats() throws Exception {
+        Files.createDirectories(cacheDatabasePath.getParent());
+        Files.createDirectories(cacheDatabasePath.getParent().resolve("rankpeek-cache.corrupt.20260501-010203"));
+        Files.writeString(cacheDatabasePath.resolveSibling("rankpeek-cache.trace.db"), "trace");
+        Files.writeString(cacheDatabasePath.resolveSibling("rankpeek-cache.corrupt.db"), "corrupt");
+        jdbcTemplate.update("""
+                INSERT INTO match_cache (game_id, game_creation, raw_json, updated_at)
+                VALUES (1001, 1710000000000, '{}', 1), (1002, 1710000001000, '{}', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO game_detail_cache (game_id, raw_json, updated_at)
+                VALUES (1002, '{}', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO match_data_scope_cache (game_id, source, updated_at)
+                VALUES (1002, 'sgp', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO match_participant_cache (game_id, puuid, participant_id, updated_at)
+                VALUES (1002, 'orphan-player', 1, 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO player_match_index (puuid, game_id, game_creation, updated_at)
+                VALUES ('player-1', 1001, 1710000000000, 1)
+                """);
+
+        CacheStatus status = service.getStatus();
+
+        assertThat(status.getOrphanMatchCount()).isEqualTo(1);
+        assertThat(status.getOrphanGameDetailCount()).isEqualTo(1);
+        assertThat(status.getOrphanParticipantCount()).isEqualTo(1);
+        assertThat(status.getOrphanDataScopeCount()).isEqualTo(1);
+        assertThat(status.getQuarantineCount()).isEqualTo(1);
+        assertThat(status.getTraceFileCount()).isEqualTo(1);
+        assertThat(status.getCorruptFileCount()).isEqualTo(1);
     }
 
     @Test

@@ -225,6 +225,13 @@ export interface CacheStatus {
   playerMatchIndexCount: number
   trackedPlayerCount: number
   latestMatchCreation: number | null
+  orphanMatchCount?: number
+  orphanGameDetailCount?: number
+  orphanParticipantCount?: number
+  orphanDataScopeCount?: number
+  quarantineCount?: number
+  traceFileCount?: number
+  corruptFileCount?: number
 }
 
 export interface UserStoreStatus {
@@ -236,6 +243,7 @@ export interface UserStoreStatus {
 }
 
 export type CacheClearScope = 'all' | 'memory' | 'localDb'
+export type CacheClearMode = 'normal' | 'deep'
 
 export interface CacheClearFailure {
   name: string
@@ -245,10 +253,15 @@ export interface CacheClearFailure {
 export interface CacheClearResult {
   success: boolean
   scope: CacheClearScope
+  mode?: CacheClearMode
   message: string
   cleared: string[]
   failed: CacheClearFailure[]
   deletedRows: number
+  databaseSizeBeforeBytes?: number
+  databaseSizeAfterBytes?: number
+  compacted?: boolean
+  retentionDeletedRows?: number
   timestamp: number
 }
 

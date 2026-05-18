@@ -72,6 +72,12 @@ public class LocalCacheRecoveryService {
             if (containsCorruptionMessage(combined)) {
                 return true;
             }
+            if (combined.contains("database has been closed") && combined.contains("90098")) {
+                return true;
+            }
+            if (hasH2Marker && (combined.contains("outofmemoryerror") || combined.contains("java heap space"))) {
+                return true;
+            }
         }
 
         return hasH2Marker && hasEof;
