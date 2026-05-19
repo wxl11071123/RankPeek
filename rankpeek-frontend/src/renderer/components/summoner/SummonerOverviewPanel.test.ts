@@ -119,6 +119,15 @@ test('tag area shows a status fallback instead of staying blank', () => {
   assert.match(source, /<span v-if="statusMeta\(\)" class="status-chip"/)
 })
 
+test('keeps summoner riot id parts on one inline row', () => {
+  const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<div class="riot-id-line">\s*<span class="user-name">\{\{ summoner\.gameName \}\}<\/span>\s*<button class="riot-id"/)
+  assert.match(source, /\.riot-id-line\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*nowrap;[\s\S]*min-width:\s*0;/)
+  assert.match(source, /\.user-name\s*\{[\s\S]*min-width:\s*0;[\s\S]*white-space:\s*nowrap;/)
+  assert.match(source, /\.riot-id\s*\{[\s\S]*flex:\s*0 1 auto;[\s\S]*white-space:\s*nowrap;/)
+})
+
 test('uses compact relationship visuals that fit the overview row', () => {
   const source = readFileSync(new URL('./SummonerOverviewPanel.vue', import.meta.url), 'utf8')
 

@@ -272,14 +272,16 @@ function statusMeta() {
       </div>
 
       <div class="identity-copy">
-        <span class="user-name">{{ summoner.gameName }}</span>
-        <button class="riot-id" type="button" :aria-label="t('overview.copy')" @click="copyName">
-          <span>#{{ summoner.tagLine }}</span>
-          <svg class="copy-icon" viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M7 3.5A2.5 2.5 0 0 1 9.5 1h5A2.5 2.5 0 0 1 17 3.5v5A2.5 2.5 0 0 1 14.5 11h-5A2.5 2.5 0 0 1 7 8.5v-5Zm2.5-.9a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h5a.9.9 0 0 0 .9-.9v-5a.9.9 0 0 0-.9-.9h-5Z" />
-            <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H6v1.6h-.5a.9.9 0 0 0-.9.9v6a.9.9 0 0 0 .9.9h6a.9.9 0 0 0 .9-.9V14H14v.5a2.5 2.5 0 0 1-2.5 2.5h-6A2.5 2.5 0 0 1 3 14.5v-6Z" />
-          </svg>
-        </button>
+        <div class="riot-id-line">
+          <span class="user-name">{{ summoner.gameName }}</span>
+          <button class="riot-id" type="button" :aria-label="t('overview.copy')" @click="copyName">
+            <span>#{{ summoner.tagLine }}</span>
+            <svg class="copy-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M7 3.5A2.5 2.5 0 0 1 9.5 1h5A2.5 2.5 0 0 1 17 3.5v5A2.5 2.5 0 0 1 14.5 11h-5A2.5 2.5 0 0 1 7 8.5v-5Zm2.5-.9a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h5a.9.9 0 0 0 .9-.9v-5a.9.9 0 0 0-.9-.9h-5Z" />
+              <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H6v1.6h-.5a.9.9 0 0 0-.9.9v6a.9.9 0 0 0 .9.9h6a.9.9 0 0 0 .9-.9V14H14v.5a2.5 2.5 0 0 1-2.5 2.5h-6A2.5 2.5 0 0 1 3 14.5v-6Z" />
+            </svg>
+          </button>
+        </div>
 
         <span v-if="statusMeta()" class="status-chip" :class="statusMeta()!.className">
           {{ statusMeta()!.label }}
@@ -460,7 +462,17 @@ function statusMeta() {
   min-width: 0;
 }
 
+.riot-id-line {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .user-name {
+  min-width: 0;
   color: var(--text-primary);
   font-size: 19px;
   font-weight: 760;
@@ -472,6 +484,7 @@ function statusMeta() {
 
 .riot-id {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 4px;
   width: fit-content;
@@ -483,6 +496,7 @@ function statusMeta() {
   color: var(--text-tertiary);
   font-size: 12px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .riot-id span {
