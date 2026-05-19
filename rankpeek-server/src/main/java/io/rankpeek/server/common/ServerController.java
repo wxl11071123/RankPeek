@@ -9,9 +9,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ServerController {
 
     private final ServerProperties properties;
+    private final ServerDiagnosticsService diagnosticsService;
 
-    public ServerController(ServerProperties properties) {
+    public ServerController(ServerProperties properties, ServerDiagnosticsService diagnosticsService) {
         this.properties = properties;
+        this.diagnosticsService = diagnosticsService;
     }
 
     @GetMapping("/health")
@@ -22,6 +24,11 @@ public class ServerController {
     @GetMapping("/version")
     public ApiResponse<ServerInfo> version() {
         return ApiResponse.success(info());
+    }
+
+    @GetMapping("/diagnostics")
+    public ApiResponse<ServerDiagnostics> diagnostics() {
+        return ApiResponse.success(diagnosticsService.diagnostics());
     }
 
     private ServerInfo info() {

@@ -37,4 +37,18 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.data.version").value("0.1.0"))
                 .andExpect(jsonPath("$.data.service").value("rankpeek-server"));
     }
+
+    @Test
+    void diagnosticsReturnsDatabaseAndFlywayStatus() throws Exception {
+        mockMvc.perform(get("/api/server/diagnostics"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("ok"))
+                .andExpect(jsonPath("$.data.service").value("rankpeek-server"))
+                .andExpect(jsonPath("$.data.mode").value("test"))
+                .andExpect(jsonPath("$.data.database.status").value("ok"))
+                .andExpect(jsonPath("$.data.flyway.status").value("ok"))
+                .andExpect(jsonPath("$.data.flyway.currentVersion").value("4"))
+                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(4)));
+    }
 }
