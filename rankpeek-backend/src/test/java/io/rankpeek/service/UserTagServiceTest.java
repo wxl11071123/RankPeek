@@ -135,7 +135,7 @@ class UserTagServiceTest {
     }
 
     @Test
-    void buildSummaryFromPrefetchedData_returnsEmptyWhenLookbackHasNoRankedSample() {
+    void buildSummaryFromPrefetchedData_returnsCasualPlayerTagWhenLookbackHasNoRankedSample() {
         List<MatchHistory> history = new ArrayList<>();
         for (int i = 0; i < 50; i++) {
             history.add(createMatch("self-puuid", 5000L - i, true, 450, 1800, false));
@@ -148,10 +148,13 @@ class UserTagServiceTest {
                 history
         );
 
-        assertThat(summary.getRecordStatus()).isEqualTo(RecordStatus.EMPTY);
+        assertThat(summary.getRecordStatus()).isEqualTo(RecordStatus.NORMAL);
         assertThat(summary.getRecentData().getSelectWins()).isNull();
         assertThat(summary.getRecentData().getSelectLosses()).isNull();
-        assertThat(summary.getTag()).isEmpty();
+        assertThat(summary.getTag())
+                .extracting(RankTag::getTagName)
+                .containsExactly("娱乐玩家");
+        assertThat(summary.getTag().getFirst().getGood()).isTrue();
     }
 
     @Test

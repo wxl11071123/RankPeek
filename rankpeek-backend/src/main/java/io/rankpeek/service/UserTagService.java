@@ -38,6 +38,8 @@ public class UserTagService {
     private static final int TAG_MATCH_LOOKBACK_LIMIT = 50;
     private static final int REMAKE_DURATION_THRESHOLD_SECONDS = 300;
     private static final int RANKED_ANALYSIS_MODE = 0;
+    private static final String CASUAL_PLAYER_TAG_NAME = "娱乐玩家";
+    private static final String CASUAL_PLAYER_TAG_DESC = "近 50 场没有可分析的排位对局，最近主要在玩娱乐模式。";
 
     private final LcuHttpClient lcuHttpClient;
     private final SummonerService summonerService;
@@ -77,6 +79,9 @@ public class UserTagService {
             return createEmptyTag(RANKED_ANALYSIS_MODE, status);
         }
         if (recentMatches == null || recentMatches.isEmpty()) {
+            if (isCasualOnlyLookback(matchSample.allMatches())) {
+                return createCasualPlayerTag(RANKED_ANALYSIS_MODE);
+            }
             return createEmptyTag(RANKED_ANALYSIS_MODE, RecordStatus.EMPTY);
         }
 
@@ -104,6 +109,11 @@ public class UserTagService {
         try {
             TagMatchSample matchSample = getRecentTagMatchHistory(puuid);
             RecordStatus status = matchHistoryService.resolveRecordStatus(matchSample.statusFetchResult(), rank);
+            if (status == RecordStatus.NORMAL
+                    && matchSample.rankedMatches().isEmpty()
+                    && isCasualOnlyLookback(matchSample.allMatches())) {
+                return createCasualPlayerSummary(RANKED_ANALYSIS_MODE);
+            }
             return buildSummary(puuid, RANKED_ANALYSIS_MODE, matchSample.rankedMatches(), status, false);
         } catch (Exception e) {
             log.warn("Failed to fetch user tag summary, puuidPrefix={}", puuidPrefix(puuid), e);
@@ -150,6 +160,9 @@ public class UserTagService {
         List<MatchHistory> rankedSample = selectRecentRankedMatches(lookbackMatches, puuid, RECENT_MATCH_SAMPLE_LIMIT);
         RecordStatus status = resolvePrefetchedSummaryStatus(matchHistory, rankedSample);
         logTagMatchSample(puuid, "prefetched", lookbackMatches.size(), rankedSample.size());
+        if (status == RecordStatus.EMPTY && rankedSample.isEmpty() && isCasualOnlyLookback(lookbackMatches)) {
+            return createCasualPlayerSummary(RANKED_ANALYSIS_MODE);
+        }
         return buildSummary(puuid, RANKED_ANALYSIS_MODE, rankedSample, status, true);
     }
 
@@ -734,11 +747,35 @@ public class UserTagService {
                 .build();
     }
 
+    private UserTag createCasualPlayerTag(int mode) {
+        return UserTag.builder()
+                .recordStatus(RecordStatus.NORMAL)
+                .recentData(createEmptyRecentData(mode))
+                .tag(List.of(createCasualPlayerRankTag()))
+                .build();
+    }
+
     private UserTagSummary createEmptySummary(int mode, RecordStatus recordStatus) {
         return UserTagSummary.builder()
                 .recordStatus(recordStatus)
                 .recentData(createEmptyRecentData(mode))
                 .tag(new ArrayList<>())
+                .build();
+    }
+
+    private UserTagSummary createCasualPlayerSummary(int mode) {
+        return UserTagSummary.builder()
+                .recordStatus(RecordStatus.NORMAL)
+                .recentData(createEmptyRecentData(mode))
+                .tag(List.of(createCasualPlayerRankTag()))
+                .build();
+    }
+
+    private RankTag createCasualPlayerRankTag() {
+        return RankTag.builder()
+                .good(true)
+                .tagName(CASUAL_PLAYER_TAG_NAME)
+                .tagDesc(CASUAL_PLAYER_TAG_DESC)
                 .build();
     }
 
@@ -758,6 +795,15 @@ public class UserTagService {
             return RecordStatus.EMPTY;
         }
         return RecordStatus.NORMAL;
+    }
+
+    private boolean isCasualOnlyLookback(List<MatchHistory> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return false;
+        }
+        return matches.stream()
+                .filter(match -> match != null)
+                .noneMatch(match -> isSoloOrFlexRanked(match.getQueueId()));
     }
 
     private List<MatchHistory> selectRecentRankedMatches(List<MatchHistory> matches, String puuid, int limit) {
