@@ -1,0 +1,54 @@
+server:
+  address: ${RANKPEEK_SERVER_ADDRESS:127.0.0.1}
+  port: ${RANKPEEK_SERVER_PORT:18080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: rankpeek-server
+  datasource:
+    url: ${RANKPEEK_SERVER_DB_URL:jdbc:postgresql://127.0.0.1:5432/rankpeek_server}
+    driver-class-name: org.postgresql.Driver
+    username: ${RANKPEEK_SERVER_DB_USERNAME:rankpeek}
+    password: ${RANKPEEK_SERVER_DB_PASSWORD}
+  flyway:
+    enabled: true
+  sql:
+    init:
+      mode: never
+  lifecycle:
+    timeout-per-shutdown-phase: 10s
+
+rankpeek:
+  server:
+    service: rankpeek-server
+    mode: prod
+    version: 0.1.0
+  auth:
+    access-token-secret: ${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}
+    access-token-ttl-seconds: 3600
+    refresh-token-ttl-seconds: 2592000
+  cn-meta:
+    sync:
+      enabled: false
+      allow-manual: false
+      source: mock
+      cron: "0 30 4 * * *"
+      zone: "Asia/Shanghai"
+      request-delay-ms: 3000
+      max-retries: 2
+      stop-on-http-status: [401, 403, 429]
+      default-queue-id: 420
+      tiers: ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND", "MASTER_PLUS"]
+      roles: ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
+      real-source-enabled: false
+      real-endpoint-template: ""
+      real-time-type: 1
+      real-champion-id: 666
+      real-data-date-offset-days: 1
+      real-tier-code-map:
+        PLATINUM: "20"
+      real-user-agent: "RankPeek/prod-public-aggregate-client"
+      real-connect-timeout-ms: 5000
+      real-read-timeout-ms: 10000
+      real-max-response-bytes: 1000000

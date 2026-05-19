@@ -1,0 +1,23 @@
+[Unit]
+Description=RankPeek cloud server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rankpeek
+Group=rankpeek
+WorkingDirectory=/opt/rankpeek/server
+EnvironmentFile=/etc/rankpeek/rankpeek-server.env
+ExecStart=/usr/bin/java -Xms128m -Xmx512m -jar /opt/rankpeek/server/rankpeek-server.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/rankpeek/server
+
+[Install]
+WantedBy=multi-user.target
