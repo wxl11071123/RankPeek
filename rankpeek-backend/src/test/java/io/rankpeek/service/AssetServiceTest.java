@@ -10,6 +10,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.List;
 import java.util.Map;
@@ -309,6 +313,65 @@ class AssetServiceTest {
     }
 
     @Test
+    void loadAugmentsFillsMissingDescriptionFromKiwiFallbackWithoutChangingIconPath() {
+        AssetService.CherryAugment augment = new AssetService.CherryAugment();
+        augment.setId(2016);
+        augment.setNameTra("LCU 名称");
+        augment.setRarity("kSilver");
+        augment.setAugmentSmallIconPath("/lol-game-data/assets/v1/augments/2016.png");
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/cherry-augments.json"), eq(AssetService.CherryAugment[].class)))
+                .thenReturn(new AssetService.CherryAugment[]{augment});
+
+        service = new AssetService(lcuHttpClient, assetCacheRoot, kiwiFallback("""
+                {"data":[{"augmentID":2016,"name_cn":"Kiwi 名称","tooltip":"Kiwi 说明文本","desc":"Kiwi desc","level":"kGold"}]}
+                """));
+
+        ReflectionTestUtils.invokeMethod(service, "loadAugments");
+
+        AssetService.AugmentMetadata entry = service.getGameAssetMetadata().augments().get("2016");
+
+        assertThat(entry).isNotNull();
+        assertThat(entry.name()).isEqualTo("LCU 名称");
+        assertThat(entry.description()).isEqualTo("Kiwi 说明文本");
+        assertThat(entry.tooltip()).isEqualTo("Kiwi 说明文本");
+        assertThat(entry.desc()).isEqualTo("Kiwi desc");
+        assertThat(entry.rarity()).isEqualTo("kSilver");
+        assertThat(entry.icon()).isEqualTo("augments/2016.png");
+        assertThat(service.getAugmentIconPath(2016)).isEqualTo("/lol-game-data/assets/v1/augments/2016.png");
+    }
+
+    @Test
+    void loadAugmentsDoesNotOverwriteExistingLcuDescriptionWithKiwiFallback() {
+        AssetService.CherryAugment augment = new AssetService.CherryAugment();
+        augment.setId(2017);
+        augment.setNameTra("LCU 名称");
+        augment.setDescription("LCU 已有说明");
+        augment.setTooltip("LCU tooltip");
+        augment.setDesc("LCU desc");
+        augment.setRarity("kGold");
+        augment.setAugmentSmallIconPath("/lol-game-data/assets/v1/augments/2017.png");
+
+        when(lcuHttpClient.get(eq("lol-game-data/assets/v1/cherry-augments.json"), eq(AssetService.CherryAugment[].class)))
+                .thenReturn(new AssetService.CherryAugment[]{augment});
+
+        service = new AssetService(lcuHttpClient, assetCacheRoot, kiwiFallback("""
+                {"data":[{"augmentID":2017,"name_cn":"Kiwi 名称","tooltip":"Kiwi 说明文本","desc":"Kiwi desc","level":"kSilver"}]}
+                """));
+
+        ReflectionTestUtils.invokeMethod(service, "loadAugments");
+
+        AssetService.AugmentMetadata entry = service.getGameAssetMetadata().augments().get("2017");
+
+        assertThat(entry).isNotNull();
+        assertThat(entry.name()).isEqualTo("LCU 名称");
+        assertThat(entry.description()).isEqualTo("LCU 已有说明");
+        assertThat(entry.tooltip()).isEqualTo("LCU tooltip");
+        assertThat(entry.desc()).isEqualTo("LCU desc");
+        assertThat(entry.rarity()).isEqualTo("kGold");
+    }
+
+    @Test
     void lcuMetadataLoadingFailuresDoNotEscape() {
         when(lcuHttpClient.get(eq("lol-game-data/assets/v1/items.json"), eq(AssetService.Item[].class)))
                 .thenThrow(new RuntimeException("LCU unavailable"));
@@ -320,5 +383,17 @@ class AssetServiceTest {
 
         assertThat(service.getGameAssetMetadata().items()).isEmpty();
         assertThat(service.getGameAssetMetadata().augments()).isEmpty();
+    }
+
+    private KiwiAugmentFallbackService kiwiFallback(String payload) {
+        return new KiwiAugmentFallbackService(
+                true,
+                "https://example.test/kiwi.json",
+                Duration.ofHours(24),
+                Duration.ofSeconds(2),
+                Clock.fixed(Instant.parse("2026-05-19T00:00:00Z"), ZoneOffset.UTC),
+                (url, timeout) -> payload,
+                new com.fasterxml.jackson.databind.ObjectMapper()
+        );
     }
 }

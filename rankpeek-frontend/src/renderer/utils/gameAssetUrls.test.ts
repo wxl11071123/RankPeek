@@ -278,6 +278,42 @@ test('LCU metadata overlay supports future perks that are absent from static ass
   }
 })
 
+test('backend metadata overlay can carry GTIMG Kiwi augment fallback text', async () => {
+  resetGameAssetResolverForTest()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({
+      version: 'lcu',
+      locale: 'zh_CN',
+      augments: {
+        2016: {
+          id: 2016,
+          name: '注魔',
+          description: '攻击特效消耗法力值以造成魔法伤害，这个伤害可以暴击。',
+          tooltip: '攻击特效消耗法力值以造成魔法伤害，这个伤害可以暴击。',
+          desc: '攻击特效消耗法力值。',
+          rarity: 'kSilver'
+        }
+      }
+    })
+  })) as unknown as typeof fetch
+
+  try {
+    await loadLcuGameAssetMetadataOverlay('http://asset.test/lcu-metadata')
+
+    const augment = getAugmentTooltipDetails(2016)
+    assert.equal(augment?.name, '注魔')
+    assert.equal(augment?.description, '攻击特效消耗法力值以造成魔法伤害，这个伤害可以暴击。')
+    assert.equal(augment?.rarityLabel, '银色')
+    assert.equal(augment?.rarityTone, 'silver')
+    assert.notEqual(augment?.description, '鏆傛棤璇︾粏璇存槑')
+    assert.doesNotMatch(augment?.description || '', RAW_TOOLTIP_PATTERN)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('invalid asset ids do not create broken image URLs', () => {
   resetGameAssetResolverForTest()
   assert.equal(getChampionIconUrl(0), '')
