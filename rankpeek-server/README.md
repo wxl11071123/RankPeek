@@ -123,6 +123,14 @@ mvn spring-boot:run
 
 The default local-dev server listens on `http://localhost:18080`.
 
+`src/main/resources/application.yml` is the local-dev profile baseline and uses an in-memory H2 database. It is not the Ubuntu production configuration.
+
+## Ubuntu Production Deployment
+
+The first supported Ubuntu deployment shape is a Spring Boot jar running under systemd with local PostgreSQL. Production config lives in `src/main/resources/application-prod.yml` and reads secrets from environment variables.
+
+See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubuntu-deployment.md) for the deploy steps and the systemd/env templates under `deploy/ubuntu/`.
+
 Useful endpoints:
 
 - `GET /api/server/health`
