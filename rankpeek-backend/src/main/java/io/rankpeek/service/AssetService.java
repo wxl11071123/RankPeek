@@ -40,6 +40,7 @@ public class AssetService {
 
     private final LcuHttpClient lcuHttpClient;
     private final Path assetCacheRoot;
+    private final KiwiAugmentFallbackService kiwiAugmentFallbackService;
 
     // 英雄缓存
     private final Map<Long, Champion> championCache = new ConcurrentHashMap<>();
@@ -59,13 +60,20 @@ public class AssetService {
     private final Map<Long, String> augmentRarityCache = new ConcurrentHashMap<>();
 
     @Autowired
-    public AssetService(LcuHttpClient lcuHttpClient) {
-        this(lcuHttpClient, resolveDefaultAssetCacheRoot());
+    public AssetService(LcuHttpClient lcuHttpClient, KiwiAugmentFallbackService kiwiAugmentFallbackService) {
+        this(lcuHttpClient, resolveDefaultAssetCacheRoot(), kiwiAugmentFallbackService);
     }
 
     AssetService(LcuHttpClient lcuHttpClient, Path assetCacheRoot) {
+        this(lcuHttpClient, assetCacheRoot, KiwiAugmentFallbackService.disabled());
+    }
+
+    AssetService(LcuHttpClient lcuHttpClient, Path assetCacheRoot, KiwiAugmentFallbackService kiwiAugmentFallbackService) {
         this.lcuHttpClient = lcuHttpClient;
         this.assetCacheRoot = assetCacheRoot;
+        this.kiwiAugmentFallbackService = kiwiAugmentFallbackService == null
+                ? KiwiAugmentFallbackService.disabled()
+                : kiwiAugmentFallbackService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -596,6 +604,7 @@ public class AssetService {
         } catch (Exception e) {
             log.warn("加载海克斯强化失败: {}", e.getMessage());
         }
+        mergeKiwiAugmentFallbacks();
     }
 
     /**
@@ -619,6 +628,7 @@ public class AssetService {
 
     public GameAssetMetadata getGameAssetMetadata() {
         ensurePerkMetadataFresh();
+        mergeKiwiAugmentFallbacks();
         return new GameAssetMetadata(
                 "lcu",
                 "zh_CN",
@@ -627,6 +637,65 @@ public class AssetService {
                 toStringKeyedMap(perkMetadataCache),
                 toStringKeyedMap(augmentMetadataCache)
         );
+    }
+
+    private void mergeKiwiAugmentFallbacks() {
+        Map<Long, KiwiAugmentFallbackService.KiwiAugmentFallback> fallbacks = kiwiAugmentFallbackService.getAugmentFallbacks();
+        if (fallbacks.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<Long, KiwiAugmentFallbackService.KiwiAugmentFallback> entry : fallbacks.entrySet()) {
+            long id = entry.getKey();
+            KiwiAugmentFallbackService.KiwiAugmentFallback fallback = entry.getValue();
+            augmentMetadataCache.compute(id, (ignored, current) -> mergeKiwiAugmentFallback(current, id, fallback));
+            if (shouldFillText(augmentRarityCache.get(id)) && !firstText(fallback.rarity()).isBlank()) {
+                augmentRarityCache.put(id, fallback.rarity());
+            }
+        }
+    }
+
+    private AugmentMetadata mergeKiwiAugmentFallback(
+            AugmentMetadata current,
+            long id,
+            KiwiAugmentFallbackService.KiwiAugmentFallback fallback
+    ) {
+        if (current == null) {
+            return new AugmentMetadata(
+                    id,
+                    firstText(fallback.name()),
+                    firstText(fallback.description()),
+                    firstText(fallback.tooltip()),
+                    firstText(fallback.desc()),
+                    "",
+                    "",
+                    "",
+                    "",
+                    firstText(fallback.rarity()),
+                    ""
+            );
+        }
+
+        return new AugmentMetadata(
+                current.id(),
+                shouldFillText(current.name()) ? firstText(fallback.name(), current.name()) : current.name(),
+                shouldFillText(current.description()) ? firstText(fallback.description(), current.description()) : current.description(),
+                shouldFillText(current.tooltip()) ? firstText(fallback.tooltip(), current.tooltip()) : current.tooltip(),
+                shouldFillText(current.desc()) ? firstText(fallback.desc(), current.desc()) : current.desc(),
+                current.shortDesc(),
+                current.longDesc(),
+                current.descriptionTra(),
+                current.tooltipTra(),
+                shouldFillText(current.rarity()) ? firstText(fallback.rarity(), current.rarity()) : current.rarity(),
+                current.icon()
+        );
+    }
+
+    private boolean shouldFillText(String value) {
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+        return "暂无详细说明".equals(value.trim());
     }
 
     private void ensurePerkMetadataFresh() {
