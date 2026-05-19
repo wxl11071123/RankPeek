@@ -8,6 +8,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -50,5 +51,12 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.data.flyway.status").value("ok"))
                 .andExpect(jsonPath("$.data.flyway.currentVersion").value("4"))
                 .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(4)));
+    }
+
+    @Test
+    void diagnosticsAllowsRendererOrigin() throws Exception {
+        mockMvc.perform(get("/api/server/diagnostics").header("Origin", "http://localhost:5173"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
     }
 }

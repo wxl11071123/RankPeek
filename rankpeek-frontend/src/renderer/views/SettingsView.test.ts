@@ -54,6 +54,25 @@ test('settings page keeps only the three common user settings', () => {
   assert.match(source, /settings\.appearanceThemeDescription/)
 })
 
+test('settings account card checks local rankpeek-server without exposing raw diagnostics', () => {
+  assert.match(source, /checkRankPeekServerDiagnostics/)
+  assert.match(source, /async function checkLocalRankPeekServer\(\)/)
+  assert.match(source, /settings\.checkLocalServer/)
+  assert.match(source, /settings\.localServerAvailable/)
+  assert.match(source, /settings\.localServerUnavailable/)
+
+  for (const forbidden of [
+    'database.status',
+    'productName',
+    'productVersion',
+    'flyway',
+    'currentVersion',
+    'appliedCount'
+  ]) {
+    assert.ok(!source.includes(forbidden), `raw server diagnostics should stay hidden: ${forbidden}`)
+  }
+})
+
 test('settings page no longer exposes developer panels or raw cache fields', () => {
   for (const forbidden of [
     'settings.shortcuts',
@@ -89,6 +108,10 @@ test('settings copy is user-facing in both locales', () => {
     'settings.accountDescription',
     'settings.login',
     'settings.register',
+    'settings.checkLocalServer',
+    'settings.checkingLocalServer',
+    'settings.localServerAvailable',
+    'settings.localServerUnavailable',
     'settings.commonSettings',
     'settings.defaultMatchModeUser',
     'settings.defaultMatchModeUserDescription',
@@ -105,5 +128,7 @@ test('settings copy is user-facing in both locales', () => {
   }
 
   assert.match(zh, /'settings\.accountTitle': 'RankPeek 账号'/)
+  assert.match(zh, /'settings\.checkLocalServer': '检查连接'/)
   assert.match(en, /'settings\.accountTitle': 'RankPeek Account'/)
+  assert.match(en, /'settings\.checkLocalServer': 'Check Connection'/)
 })

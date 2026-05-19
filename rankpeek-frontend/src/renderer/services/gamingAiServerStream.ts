@@ -1,6 +1,6 @@
 import type { GamingAiInputPlayer, GamingAiInputSnapshot } from './gamingAiInputSnapshot.ts'
+import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
-export const RANKPEEK_SERVER_BASE_URL = 'http://127.0.0.1:18080'
 export const RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT = '/api/analysis/pregame/stream'
 
 export type GamingAiStreamState =

@@ -9,6 +9,7 @@ import {
   buildCacheClearAlertMessage,
   extractCacheClearErrorMessage
 } from '@/services/cacheClearFeedback'
+import { checkRankPeekServerDiagnostics } from '@/services/rankpeekServerClient'
 import { clearFrontendTransientCache } from '@/utils/frontendCache'
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from '@/utils/matchPreferences'
 import brandSymbolBlack from '@/assets/branding/rankpeek-symbol-black.png'
@@ -24,6 +25,7 @@ const defaultMatchQueueMode = ref(0)
 const matchModeOptions = ref<GameModeOption[]>([])
 const savingMatchSettings = ref(false)
 const clearingUserCacheMode = ref<CacheClearMode | null>(null)
+const checkingLocalServer = ref(false)
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
 const githubIssuesUrl = 'https://github.com/wxl11071123/rankpeek/issues'
@@ -65,6 +67,25 @@ onMounted(async () => {
 
 function handleAccountAction(action: 'login' | 'register') {
   console.info(`RankPeek account ${action} placeholder clicked`)
+}
+
+async function checkLocalRankPeekServer() {
+  checkingLocalServer.value = true
+
+  try {
+    const result = await checkRankPeekServerDiagnostics()
+    if (result.available) {
+      window.alert(t('settings.localServerAvailable', {
+        mode: result.mode,
+        version: result.version
+      }))
+      return
+    }
+
+    window.alert(t('settings.localServerUnavailable', { message: result.message }))
+  } finally {
+    checkingLocalServer.value = false
+  }
 }
 
 async function saveMatchSettings() {
@@ -155,6 +176,14 @@ async function openExternal(url: string) {
         </button>
         <button class="secondary-btn" type="button" @click="handleAccountAction('register')">
           {{ t('settings.register') }}
+        </button>
+        <button
+          class="secondary-btn"
+          type="button"
+          :disabled="checkingLocalServer"
+          @click="checkLocalRankPeekServer"
+        >
+          {{ checkingLocalServer ? t('settings.checkingLocalServer') : t('settings.checkLocalServer') }}
         </button>
       </div>
     </section>

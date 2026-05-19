@@ -1,6 +1,6 @@
 import type { PostgameAiInputSnapshot, PostgameAiMode } from './postgameAiInputSnapshot.ts'
+import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
-export const RANKPEEK_SERVER_BASE_URL = 'http://127.0.0.1:18080'
 export const RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT = '/api/analysis/postgame/stream'
 
 export type PostgameAiStreamState =
