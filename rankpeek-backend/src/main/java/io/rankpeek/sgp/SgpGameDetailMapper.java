@@ -351,20 +351,28 @@ public class SgpGameDetailMapper {
             Map<Integer, GameDetail.TeamObjectiveSummary> summaries
     ) {
         GameDetail.GameParticipant actor = resolveActor(eventNode, participantById);
-        if (actor == null || !isValidTeamId(actor.getTeamId())) {
+        if (actor != null && isValidTeamId(actor.getTeamId())) {
+            GameDetail.TeamObjectiveSummary summary = summaryFor(summaries, actor.getTeamId());
+            summary.setTurretPlateKills(increment(summary.getTurretPlateKills()));
+            addObjectiveEvent(
+                    summary,
+                    "turretPlate",
+                    null,
+                    actor.getTeamId(),
+                    actor.getParticipantId(),
+                    participantById,
+                    SgpJsonMapperSupport.readLong(eventNode, "timestamp")
+            );
             return;
         }
-        GameDetail.TeamObjectiveSummary summary = summaryFor(summaries, actor.getTeamId());
+
+        Integer destroyedTeamId = SgpJsonMapperSupport.readInt(eventNode, "teamId");
+        Integer takerTeamId = opposingSummonersRiftTeamId(destroyedTeamId);
+        if (takerTeamId == null) {
+            return;
+        }
+        GameDetail.TeamObjectiveSummary summary = summaryFor(summaries, takerTeamId);
         summary.setTurretPlateKills(increment(summary.getTurretPlateKills()));
-        addObjectiveEvent(
-                summary,
-                "turretPlate",
-                null,
-                actor.getTeamId(),
-                actor.getParticipantId(),
-                participantById,
-                SgpJsonMapperSupport.readLong(eventNode, "timestamp")
-        );
     }
 
     private void mergeObjectiveSummaries(
@@ -531,6 +539,16 @@ public class SgpGameDetailMapper {
 
     private boolean isValidTeamId(Integer teamId) {
         return teamId != null && teamId > 0;
+    }
+
+    private Integer opposingSummonersRiftTeamId(Integer teamId) {
+        if (Integer.valueOf(100).equals(teamId)) {
+            return 200;
+        }
+        if (Integer.valueOf(200).equals(teamId)) {
+            return 100;
+        }
+        return null;
     }
 
     private boolean isDragonSoulEvent(String type) {

@@ -10,7 +10,7 @@
 
 ## Current Scope
 
-This phase implements only a server data, auth foundation, CN meta sync foundation, and mock AI foundation:
+This phase implements only a server data, auth foundation, CN meta sync foundation, and mock-first AI foundation:
 
 - Spring Boot 3.x application on Java 21.
 - Default local-dev port `18080`.
@@ -21,7 +21,8 @@ This phase implements only a server data, auth foundation, CN meta sync foundati
 - `V3__cn_meta_sync_foundation.sql` intentionally remains V3 because V2 is already used by auth; renaming it would break databases that have applied V3.
 - H2-backed local-dev and test profiles.
 - PostgreSQL driver and placeholder config comments for a future production database.
-- Deterministic mock services for patch, CN meta, LPL usage, playstyle cards, prompt context, and pregame analysis.
+- Deterministic mock services for patch, CN meta, LPL usage, playstyle cards, prompt context, and pregame/postgame analysis.
+- Disabled-by-default DeepSeek chat-completion provider for analysis streams.
 - Disabled-by-default manual sample client boundary for public aggregate `101.qq.com` CN meta data.
 
 ## Boundaries
@@ -33,7 +34,7 @@ This module intentionally does not:
 - call Riot, LCU, SGP, or Electron;
 - upload or collect user match history;
 - store LCU tokens, SGP tokens, or user private data;
-- connect to DeepSeek, OpenAI, or any real AI model;
+- enable real AI by default or call any provider other than the explicitly configured DeepSeek chat-completion provider;
 - integrate real payments or credits charging;
 - verify email, recover passwords, use CAPTCHA, or provide third-party login;
 - provide Docker, Kubernetes, or production deployment scripts.
@@ -103,7 +104,7 @@ Before using the real sample client outside local development, the endpoint temp
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 
-Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, credits, third-party login, or any real AI integration. It does not store LCU tokens, SGP tokens, match history, or private game data.
+Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, credits, third-party login, or AI billing/authorization. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
 Production deployments can create or reset a first administrator at startup by setting:
 
@@ -113,6 +114,23 @@ Production deployments can create or reset a first administrator at startup by s
 - `RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME`
 
 This is disabled by default. When enabled, startup creates the configured email as an `ADMIN`, or updates an existing account to `ADMIN`, `ACTIVE`, and the configured password.
+
+## AI Provider
+
+Analysis streams stay on the existing endpoints:
+
+- `POST /api/analysis/pregame/stream`
+- `POST /api/analysis/postgame/stream`
+
+By default, these endpoints use deterministic mock output and do not call external AI services. To enable DeepSeek in a deployed environment, set:
+
+- `RANKPEEK_AI_ENABLED=true`
+- `RANKPEEK_AI_PROVIDER=deepseek`
+- `RANKPEEK_AI_BASE_URL=https://api.deepseek.com`
+- `RANKPEEK_AI_MODEL=deepseek-v4-flash` or another configured DeepSeek model
+- `RANKPEEK_AI_API_KEY`
+
+The DeepSeek client uses OpenAI-compatible streaming chat completions at `/chat/completions`. Errors such as missing keys, non-2xx upstream responses, timeouts, or malformed streams are returned to the frontend as `error` SSE events without logging or returning the API key.
 
 ## Run Tests
 
@@ -156,7 +174,8 @@ Useful endpoints:
 - `GET /api/patch/current`
 - `POST /api/analysis/pregame/mock`
 - `POST /api/analysis/pregame/stream`
+- `POST /api/analysis/postgame/stream`
 
 ## Why Safe by Default
 
-Real CN meta, LPL, AI, account, credits, and payment integrations need separate compliance, product, cost, privacy, and failure-mode reviews. This phase keeps CN meta real access limited to one manually triggered, disabled-by-default public aggregate sample path. It does not enable daily full sync or configured real matrix sync.
+Real CN meta, LPL, AI, account, credits, and payment integrations need separate compliance, product, cost, privacy, and failure-mode reviews. This phase keeps CN meta real access limited to one manually triggered, disabled-by-default public aggregate sample path and keeps DeepSeek disabled unless explicit environment variables enable it. It does not enable daily full sync or configured real matrix sync.

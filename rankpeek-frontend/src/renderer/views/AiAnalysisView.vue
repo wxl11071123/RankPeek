@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { t } from '@/i18n'
+import PostgameAiAnalysisModal from '@/components/match-history/PostgameAiAnalysisModal.vue'
+import { apiClient } from '@/api/httpClient'
 import { useGameStore } from '@/stores/game'
 import {
   loadLocalAiAnalysisResults,
   type LocalAiAnalysisDisplayResult
 } from '@/services/localAiAnalysis'
+import type { PostgameAiRunOutputV1 } from '@/services/postgameAiRunPersistence'
 import type { AiMemoryStats } from '@/types/localDatabase'
 import {
   buildAccountAnalysisInputSnapshot,
@@ -28,6 +31,8 @@ const gameStore = useGameStore()
 // and will appear in the existing local history list.
 
 const analysisResults = ref<LocalAiAnalysisDisplayResult[]>([])
+const selectedPostgameResult = ref<LocalAiAnalysisDisplayResult | null>(null)
+const selectedPostgameChampionIdByName = ref<Record<string, number>>({})
 const loadingResults = ref(false)
 const historyUnavailable = ref(false)
 const historyError = ref<string | null>(null)
@@ -45,6 +50,7 @@ const exportingAiMemory = ref(false)
 let loadRequestId = 0
 let prepareRequestId = 0
 let memoryStatsRequestId = 0
+let championIdByNamePromise: Promise<Record<string, number>> | null = null
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
 const accountPuuid = computed(() => currentSummoner.value?.puuid ?? '')
@@ -65,6 +71,13 @@ const filteredAnalysisResults = computed(() => {
   return analysisResults.value.filter(result => getReportCategory(result) === selectedReportType.value)
 })
 const hasFilteredResults = computed(() => filteredAnalysisResults.value.length > 0)
+const selectedPostgameRun = computed<PostgameAiRunOutputV1 | null>(() => (
+  selectedPostgameResult.value?.output.postgameRun ?? null
+))
+const selectedPostgameRunMode = computed(() => selectedPostgameRun.value?.mode ?? 'review')
+const selectedPostgameModalRosterPlayers = computed(() => {
+  return selectedPostgameRun.value?.rosterPlayers ?? []
+})
 const accountStatusLabel = computed(() => currentSummonerName.value || t('aiAnalysis.noAccountStatus'))
 const rankpeekAccountLabel = computed(() => t('aiAnalysis.rankpeekAccountGuest'))
 const rankpeekBalanceLabel = computed(() => '￥0.00')
@@ -168,12 +181,26 @@ watch(
   () => accountPuuid.value,
   () => {
     prepareRequestId += 1
+    selectedPostgameResult.value = null
     resetPreparedSnapshot()
     void loadAiMemoryStats()
     void refreshLocalAnalysisResults()
   },
   { immediate: true }
 )
+
+onMounted(() => {
+  window.addEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
+})
+
+function handleLocalAiAnalysisResultSaved() {
+  void loadAiMemoryStats()
+  void refreshLocalAnalysisResults()
+}
 
 function resetPreparedSnapshot() {
   preparedSnapshot.value = null
@@ -240,12 +267,96 @@ function getReportScopeLabel(result: LocalAiAnalysisDisplayResult) {
   return result.matchId ? t('aiAnalysis.singleMatchReport') : t('aiAnalysis.accountReport')
 }
 
+function openReportDetail(result: LocalAiAnalysisDisplayResult) {
+  if (!result.output.postgameRun) {
+    return
+  }
+  selectedPostgameResult.value = result
+  void hydrateSelectedPostgameChampionNames()
+}
+
+function closeReportDetail() {
+  selectedPostgameResult.value = null
+}
+
+function noopPostgameDetailAction() {
+  // Read-only history details do not start or cancel live analysis.
+}
+
+function getReportUsageLabel(result: LocalAiAnalysisDisplayResult) {
+  const usage = result.output.postgameRun?.usage
+  if (!usage) {
+    return ''
+  }
+
+  return `输入 ${formatTokenCount(usage.promptTokens)} / 输出 ${formatTokenCount(usage.completionTokens)} / 成本 ¥${formatCny(usage.cost.totalCny)}`
+}
+
+async function hydrateSelectedPostgameChampionNames() {
+  selectedPostgameChampionIdByName.value = await resolveAiAnalysisChampionIdByName()
+}
+
+function resolveAiAnalysisChampionIdByName(): Promise<Record<string, number>> {
+  if (!championIdByNamePromise) {
+    championIdByNamePromise = apiClient.getChampionOptions()
+      .then(options => {
+        const championIdByName: Record<string, number> = {}
+        for (const option of options) {
+          const championId = normalizePositiveInteger(option.value)
+          if (championId === null) {
+            continue
+          }
+          addChampionNameMapping(championIdByName, option.label, championId)
+          addChampionNameMapping(championIdByName, option.realName, championId)
+          addChampionNameMapping(championIdByName, option.nickname, championId)
+        }
+        return championIdByName
+      })
+      .catch(() => ({}))
+  }
+  return championIdByNamePromise
+}
+
+function addChampionNameMapping(target: Record<string, number>, name: string | null | undefined, championId: number) {
+  const trimmed = name?.trim()
+  if (!trimmed) {
+    return
+  }
+  target[trimmed] = championId
+  target[normalizeChampionNameKey(trimmed)] = championId
+}
+
+function normalizeChampionNameKey(value: string): string {
+  return value.replace(/[【】\s]/g, '').toLowerCase()
+}
+
+function normalizePositiveInteger(value: unknown): number | null {
+  const numberValue = typeof value === 'number'
+    ? value
+    : (typeof value === 'string' && value.trim() ? Number(value) : Number.NaN)
+  return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null
+}
+
 function getAnalysisTypeLabel(analysisType: string) {
   return analysisType
     .split(/[_-]+/)
     .filter(Boolean)
     .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function formatTokenCount(value: number) {
+  return Math.max(0, Math.round(value)).toLocaleString('zh-CN')
+}
+
+function formatCny(value: number) {
+  if (value > 0 && value < 0.000001) {
+    return value.toFixed(10)
+  }
+  if (value < 0.01) {
+    return value.toFixed(6)
+  }
+  return value.toFixed(4)
 }
 
 function formatMemoryDate(value: string) {
@@ -556,7 +667,10 @@ async function refreshLocalAnalysisResults() {
           v-for="result in filteredAnalysisResults"
           :key="result.id"
           class="report-card"
-          :class="{ invalid: result.output.status === 'invalid' }"
+          :class="{ invalid: result.output.status === 'invalid', clickable: Boolean(result.output.postgameRun) }"
+          :tabindex="result.output.postgameRun ? 0 : undefined"
+          @click="openReportDetail(result)"
+          @keydown.enter="openReportDetail(result)"
         >
           <div class="report-main">
             <div class="report-topline">
@@ -571,6 +685,13 @@ async function refreshLocalAnalysisResults() {
             <li v-for="highlight in result.output.highlights.slice(0, 3)" :key="highlight">{{ highlight }}</li>
           </ul>
 
+          <div
+            v-if="getReportUsageLabel(result)"
+            class="report-usage"
+          >
+            {{ getReportUsageLabel(result) }}
+          </div>
+
           <div class="report-context">
             <span>{{ currentSummonerName || t('aiAnalysis.currentAccountFallback') }}</span>
             <span>{{ getReportScopeLabel(result) }}</span>
@@ -583,6 +704,21 @@ async function refreshLocalAnalysisResults() {
           </div>
         </article>
       </div>
+
+      <PostgameAiAnalysisModal
+        v-if="selectedPostgameRun"
+        :open="Boolean(selectedPostgameRun)"
+        :mode="selectedPostgameRunMode"
+        stream-state="completed"
+        :stream-text="selectedPostgameRun.rawOutputText"
+        :stream-usage="selectedPostgameRun.usage"
+        :roster-players="selectedPostgameModalRosterPlayers"
+        :champion-id-by-name="selectedPostgameChampionIdByName"
+        :show-start-button="false"
+        @start-analysis="noopPostgameDetailAction"
+        @cancel-analysis="noopPostgameDetailAction"
+        @close="closeReportDetail"
+      />
     </section>
   </div>
 </template>
@@ -1065,6 +1201,16 @@ async function refreshLocalAnalysisResults() {
   border-color: rgba(255, 159, 10, 0.22);
 }
 
+.report-card.clickable {
+  cursor: pointer;
+}
+
+.report-card.clickable:focus-visible {
+  border-color: var(--ai-analysis-module-hover-border);
+  box-shadow: var(--ai-analysis-module-hover-shadow);
+  outline: none;
+}
+
 .report-topline {
   display: flex;
   align-items: flex-start;
@@ -1121,6 +1267,18 @@ async function refreshLocalAnalysisResults() {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 650;
+}
+
+.report-usage {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(98, 212, 158, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(98, 212, 158, 0.08);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
 }
 
 .report-meta {

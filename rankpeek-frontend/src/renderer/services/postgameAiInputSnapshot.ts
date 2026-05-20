@@ -15,44 +15,56 @@ import {
   type GoldDiffMetricKey
 } from './matchTimelineChart.ts'
 import { stableStringify } from './aiAnalysisInputSnapshot.ts'
+import {
+  getItemAssetDetails,
+  getPerkAssetDetails
+} from '../utils/gameAssetUrls.ts'
 
 export type PostgameAiMode = 'review' | 'praise'
-export type PostgameAiAnalysisType = 'postgame_review' | 'postgame_praise'
+export type PostgameAiAnalysisType = 'postgame'
 export type PostgameAiSide = 'blue' | 'red'
 
+export interface PostgameAnalysisBrief {
+  schemaVersion: 'postgame_analysis_brief.v1'
+  language: 'zh-CN'
+  matchFacts: string[]
+  teamFacts: string[]
+  playerFacts: string[]
+  timelineFacts: string[]
+  dataQualityFacts: string[]
+}
+
 export interface PostgameAiInputSnapshot {
-  schemaVersion: 'postgame_ai_input_snapshot.v1'
+  schemaVersion: 'postgame_ai_input_snapshot.v3'
   analysisType: PostgameAiAnalysisType
-  mode: PostgameAiMode
   builtAt: string
   inputHash: string
-  match: {
-    matchIdHash?: string
-    gameIdHash?: string
-    queueId: number | null
-    queueName?: string
-    gameMode?: string
-    gameVersion?: string | null
-    gameCreation?: number | null
-    durationSeconds?: number | null
-    isRanked: boolean
-    isAram: boolean
-    isArena: boolean
-  }
-  currentPlayerKey: string
-  teams: PostgameAiTeamSnapshot[]
-  players: PostgameAiPlayerSnapshot[]
-  timeline?: PostgameAiTimelineSnapshot
-  dataQuality: {
-    hasMatchHistory: boolean
-    hasGameDetail: boolean
-    hasTimeline: boolean
-    participantCount: number
-    teamCount: number
-    hasRankedTimelineMetrics: boolean
-    hasArenaAugments: boolean
-    warnings: string[]
-  }
+  analysisBrief: PostgameAnalysisBrief
+}
+
+export interface PostgameAiMatchSnapshot {
+  matchIdHash?: string
+  gameIdHash?: string
+  queueId: number | null
+  queueName?: string
+  gameMode?: string
+  gameVersion?: string | null
+  gameCreation?: number | null
+  durationSeconds?: number | null
+  isRanked: boolean
+  isAram: boolean
+  isArena: boolean
+}
+
+export interface PostgameAiDataQualitySnapshot {
+  hasMatchHistory: boolean
+  hasGameDetail: boolean
+  hasTimeline: boolean
+  participantCount: number
+  teamCount: number
+  hasRankedTimelineMetrics: boolean
+  hasArenaAugments: boolean
+  warnings: string[]
 }
 
 export interface PostgameAiTeamSnapshot {
@@ -153,17 +165,19 @@ export interface PostgameAiTimelineSnapshot {
 }
 
 interface BuildPostgameAiInputSnapshotParams {
-  mode: PostgameAiMode
   matchHistory: MatchHistory
   gameDetail: GameDetail | null
   timeline: MatchTimeline | null
   currentPuuid: string
   currentSummonerName: string
+  championNamesById?: ChampionNameLookup
 }
 
 type SnapshotParticipant = GameParticipant
+type ChampionNameLookup = Record<number, string> | Map<number, string>
 
-const POSTGAME_AI_SCHEMA_VERSION = 'postgame_ai_input_snapshot.v1'
+const POSTGAME_AI_SCHEMA_VERSION = 'postgame_ai_input_snapshot.v3'
+const POSTGAME_ANALYSIS_BRIEF_SCHEMA_VERSION = 'postgame_analysis_brief.v1'
 const BLUE_TEAM_ID = 100
 const RED_TEAM_ID = 200
 const RANKED_QUEUE_IDS = new Set([420, 440])
@@ -193,9 +207,6 @@ export function buildPostgameAiInputSnapshot(
     playerKeyByParticipantId.set(participant.participantId, createPlayerKey(participant))
   })
   const currentParticipantId = findCurrentParticipantId(identities, params.currentPuuid, params.currentSummonerName)
-  const currentPlayerKey = currentParticipantId !== null
-    ? playerKeyByParticipantId.get(currentParticipantId) ?? `player:${currentParticipantId}`
-    : playerKeyByParticipantId.get(participants[0]?.participantId ?? 0) ?? 'player:unknown'
 
   if (!participants.length) {
     warnings.push('match participants are unavailable')
@@ -215,41 +226,43 @@ export function buildPostgameAiInputSnapshot(
   const laneGoldDiffAt15 = createLaneGoldDiffAtMinuteMap(params.timeline, participants, 15)
   const players = participants.map(participant => toPlayerSnapshot(
     participant,
-    identities,
     currentParticipantId,
     teamTotals,
     match.durationSeconds ?? null,
     teamGoldDiffAt15,
-    laneGoldDiffAt15
+    laneGoldDiffAt15,
+    params.championNamesById
   ))
   const timelineSnapshot = createTimelineSnapshot(params.timeline, detail, playerKeyByParticipantId)
   const hasRankedTimelineMetrics = match.isRanked
     && teamGoldDiffAt15 !== null
     && laneGoldDiffAt15.size > 0
   const hasArenaAugments = players.some(player => player.loadout.augmentIds.length > 0)
+  const teams = [BLUE_TEAM_ID, RED_TEAM_ID]
+    .filter(teamId => teamIds.has(teamId))
+    .map(teamId => toTeamSnapshot(teamId, participants, teamTotals, detail?.teamObjectives))
+  const dataQuality: PostgameAiDataQualitySnapshot = {
+    hasMatchHistory: Boolean(params.matchHistory),
+    hasGameDetail: Boolean(params.gameDetail?.participants?.length),
+    hasTimeline: hasTimeline(params.timeline),
+    participantCount: participants.length,
+    teamCount: teamIds.size,
+    hasRankedTimelineMetrics,
+    hasArenaAugments,
+    warnings
+  }
   const snapshotWithoutHash: PostgameAiInputSnapshot = {
     schemaVersion: POSTGAME_AI_SCHEMA_VERSION,
-    analysisType: params.mode === 'praise' ? 'postgame_praise' : 'postgame_review',
-    mode: params.mode,
+    analysisType: 'postgame',
     builtAt: new Date().toISOString(),
     inputHash: '',
-    match,
-    currentPlayerKey,
-    teams: [BLUE_TEAM_ID, RED_TEAM_ID]
-      .filter(teamId => teamIds.has(teamId))
-      .map(teamId => toTeamSnapshot(teamId, participants, teamTotals, detail?.teamObjectives)),
-    players,
-    timeline: timelineSnapshot,
-    dataQuality: {
-      hasMatchHistory: Boolean(params.matchHistory),
-      hasGameDetail: Boolean(params.gameDetail?.participants?.length),
-      hasTimeline: hasTimeline(params.timeline),
-      participantCount: participants.length,
-      teamCount: teamIds.size,
-      hasRankedTimelineMetrics,
-      hasArenaAugments,
-      warnings
-    }
+    analysisBrief: buildPostgameAnalysisBrief({
+      match,
+      teams,
+      players,
+      timeline: timelineSnapshot,
+      dataQuality
+    })
   }
 
   return {
@@ -265,7 +278,393 @@ export function createPostgameAiInputHash(snapshot: PostgameAiInputSnapshot): st
   return hashText(stableStringify(hashInput))
 }
 
-function buildMatchSnapshot(matchHistory: MatchHistory, detail: GameDetail | null): PostgameAiInputSnapshot['match'] {
+interface BuildPostgameAnalysisBriefInput {
+  match: PostgameAiMatchSnapshot
+  teams: PostgameAiTeamSnapshot[]
+  players: PostgameAiPlayerSnapshot[]
+  timeline: PostgameAiTimelineSnapshot
+  dataQuality: PostgameAiDataQualitySnapshot
+}
+
+function buildPostgameAnalysisBrief(input: BuildPostgameAnalysisBriefInput): PostgameAnalysisBrief {
+  const currentPlayer = input.players.find(player => player.isCurrentPlayer)
+  const currentSide = currentPlayer?.side ?? null
+
+  return {
+    schemaVersion: POSTGAME_ANALYSIS_BRIEF_SCHEMA_VERSION,
+    language: 'zh-CN',
+    matchFacts: buildMatchFacts(input.match, input.teams, currentPlayer, currentSide),
+    teamFacts: input.teams.map(team => formatTeamFact(team, currentSide)),
+    playerFacts: input.players.map(player => formatPlayerFact(player, currentSide)),
+    timelineFacts: buildTimelineFacts(input.timeline, input.players, currentPlayer, currentSide),
+    dataQualityFacts: buildDataQualityFacts(input.dataQuality)
+  }
+}
+
+function buildMatchFacts(
+  match: PostgameAiMatchSnapshot,
+  teams: PostgameAiTeamSnapshot[],
+  currentPlayer: PostgameAiPlayerSnapshot | undefined,
+  currentSide: PostgameAiSide | null
+): string[] {
+  const facts: string[] = []
+  const queue = match.queueName || match.gameMode || (match.queueId !== null ? `队列 ${match.queueId}` : '未知队列')
+  const winner = teams.find(team => team.win === true)
+  const winnerText = winner ? `${formatRelativeSide(winner.side, currentSide)}获胜` : '胜负未知'
+  facts.push(`本局为${queue}，时长${formatDuration(match.durationSeconds)}，${winnerText}。`)
+
+  if (currentPlayer) {
+    facts.push(`当前用户在${formatRelativeSide(currentPlayer.side, currentSide)}，使用${formatChampionLabel(currentPlayer)}，位置${formatRoleLabel(currentPlayer)}。`)
+  } else {
+    facts.push('未能确认当前用户对应玩家。')
+  }
+
+  return facts
+}
+
+function formatTeamFact(team: PostgameAiTeamSnapshot, currentSide: PostgameAiSide | null): string {
+  const objectiveParts = team.objectives
+    ? [
+        formatObjectiveCount('小龙', team.objectives.dragons),
+        formatObjectiveCount('大龙', team.objectives.barons),
+        formatObjectiveCount('先锋', team.objectives.heralds),
+        formatObjectiveCount('巢虫', team.objectives.grubs),
+        formatObjectiveCount('防御塔', team.objectives.towers),
+        formatObjectiveCount('水晶', team.objectives.inhibitors),
+        formatObjectiveCount('镀层', team.objectives.turretPlates, { positiveOnly: true })
+      ].filter(Boolean)
+    : []
+  const objectiveText = objectiveParts.length ? `，目标资源：${objectiveParts.join('、')}` : ''
+
+  return `${formatRelativeSide(team.side, currentSide)}${team.win === true ? '胜利' : team.win === false ? '失败' : '胜负未知'}，团队KDA ${team.totals.kills}/${team.totals.deaths}/${team.totals.assists}，总经济${formatInteger(team.totals.goldEarned)}，英雄伤害${formatInteger(team.totals.totalDamageDealtToChampions)}，承伤${formatInteger(team.totals.totalDamageTaken)}，视野分${formatInteger(team.totals.visionScore)}${objectiveText}。`
+}
+
+function formatPlayerFact(player: PostgameAiPlayerSnapshot, currentSide: PostgameAiSide | null): string {
+  const parts = [
+    `${formatPlayerBriefLabel(player, currentSide)}${player.stats.kills}/${player.stats.deaths}/${player.stats.assists}`,
+    player.stats.kda !== null ? `KDA ${formatDecimal(player.stats.kda)}` : '',
+    player.stats.killParticipation !== null ? `参团率${formatPercent(player.stats.killParticipation)}` : '',
+    player.stats.damageShare !== null ? `伤害占比${formatPercent(player.stats.damageShare)}` : '',
+    player.stats.goldShare !== null ? `经济占比${formatPercent(player.stats.goldShare)}` : '',
+    player.stats.damageTakenShare !== null ? `承伤占比${formatPercent(player.stats.damageTakenShare)}` : '',
+    `视野分${formatInteger(player.stats.visionScore)}`,
+    `补刀${formatInteger(player.stats.cs)}`,
+    player.stats.csPerMinute !== null ? `每分钟补刀${formatDecimal(player.stats.csPerMinute)}` : '',
+    formatLoadoutFact(player),
+    formatRankedMetricFact(player)
+  ].filter(Boolean)
+
+  return `${parts.join('，')}。`
+}
+
+function formatLoadoutFact(player: PostgameAiPlayerSnapshot): string {
+  const parts = [
+    formatFinalItemBuildFact(player.loadout.itemIds),
+    formatRuneBuildFact(player.loadout.runeIds)
+  ].filter(Boolean)
+  return parts.join('，')
+}
+
+function formatFinalItemBuildFact(itemIds: number[]): string {
+  const itemNames = itemIds
+    .map(itemId => firstString(getItemAssetDetails(itemId)?.name))
+    .filter((name): name is string => name !== null)
+  if (!itemNames.length) {
+    return ''
+  }
+  return `最终装备：${itemNames.join('、')}`
+}
+
+function formatRuneBuildFact(runeIds: number[]): string {
+  const primaryRuneNames = runeIds.slice(0, 4)
+    .map(readPerkName)
+    .filter(Boolean)
+  const secondaryRuneNames = runeIds.slice(4, 6)
+    .map(readPerkName)
+    .filter(Boolean)
+  const primaryStyleName = readPerkName(runeIds[6])
+  const secondaryStyleName = readPerkName(runeIds[7])
+  const styleText = [primaryStyleName, secondaryStyleName].filter(Boolean).join('/')
+  const runeParts: string[] = []
+  if (primaryRuneNames.length) {
+    runeParts.push(`主系：${primaryRuneNames.join('、')}`)
+  }
+  if (secondaryRuneNames.length) {
+    runeParts.push(`副系：${secondaryRuneNames.join('、')}`)
+  }
+  if (!styleText && !runeParts.length) {
+    return ''
+  }
+  if (styleText) {
+    return `符文：${styleText}${runeParts.length ? `，${runeParts.join('，')}` : ''}`
+  }
+  return `符文：${runeParts.join('，')}`
+}
+
+function readPerkName(perkId: number | undefined): string {
+  if (perkId === undefined) {
+    return ''
+  }
+  return firstString(getPerkAssetDetails(perkId)?.name) ?? ''
+}
+
+function formatRankedMetricFact(player: PostgameAiPlayerSnapshot): string {
+  const metrics = player.rankedMetrics
+  if (!metrics) {
+    return ''
+  }
+
+  const parts: string[] = []
+  if (metrics.laneGoldDiffAt15 !== undefined) {
+    parts.push(`15分钟${formatRoleLabel(player)}经济${formatSignedInteger(metrics.laneGoldDiffAt15)}`)
+  }
+  if (metrics.teamGoldDiffAt15 !== undefined) {
+    parts.push(`15分钟团队经济${formatSignedInteger(metrics.teamGoldDiffAt15)}`)
+  }
+  if (metrics.turretPlatesTaken !== undefined && metrics.turretPlatesTaken > 0) {
+    parts.push(`镀层${metrics.turretPlatesTaken}`)
+  }
+  return parts.join('，')
+}
+
+function formatObjectiveCount(label: string, value: number | null, options: { positiveOnly?: boolean } = {}): string {
+  if (value === null || (options.positiveOnly && value <= 0)) {
+    return ''
+  }
+  return `${label}${formatInteger(value)}`
+}
+
+function buildTimelineFacts(
+  timeline: PostgameAiTimelineSnapshot,
+  players: PostgameAiPlayerSnapshot[],
+  currentPlayer: PostgameAiPlayerSnapshot | undefined,
+  currentSide: PostgameAiSide | null
+): string[] {
+  if (!timeline.hasTimeline) {
+    return ['缺少 timeline，不能分析具体时间点、死亡前视野或资源交换。']
+  }
+
+  const facts: string[] = []
+  const timedFacts: Array<{ timeSeconds: number; order: number; text: string }> = []
+  let order = 0
+  const addTimedFact = (timeSeconds: number, text: string): void => {
+    timedFacts.push({ timeSeconds, order, text })
+    order += 1
+  }
+
+  if (timeline.durationSeconds !== undefined) {
+    facts.push(`timeline 覆盖时长${formatDuration(timeline.durationSeconds)}。`)
+  }
+
+  const minute15 = timeline.goldDiffPoints?.find(point => point.minute === 15 && point.teamGoldDiff !== undefined)
+  if (minute15?.teamGoldDiff !== undefined) {
+    addTimedFact(15 * 60, `15分钟团队经济差：${formatTeamGoldDiff(minute15.teamGoldDiff, currentSide)}。`)
+  }
+
+  for (const event of timeline.objectiveEvents ?? []) {
+    addTimedFact(event.timeSeconds, `${formatClock(event.timeSeconds)} ${formatObjectiveEventSide(event, currentSide)}获得${formatObjectiveLabel(event.type)}。`)
+  }
+
+  const currentDeaths = currentPlayer
+    ? (timeline.deathEvents ?? []).filter(event => event.playerKey === currentPlayer.playerKey)
+    : []
+  for (const event of currentDeaths) {
+    const goldText = event.teamGoldDiffAtDeath !== undefined
+      ? `，死亡时所在方${formatPerspectiveGoldDiff(event.teamGoldDiffAtDeath)}`
+      : ''
+    const objectiveText = event.secondsBeforeObjective !== undefined
+      ? `，距离下一次资源约${event.secondsBeforeObjective}秒`
+      : ''
+    addTimedFact(event.timeSeconds, `${formatClock(event.timeSeconds)} ${formatPlayerBriefLabel(currentPlayer as PostgameAiPlayerSnapshot, currentSide)}死亡${goldText}${objectiveText}。`)
+  }
+
+  const deathsBeforeObjective = (timeline.deathEvents ?? [])
+    .filter(event => event.secondsBeforeObjective !== undefined && event.secondsBeforeObjective <= 60)
+  for (const event of deathsBeforeObjective) {
+    const player = players.find(candidate => candidate.playerKey === event.playerKey)
+    if (!player) {
+      continue
+    }
+    addTimedFact(event.timeSeconds, `${formatClock(event.timeSeconds)} ${formatPlayerBriefLabel(player, currentSide)}在资源前${event.secondsBeforeObjective}秒死亡。`)
+  }
+
+  facts.push(...timedFacts
+    .sort((left, right) => left.timeSeconds - right.timeSeconds || left.order - right.order)
+    .map(fact => fact.text))
+
+  return facts.length ? facts : ['timeline 可用，但没有可确认的关键资源、死亡或经济差事件。']
+}
+
+function buildDataQualityFacts(dataQuality: PostgameAiDataQualitySnapshot): string[] {
+  const facts = [
+    `数据来源：${dataQuality.hasMatchHistory ? '有 match history' : '缺少 match history'}，${dataQuality.hasGameDetail ? '有 game detail' : '缺少 game detail'}，${dataQuality.hasTimeline ? '有 timeline' : '缺少 timeline'}。`,
+    `玩家数据：${dataQuality.participantCount}名玩家，${dataQuality.teamCount}支队伍；${dataQuality.hasRankedTimelineMetrics ? '15分钟经济差可用' : '15分钟经济差不可用'}；${dataQuality.hasArenaAugments ? '包含竞技场强化符文' : '不含竞技场强化符文'}。`
+  ]
+
+  for (const warning of dataQuality.warnings) {
+    facts.push(formatDataQualityWarning(warning))
+  }
+
+  return facts
+}
+
+function formatDataQualityWarning(warning: string): string {
+  const normalized = warning.toLowerCase()
+  if (normalized.includes('timeline')) {
+    return '缺少 timeline，不能分析具体时间点、死亡前视野或资源交换。'
+  }
+  if (normalized.includes('current player')) {
+    return '未能确认当前用户对应玩家。'
+  }
+  if (normalized.includes('game detail')) {
+    return '缺少 game detail，部分玩家表现只能来自 match history 简要数据。'
+  }
+  if (normalized.includes('participants')) {
+    return '缺少完整玩家列表。'
+  }
+  return `数据提示：${warning}`
+}
+
+function formatPlayerBriefLabel(player: PostgameAiPlayerSnapshot, currentSide: PostgameAiSide | null): string {
+  const owner = player.isCurrentPlayer
+    ? `你｜${formatRelativeSide(player.side, currentSide)}${formatRoleLabel(player)}`
+    : `${formatRelativeSide(player.side, currentSide)}${formatRoleLabel(player)}`
+  return `【${owner}｜${formatChampionLabel(player)}】`
+}
+
+function formatChampionLabel(player: Pick<PostgameAiPlayerSnapshot, 'championId' | 'championName'>): string {
+  return player.championName || (player.championId !== null ? `英雄ID ${player.championId}` : '未知英雄')
+}
+
+function readChampionNameById(championNamesById: ChampionNameLookup | undefined, championId: number | null): string | null {
+  if (!championNamesById || championId === null) {
+    return null
+  }
+  const value = championNamesById instanceof Map
+    ? championNamesById.get(championId)
+    : championNamesById[championId]
+  return firstString(value)
+}
+
+function formatRoleLabel(player: Pick<PostgameAiPlayerSnapshot, 'position' | 'lane' | 'role'>): string {
+  const value = normalizeText(firstString(player.position, player.lane, player.role))
+  if (value === 'TOP') {
+    return '上单'
+  }
+  if (value === 'JUNGLE') {
+    return '打野'
+  }
+  if (value === 'MIDDLE' || value === 'MID') {
+    return '中单'
+  }
+  if (value === 'BOTTOM' || value === 'ADC') {
+    return '下路'
+  }
+  if (value === 'UTILITY' || value === 'SUPPORT') {
+    return '辅助'
+  }
+  return '未知位置'
+}
+
+function formatRelativeSide(side: PostgameAiSide, currentSide: PostgameAiSide | null): string {
+  if (!currentSide) {
+    return side === 'blue' ? '蓝方' : '红方'
+  }
+  return side === currentSide ? '我方' : '敌方'
+}
+
+function formatTeamGoldDiff(blueSideDiff: number, currentSide: PostgameAiSide | null): string {
+  if (!currentSide) {
+    if (blueSideDiff === 0) {
+      return '双方持平'
+    }
+    return blueSideDiff > 0 ? `蓝方领先${formatInteger(Math.abs(blueSideDiff))}` : `红方领先${formatInteger(Math.abs(blueSideDiff))}`
+  }
+
+  const relativeDiff = currentSide === 'blue' ? blueSideDiff : -blueSideDiff
+  if (relativeDiff === 0) {
+    return '我方与敌方持平'
+  }
+  return relativeDiff > 0 ? `我方领先${formatInteger(Math.abs(relativeDiff))}` : `我方落后${formatInteger(Math.abs(relativeDiff))}`
+}
+
+function formatPerspectiveGoldDiff(diff: number): string {
+  if (diff === 0) {
+    return '与对方经济持平'
+  }
+  return diff > 0 ? `经济领先${formatInteger(Math.abs(diff))}` : `经济落后${formatInteger(Math.abs(diff))}`
+}
+
+function formatObjectiveEventSide(
+  event: NonNullable<PostgameAiTimelineSnapshot['objectiveEvents']>[number],
+  currentSide: PostgameAiSide | null
+): string {
+  const side = event.side ?? teamIdToNullableSide(event.teamId ?? null)
+  return side ? formatRelativeSide(side, currentSide) : '未知队伍'
+}
+
+function formatObjectiveLabel(type: string): string {
+  const normalized = normalizeText(type)
+  if (normalized.includes('DRAGON')) {
+    return '小龙'
+  }
+  if (normalized.includes('BARON')) {
+    return '大龙'
+  }
+  if (normalized.includes('HERALD')) {
+    return '峡谷先锋'
+  }
+  if (normalized.includes('GRUB')) {
+    return '巢虫'
+  }
+  if (normalized.includes('TOWER') || normalized.includes('TURRET')) {
+    return '防御塔'
+  }
+  if (normalized.includes('INHIBITOR')) {
+    return '水晶'
+  }
+  return type || '目标资源'
+}
+
+function formatClock(timeSeconds: number): string {
+  const seconds = Math.max(0, Math.round(timeSeconds))
+  const minutesPart = Math.floor(seconds / 60)
+  const secondsPart = seconds % 60
+  return `${minutesPart}:${String(secondsPart).padStart(2, '0')}`
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) {
+    return '未知'
+  }
+  const minutesPart = Math.floor(seconds / 60)
+  const secondsPart = Math.round(seconds % 60)
+  return secondsPart > 0 ? `${minutesPart}分${secondsPart}秒` : `${minutesPart}分钟`
+}
+
+function formatInteger(value: number): string {
+  return Number.isFinite(value) ? Math.round(value).toLocaleString('zh-CN') : '未知'
+}
+
+function formatSignedInteger(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '未知'
+  }
+  if (value === 0) {
+    return '0'
+  }
+  return `${value > 0 ? '+' : '-'}${formatInteger(Math.abs(value))}`
+}
+
+function formatDecimal(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(1) : '未知'
+}
+
+function formatPercent(value: number): string {
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '未知'
+}
+
+function buildMatchSnapshot(matchHistory: MatchHistory, detail: GameDetail | null): PostgameAiMatchSnapshot {
   const queueId = firstNumber(detail?.queueId, matchHistory.queueId)
   const gameMode = firstString(detail?.gameMode, matchHistory.gameMode)
   const gameVersion = firstString(readRecordValue(detail, 'gameVersion'), readRecordValue(matchHistory, 'gameVersion'))
@@ -306,12 +705,12 @@ function toTeamSnapshot(
 
 function toPlayerSnapshot(
   participant: SnapshotParticipant,
-  identities: GameParticipantIdentity[],
   currentParticipantId: number | null,
   totalsByTeamId: Map<number, PostgameAiTeamSnapshot['totals']>,
   durationSeconds: number | null,
   teamGoldDiffAt15: number | null,
   laneGoldDiffAt15: Map<GoldDiffMetricKey, number>,
+  championNamesById?: ChampionNameLookup,
   idPrefix = 'player'
 ): PostgameAiPlayerSnapshot {
   const stats = participant.stats
@@ -332,9 +731,11 @@ function toPlayerSnapshot(
     teamGoldDiffAt15,
     laneGoldDiffAt15
   )
+  const championId = positiveInteger(participant.championId)
   const championName = firstString(
     readRecordValue(participant, 'championName'),
-    readRecordValue(participant, 'championNameCn')
+    readRecordValue(participant, 'championNameCn'),
+    readChampionNameById(championNamesById, championId)
   )
 
   return {
@@ -343,7 +744,7 @@ function toPlayerSnapshot(
     teamId,
     participantId: participant.participantId,
     isCurrentPlayer: currentParticipantId === participant.participantId,
-    championId: positiveInteger(participant.championId),
+    championId,
     ...(championName ? { championName } : {}),
     ...(firstString(participant.timeline?.role, readRecordValue(participant, 'role')) ? { role: firstString(participant.timeline?.role, readRecordValue(participant, 'role')) ?? undefined } : {}),
     ...(firstString(participant.timeline?.lane, readRecordValue(participant, 'lane')) ? { lane: firstString(participant.timeline?.lane, readRecordValue(participant, 'lane')) ?? undefined } : {}),
@@ -372,7 +773,7 @@ function toPlayerSnapshot(
         positiveInteger(participant.spell1Id),
         positiveInteger(participant.spell2Id)
       ].filter((value): value is number => value !== null),
-      itemIds: readPositiveIds(stats, ['item0', 'item1', 'item2', 'item3', 'item4', 'item5', 'item6']),
+      itemIds: readPositiveIds(stats, ['item0', 'item1', 'item2', 'item3', 'item4', 'item5']),
       runeIds: readPositiveIds(stats, ['perk0', 'perk1', 'perk2', 'perk3', 'perk4', 'perk5', 'perkPrimaryStyle', 'perkSubStyle']),
       augmentIds: readPositiveIds(stats, ['playerAugment1', 'playerAugment2', 'playerAugment3', 'playerAugment4', 'playerAugment5', 'playerAugment6'])
     },

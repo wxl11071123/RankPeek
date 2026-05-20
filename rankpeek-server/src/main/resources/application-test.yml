@@ -24,6 +24,16 @@ rankpeek:
     access-token-secret: rankpeek-test-access-token-secret-change-me
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
+  ai:
+    enabled: false
+    provider: mock
+    base-url: https://api.deepseek.com
+    model: deepseek-v4-flash
+    api-key:
+    connect-timeout-ms: 5000
+    read-timeout-ms: 30000
+    max-tokens: 800
+    temperature: 0.4
   cn-meta:
     sync:
       enabled: false

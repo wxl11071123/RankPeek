@@ -16,10 +16,35 @@ export interface PostgameAiStreamRequest {
   snapshot: PostgameAiInputSnapshot
 }
 
+export interface PostgameAiTokenCostEstimate {
+  currency: 'CNY'
+  inputCacheHitCny: number
+  inputCacheMissCny: number
+  outputCny: number
+  totalCny: number
+  pricing: {
+    inputCacheHitCnyPerMillionTokens: number
+    inputCacheMissCnyPerMillionTokens: number
+    outputCnyPerMillionTokens: number
+  }
+}
+
+export interface PostgameAiTokenUsage {
+  provider: string
+  model: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  promptCacheHitTokens: number
+  promptCacheMissTokens: number
+  cost: PostgameAiTokenCostEstimate
+}
+
 export type PostgameAiStreamEvent =
   | { type: 'start'; title?: string }
   | { type: 'section'; title: string }
   | { type: 'delta'; text: string }
+  | { type: 'usage'; usage: PostgameAiTokenUsage }
   | { type: 'done' }
   | { type: 'error'; message: string }
 
@@ -27,15 +52,61 @@ export interface PostgameAiStreamHandlers {
   onEvent?: (event: PostgameAiStreamEvent) => void
   onSection?: (title: string) => void
   onDelta?: (text: string) => void
+  onUsage?: (usage: PostgameAiTokenUsage) => void
   onError?: (message: string) => void
   onDone?: () => void
 }
 
-export function createPostgameAiStreamRequest(snapshot: PostgameAiInputSnapshot): PostgameAiStreamRequest {
+const DEEPSEEK_MAINLAND_PRICING_CNY_PER_MILLION: Record<string, PostgameAiTokenCostEstimate['pricing']> = {
+  'deepseek-v4-flash': {
+    inputCacheHitCnyPerMillionTokens: 0.02,
+    inputCacheMissCnyPerMillionTokens: 1,
+    outputCnyPerMillionTokens: 2
+  },
+  'deepseek-chat': {
+    inputCacheHitCnyPerMillionTokens: 0.02,
+    inputCacheMissCnyPerMillionTokens: 1,
+    outputCnyPerMillionTokens: 2
+  },
+  'deepseek-reasoner': {
+    inputCacheHitCnyPerMillionTokens: 1,
+    inputCacheMissCnyPerMillionTokens: 4,
+    outputCnyPerMillionTokens: 16
+  },
+  'deepseek-v4-pro': {
+    inputCacheHitCnyPerMillionTokens: 1,
+    inputCacheMissCnyPerMillionTokens: 4,
+    outputCnyPerMillionTokens: 16
+  }
+}
+
+export function createPostgameAiStreamRequest(
+  snapshot: PostgameAiInputSnapshot,
+  mode: PostgameAiMode
+): PostgameAiStreamRequest {
   return {
-    mode: snapshot.mode,
+    mode,
     snapshotSchemaVersion: snapshot.schemaVersion,
     snapshot
+  }
+}
+
+export function estimatePostgameAiTokenCostCny(
+  usage: Pick<PostgameAiTokenUsage, 'model' | 'promptCacheHitTokens' | 'promptCacheMissTokens' | 'completionTokens'>
+): PostgameAiTokenCostEstimate {
+  const pricing = DEEPSEEK_MAINLAND_PRICING_CNY_PER_MILLION[normalizeDeepSeekModel(usage.model)]
+    ?? DEEPSEEK_MAINLAND_PRICING_CNY_PER_MILLION['deepseek-v4-flash']
+  const inputCacheHitCny = roundCurrency(usage.promptCacheHitTokens * pricing.inputCacheHitCnyPerMillionTokens / 1_000_000)
+  const inputCacheMissCny = roundCurrency(usage.promptCacheMissTokens * pricing.inputCacheMissCnyPerMillionTokens / 1_000_000)
+  const outputCny = roundCurrency(usage.completionTokens * pricing.outputCnyPerMillionTokens / 1_000_000)
+
+  return {
+    currency: 'CNY',
+    inputCacheHitCny,
+    inputCacheMissCny,
+    outputCny,
+    totalCny: roundCurrency(inputCacheHitCny + inputCacheMissCny + outputCny),
+    pricing
   }
 }
 
@@ -199,6 +270,13 @@ function emitParsedStreamEvent(
     emitStreamEvent({ type: 'delta', text: readString(payload, 'text') || readText(payload) || data }, handlers)
     return
   }
+  if (normalizedEventName === 'usage') {
+    const usage = readTokenUsage(payload)
+    if (usage) {
+      emitStreamEvent({ type: 'usage', usage }, handlers)
+    }
+    return
+  }
   if (normalizedEventName === 'done') {
     emitStreamEvent({ type: 'done' }, handlers)
     return
@@ -221,6 +299,10 @@ function emitStreamEvent(event: PostgameAiStreamEvent, handlers: PostgameAiStrea
   }
   if (event.type === 'error') {
     handlers.onError?.(event.message)
+    return
+  }
+  if (event.type === 'usage') {
+    handlers.onUsage?.(event.usage)
     return
   }
   if (event.type === 'done') {
@@ -250,4 +332,47 @@ function readString(payload: unknown, key: string): string {
 
 function readText(payload: unknown): string {
   return typeof payload === 'string' ? payload : ''
+}
+
+function readTokenUsage(payload: unknown): PostgameAiTokenUsage | null {
+  const source = readObject(readObject(payload)?.usage) || readObject(payload)
+  if (!source) {
+    return null
+  }
+
+  const model = readString(source, 'model') || 'deepseek-v4-flash'
+  const rawUsage = {
+    provider: readString(source, 'provider') || 'deepseek',
+    model,
+    promptTokens: readUsageNumber(source, 'promptTokens', 'prompt_tokens'),
+    completionTokens: readUsageNumber(source, 'completionTokens', 'completion_tokens'),
+    totalTokens: readUsageNumber(source, 'totalTokens', 'total_tokens'),
+    promptCacheHitTokens: readUsageNumber(source, 'promptCacheHitTokens', 'prompt_cache_hit_tokens'),
+    promptCacheMissTokens: readUsageNumber(source, 'promptCacheMissTokens', 'prompt_cache_miss_tokens')
+  }
+
+  return {
+    ...rawUsage,
+    cost: estimatePostgameAiTokenCostCny(rawUsage)
+  }
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function readUsageNumber(payload: Record<string, unknown>, camelKey: string, snakeKey: string): number {
+  return readNonNegativeNumber(payload[camelKey]) || readNonNegativeNumber(payload[snakeKey])
+}
+
+function readNonNegativeNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+}
+
+function normalizeDeepSeekModel(model: string): string {
+  return model.trim().toLowerCase()
+}
+
+function roundCurrency(value: number): number {
+  return Number(value.toFixed(12))
 }

@@ -33,6 +33,16 @@ rankpeek:
       email: ${RANKPEEK_INITIAL_ADMIN_EMAIL:}
       password: ${RANKPEEK_INITIAL_ADMIN_PASSWORD:}
       display-name: ${RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME:RankPeek Admin}
+  ai:
+    enabled: ${RANKPEEK_AI_ENABLED:false}
+    provider: ${RANKPEEK_AI_PROVIDER:mock}
+    base-url: ${RANKPEEK_AI_BASE_URL:https://api.deepseek.com}
+    model: ${RANKPEEK_AI_MODEL:deepseek-v4-flash}
+    api-key: ${RANKPEEK_AI_API_KEY:}
+    connect-timeout-ms: ${RANKPEEK_AI_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${RANKPEEK_AI_READ_TIMEOUT_MS:30000}
+    max-tokens: ${RANKPEEK_AI_MAX_TOKENS:800}
+    temperature: ${RANKPEEK_AI_TEMPERATURE:0.4}
   cn-meta:
     sync:
       enabled: false

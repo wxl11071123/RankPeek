@@ -10,6 +10,15 @@ import type {
   CoachSummaryReportV1,
   NormalizedCoachSummaryChartBlock
 } from '../types/coachSummaryReport'
+import {
+  normalizePostgameAiRunOutput,
+  type PostgameAiRunOutputV1
+} from './postgameAiRunPersistence.ts'
+import { parsePostgameAiStructuredResult } from './postgameAiStructuredResult.ts'
+import {
+  listFallbackAiAnalysisResultsByAccount,
+  type BrowserAiAnalysisStorage
+} from './localAiAnalysisFallbackStore.ts'
 
 const INVALID_OUTPUT_SUMMARY = '无法解析的分析结果'
 const SUMMARY_LIMIT = 160
@@ -37,6 +46,7 @@ export interface ParsedAiAnalysisOutput {
   title: string | null
   summary: string
   highlights: string[]
+  postgameRun?: PostgameAiRunOutputV1
 }
 
 export interface LocalAiAnalysisDisplayResult extends AiAnalysisResult {
@@ -47,6 +57,7 @@ export interface LocalAiAnalysisDisplayResult extends AiAnalysisResult {
 
 export interface LoadLocalAiAnalysisOptions extends AiAnalysisListOptions {
   database?: AiAnalysisDatabase | null
+  storage?: BrowserAiAnalysisStorage | null
 }
 
 export interface LoadLocalAiAnalysisResult {
@@ -76,6 +87,15 @@ export async function loadLocalAiAnalysisResults(
 
   const database = options.database ?? getRendererDatabase()
   if (!database) {
+    const fallbackResult = listFallbackAiAnalysisResultsByAccount(trimmedPuuid, options, options.storage)
+    if (fallbackResult.success) {
+      return {
+        results: fallbackResult.data.map(toDisplayResult),
+        unavailable: false,
+        error: null
+      }
+    }
+
     console.warn('Local AI analysis database API is unavailable')
     return {
       results: [],
@@ -110,7 +130,16 @@ export async function loadLocalAiAnalysisResults(
     }
 
     return {
-      results: result.data.map(toDisplayResult),
+      results: mergeLocalAndFallbackAnalysisResults(
+        result.data,
+        listFallbackAiAnalysisResultsByAccount(trimmedPuuid, {
+          analysisType: queryOptions.analysisType,
+          matchId: queryOptions.matchId,
+          limit: 200,
+          offset: 0
+        }, options.storage),
+        queryOptions
+      ).map(toDisplayResult),
       unavailable: false,
       error: null
     }
@@ -122,6 +151,66 @@ export async function loadLocalAiAnalysisResults(
       error: error instanceof Error ? error.message : String(error)
     }
   }
+}
+
+function mergeLocalAndFallbackAnalysisResults(
+  databaseResults: AiAnalysisResult[],
+  fallbackResult: ReturnType<typeof listFallbackAiAnalysisResultsByAccount>,
+  options: AiAnalysisListOptions
+): AiAnalysisResult[] {
+  if (!fallbackResult.success || fallbackResult.data.length === 0) {
+    return databaseResults
+  }
+
+  const seen = new Set<string>()
+  const merged: AiAnalysisResult[] = []
+  for (const result of databaseResults) {
+    seen.add(getAnalysisResultDedupeKey(result))
+    merged.push(result)
+  }
+
+  for (const result of fallbackResult.data) {
+    const key = getAnalysisResultDedupeKey(result)
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    merged.push({
+      ...result,
+      id: -Math.abs(result.id)
+    })
+  }
+
+  const offset = normalizeListOffset(options.offset)
+  const limit = normalizeListLimit(options.limit)
+  return merged
+    .sort(compareAnalysisResultsDesc)
+    .slice(offset, offset + limit)
+}
+
+function getAnalysisResultDedupeKey(result: AiAnalysisResult): string {
+  return result.inputHash
+    ? `input:${result.analysisType}:${result.subjectKey ?? ''}:${result.inputHash}`
+    : `${result.accountPuuid}:${result.matchId ?? ''}:${result.analysisType}:${result.createdAt}`
+}
+
+function compareAnalysisResultsDesc(left: AiAnalysisResult, right: AiAnalysisResult): number {
+  const timeDiff = Date.parse(right.createdAt) - Date.parse(left.createdAt)
+  return timeDiff || right.id - left.id
+}
+
+function normalizeListLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 50
+  }
+  return Math.max(1, Math.min(Math.trunc(value), 200))
+}
+
+function normalizeListOffset(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.trunc(value))
 }
 
 export function parseAiAnalysisOutput(outputJson: string): ParsedAiAnalysisOutput {
@@ -273,6 +362,10 @@ export function formatAnalysisType(type: string): string {
     return '未知分析'
   }
 
+  if (normalized.includes('postgame_praise') || normalized.includes('praise') || normalized.includes('compliment')) {
+    return '夸夸机'
+  }
+
   if (normalized.includes('pre') || normalized.includes('before')) {
     return '赛前分析'
   }
@@ -350,6 +443,11 @@ function normalizeParsedOutput(parsed: unknown): ParsedAiAnalysisOutput {
     }
   }
 
+  const postgameRun = normalizePostgameAiRunOutput(parsed)
+  if (postgameRun) {
+    return normalizePostgameRunOutput(postgameRun)
+  }
+
   const title = getStringField(parsed, 'title')
   const summary = getStringField(parsed, 'summary')
   const verdict = getStringField(parsed, 'verdict')
@@ -362,6 +460,69 @@ function normalizeParsedOutput(parsed: unknown): ParsedAiAnalysisOutput {
     summary: summary ?? truncate(JSON.stringify(parsed)),
     highlights
   }
+}
+
+function normalizePostgameRunOutput(postgameRun: PostgameAiRunOutputV1): ParsedAiAnalysisOutput {
+  const structuredSummary = postgameRun.mode === 'review'
+    ? getStructuredPostgameSummary(postgameRun.rawOutputText)
+    : ''
+
+  return {
+    status: 'parsed',
+    title: postgameRun.mode === 'praise' ? '夸夸机' : '赛后复盘',
+    summary: structuredSummary || truncate(postgameRun.rawOutputText),
+    highlights: createPostgameRunHighlights(postgameRun),
+    postgameRun
+  }
+}
+
+function getStructuredPostgameSummary(rawOutputText: string): string {
+  const parsed = parsePostgameAiStructuredResult(rawOutputText)
+  return parsed.ok ? parsed.result.summary : ''
+}
+
+function createPostgameRunHighlights(postgameRun: PostgameAiRunOutputV1): string[] {
+  const highlights: string[] = []
+  if (postgameRun.usage) {
+    highlights.push(
+      `输入 ${formatTokenCount(postgameRun.usage.promptTokens)} / 输出 ${formatTokenCount(postgameRun.usage.completionTokens)} / 成本 ¥${formatCny(postgameRun.usage.cost.totalCny)}`
+    )
+  }
+
+  const matchParts = [
+    postgameRun.match.matchId ? `对局 ${postgameRun.match.matchId}` : '',
+    postgameRun.match.championName ?? '',
+    formatWinState(postgameRun.match.win)
+  ].filter(Boolean)
+  if (matchParts.length) {
+    highlights.push(matchParts.join(' / '))
+  }
+
+  return highlights
+}
+
+function formatWinState(win: boolean | null): string {
+  if (win === true) {
+    return '胜利'
+  }
+  if (win === false) {
+    return '失败'
+  }
+  return ''
+}
+
+function formatTokenCount(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString('zh-CN')
+}
+
+function formatCny(value: number): string {
+  if (value > 0 && value < 0.000001) {
+    return value.toFixed(10)
+  }
+  if (value < 0.01) {
+    return value.toFixed(6)
+  }
+  return value.toFixed(4)
 }
 
 function getSectionHighlights(sections: unknown): string[] {

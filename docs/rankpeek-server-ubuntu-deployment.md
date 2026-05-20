@@ -107,6 +107,16 @@ Generate the JWT secret with:
 openssl rand -hex 32
 ```
 
+DeepSeek AI is disabled by default. To test the real provider, set these values in `/etc/rankpeek/rankpeek-server.env`:
+
+```bash
+RANKPEEK_AI_ENABLED=true
+RANKPEEK_AI_PROVIDER=deepseek
+RANKPEEK_AI_BASE_URL=https://api.deepseek.com
+RANKPEEK_AI_MODEL=deepseek-v4-flash
+RANKPEEK_AI_API_KEY=CHANGE_ME_DEEPSEEK_KEY
+```
+
 Do not commit `/etc/rankpeek/rankpeek-server.env` or any real secret.
 
 ## 6. Install and Start the systemd Service
@@ -157,4 +167,5 @@ sudo -u postgres psql -d rankpeek_server -c "\dt"
 - Keep `RANKPEEK_SERVER_ADDRESS=127.0.0.1` until Nginx and HTTPS are added.
 - Do not expose port `18080` directly to the public internet.
 - `rankpeek.cn-meta.sync.real-source-enabled` remains `false` in production config.
+- `rankpeek.ai.enabled` remains `false` unless DeepSeek is intentionally configured for a real integration test.
 - Rotate secrets by editing `/etc/rankpeek/rankpeek-server.env` and running `sudo systemctl restart rankpeek-server`.

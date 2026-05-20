@@ -507,6 +507,109 @@ class MatchHistoryServiceTest {
     }
 
     @Test
+    void getGameDetailById_defaultSourceRefreshesRankedSummonersRiftCacheMissingTurretPlateCounts() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        var cachedDetail = rankedSummonersRiftDetailWithMisleadingTopMidStats(113L);
+        cachedDetail.setTeamObjectives(List.of(
+                teamObjectiveSummary(100, List.of(1, 2), 1, 1, 0, 1, 3, null, Map.of("hextech", 1)),
+                teamObjectiveSummary(200, List.of(3, 4), 0, 2, 0, 0, 0, null, Map.of("mountain", 1, "ocean", 1))
+        ));
+        var sgpDetail = rankedSummonersRiftDetailWithMisleadingTopMidStats(113L);
+        sgpDetail.setTeamObjectives(List.of(
+                teamObjectiveSummary(100, List.of(), 1, 1, 0, 1, 3, null, Map.of("hextech", 1)),
+                teamObjectiveSummary(200, List.of(), 0, 2, 0, 0, 0, null, Map.of("mountain", 1, "ocean", 1))
+        ));
+        when(cacheRepository.findGameDetail(113L)).thenReturn(Optional.of(cachedDetail));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(113L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(sgpMatchHistoryProvider.fetchGameTimeline(113L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(timelineResult(
+                        113L,
+                        turretPlateEvent(120000L, 6, null, 100),
+                        turretPlateEvent(180000L, 0, null, 100),
+                        turretPlateEvent(240000L, 0, null, 200)
+                ));
+
+        var result = sourceAwareService.getGameDetailById(113L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        assertThat(result.getTeamObjectives())
+                .filteredOn(summary -> Integer.valueOf(100).equals(summary.getTeamId()))
+                .singleElement()
+                .extracting(io.rankpeek.model.GameDetail.TeamObjectiveSummary::getTurretPlateKills)
+                .isEqualTo(1);
+        assertThat(result.getTeamObjectives())
+                .filteredOn(summary -> Integer.valueOf(200).equals(summary.getTeamId()))
+                .singleElement()
+                .extracting(io.rankpeek.model.GameDetail.TeamObjectiveSummary::getTurretPlateKills)
+                .isEqualTo(2);
+        assertThat(result.getTeamObjectives())
+                .filteredOn(summary -> Integer.valueOf(200).equals(summary.getTeamId()))
+                .singleElement()
+                .extracting(io.rankpeek.model.GameDetail.TeamObjectiveSummary::getObjectiveEvents)
+                .asList()
+                .singleElement()
+                .satisfies(event -> {
+                    io.rankpeek.model.GameDetail.TeamObjectiveEvent objectiveEvent =
+                            (io.rankpeek.model.GameDetail.TeamObjectiveEvent) event;
+                    assertThat(objectiveEvent.getKind()).isEqualTo("turretPlate");
+                    assertThat(objectiveEvent.getTeamId()).isEqualTo(200);
+                    assertThat(objectiveEvent.getParticipantId()).isEqualTo(6);
+                    assertThat(objectiveEvent.getChampionId()).isEqualTo(106);
+                    assertThat(objectiveEvent.getTimestamp()).isEqualTo(120000L);
+                });
+        verify(sgpMatchHistoryProvider).fetchGameDetail(113L, options(MatchHistorySource.AUTO, false));
+        verify(sgpMatchHistoryProvider).fetchGameTimeline(113L, options(MatchHistorySource.SGP, false));
+        verify(cacheRepository).saveGameDetail(sgpDetail);
+    }
+
+    @Test
+    void getGameDetailById_defaultSourceRefreshesRankedSummonersRiftCacheMissingTurretPlateEvents() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        var cachedDetail = rankedSummonersRiftDetailWithMisleadingTopMidStats(114L);
+        var cachedBlueSummary = teamObjectiveSummary(100, List.of(1, 2), 1, 1, 0, 1, 3, null, Map.of("hextech", 1));
+        cachedBlueSummary.setTurretPlateKills(1);
+        var cachedRedSummary = teamObjectiveSummary(200, List.of(3, 4), 0, 2, 0, 0, 0, null, Map.of("mountain", 1, "ocean", 1));
+        cachedRedSummary.setTurretPlateKills(2);
+        cachedDetail.setTeamObjectives(List.of(cachedBlueSummary, cachedRedSummary));
+
+        var sgpDetail = rankedSummonersRiftDetailWithMisleadingTopMidStats(114L);
+        var sgpBlueSummary = teamObjectiveSummary(100, List.of(), 1, 1, 0, 1, 3, null, Map.of("hextech", 1));
+        sgpBlueSummary.setTurretPlateKills(1);
+        var sgpRedSummary = teamObjectiveSummary(200, List.of(), 0, 2, 0, 0, 0, null, Map.of("mountain", 1, "ocean", 1));
+        sgpRedSummary.setTurretPlateKills(2);
+        sgpDetail.setTeamObjectives(List.of(sgpBlueSummary, sgpRedSummary));
+
+        when(cacheRepository.findGameDetail(114L)).thenReturn(Optional.of(cachedDetail));
+        when(sgpMatchHistoryProvider.supports(options(MatchHistorySource.AUTO, false))).thenReturn(true);
+        when(sgpMatchHistoryProvider.fetchGameDetail(114L, options(MatchHistorySource.AUTO, false)))
+                .thenReturn(sgpDetail);
+        when(sgpMatchHistoryProvider.fetchGameTimeline(114L, options(MatchHistorySource.SGP, false)))
+                .thenReturn(timelineResult(
+                        114L,
+                        turretPlateEvent(120000L, 6, null, 100),
+                        turretPlateEvent(180000L, 0, null, 100),
+                        turretPlateEvent(240000L, 0, null, 200)
+                ));
+
+        var result = sourceAwareService.getGameDetailById(114L);
+
+        assertThat(result).isSameAs(sgpDetail);
+        assertThat(result.getTeamObjectives())
+                .filteredOn(summary -> Integer.valueOf(200).equals(summary.getTeamId()))
+                .singleElement()
+                .extracting(io.rankpeek.model.GameDetail.TeamObjectiveSummary::getObjectiveEvents)
+                .asList()
+                .singleElement()
+                .extracting("kind", "teamId", "participantId", "championId")
+                .containsExactly("turretPlate", 200, 6, 106);
+        verify(sgpMatchHistoryProvider).fetchGameDetail(114L, options(MatchHistorySource.AUTO, false));
+        verify(sgpMatchHistoryProvider).fetchGameTimeline(114L, options(MatchHistorySource.SGP, false));
+        verify(cacheRepository).saveGameDetail(sgpDetail);
+    }
+
+    @Test
     void getGameDetailById_sourceSgpDoesNotFallbackToLcuOrCacheWhenProviderFails() {
         MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
         var cachedLcuDetail = renderableGameDetail(107L);
@@ -1966,6 +2069,31 @@ class MatchHistoryServiceTest {
         event.setParticipantId(participantId);
         event.setChampionId(championId);
         event.setTimestamp(timestamp);
+        return event;
+    }
+
+    private MatchTimelineFetchResult timelineResult(long gameId, MatchTimeline.TimelineEvent... events) {
+        MatchTimeline timeline = new MatchTimeline();
+        timeline.setGameId(gameId);
+        timeline.setEvents(List.of(events));
+        return MatchTimelineFetchResult.builder()
+                .gameId(gameId)
+                .timeline(timeline)
+                .status("FETCHED")
+                .build();
+    }
+
+    private MatchTimeline.TimelineEvent turretPlateEvent(
+            long timestamp,
+            Integer killerId,
+            Integer participantId,
+            Integer destroyedTeamId) {
+        MatchTimeline.TimelineEvent event = new MatchTimeline.TimelineEvent();
+        event.setEventType("TURRET_PLATE_DESTROYED");
+        event.setTimestamp(timestamp);
+        event.setKillerId(killerId);
+        event.setParticipantId(participantId);
+        event.setTeamId(destroyedTeamId);
         return event;
     }
 

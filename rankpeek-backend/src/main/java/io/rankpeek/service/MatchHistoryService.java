@@ -7,6 +7,7 @@ import io.rankpeek.model.MatchDataScopeCache;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
 import io.rankpeek.model.MatchHistoryPageResponse;
+import io.rankpeek.model.MatchTimeline;
 import io.rankpeek.model.MatchTimelineFetchResult;
 import io.rankpeek.model.Rank;
 import io.rankpeek.model.RecordStatus;
@@ -1175,6 +1176,9 @@ public class MatchHistoryService {
             if (!sgpOnly && isAutoSgpAttempt(options, resolvedProvider.source())) {
                 detail = mergeLcuObjectiveFallback(gameId, detail);
             }
+            if (resolvedProvider.source() == MatchHistorySource.SGP) {
+                detail = hydrateTurretPlateObjectivesFromTimeline(gameId, detail);
+            }
             if (usesDatabaseCache(resolvedProvider.source()) && cacheRepository != null) {
                 cacheRepository.saveGameDetail(detail);
             }
@@ -1375,7 +1379,19 @@ public class MatchHistoryService {
         if (hasMissingFallbackObjectiveFields(detail)) {
             return false;
         }
+        if (isRankedSummonersRiftDetail(detail) && hasMissingTurretPlateObjectiveFields(detail)) {
+            return false;
+        }
+        if (isRankedSummonersRiftDetail(detail) && hasMissingTurretPlateEventDetails(detail)) {
+            return false;
+        }
         return hasTypedDragonDetailsWhenDragonsWereKilled(detail);
+    }
+
+    private boolean isRankedSummonersRiftDetail(GameDetail detail) {
+        return detail != null
+                && QueueType.isRanked(detail.getQueueId())
+                && Integer.valueOf(SUMMONERS_RIFT_MAP_ID).equals(detail.getMapId());
     }
 
     private boolean hasTeamObjectives(GameDetail detail) {
@@ -1394,6 +1410,34 @@ public class MatchHistoryService {
                         || summary.getHeraldKills() == null
                         || summary.getVoidGrubKills() == null
         );
+    }
+
+    private boolean hasMissingTurretPlateObjectiveFields(GameDetail detail) {
+        if (!hasTeamObjectives(detail)) {
+            return true;
+        }
+        return detail.getTeamObjectives().stream().anyMatch(summary ->
+                summary == null
+                        || summary.getTeamId() == null
+                        || summary.getTurretPlateKills() == null
+        );
+    }
+
+    private boolean hasMissingTurretPlateEventDetails(GameDetail detail) {
+        if (!hasTeamObjectives(detail)) {
+            return true;
+        }
+        int turretPlateKills = detail.getTeamObjectives().stream()
+                .filter(summary -> summary != null)
+                .mapToInt(summary -> Math.max(0, summary.getTurretPlateKills() == null ? 0 : summary.getTurretPlateKills()))
+                .sum();
+        if (turretPlateKills <= 0) {
+            return false;
+        }
+        return detail.getTeamObjectives().stream()
+                .filter(summary -> summary != null && summary.getObjectiveEvents() != null)
+                .flatMap(summary -> summary.getObjectiveEvents().stream())
+                .noneMatch(event -> event != null && "turretPlate".equals(event.getKind()));
     }
 
     private boolean hasTypedDragonDetailsWhenDragonsWereKilled(GameDetail detail) {
@@ -1443,6 +1487,264 @@ public class MatchHistoryService {
             return false;
         }
         return !hasTeamObjectives(detail) || hasMissingFallbackObjectiveFields(detail);
+    }
+
+    private GameDetail hydrateTurretPlateObjectivesFromTimeline(Long gameId, GameDetail detail) {
+        if (!shouldHydrateTurretPlateObjectives(detail)) {
+            return detail;
+        }
+
+        try {
+            MatchTimelineFetchResult timelineResult = getGameTimelineById(gameId, MatchHistorySource.SGP);
+            if (timelineResult == null || timelineResult.getTimeline() == null) {
+                return detail;
+            }
+            applyTimelineTurretPlateCounts(
+                    detail,
+                    countTimelineTurretPlatesByTakerTeam(detail, timelineResult.getTimeline())
+            );
+            addTimelineTurretPlateObjectiveEvents(detail, timelineResult.getTimeline());
+        } catch (Exception timelineError) {
+            log.warn("SGP turret plate timeline backfill failed: gameId={}, error={}",
+                    gameId, timelineError.getMessage());
+            log.debug("SGP turret plate timeline backfill failure details", timelineError);
+        }
+        return detail;
+    }
+
+    private boolean shouldHydrateTurretPlateObjectives(GameDetail detail) {
+        return isRankedSummonersRiftDetail(detail)
+                && (hasMissingTurretPlateObjectiveFields(detail) || hasMissingTurretPlateEventDetails(detail));
+    }
+
+    private Map<Integer, Integer> countTimelineTurretPlatesByTakerTeam(GameDetail detail, MatchTimeline timeline) {
+        Map<Integer, Integer> teamByParticipantId = teamByParticipantId(detail);
+        Map<Integer, Integer> counts = new HashMap<>();
+        if (timeline == null || timeline.getEvents() == null) {
+            return counts;
+        }
+        for (MatchTimeline.TimelineEvent event : timeline.getEvents()) {
+            if (event == null || !"TURRET_PLATE_DESTROYED".equals(event.getEventType())) {
+                continue;
+            }
+            Integer takerTeamId = resolveTurretPlateTakerTeamId(event, teamByParticipantId);
+            if (takerTeamId == null) {
+                continue;
+            }
+            counts.merge(takerTeamId, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    private Map<Integer, Integer> teamByParticipantId(GameDetail detail) {
+        Map<Integer, Integer> teamByParticipantId = new HashMap<>();
+        if (detail == null || detail.getParticipants() == null) {
+            return teamByParticipantId;
+        }
+        for (GameDetail.GameParticipant participant : detail.getParticipants()) {
+            if (participant == null || participant.getParticipantId() == null || participant.getTeamId() == null) {
+                continue;
+            }
+            teamByParticipantId.put(participant.getParticipantId(), participant.getTeamId());
+        }
+        return teamByParticipantId;
+    }
+
+    private Map<Integer, GameDetail.GameParticipant> participantById(GameDetail detail) {
+        Map<Integer, GameDetail.GameParticipant> participantById = new HashMap<>();
+        if (detail == null || detail.getParticipants() == null) {
+            return participantById;
+        }
+        for (GameDetail.GameParticipant participant : detail.getParticipants()) {
+            if (participant == null || participant.getParticipantId() == null) {
+                continue;
+            }
+            participantById.put(participant.getParticipantId(), participant);
+        }
+        return participantById;
+    }
+
+    private Integer resolveTurretPlateTakerTeamId(
+            MatchTimeline.TimelineEvent event,
+            Map<Integer, Integer> teamByParticipantId
+    ) {
+        Integer actorTeamId = teamByParticipantId.get(event.getKillerId());
+        if (isSummonersRiftTeamId(actorTeamId)) {
+            return actorTeamId;
+        }
+        actorTeamId = teamByParticipantId.get(event.getParticipantId());
+        if (isSummonersRiftTeamId(actorTeamId)) {
+            return actorTeamId;
+        }
+        return opposingSummonersRiftTeamId(event.getTeamId());
+    }
+
+    private void applyTimelineTurretPlateCounts(GameDetail detail, Map<Integer, Integer> counts) {
+        if (detail == null) {
+            return;
+        }
+        List<GameDetail.TeamObjectiveSummary> summaries = mutableTeamObjectiveSummaries(detail);
+        for (Integer teamId : knownTeamIds(detail)) {
+            GameDetail.TeamObjectiveSummary summary = teamObjectiveSummaryFor(summaries, teamId);
+            int timelineCount = Math.max(0, counts.getOrDefault(teamId, 0));
+            Integer existingCount = summary.getTurretPlateKills();
+            if (existingCount == null || timelineCount > existingCount) {
+                summary.setTurretPlateKills(timelineCount);
+            }
+        }
+    }
+
+    private void addTimelineTurretPlateObjectiveEvents(GameDetail detail, MatchTimeline timeline) {
+        if (detail == null || timeline == null || timeline.getEvents() == null) {
+            return;
+        }
+        Map<Integer, GameDetail.GameParticipant> participantById = participantById(detail);
+        if (participantById.isEmpty()) {
+            return;
+        }
+
+        List<GameDetail.TeamObjectiveSummary> summaries = mutableTeamObjectiveSummaries(detail);
+        for (MatchTimeline.TimelineEvent event : timeline.getEvents()) {
+            if (event == null || !"TURRET_PLATE_DESTROYED".equals(event.getEventType())) {
+                continue;
+            }
+            GameDetail.GameParticipant actor = resolveTurretPlateActor(event, participantById);
+            if (actor == null || !isSummonersRiftTeamId(actor.getTeamId())) {
+                continue;
+            }
+            GameDetail.TeamObjectiveSummary summary = teamObjectiveSummaryFor(summaries, actor.getTeamId());
+            addTimelineTurretPlateObjectiveEvent(summary, actor, event);
+        }
+    }
+
+    private GameDetail.GameParticipant resolveTurretPlateActor(
+            MatchTimeline.TimelineEvent event,
+            Map<Integer, GameDetail.GameParticipant> participantById
+    ) {
+        GameDetail.GameParticipant actor = participantById.get(event.getKillerId());
+        if (actor != null) {
+            return actor;
+        }
+        return participantById.get(event.getParticipantId());
+    }
+
+    private void addTimelineTurretPlateObjectiveEvent(
+            GameDetail.TeamObjectiveSummary summary,
+            GameDetail.GameParticipant actor,
+            MatchTimeline.TimelineEvent timelineEvent
+    ) {
+        if (summary == null || actor == null || actor.getParticipantId() == null || actor.getTeamId() == null) {
+            return;
+        }
+        if (summary.getObjectiveEvents() == null) {
+            summary.setObjectiveEvents(new ArrayList<>());
+        }
+        if (hasObjectiveEvent(
+                summary,
+                "turretPlate",
+                actor.getTeamId(),
+                actor.getParticipantId(),
+                timelineEvent.getTimestamp()
+        )) {
+            return;
+        }
+
+        GameDetail.TeamObjectiveEvent event = new GameDetail.TeamObjectiveEvent();
+        event.setKind("turretPlate");
+        event.setTeamId(actor.getTeamId());
+        event.setParticipantId(actor.getParticipantId());
+        event.setChampionId(actor.getChampionId());
+        event.setTimestamp(timelineEvent.getTimestamp());
+        summary.getObjectiveEvents().add(event);
+    }
+
+    private boolean hasObjectiveEvent(
+            GameDetail.TeamObjectiveSummary summary,
+            String kind,
+            Integer teamId,
+            Integer participantId,
+            Long timestamp
+    ) {
+        if (summary.getObjectiveEvents() == null) {
+            return false;
+        }
+        for (GameDetail.TeamObjectiveEvent event : summary.getObjectiveEvents()) {
+            if (event == null) {
+                continue;
+            }
+            boolean sameTimestamp = timestamp == null
+                    ? event.getTimestamp() == null
+                    : timestamp.equals(event.getTimestamp());
+            if (kind.equals(event.getKind())
+                    && teamId.equals(event.getTeamId())
+                    && participantId.equals(event.getParticipantId())
+                    && sameTimestamp) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<GameDetail.TeamObjectiveSummary> mutableTeamObjectiveSummaries(GameDetail detail) {
+        List<GameDetail.TeamObjectiveSummary> summaries = new ArrayList<>(
+                detail.getTeamObjectives() == null ? List.of() : detail.getTeamObjectives()
+        );
+        detail.setTeamObjectives(summaries);
+        return summaries;
+    }
+
+    private List<Integer> knownTeamIds(GameDetail detail) {
+        List<Integer> teamIds = new ArrayList<>();
+        if (detail != null && detail.getTeamObjectives() != null) {
+            for (GameDetail.TeamObjectiveSummary summary : detail.getTeamObjectives()) {
+                addKnownTeamId(teamIds, summary == null ? null : summary.getTeamId());
+            }
+        }
+        if (detail != null && detail.getParticipants() != null) {
+            for (GameDetail.GameParticipant participant : detail.getParticipants()) {
+                addKnownTeamId(teamIds, participant == null ? null : participant.getTeamId());
+            }
+        }
+        if (teamIds.isEmpty()) {
+            teamIds.add(100);
+            teamIds.add(200);
+        }
+        return teamIds;
+    }
+
+    private void addKnownTeamId(List<Integer> teamIds, Integer teamId) {
+        if (isSummonersRiftTeamId(teamId) && !teamIds.contains(teamId)) {
+            teamIds.add(teamId);
+        }
+    }
+
+    private GameDetail.TeamObjectiveSummary teamObjectiveSummaryFor(
+            List<GameDetail.TeamObjectiveSummary> summaries,
+            Integer teamId
+    ) {
+        for (GameDetail.TeamObjectiveSummary summary : summaries) {
+            if (summary != null && teamId.equals(summary.getTeamId())) {
+                return summary;
+            }
+        }
+        GameDetail.TeamObjectiveSummary summary = new GameDetail.TeamObjectiveSummary();
+        summary.setTeamId(teamId);
+        summaries.add(summary);
+        return summary;
+    }
+
+    private boolean isSummonersRiftTeamId(Integer teamId) {
+        return Integer.valueOf(100).equals(teamId) || Integer.valueOf(200).equals(teamId);
+    }
+
+    private Integer opposingSummonersRiftTeamId(Integer teamId) {
+        if (Integer.valueOf(100).equals(teamId)) {
+            return 200;
+        }
+        if (Integer.valueOf(200).equals(teamId)) {
+            return 100;
+        }
+        return null;
     }
 
     private GameDetail.TeamObjectiveSummary toLcuFallbackObjectiveSummary(GameDetail.TeamObjectiveSummary source) {

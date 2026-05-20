@@ -40,7 +40,7 @@ function extractRule(source: string, selector: string) {
   assert.fail(`${selector} should close`)
 }
 
-test('AI report center keeps account-scoped local results and local-snapshot logic without model or backend calls', () => {
+test('AI report center keeps account-scoped local results and local-snapshot logic without model calls', () => {
   const source = readViewSource()
   const localAiAnalysis = readRendererFile('services/localAiAnalysis.ts')
   const localDatabaseTypes = readRendererFile('types/localDatabase.ts')
@@ -57,7 +57,7 @@ test('AI report center keeps account-scoped local results and local-snapshot log
   assert.match(source, /snapshot\.inputHash/)
   assert.match(localAiAnalysis, /listAnalysisResultsByAccount\(trimmedPuuid,\s*queryOptions\)/)
   assert.match(localDatabaseTypes, /interface AiAnalysisResult[\s\S]*accountPuuid: string[\s\S]*matchId: string \| null/)
-  assert.doesNotMatch(source, /apiClient|DeepSeek|Kimi|OpenAI|fetch\(|axios|\/api\/.*ai/i)
+  assert.doesNotMatch(source, /DeepSeek|Kimi|OpenAI|fetch\(|axios|\/api\/.*ai|streamPostgameAiAnalysis|createPostgameAiStreamRequest/i)
   assert.doesNotMatch(source, /saveAnalysisResult|findAnalysisByInputHash|upsertAnalysis/)
   assert.doesNotMatch(source, /SummonerMatchHistoryPanel|MatchDetailModal/)
   assert.doesNotMatch(source, /listAnalysisResultsByAccount\(['"]all|allAccounts|selectedAccountScope/)
@@ -183,6 +183,48 @@ test('AI report center history section keeps account tabs and report cards witho
   assert.match(source, /currentSummonerName \|\| t\('aiAnalysis\.currentAccountFallback'\)/)
   assert.match(source, /result\.matchId \? t\('aiAnalysis\.singleMatchReport'\) : t\('aiAnalysis\.accountReport'\)/)
   assert.match(source, /result\.createdAtLabel/)
+})
+
+test('AI report center opens saved postgame runs with shared modal rendering and usage metadata', () => {
+  const source = readViewSource()
+  const localAiAnalysis = readRendererFile('services/localAiAnalysis.ts')
+
+  assert.match(source, /import PostgameAiAnalysisModal from '@\/components\/match-history\/PostgameAiAnalysisModal\.vue'/)
+  assert.match(source, /selectedPostgameResult/)
+  assert.match(source, /selectedPostgameRun/)
+  assert.match(source, /function openReportDetail\(result: LocalAiAnalysisDisplayResult\)/)
+  assert.match(source, /function closeReportDetail\(\)/)
+  assert.match(source, /function getReportUsageLabel\(result: LocalAiAnalysisDisplayResult\)/)
+  assert.match(source, /selectedPostgameChampionIdByName/)
+  assert.match(source, /function hydrateSelectedPostgameChampionNames\(\)/)
+  assert.match(source, /apiClient\.getChampionOptions\(\)/)
+  assert.doesNotMatch(source, /getGameDetail|buildPostgameAiReviewRosterPlayersFromGameDetail|hydrateSelectedPostgameRoster/)
+  assert.match(source, /@click="openReportDetail\(result\)"/)
+  assert.match(source, /@keydown\.enter="openReportDetail\(result\)"/)
+  assert.match(source, /class="report-usage"/)
+  assert.match(source, /getReportUsageLabel\(result\)/)
+  assert.match(source, /<PostgameAiAnalysisModal[\s\S]*:open="Boolean\(selectedPostgameRun\)"[\s\S]*:mode="selectedPostgameRunMode"[\s\S]*stream-state="completed"[\s\S]*:stream-text="selectedPostgameRun\.rawOutputText"[\s\S]*:stream-usage="selectedPostgameRun\.usage"[\s\S]*:roster-players="selectedPostgameModalRosterPlayers"[\s\S]*:champion-id-by-name="selectedPostgameChampionIdByName"[\s\S]*:show-start-button="false"[\s\S]*@close="closeReportDetail"/)
+  assert.match(localAiAnalysis, /postgameRun\?: PostgameAiRunOutputV1/)
+  assert.match(localAiAnalysis, /normalizePostgameAiRunOutput/)
+})
+
+test('AI report center refreshes history when a local postgame run is saved', () => {
+  const source = readViewSource()
+  const persistence = readRendererFile('services/postgameAiRunPersistence.ts')
+
+  assert.match(source, /onMounted/)
+  assert.match(source, /onBeforeUnmount/)
+  assert.match(source, /rankpeek:ai-analysis-result-saved/)
+  assert.match(source, /function handleLocalAiAnalysisResultSaved\(\)[\s\S]*refreshLocalAnalysisResults\(\)/)
+  assert.match(persistence, /dispatchEvent\(new Event\('rankpeek:ai-analysis-result-saved'\)\)/)
+})
+
+test('postgame analysis modal supports read-only saved-result rendering', () => {
+  const source = readRendererFile('components/match-history/PostgameAiAnalysisModal.vue')
+
+  assert.match(source, /showStartButton\?: boolean/)
+  assert.match(source, /showStartButton: true/)
+  assert.match(source, /v-if="showStartButton"[\s\S]*class="postgame-ai-analysis-start"/)
 })
 
 test('AI report center exposes AI memory stats and export without delete actions', () => {

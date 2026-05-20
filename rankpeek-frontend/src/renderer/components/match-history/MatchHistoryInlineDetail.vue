@@ -7,11 +7,16 @@ import { useI18n, type MessageKey } from '@/i18n'
 import {
   buildPostgameAiInputSnapshot
 } from '@/services/postgameAiInputSnapshot'
+import type { PostgameAiInputSnapshot } from '@/services/postgameAiInputSnapshot'
 import {
   createPostgameAiStreamRequest,
   streamPostgameAiAnalysis,
-  type PostgameAiStreamState
+  type PostgameAiStreamState,
+  type PostgameAiTokenUsage
 } from '@/services/postgameAiServerStream'
+import { savePostgameAiRunResultToLocal } from '@/services/postgameAiRunPersistence'
+import type { PostgameAiReviewRosterPlayer } from '@/services/postgameAiStructuredResult'
+import { buildPostgameAiReviewRosterPlayers } from '@/services/postgameAiReviewRoster'
 import type {
   DragonType,
   GameDetail,
@@ -178,6 +183,12 @@ type ChartHoverSource = 'chart' | 'axis'
 interface GoldDiffMetricOption {
   key: GoldDiffMetricKey
   labelKey: MessageKey
+}
+
+interface SaveCompletedPostgameAiAnalysisParams {
+  snapshot: PostgameAiInputSnapshot
+  mode: PostgameAiAnalysisMode
+  championNamesById: Record<number, string>
 }
 
 interface ChartGridLine {
@@ -600,7 +611,10 @@ const postgameAiModalMode = ref<PostgameAiAnalysisMode>('review')
 const postgameAiStreamState = ref<PostgameAiStreamState>('idle')
 const postgameAiStreamText = ref('')
 const postgameAiStreamError = ref('')
+const postgameAiStreamUsage = ref<PostgameAiTokenUsage | null>(null)
 const postgameAiStreamAbortController = ref<AbortController | null>(null)
+const postgameAiChampionNamesById = ref<Record<number, string>>({})
+const postgameAiReviewRosterPlayers = computed<PostgameAiReviewRosterPlayer[]>(() => createPostgameAiReviewRosterPlayers())
 
 const detailTabs = computed<Array<{ key: InlineDetailTabKey; label: string }>>(() => [
   { key: 'overview', label: t('matchDetail.overviewTab') },
@@ -662,6 +676,7 @@ function openPostgameAiModal(mode: PostgameAiAnalysisMode): void {
   postgameAiStreamState.value = 'idle'
   postgameAiStreamText.value = ''
   postgameAiStreamError.value = ''
+  postgameAiStreamUsage.value = null
   postgameAiModalMode.value = mode
   postgameAiModalOpen.value = true
 }
@@ -672,6 +687,7 @@ function closePostgameAiModal(): void {
   postgameAiStreamState.value = 'idle'
   postgameAiStreamText.value = ''
   postgameAiStreamError.value = ''
+  postgameAiStreamUsage.value = null
   postgameAiModalOpen.value = false
 }
 
@@ -681,6 +697,7 @@ function cancelPostgameAiAnalysis(): void {
   if (postgameAiStreamState.value === 'preparing' || postgameAiStreamState.value === 'streaming') {
     postgameAiStreamState.value = 'idle'
   }
+  postgameAiStreamUsage.value = null
 }
 
 async function startPostgameAiAnalysis(): Promise<void> {
@@ -693,23 +710,45 @@ async function startPostgameAiAnalysis(): Promise<void> {
   postgameAiStreamState.value = 'preparing'
   postgameAiStreamText.value = ''
   postgameAiStreamError.value = ''
+  postgameAiStreamUsage.value = null
+  const mode = postgameAiModalMode.value
 
   try {
     const timeline = await resolvePostgameTimelineForSnapshot()
     if (abortController.signal.aborted) {
       return
     }
+    const championNamesById = await resolvePostgameChampionNamesById()
+    if (abortController.signal.aborted) {
+      return
+    }
+    postgameAiChampionNamesById.value = championNamesById
 
+    const accountPuuid = resolvePostgameAiAccountPuuid()
     const snapshot = buildPostgameAiInputSnapshot({
-      mode: postgameAiModalMode.value,
       matchHistory: props.matchHistory,
       gameDetail: displayGameDetail.value,
       timeline,
-      currentPuuid: props.currentPuuid,
-      currentSummonerName: props.currentSummonerName
+      currentPuuid: accountPuuid,
+      currentSummonerName: props.currentSummonerName,
+      championNamesById
     })
-    const request = createPostgameAiStreamRequest(snapshot)
+    const request = createPostgameAiStreamRequest(snapshot, mode)
     postgameAiStreamState.value = 'streaming'
+    let postgameAiSaveStarted = false
+    let postgameAiSavePromise: Promise<void> | null = null
+    const saveCompletedStreamOnce = (): Promise<void> => {
+      if (postgameAiSaveStarted) {
+        return postgameAiSavePromise ?? Promise.resolve()
+      }
+      postgameAiSaveStarted = true
+      postgameAiSavePromise = saveCompletedPostgameAiAnalysis({
+        snapshot,
+        mode,
+        championNamesById
+      })
+      return postgameAiSavePromise
+    }
 
     const result = await streamPostgameAiAnalysis(request, {
       onSection: title => appendPostgameAiStreamText(`\n${title}\n`),
@@ -718,9 +757,13 @@ async function startPostgameAiAnalysis(): Promise<void> {
         postgameAiStreamError.value = message
         postgameAiStreamState.value = 'failed'
       },
+      onUsage: usage => {
+        postgameAiStreamUsage.value = usage
+      },
       onDone: () => {
         if (postgameAiStreamState.value !== 'failed') {
           postgameAiStreamState.value = 'completed'
+          void saveCompletedStreamOnce()
         }
       }
     }, {
@@ -738,6 +781,9 @@ async function startPostgameAiAnalysis(): Promise<void> {
     if (postgameAiStreamState.value === 'streaming') {
       postgameAiStreamState.value = 'completed'
     }
+    if (postgameAiStreamState.value === 'completed') {
+      await saveCompletedStreamOnce()
+    }
   } catch (error) {
     if (!abortController.signal.aborted) {
       postgameAiStreamError.value = error instanceof Error ? error.message : 'rankpeek-server 暂不可用'
@@ -747,6 +793,69 @@ async function startPostgameAiAnalysis(): Promise<void> {
     if (postgameAiStreamAbortController.value === abortController) {
       postgameAiStreamAbortController.value = null
     }
+  }
+}
+
+async function saveCompletedPostgameAiAnalysis(params: SaveCompletedPostgameAiAnalysisParams): Promise<void> {
+  const { snapshot, mode, championNamesById } = params
+  const rawOutputText = postgameAiStreamText.value.trim()
+  if (!rawOutputText) {
+    return
+  }
+
+  const saveResult = await savePostgameAiRunResultToLocal({
+    accountPuuid: resolvePostgameAiAccountPuuid(),
+    mode,
+    rawOutputText,
+    usage: postgameAiStreamUsage.value,
+    snapshot,
+    matchHistory: props.matchHistory,
+    championNamesById,
+    rosterPlayers: postgameAiReviewRosterPlayers.value
+  })
+
+  if (!saveResult.success) {
+    console.warn('Failed to save postgame AI run result:', saveResult.error)
+  }
+}
+
+function resolvePostgameAiAccountPuuid(): string {
+  const propPuuid = props.currentPuuid.trim()
+  if (propPuuid) {
+    return propPuuid
+  }
+
+  const currentPlayer = allPlayers.value.find(player => {
+    const playerPuuid = player.puuid?.trim()
+    return Boolean(player.isCurrentPlayer && playerPuuid)
+  })
+  if (currentPlayer?.puuid?.trim()) {
+    return currentPlayer.puuid.trim()
+  }
+
+  const currentSummonerName = props.currentSummonerName.trim().toLocaleLowerCase()
+  if (!currentSummonerName) {
+    return ''
+  }
+
+  const matchedPlayer = allPlayers.value.find(player => {
+    const displayName = player.displayName.trim().toLocaleLowerCase()
+    const riotId = `${player.gameName}#${player.tagLine}`.trim().toLocaleLowerCase()
+    return displayName === currentSummonerName || riotId === currentSummonerName
+  })
+  return matchedPlayer?.puuid?.trim() ?? ''
+}
+
+async function resolvePostgameChampionNamesById(): Promise<Record<number, string>> {
+  try {
+    const options = await apiClient.getChampionOptions()
+    return Object.fromEntries(
+      options
+        .map(option => [Number(option.value), option.label || option.realName || option.nickname || ''] as const)
+        .filter(([id, name]) => Number.isFinite(id) && name.trim().length > 0)
+    )
+  } catch {
+    return {}
   }
 }
 
@@ -780,6 +889,15 @@ async function resolvePostgameTimelineForSnapshot(): Promise<MatchTimeline | nul
 
 function appendPostgameAiStreamText(text: string): void {
   postgameAiStreamText.value += text
+}
+
+function createPostgameAiReviewRosterPlayers(): PostgameAiReviewRosterPlayer[] {
+  return buildPostgameAiReviewRosterPlayers({
+    players: allPlayers.value,
+    currentPuuid: props.currentPuuid,
+    championNamesById: postgameAiChampionNamesById.value,
+    getChampionIconUrl
+  })
 }
 
 function resetTimelineChartState(): void {
@@ -2127,9 +2245,6 @@ function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSumma
     }
     if (directStatCount !== null) {
       return directStatCount
-    }
-    if (eventCount !== null) {
-      return eventCount
     }
     if (lastFallbackStatCount !== null) {
       return lastFallbackStatCount
@@ -3885,6 +4000,8 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
       :stream-state="postgameAiStreamState"
       :stream-text="postgameAiStreamText"
       :stream-error="postgameAiStreamError"
+      :stream-usage="postgameAiStreamUsage"
+      :roster-players="postgameAiReviewRosterPlayers"
       @start-analysis="startPostgameAiAnalysis"
       @cancel-analysis="cancelPostgameAiAnalysis"
       @close="closePostgameAiModal"

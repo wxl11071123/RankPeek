@@ -1,10 +1,18 @@
-import test from 'node:test'
+import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import type { GameDetail, MatchHistory, MatchTimeline } from '../types/api.ts'
+import {
+  resetGameAssetResolverForTest,
+  setGameAssetMetadataForTest
+} from '../utils/gameAssetUrls.ts'
 import {
   buildPostgameAiInputSnapshot,
   createPostgameAiInputHash
 } from './postgameAiInputSnapshot.ts'
+
+afterEach(() => {
+  resetGameAssetResolverForTest()
+})
 
 function createMatchHistory(): MatchHistory {
   return {
@@ -198,43 +206,84 @@ function createFrame(timestamp: number, blueBaseGold: number, redBaseGold: numbe
   return { timestamp, participantFrames, events: [] }
 }
 
+function createChampionNamesById(): Record<number, string> {
+  return Object.fromEntries(
+    Array.from({ length: 10 }, (_, index) => [11 + index, index === 0 ? '盖伦' : `英雄称号${11 + index}`])
+  )
+}
+
 test('builds a compact postgame AI input snapshot from match history, detail, and timeline', () => {
   const snapshot = buildPostgameAiInputSnapshot({
-    mode: 'review',
     matchHistory: createMatchHistory(),
     gameDetail: createGameDetail(),
     timeline: createTimeline(),
     currentPuuid: 'current-puuid',
-    currentSummonerName: 'Current#CN1'
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
   })
 
-  assert.equal(snapshot.schemaVersion, 'postgame_ai_input_snapshot.v1')
-  assert.equal(snapshot.mode, 'review')
-  assert.equal(snapshot.analysisType, 'postgame_review')
+  assert.equal(snapshot.schemaVersion, 'postgame_ai_input_snapshot.v3')
+  assert.equal('mode' in snapshot, false)
+  assert.equal('match' in snapshot, false)
+  assert.equal('currentPlayerKey' in snapshot, false)
+  assert.equal('teams' in snapshot, false)
+  assert.equal('players' in snapshot, false)
+  assert.equal('timeline' in snapshot, false)
+  assert.equal('dataQuality' in snapshot, false)
+  assert.equal(snapshot.analysisType, 'postgame')
   assert.match(snapshot.inputHash, /^[a-f0-9]{8,}$/)
-  assert.notEqual(snapshot.match.gameIdHash, '987654321')
-  assert.equal(snapshot.match.queueId, 420)
-  assert.equal(snapshot.match.isRanked, true)
-  assert.equal(snapshot.teams.length, 2)
-  assert.equal(snapshot.players.length, 10)
-  assert.equal(snapshot.currentPlayerKey, snapshot.players[0]?.playerKey)
-  assert.equal(snapshot.players[0]?.isCurrentPlayer, true)
-  assert.equal(snapshot.players[0]?.stats.kda, 3.33)
-  assert.equal(snapshot.players[0]?.stats.killParticipation, 0.5)
-  assert.equal(snapshot.players[0]?.loadout.itemIds[0], 1001)
-  assert.deepEqual(snapshot.players[0]?.loadout.augmentIds, [2005, 1346])
-  assert.equal(snapshot.players[0]?.rankedMetrics?.teamGoldDiffAt15, 3000)
-  assert.equal(snapshot.teams[0]?.objectives?.turretPlates, 6)
-  assert.equal(snapshot.timeline?.hasTimeline, true)
-  assert.ok((snapshot.timeline?.goldDiffPoints ?? []).some(point => point.minute === 15 && point.teamGoldDiff === 3000))
-  assert.equal(snapshot.dataQuality.hasGameDetail, true)
-  assert.equal(snapshot.dataQuality.hasTimeline, true)
-  assert.equal(snapshot.dataQuality.participantCount, 10)
-  assert.equal(snapshot.dataQuality.hasRankedTimelineMetrics, true)
-  assert.equal(snapshot.dataQuality.hasArenaAugments, true)
+  assert.equal(snapshot.analysisBrief.schemaVersion, 'postgame_analysis_brief.v1')
+  assert.equal(snapshot.analysisBrief.language, 'zh-CN')
+  assert.equal(snapshot.analysisBrief.playerFacts.length, 10)
+  assert.equal(snapshot.analysisBrief.playerFacts.filter(fact => fact.includes('【你｜')).length, 1)
+  assert.match(snapshot.analysisBrief.playerFacts[0] ?? '', /【你｜我方上单｜盖伦】/)
+  assert.match(snapshot.analysisBrief.playerFacts[5] ?? '', /【敌方上单｜英雄称号16】/)
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.playerFacts), /英雄ID/)
+  assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /我方/.test(fact)))
+  assert.ok(snapshot.analysisBrief.timelineFacts.some(fact => /15分钟/.test(fact)))
 })
 
-test('maps praise mode to a praise analysis type and keeps hash stable apart from timestamps', () => {
+test('adds compact final item and rune build facts to every player line', () => {
+  setGameAssetMetadataForTest({
+    version: 'test',
+    locale: 'zh_CN',
+    items: {
+      1001: { id: 1001, name: '速度之靴' },
+      3006: { id: 3006, name: '狂战士胫甲' },
+      6672: { id: 6672, name: '海妖杀手' },
+      3031: { id: 3031, name: '无尽之刃' },
+      3363: { id: 3363, name: '远见改造' }
+    },
+    perks: {
+      8005: { id: 8005, name: '强攻' },
+      9111: { id: 9111, name: '凯旋' },
+      9104: { id: 9104, name: '传说：欢欣' },
+      8014: { id: 8014, name: '致命一击' },
+      8304: { id: 8304, name: '神奇之鞋' },
+      8345: { id: 8345, name: '饼干配送' },
+      8000: { id: 8000, name: '精密' },
+      8300: { id: 8300, name: '启迪' }
+    }
+  })
+
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory: createMatchHistory(),
+    gameDetail: createGameDetail(),
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+
+  const currentPlayerFact = snapshot.analysisBrief.playerFacts[0] ?? ''
+  assert.match(currentPlayerFact, /最终装备：速度之靴、狂战士胫甲、海妖杀手、无尽之刃/)
+  assert.match(currentPlayerFact, /符文：精密\/启迪，主系：强攻、凯旋、传说：欢欣、致命一击，副系：神奇之鞋、饼干配送/)
+  assert.doesNotMatch(currentPlayerFact, /远见改造|1001|8005/)
+  assert.equal(snapshot.analysisBrief.playerFacts.filter(fact => fact.includes('最终装备：')).length, 10)
+  assert.equal(snapshot.analysisBrief.playerFacts.filter(fact => fact.includes('符文：')).length, 10)
+})
+
+test('keeps one mode-neutral snapshot hash for review and praise usage', () => {
   const base = {
     matchHistory: createMatchHistory(),
     gameDetail: createGameDetail(),
@@ -242,18 +291,17 @@ test('maps praise mode to a praise analysis type and keeps hash stable apart fro
     currentPuuid: 'current-puuid',
     currentSummonerName: 'Current#CN1'
   }
-  const review = buildPostgameAiInputSnapshot({ mode: 'review', ...base })
-  const praise = buildPostgameAiInputSnapshot({ mode: 'praise', ...base })
+  const reviewUse = buildPostgameAiInputSnapshot(base)
+  const praiseUse = buildPostgameAiInputSnapshot(base)
 
-  assert.equal(review.analysisType, 'postgame_review')
-  assert.equal(praise.analysisType, 'postgame_praise')
-  assert.notEqual(review.inputHash, praise.inputHash)
-  assert.equal(createPostgameAiInputHash({ ...review, builtAt: '2099-01-01T00:00:00.000Z', inputHash: 'changed' }), review.inputHash)
+  assert.equal(reviewUse.analysisType, 'postgame')
+  assert.equal(praiseUse.analysisType, 'postgame')
+  assert.equal(reviewUse.inputHash, praiseUse.inputHash)
+  assert.equal(createPostgameAiInputHash({ ...reviewUse, builtAt: '2099-01-01T00:00:00.000Z', inputHash: 'changed' }), reviewUse.inputHash)
 })
 
-test('does not copy raw match history, game detail, timeline, or puuids into the snapshot', () => {
+test('does not copy raw match history, game detail, timeline, puuids, or summoner names into the snapshot brief', () => {
   const snapshot = buildPostgameAiInputSnapshot({
-    mode: 'review',
     matchHistory: createMatchHistory(),
     gameDetail: createGameDetail(),
     timeline: createTimeline(),
@@ -264,11 +312,32 @@ test('does not copy raw match history, game detail, timeline, or puuids into the
 
   assert.doesNotMatch(serialized, /matchHistory|gameDetail|rawTimeline|participantIdentities|rawFrameJson|rawEventJson/)
   assert.doesNotMatch(serialized, /current-puuid|player-2-puuid|987654321/)
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief), /Current|Player2|Summoner 1|Summoner 2|CN1|current-puuid|player-2-puuid|987654321/)
+})
+
+test('orders timeline facts chronologically from early game to later events', () => {
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory: createMatchHistory(),
+    gameDetail: createGameDetail(),
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+  const facts = snapshot.analysisBrief.timelineFacts
+  const minute15Index = facts.findIndex(fact => fact.includes('15分钟团队经济差'))
+  const deathIndex = facts.findIndex(fact => fact.startsWith('16:00') && fact.includes('死亡'))
+  const dragonIndex = facts.findIndex(fact => fact.startsWith('16:30') && fact.includes('小龙'))
+
+  assert.notEqual(minute15Index, -1)
+  assert.notEqual(deathIndex, -1)
+  assert.notEqual(dragonIndex, -1)
+  assert.ok(minute15Index < deathIndex)
+  assert.ok(deathIndex < dragonIndex)
 })
 
 test('records timeline data quality warnings without inventing missing timeline metrics', () => {
   const snapshot = buildPostgameAiInputSnapshot({
-    mode: 'review',
     matchHistory: createMatchHistory(),
     gameDetail: createGameDetail(),
     timeline: null,
@@ -276,9 +345,36 @@ test('records timeline data quality warnings without inventing missing timeline 
     currentSummonerName: 'Current#CN1'
   })
 
-  assert.equal(snapshot.timeline?.hasTimeline, false)
-  assert.equal(snapshot.dataQuality.hasTimeline, false)
-  assert.equal(snapshot.dataQuality.hasRankedTimelineMetrics, false)
-  assert.ok(snapshot.dataQuality.warnings.some(warning => /timeline/i.test(warning)))
-  assert.equal(snapshot.players[0]?.rankedMetrics?.teamGoldDiffAt15, undefined)
+  assert.ok(snapshot.analysisBrief.timelineFacts.some(fact => fact.includes('缺少 timeline，不能分析具体时间点、死亡前视野或资源交换')))
+  assert.ok(snapshot.analysisBrief.dataQualityFacts.some(fact => fact.includes('缺少 timeline')))
+  assert.doesNotMatch(JSON.stringify(snapshot), /teamGoldDiffAt15|laneGoldDiffAt15/)
+})
+
+test('omits unknown or zero turret plate text from the natural-language brief', () => {
+  const detail = createGameDetail()
+  detail.teamObjectives = detail.teamObjectives?.map(summary => ({
+    ...summary,
+    turretPlateKills: undefined,
+    turretPlatesTaken: undefined
+  }))
+  detail.participants = detail.participants.map(participant => ({
+    ...participant,
+    stats: {
+      ...participant.stats,
+      turretPlatesTaken: 0
+    }
+  }))
+
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory: createMatchHistory(),
+    gameDetail: detail,
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+
+  const brief = JSON.stringify(snapshot.analysisBrief)
+  assert.doesNotMatch(brief, /镀层未知/)
+  assert.doesNotMatch(brief, /镀层0/)
 })

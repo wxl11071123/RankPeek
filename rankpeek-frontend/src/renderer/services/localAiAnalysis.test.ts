@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { AiAnalysisResult, LocalDatabaseAPI } from '../types/localDatabase.ts'
+import type { AiAnalysisResult, AiAnalysisResultInput, LocalDatabaseAPI } from '../types/localDatabase.ts'
 import {
   formatAnalysisTime,
   formatAnalysisType,
@@ -11,6 +11,10 @@ import {
   parseAiAnalysisOutput,
   parseCoachSummaryReportOutput
 } from './localAiAnalysis.ts'
+import {
+  saveFallbackAiAnalysisResult,
+  type BrowserAiAnalysisStorage
+} from './localAiAnalysisFallbackStore.ts'
 
 async function withMutedWarnings<T>(operation: () => T | Promise<T>): Promise<T> {
   const originalWarn = console.warn
@@ -19,6 +23,19 @@ async function withMutedWarnings<T>(operation: () => T | Promise<T>): Promise<T>
     return await operation()
   } finally {
     console.warn = originalWarn
+  }
+}
+
+function createMemoryStorage(): BrowserAiAnalysisStorage {
+  const values = new Map<string, string>()
+  return {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => {
+      values.set(key, value)
+    },
+    removeItem: key => {
+      values.delete(key)
+    }
   }
 }
 
@@ -139,6 +156,230 @@ test('loading local AI analysis results maps database records and preserves quer
       }
     }
   ])
+})
+
+test('loading local AI analysis results uses browser storage when the Electron database API is unavailable', async () => {
+  const storage = createMemoryStorage()
+  const input: AiAnalysisResultInput = {
+    accountPuuid: 'account-puuid',
+    matchId: '998877',
+    analysisType: 'postgame_review',
+    subjectKey: 'postgame:review',
+    gameVersion: null,
+    modelName: 'deepseek-v4-flash',
+    promptVersion: 'postgame_review_result.v1',
+    inputHash: 'hash-browser-fallback',
+    outputJson: savedResult.outputJson
+  }
+  const saved = saveFallbackAiAnalysisResult(input, storage, new Date('2026-05-20T12:00:00.000Z'))
+  assert.equal(saved.success, true)
+
+  const result = await loadLocalAiAnalysisResults('account-puuid', {
+    limit: 20,
+    offset: 0,
+    database: null,
+    storage
+  })
+
+  assert.equal(result.unavailable, false)
+  assert.equal(result.error, null)
+  assert.equal(result.results.length, 1)
+  assert.equal(result.results[0]?.analysisType, 'postgame_review')
+  assert.equal(result.results[0]?.inputHash, 'hash-browser-fallback')
+})
+
+test('loading local AI analysis results merges browser fallback records when the Electron database is empty', async () => {
+  const storage = createMemoryStorage()
+  const input: AiAnalysisResultInput = {
+    accountPuuid: 'account-puuid',
+    matchId: '998877',
+    analysisType: 'postgame_review',
+    subjectKey: 'postgame:review',
+    gameVersion: null,
+    modelName: 'deepseek-v4-flash',
+    promptVersion: 'postgame_review_result.v1',
+    inputHash: 'hash-fallback-after-db-failure',
+    outputJson: savedResult.outputJson
+  }
+  saveFallbackAiAnalysisResult(input, storage, new Date('2026-05-20T12:00:00.000Z'))
+
+  const database = {
+    listAnalysisResultsByAccount: async () => ({
+      success: true as const,
+      data: []
+    })
+  } as Pick<LocalDatabaseAPI, 'listAnalysisResultsByAccount'>
+
+  const result = await loadLocalAiAnalysisResults('account-puuid', {
+    limit: 20,
+    offset: 0,
+    database,
+    storage
+  })
+
+  assert.equal(result.unavailable, false)
+  assert.equal(result.error, null)
+  assert.equal(result.results.length, 1)
+  assert.equal(result.results[0]?.inputHash, 'hash-fallback-after-db-failure')
+})
+
+test('loading local AI analysis results keeps review and praise records with the same snapshot hash', async () => {
+  const storage = createMemoryStorage()
+  saveFallbackAiAnalysisResult({
+    accountPuuid: 'account-puuid',
+    matchId: '998877',
+    analysisType: 'postgame_praise',
+    subjectKey: 'postgame:praise',
+    gameVersion: null,
+    modelName: 'deepseek-v4-flash',
+    promptVersion: 'postgame_praise.v1',
+    inputHash: 'shared-postgame-hash',
+    outputJson: savedResult.outputJson
+  }, storage, new Date('2026-05-20T12:01:00.000Z'))
+
+  const databaseReview: AiAnalysisResult = {
+    ...savedResult,
+    id: 99,
+    analysisType: 'postgame_review',
+    subjectKey: 'postgame:review',
+    inputHash: 'shared-postgame-hash',
+    createdAt: '2026-05-20T12:00:00.000Z',
+    updatedAt: '2026-05-20T12:00:00.000Z'
+  }
+  const database = {
+    listAnalysisResultsByAccount: async () => ({
+      success: true as const,
+      data: [databaseReview]
+    })
+  } as Pick<LocalDatabaseAPI, 'listAnalysisResultsByAccount'>
+
+  const result = await loadLocalAiAnalysisResults('account-puuid', {
+    limit: 20,
+    offset: 0,
+    database,
+    storage
+  })
+
+  assert.equal(result.unavailable, false)
+  assert.deepEqual(
+    result.results.map(item => item.analysisType).sort(),
+    ['postgame_praise', 'postgame_review']
+  )
+  assert.equal(result.results.every(item => item.inputHash === 'shared-postgame-hash'), true)
+})
+
+test('postgame AI run envelope parses raw result, usage, and CNY cost for history display', () => {
+  const rawOutputText = JSON.stringify({
+    schemaVersion: 'postgame_review_result.v1',
+    levels: [
+      { label: '夯', players: [{ playerRef: 'player:1', championName: '盲僧', championId: 64, phrase: '节奏发动机' }] },
+      { label: '顶级', players: [{ playerRef: 'player:2', championName: '阿狸', championId: 103, phrase: '中路线权稳定' }] },
+      { label: '人上人', players: [
+        { playerRef: 'player:3', championName: '凯南', championId: 85, phrase: '团战进场够狠' },
+        { playerRef: 'player:4', championName: '金克丝', championId: 222, phrase: '收割完成度高' }
+      ] },
+      { label: 'NPC', players: [
+        { playerRef: 'player:5', championName: '璐璐', championId: 117, phrase: '保护任务完成' },
+        { playerRef: 'player:6', championName: '诺手', championId: 122, phrase: '边线压力一般' },
+        { playerRef: 'player:7', championName: '豹女', championId: 76, phrase: '资源节奏断档' }
+      ] },
+      { label: '拉完了', players: [
+        { playerRef: 'player:8', championName: '亚索', championId: 157, phrase: '死亡窗口太多' },
+        { playerRef: 'player:9', championName: '女警', championId: 51, phrase: '输出空间不足' },
+        { playerRef: 'player:10', championName: '锤石', championId: 412, phrase: '先手质量偏低' }
+      ] }
+    ],
+    summary: '这局胜负手在中期资源团，我方打野和中单连续拿到主动权。'
+  })
+  const parsed = parseAiAnalysisOutput(JSON.stringify({
+    schemaVersion: 'postgame_ai_run_output.v1',
+    analysisType: 'postgame',
+    mode: 'review',
+    rawOutputText,
+    completedAt: '2026-05-20T12:00:30.000Z',
+    streamState: 'completed',
+    usage: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      promptTokens: 3000,
+      completionTokens: 400,
+      totalTokens: 3400,
+      promptCacheHitTokens: 1000,
+      promptCacheMissTokens: 2000,
+      cost: {
+        currency: 'CNY',
+        inputCacheHitCny: 0.00002,
+        inputCacheMissCny: 0.002,
+        outputCny: 0.0008,
+        totalCny: 0.00282,
+        pricing: {
+          inputCacheHitCnyPerMillionTokens: 0.02,
+          inputCacheMissCnyPerMillionTokens: 1,
+          outputCnyPerMillionTokens: 2
+        }
+      }
+    },
+    costCny: {
+      currency: 'CNY',
+      inputCacheHitCny: 0.00002,
+      inputCacheMissCny: 0.002,
+      outputCny: 0.0008,
+      totalCny: 0.00282,
+      pricing: {
+        inputCacheHitCnyPerMillionTokens: 0.02,
+        inputCacheMissCnyPerMillionTokens: 1,
+        outputCnyPerMillionTokens: 2
+      }
+    },
+    match: {
+      matchId: '998877',
+      queueId: 420,
+      championId: 64,
+      championName: '盲僧',
+      win: true,
+      gameCreation: 1779278400000,
+      gameDuration: 1888
+    }
+  }))
+
+  assert.equal(parsed.status, 'parsed')
+  assert.equal(parsed.title, '\u8d5b\u540e\u590d\u76d8')
+  assert.match(parsed.summary, /中期资源团/)
+  assert.equal(parsed.postgameRun?.mode, 'review')
+  assert.equal(parsed.postgameRun?.usage?.promptTokens, 3000)
+  assert.equal(parsed.postgameRun?.costCny?.totalCny, 0.00282)
+  assert.deepEqual(parsed.highlights, [
+    '输入 3,000 / 输出 400 / 成本 ¥0.002820',
+    '对局 998877 / 盲僧 / 胜利'
+  ])
+})
+
+test('postgame praise run envelope keeps praise text as the history summary', () => {
+  const parsed = parseAiAnalysisOutput(JSON.stringify({
+    schemaVersion: 'postgame_ai_run_output.v1',
+    analysisType: 'postgame',
+    mode: 'praise',
+    rawOutputText: '你这把已经尽力了，输赢不该让你背锅。',
+    completedAt: '2026-05-20T12:02:00.000Z',
+    streamState: 'completed',
+    usage: null,
+    costCny: null,
+    match: {
+      matchId: '998877',
+      queueId: 420,
+      championId: 64,
+      championName: '盲僧',
+      win: false,
+      gameCreation: 1779278400000,
+      gameDuration: 1888
+    }
+  }))
+
+  assert.equal(parsed.status, 'parsed')
+  assert.equal(parsed.title, '\u5938\u5938\u673a')
+  assert.match(parsed.summary, /尽力/)
+  assert.equal(parsed.postgameRun?.mode, 'praise')
+  assert.deepEqual(parsed.highlights, ['对局 998877 / 盲僧 / 失败'])
 })
 
 const coachSummaryReport = {

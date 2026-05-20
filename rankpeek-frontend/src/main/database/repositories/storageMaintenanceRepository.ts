@@ -1,6 +1,7 @@
 import type { LocalStorageRetentionResult, SqliteDatabase } from '../types.ts'
 
 const MATCH_RECORDS_PER_ACCOUNT_LIMIT = 500
+const AI_ANALYSIS_RETENTION_DAYS = 30
 
 export function runStorageRetention(connection: SqliteDatabase): LocalStorageRetentionResult {
   const runRetention = connection.transaction(() => {
@@ -36,6 +37,11 @@ export function runStorageRetention(connection: SqliteDatabase): LocalStorageRet
       )
     `).run().changes
 
+    const aiAnalysisDeleted = connection.prepare(`
+      DELETE FROM ai_analysis_results
+      WHERE created_at < @cutoff
+    `).run({ cutoff: getAiAnalysisRetentionCutoffIso() }).changes
+
     const retained = connection.prepare(`
       SELECT COUNT(*) AS count
       FROM match_records
@@ -44,10 +50,14 @@ export function runStorageRetention(connection: SqliteDatabase): LocalStorageRet
     return {
       matchRecordsDeleted,
       matchDetailsDeleted,
-      aiAnalysisDeleted: 0,
+      aiAnalysisDeleted,
       matchRecordsRetained: retained.count
     }
   })
 
   return runRetention()
+}
+
+function getAiAnalysisRetentionCutoffIso(): string {
+  return new Date(Date.now() - AI_ANALYSIS_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
 }

@@ -22,10 +22,16 @@ public class AnalysisService {
 
     private final PromptContextService promptContextService;
     private final AiProvider aiProvider;
+    private final DeepSeekAnalysisStreamer deepSeekAnalysisStreamer;
 
-    public AnalysisService(PromptContextService promptContextService, AiProvider aiProvider) {
+    public AnalysisService(
+            PromptContextService promptContextService,
+            AiProvider aiProvider,
+            DeepSeekAnalysisStreamer deepSeekAnalysisStreamer
+    ) {
         this.promptContextService = promptContextService;
         this.aiProvider = aiProvider;
+        this.deepSeekAnalysisStreamer = deepSeekAnalysisStreamer;
     }
 
     public AnalysisResult generatePregameMock(PregameAnalysisRequest request) {
@@ -44,6 +50,10 @@ public class AnalysisService {
     }
 
     public SseEmitter streamPregameMock(PregameAnalysisRequest request) {
+        if (deepSeekAnalysisStreamer.isEnabled()) {
+            return deepSeekAnalysisStreamer.streamPregame(request);
+        }
+
         SseEmitter emitter = new SseEmitter(30_000L);
 
         Thread.ofVirtual().start(() -> {
@@ -80,6 +90,10 @@ public class AnalysisService {
     }
 
     public SseEmitter streamPostgameMock(PostgameAnalysisRequest request) {
+        if (deepSeekAnalysisStreamer.isEnabled()) {
+            return deepSeekAnalysisStreamer.streamPostgame(request);
+        }
+
         SseEmitter emitter = new SseEmitter(30_000L);
 
         Thread.ofVirtual().start(() -> {

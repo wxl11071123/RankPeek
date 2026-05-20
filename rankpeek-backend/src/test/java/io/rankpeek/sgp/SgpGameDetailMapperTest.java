@@ -606,6 +606,39 @@ class SgpGameDetailMapperTest {
     }
 
     @Test
+    void mapGameDetails_countsTurretPlateDestroyedByOppositeTeamWhenKillerIsUnknown() {
+        ObjectNode response = objectMapper.createObjectNode();
+        ObjectNode game = gameNode(300022L, true);
+        ArrayNode events = game.putArray("frames").addObject().putArray("events");
+        events.addObject()
+                .put("type", "TURRET_PLATE_DESTROYED")
+                .put("timestamp", 180000L)
+                .put("killerId", 0)
+                .put("teamId", 100);
+        events.addObject()
+                .put("type", "TURRET_PLATE_DESTROYED")
+                .put("timestamp", 210000L)
+                .put("killerId", 0)
+                .put("teamId", 200);
+        response.set("game", game);
+
+        GameDetail detail = mapper.mapGameDetails(response);
+
+        GameDetail.TeamObjectiveSummary blueSummary = detail.getTeamObjectives().stream()
+                .filter(summary -> Integer.valueOf(100).equals(summary.getTeamId()))
+                .findFirst()
+                .orElseThrow();
+        GameDetail.TeamObjectiveSummary redSummary = detail.getTeamObjectives().stream()
+                .filter(summary -> Integer.valueOf(200).equals(summary.getTeamId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(blueSummary.getTurretPlateKills()).isEqualTo(1);
+        assertThat(redSummary.getTurretPlateKills()).isEqualTo(1);
+        assertThat(blueSummary.getObjectiveEvents()).isEmpty();
+        assertThat(redSummary.getObjectiveEvents()).isEmpty();
+    }
+
+    @Test
     void mapGameDetails_mapsMonsterObjectiveEventsToKillerChampionDetails() {
         ObjectNode response = objectMapper.createObjectNode();
         ObjectNode game = gameNode(300016L, true);

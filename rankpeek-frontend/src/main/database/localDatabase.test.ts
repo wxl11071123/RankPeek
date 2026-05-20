@@ -67,6 +67,12 @@ function matchIdAtEdge(database: LocalDatabase, accountPuuid: string, direction:
   return row?.matchId ?? null
 }
 
+function countAiAnalysisResults(database: LocalDatabase, accountPuuid: string) {
+  return (database.connection
+    .prepare('SELECT COUNT(*) AS count FROM ai_analysis_results WHERE account_puuid = ?')
+    .get(accountPuuid) as { count: number }).count
+}
+
 test('initializes database file and records migration version 1 once', () => {
   const { database, databasePath, cleanup } = createTempLocalDatabase()
 
@@ -470,6 +476,45 @@ test('storage retention preserves AI memory and details referenced by AI memory'
     assert.equal(database.matches.getMatchDetail('HN1', 'HN1_test-puuid_1')?.matchId, 'HN1_test-puuid_1')
     assert.equal(database.matches.getMatchDetail('HN1', 'HN1_orphan_detail'), null)
     assert.equal(database.aiAnalyses.getMemoryStats('test-puuid').totalCount, 1)
+  } finally {
+    cleanup()
+  }
+})
+
+test('storage retention keeps only AI analysis records from the last 30 days', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_old',
+      analysisType: 'postgame_review',
+      inputHash: 'old-hash',
+      outputJson: { summary: 'Old AI report.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_recent',
+      analysisType: 'postgame_review',
+      inputHash: 'recent-hash',
+      outputJson: { summary: 'Recent AI report.' }
+    })
+
+    const oldCreatedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
+    const recentCreatedAt = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString()
+    database.connection
+      .prepare('UPDATE ai_analysis_results SET created_at = @createdAt, updated_at = @createdAt WHERE input_hash = @inputHash')
+      .run({ createdAt: oldCreatedAt, inputHash: 'old-hash' })
+    database.connection
+      .prepare('UPDATE ai_analysis_results SET created_at = @createdAt, updated_at = @createdAt WHERE input_hash = @inputHash')
+      .run({ createdAt: recentCreatedAt, inputHash: 'recent-hash' })
+
+    const result = database.runStorageRetention()
+
+    assert.equal(result.aiAnalysisDeleted, 1)
+    assert.equal(countAiAnalysisResults(database, 'test-puuid'), 1)
+    assert.equal(database.aiAnalyses.findAnalysisByInputHash('old-hash'), null)
+    assert.equal(database.aiAnalyses.findAnalysisByInputHash('recent-hash')?.inputHash, 'recent-hash')
   } finally {
     cleanup()
   }

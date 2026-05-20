@@ -96,6 +96,7 @@ interface PostgameAiHarness {
   postgameAiStreamState: { value: 'idle' | 'preparing' | 'streaming' | 'completed' | 'failed' }
   postgameAiStreamText: { value: string }
   postgameAiStreamError: { value: string }
+  postgameAiStreamUsage: { value: unknown }
   openPostgameAiModal: (mode: 'review' | 'praise') => void
   closePostgameAiModal: () => void
 }
@@ -108,6 +109,7 @@ function createPostgameAiHarness(): PostgameAiHarness {
     const postgameAiStreamState = { value: 'idle' }
     const postgameAiStreamText = { value: '' }
     const postgameAiStreamError = { value: '' }
+    const postgameAiStreamUsage = { value: null }
     const postgameAiStreamAbortController = { value: null }
     ${readFunctionBlock(source, 'function openPostgameAiModal(mode: PostgameAiAnalysisMode): void')}
     ${readFunctionBlock(source, 'function closePostgameAiModal(): void')}
@@ -117,6 +119,7 @@ function createPostgameAiHarness(): PostgameAiHarness {
       postgameAiStreamState,
       postgameAiStreamText,
       postgameAiStreamError,
+      postgameAiStreamUsage,
       openPostgameAiModal,
       closePostgameAiModal
     }
@@ -319,19 +322,23 @@ test('inline match detail exposes postgame AI buttons near tabs and wires modal 
   assert.match(source, /buildPostgameAiInputSnapshot/)
   assert.match(source, /createPostgameAiStreamRequest/)
   assert.match(source, /streamPostgameAiAnalysis/)
+  assert.match(source, /savePostgameAiRunResultToLocal/)
   assert.match(source, /type PostgameAiAnalysisMode = 'review' \| 'praise'/)
   assert.match(source, /const postgameAiModalOpen = ref\(false\)/)
   assert.match(source, /const postgameAiModalMode = ref<PostgameAiAnalysisMode>\('review'\)/)
   assert.match(source, /const postgameAiStreamState = ref<PostgameAiStreamState>\('idle'\)/)
   assert.match(source, /const postgameAiStreamText = ref\(''\)/)
   assert.match(source, /const postgameAiStreamError = ref\(''\)/)
+  assert.match(source, /const postgameAiStreamUsage = ref<PostgameAiTokenUsage \| null>\(null\)/)
   assert.match(source, /const postgameAiStreamAbortController = ref<AbortController \| null>\(null\)/)
+  assert.match(source, /const postgameAiChampionNamesById = ref<Record<number, string>>\(\{\}\)/)
+  assert.match(source, /const postgameAiReviewRosterPlayers = computed<PostgameAiReviewRosterPlayer\[\]>/)
   assert.match(source, /function openPostgameAiModal\(mode: PostgameAiAnalysisMode\): void/)
   assert.match(source, /function closePostgameAiModal\(\): void/)
   assert.ok(tabsIndex >= 0 && actionIndex > tabsIndex && actionIndex < bodyIndex)
   assert.match(actionBlock, /@click="openPostgameAiModal\('review'\)"[\s\S]*赛后复盘/)
   assert.match(actionBlock, /@click="openPostgameAiModal\('praise'\)"[\s\S]*夸夸机/)
-  assert.match(source, /<PostgameAiAnalysisModal[\s\S]*:open="postgameAiModalOpen"[\s\S]*:mode="postgameAiModalMode"[\s\S]*:stream-state="postgameAiStreamState"[\s\S]*:stream-text="postgameAiStreamText"[\s\S]*:stream-error="postgameAiStreamError"[\s\S]*@start-analysis="startPostgameAiAnalysis"[\s\S]*@cancel-analysis="cancelPostgameAiAnalysis"[\s\S]*@close="closePostgameAiModal"/)
+  assert.match(source, /<PostgameAiAnalysisModal[\s\S]*:open="postgameAiModalOpen"[\s\S]*:mode="postgameAiModalMode"[\s\S]*:stream-state="postgameAiStreamState"[\s\S]*:stream-text="postgameAiStreamText"[\s\S]*:stream-error="postgameAiStreamError"[\s\S]*:stream-usage="postgameAiStreamUsage"[\s\S]*:roster-players="postgameAiReviewRosterPlayers"[\s\S]*@start-analysis="startPostgameAiAnalysis"[\s\S]*@cancel-analysis="cancelPostgameAiAnalysis"[\s\S]*@close="closePostgameAiModal"/)
 })
 
 test('inline match detail postgame AI handlers open review and praise modes then close', () => {
@@ -364,12 +371,35 @@ test('postgame AI start handler builds and streams only after the modal start ac
   const timelineBlock = readFunctionBlock(source, 'async function resolvePostgameTimelineForSnapshot()')
 
   assert.match(startBlock, /postgameAiStreamState\.value === 'preparing' \|\| postgameAiStreamState\.value === 'streaming'/)
-  assert.match(startBlock, /buildPostgameAiInputSnapshot\(\{[\s\S]*mode: postgameAiModalMode\.value[\s\S]*matchHistory: props\.matchHistory[\s\S]*gameDetail: displayGameDetail\.value[\s\S]*timeline[\s\S]*currentPuuid: props\.currentPuuid[\s\S]*currentSummonerName: props\.currentSummonerName/)
-  assert.match(startBlock, /createPostgameAiStreamRequest\(snapshot\)/)
+  assert.match(startBlock, /const mode = postgameAiModalMode\.value/)
+  assert.match(startBlock, /const championNamesById = await resolvePostgameChampionNamesById\(\)/)
+  assert.match(startBlock, /postgameAiChampionNamesById\.value = championNamesById/)
+  assert.match(startBlock, /const accountPuuid = resolvePostgameAiAccountPuuid\(\)/)
+  assert.match(startBlock, /buildPostgameAiInputSnapshot\(\{[\s\S]*matchHistory: props\.matchHistory[\s\S]*gameDetail: displayGameDetail\.value[\s\S]*timeline[\s\S]*currentPuuid: accountPuuid[\s\S]*currentSummonerName: props\.currentSummonerName[\s\S]*championNamesById/)
+  assert.doesNotMatch(startBlock, /buildPostgameAiInputSnapshot\(\{[\s\S]*mode: postgameAiModalMode\.value/)
+  assert.match(startBlock, /createPostgameAiStreamRequest\(snapshot,\s*mode\)/)
   assert.match(startBlock, /streamPostgameAiAnalysis\(/)
+  assert.match(startBlock, /onUsage: usage => \{[\s\S]*postgameAiStreamUsage\.value = usage[\s\S]*\}/)
+  assert.match(startBlock, /let postgameAiSaveStarted = false/)
+  assert.match(startBlock, /const saveCompletedStreamOnce = \(\): Promise<void> =>/)
+  assert.match(startBlock, /onDone: \(\) => \{[\s\S]*void saveCompletedStreamOnce\(\)/)
+  assert.match(startBlock, /saveCompletedPostgameAiAnalysis\(\{[\s\S]*snapshot[\s\S]*mode[\s\S]*championNamesById/)
+  assert.match(source, /async function resolvePostgameChampionNamesById\(\): Promise<Record<number, string>>/)
+  assert.match(source, /apiClient\.getChampionOptions\(\)/)
   assert.match(timelineBlock, /if \(timelineData\.value\) \{[\s\S]*return timelineData\.value/)
   assert.match(timelineBlock, /isChartRankedMode\.value/)
   assert.match(timelineBlock, /apiClient\.getGameTimeline\(gameId,[\s\S]*source: 'auto'/)
+})
+
+test('postgame AI completion saves raw output and usage without persisting snapshot contents', () => {
+  const source = readInlineDetailSource()
+  const saveBlock = readFunctionBlock(source, 'async function saveCompletedPostgameAiAnalysis(')
+
+  assert.match(saveBlock, /const rawOutputText = postgameAiStreamText\.value\.trim\(\)/)
+  assert.match(saveBlock, /if \(!rawOutputText\) \{[\s\S]*return/)
+  assert.match(saveBlock, /savePostgameAiRunResultToLocal\(\{[\s\S]*accountPuuid: resolvePostgameAiAccountPuuid\(\)[\s\S]*mode[\s\S]*rawOutputText[\s\S]*usage: postgameAiStreamUsage\.value[\s\S]*snapshot[\s\S]*matchHistory: props\.matchHistory[\s\S]*championNamesById[\s\S]*rosterPlayers: postgameAiReviewRosterPlayers\.value/)
+  assert.match(saveBlock, /if \(!saveResult\.success\) \{[\s\S]*console\.warn/)
+  assert.doesNotMatch(saveBlock, /analysisBrief|snapshot\.analysisBrief|JSON\.stringify\(snapshot/)
 })
 
 test('postgame AI close cancels active work and clears stream state', () => {
@@ -380,6 +410,7 @@ test('postgame AI close cancels active work and clears stream state', () => {
   assert.match(closeBlock, /postgameAiStreamState\.value = 'idle'/)
   assert.match(closeBlock, /postgameAiStreamText\.value = ''/)
   assert.match(closeBlock, /postgameAiStreamError\.value = ''/)
+  assert.match(closeBlock, /postgameAiStreamUsage\.value = null/)
   assert.match(closeBlock, /postgameAiModalOpen\.value = false/)
 })
 
@@ -1717,6 +1748,31 @@ test('turret plate display keeps all unknown sources as an unknown count', () =>
     teamObjectives: [
       {
         teamId: 100
+      }
+    ]
+  }
+  const summary = (gameDetail.teamObjectives[0] as unknown) as Record<string, unknown>
+  const harness = createObjectiveCountHarness(gameDetail)
+
+  const count = harness.readStructureObjectiveCount(100, summary, 'turretPlate')
+
+  assert.equal(count, null)
+  assert.equal(harness.getObjectiveCountText({ count }), '--')
+})
+
+test('turret plate display ignores unrelated objective events instead of rendering zero', () => {
+  const gameDetail = {
+    participants: [
+      { participantId: 1, teamId: 100, stats: {} },
+      { participantId: 2, teamId: 100, stats: {} }
+    ],
+    teamObjectives: [
+      {
+        teamId: 100,
+        objectiveEvents: [
+          { kind: 'dragon', teamId: 100 },
+          { kind: 'voidGrub', teamId: 100 }
+        ]
       }
     ]
   }
