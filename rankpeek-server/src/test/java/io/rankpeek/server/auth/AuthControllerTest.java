@@ -19,6 +19,7 @@ import static org.hamcrest.Matchers.blankOrNullString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -77,6 +78,19 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.user.email").value(email))
                 .andExpect(jsonPath("$.data.accessToken", not(blankOrNullString())))
                 .andExpect(jsonPath("$.data.refreshToken", not(blankOrNullString())));
+    }
+
+    @Test
+    void loginAllowsRendererOrigin() throws Exception {
+        String email = uniqueEmail();
+        register(email, "Secret123!", "RankPeek");
+
+        mockMvc.perform(post("/api/auth/login")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(email, "Secret123!")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
     }
 
     @Test

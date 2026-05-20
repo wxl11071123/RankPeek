@@ -6,7 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AuthProperties(
         String accessTokenSecret,
         long accessTokenTtlSeconds,
-        long refreshTokenTtlSeconds
+        long refreshTokenTtlSeconds,
+        InitialAdmin initialAdmin
 ) {
     public static final String DEFAULT_DEV_SECRET = "rankpeek-local-dev-access-token-secret-change-me";
 
@@ -20,5 +21,16 @@ public record AuthProperties(
         if (refreshTokenTtlSeconds <= 0) {
             refreshTokenTtlSeconds = 2_592_000;
         }
+        if (initialAdmin == null) {
+            initialAdmin = new InitialAdmin(false, null, null, null);
+        }
+    }
+
+    public record InitialAdmin(
+            boolean enabled,
+            String email,
+            String password,
+            String displayName
+    ) {
     }
 }

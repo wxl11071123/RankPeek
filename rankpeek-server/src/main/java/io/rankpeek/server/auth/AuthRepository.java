@@ -1,6 +1,7 @@
 package io.rankpeek.server.auth;
 
 import io.rankpeek.server.common.JdbcSupport;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.KeyHolder;
@@ -83,10 +84,60 @@ public class AuthRepository {
         return findUserById(JdbcSupport.requireGeneratedId(keyHolder)).orElseThrow();
     }
 
+    public AuthUser upsertInitialAdmin(String email, String displayName, String passwordHash, Instant now) {
+        Optional<AuthUser> existing = findUserByEmail(email);
+        if (existing.isPresent()) {
+            updateInitialAdmin(existing.get().id(), displayName, passwordHash, now);
+            return findUserById(existing.get().id()).orElseThrow();
+        }
+
+        try {
+            KeyHolder keyHolder = JdbcSupport.newKeyHolder();
+            jdbcTemplate.update(connection -> JdbcSupport.prepareInsert(
+                    connection,
+                    """
+                            insert into users (
+                                email, display_name, password_hash, status, role,
+                                created_at, updated_at, last_login_at
+                            ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                    email,
+                    displayName,
+                    passwordHash,
+                    "ACTIVE",
+                    "ADMIN",
+                    Timestamp.from(now),
+                    Timestamp.from(now),
+                    null
+            ), keyHolder);
+            return findUserById(JdbcSupport.requireGeneratedId(keyHolder)).orElseThrow();
+        } catch (DuplicateKeyException exception) {
+            AuthUser duplicate = findUserByEmail(email).orElseThrow();
+            updateInitialAdmin(duplicate.id(), displayName, passwordHash, now);
+            return findUserById(duplicate.id()).orElseThrow();
+        }
+    }
+
     public void updateLastLoginAt(Long userId, Instant now) {
         jdbcTemplate.update(
                 "update users set last_login_at = ?, updated_at = ? where id = ?",
                 Timestamp.from(now),
+                Timestamp.from(now),
+                userId
+        );
+    }
+
+    private void updateInitialAdmin(Long userId, String displayName, String passwordHash, Instant now) {
+        jdbcTemplate.update(
+                """
+                        update users
+                        set display_name = ?, password_hash = ?, status = ?, role = ?, updated_at = ?
+                        where id = ?
+                        """,
+                displayName,
+                passwordHash,
+                "ACTIVE",
+                "ADMIN",
                 Timestamp.from(now),
                 userId
         );

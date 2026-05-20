@@ -28,6 +28,11 @@ rankpeek:
     access-token-secret: ${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
+    initial-admin:
+      enabled: ${RANKPEEK_INITIAL_ADMIN_ENABLED:false}
+      email: ${RANKPEEK_INITIAL_ADMIN_EMAIL:}
+      password: ${RANKPEEK_INITIAL_ADMIN_PASSWORD:}
+      display-name: ${RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME:RankPeek Admin}
   cn-meta:
     sync:
       enabled: false
