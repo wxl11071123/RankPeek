@@ -9,6 +9,15 @@ import {
   buildCacheClearAlertMessage,
   extractCacheClearErrorMessage
 } from '@/services/cacheClearFeedback'
+import {
+  clearStoredRankPeekAuthSession,
+  getStoredRankPeekAuthSession,
+  loginRankPeekAccount,
+  logoutRankPeekAccount,
+  registerRankPeekAccount,
+  storeRankPeekAuthSession,
+  type RankPeekAuthSession
+} from '@/services/rankpeekAuthClient'
 import { checkRankPeekServerDiagnostics } from '@/services/rankpeekServerClient'
 import { clearFrontendTransientCache } from '@/utils/frontendCache'
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from '@/utils/matchPreferences'
@@ -26,6 +35,14 @@ const matchModeOptions = ref<GameModeOption[]>([])
 const savingMatchSettings = ref(false)
 const clearingUserCacheMode = ref<CacheClearMode | null>(null)
 const checkingLocalServer = ref(false)
+const authSession = ref<RankPeekAuthSession | null>(getStoredRankPeekAuthSession())
+const authModalOpen = ref(false)
+const authMode = ref<'login' | 'register'>('login')
+const authEmail = ref('')
+const authPassword = ref('')
+const authDisplayName = ref('')
+const authBusy = ref(false)
+const authError = ref('')
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
 const githubIssuesUrl = 'https://github.com/wxl11071123/rankpeek/issues'
@@ -42,6 +59,16 @@ const aboutLogoSrc = computed(() =>
 
 const aboutShowcaseSrc = computed(() =>
   themeStore.theme === 'dark' ? brandEyeBlack : brandEyeWhite
+)
+
+const signedInUser = computed(() => authSession.value?.user ?? null)
+
+const authModalTitle = computed(() =>
+  authMode.value === 'login' ? t('settings.authLoginTitle') : t('settings.authRegisterTitle')
+)
+
+const authSubmitLabel = computed(() =>
+  authMode.value === 'login' ? t('settings.authSubmitLogin') : t('settings.authSubmitRegister')
 )
 
 if (window.electronAPI) {
@@ -65,8 +92,76 @@ onMounted(async () => {
   }
 })
 
-function handleAccountAction(action: 'login' | 'register') {
-  console.info(`RankPeek account ${action} placeholder clicked`)
+function openAuthModal(mode: 'login' | 'register') {
+  authMode.value = mode
+  authEmail.value = signedInUser.value?.email ?? ''
+  authPassword.value = ''
+  authDisplayName.value = ''
+  authError.value = ''
+  authModalOpen.value = true
+}
+
+function closeAuthModal() {
+  if (authBusy.value) {
+    return
+  }
+
+  authModalOpen.value = false
+  authError.value = ''
+}
+
+function switchAuthMode(mode: 'login' | 'register') {
+  authMode.value = mode
+  authError.value = ''
+  authPassword.value = ''
+}
+
+async function submitAuthForm() {
+  if (!authEmail.value || !authPassword.value) {
+    authError.value = t('settings.authRequiredFields')
+    return
+  }
+
+  authBusy.value = true
+  authError.value = ''
+
+  try {
+    const result = authMode.value === 'login'
+      ? await loginRankPeekAccount({
+        email: authEmail.value,
+        password: authPassword.value
+      })
+      : await registerRankPeekAccount({
+        email: authEmail.value,
+        password: authPassword.value,
+        displayName: authDisplayName.value
+      })
+
+    if (!result.ok) {
+      authError.value = result.message || (
+        authMode.value === 'login' ? t('settings.authLoginFailed') : t('settings.authRegisterFailed')
+      )
+      return
+    }
+
+    storeRankPeekAuthSession(result.session)
+    authSession.value = result.session
+    authModalOpen.value = false
+    authPassword.value = ''
+  } finally {
+    authBusy.value = false
+  }
+}
+
+async function handleLogout() {
+  const refreshToken = authSession.value?.refreshToken
+  clearStoredRankPeekAuthSession()
+  authSession.value = null
+
+  const result = await logoutRankPeekAccount(refreshToken)
+  if (!result.ok) {
+    console.warn('Failed to revoke RankPeek refresh token:', result.message)
+  }
 }
 
 async function checkLocalRankPeekServer() {
@@ -168,14 +263,38 @@ async function openExternal(url: string) {
     <section class="account-card">
       <div class="account-copy">
         <h2>{{ t('settings.accountTitle') }}</h2>
-        <p>{{ t('settings.accountDescription') }}</p>
+        <p
+          v-if="signedInUser"
+          class="account-status"
+        >
+          {{ t('settings.signedInAs', { email: signedInUser.email }) }}
+        </p>
+        <p v-else>
+          {{ t('settings.accountDescription') }}
+        </p>
+        <p
+          v-if="signedInUser"
+          class="account-role"
+        >
+          {{ t('settings.accountRole', { role: signedInUser.role }) }}
+        </p>
       </div>
       <div class="account-actions">
-        <button class="primary-btn" type="button" @click="handleAccountAction('login')">
+        <button
+          v-if="!signedInUser"
+          class="primary-btn"
+          type="button"
+          @click="openAuthModal('login')"
+        >
           {{ t('settings.login') }}
         </button>
-        <button class="secondary-btn" type="button" @click="handleAccountAction('register')">
-          {{ t('settings.register') }}
+        <button
+          v-else
+          class="secondary-btn"
+          type="button"
+          @click="handleLogout"
+        >
+          {{ t('settings.logout') }}
         </button>
         <button
           class="secondary-btn"
@@ -188,6 +307,106 @@ async function openExternal(url: string) {
       </div>
     </section>
 
+    <div
+      v-if="authModalOpen"
+      class="auth-modal-overlay"
+      @click.self="closeAuthModal"
+    >
+      <section
+        class="auth-modal"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="authModalTitle"
+      >
+        <header class="auth-modal-header">
+          <h2>{{ authModalTitle }}</h2>
+          <button
+            class="auth-close-btn"
+            type="button"
+            :disabled="authBusy"
+            :aria-label="t('common.cancel')"
+            @click="closeAuthModal"
+          >
+            X
+          </button>
+        </header>
+
+        <form
+          class="auth-form"
+          @submit.prevent="submitAuthForm"
+        >
+          <label class="auth-field">
+            <span>{{ t('settings.authEmail') }}</span>
+            <input
+              v-model.trim="authEmail"
+              autocomplete="email"
+              name="email"
+              type="email"
+            >
+          </label>
+
+          <label class="auth-field">
+            <span>{{ t('settings.authPassword') }}</span>
+            <input
+              v-model="authPassword"
+              autocomplete="current-password"
+              name="password"
+              type="password"
+            >
+          </label>
+
+          <label
+            v-if="authMode === 'register'"
+            class="auth-field"
+          >
+            <span>{{ t('settings.authDisplayName') }}</span>
+            <input
+              v-model.trim="authDisplayName"
+              autocomplete="nickname"
+              name="displayName"
+              type="text"
+            >
+          </label>
+
+          <p
+            v-if="authError"
+            class="auth-error"
+          >
+            {{ authError }}
+          </p>
+
+          <button
+            class="primary-btn auth-submit"
+            type="submit"
+            :disabled="authBusy"
+          >
+            {{ authBusy ? t('settings.saving') : authSubmitLabel }}
+          </button>
+        </form>
+
+        <div class="auth-switch">
+          <button
+            v-if="authMode === 'login'"
+            class="auth-link-btn"
+            type="button"
+            :disabled="authBusy"
+            @click="switchAuthMode('register')"
+          >
+            {{ t('settings.authSwitchToRegister') }}
+          </button>
+          <button
+            v-else
+            class="auth-link-btn"
+            type="button"
+            :disabled="authBusy"
+            @click="switchAuthMode('login')"
+          >
+            {{ t('settings.authSwitchToLogin') }}
+          </button>
+        </div>
+      </section>
+    </div>
+
     <section class="settings-section essentials-section">
       <h2>{{ t('settings.commonSettings') }}</h2>
 
@@ -198,7 +417,10 @@ async function openExternal(url: string) {
             <p>{{ t('settings.defaultMatchModeUserDescription') }}</p>
           </div>
           <div class="setting-control match-mode-control">
-            <select v-model.number="defaultMatchQueueMode" class="select-input">
+            <select
+              v-model.number="defaultMatchQueueMode"
+              class="select-input"
+            >
               <option
                 v-for="mode in matchModeOptions"
                 :key="mode.id"
@@ -248,7 +470,11 @@ async function openExternal(url: string) {
             <h3>{{ t('settings.appearanceTheme') }}</h3>
             <p>{{ t('settings.appearanceThemeDescription') }}</p>
           </div>
-          <div class="theme-toggle" role="group" :aria-label="t('settings.appearanceTheme')">
+          <div
+            class="theme-toggle"
+            role="group"
+            :aria-label="t('settings.appearanceTheme')"
+          >
             <button
               class="theme-option"
               type="button"
@@ -272,37 +498,61 @@ async function openExternal(url: string) {
 
     <section class="settings-section about-section">
       <h2>{{ t('settings.aboutRankPeek') }}</h2>
-      <div class="about-card" :class="`theme-${themeStore.theme}`">
+      <div
+        class="about-card"
+        :class="`theme-${themeStore.theme}`"
+      >
         <div class="app-logo">
-          <img :src="aboutLogoSrc" alt="RankPeek app symbol" />
+          <img
+            :src="aboutLogoSrc"
+            alt="RankPeek app symbol"
+          >
         </div>
         <div class="app-info">
           <h3>RankPeek</h3>
           <p>{{ t('settings.tagline') }}</p>
-          <p class="version">{{ t('settings.version', { version: appVersion }) }}</p>
+          <p class="version">
+            {{ t('settings.version', { version: appVersion }) }}
+          </p>
           <div class="about-links">
-            <a :href="githubRepoUrl" @click.prevent="openExternal(githubRepoUrl)">
+            <a
+              :href="githubRepoUrl"
+              @click.prevent="openExternal(githubRepoUrl)"
+            >
               {{ t('settings.githubRepo') }}
             </a>
-            <a :href="githubIssuesUrl" @click.prevent="openExternal(githubIssuesUrl)">
+            <a
+              :href="githubIssuesUrl"
+              @click.prevent="openExternal(githubIssuesUrl)"
+            >
               {{ t('settings.issueFeedback') }}
             </a>
           </div>
         </div>
         <div class="app-showcase">
-          <div class="showcase-backdrop" aria-hidden="true">
+          <div
+            class="showcase-backdrop"
+            aria-hidden="true"
+          >
             <div
               v-for="(line, index) in showcaseBackgroundLines"
               :key="`${line}-${index}`"
               class="showcase-track"
               :class="{ mirrored: index % 2 === 1 }"
             >
-              <span v-for="copy in 2" :key="`${line}-${copy}`">{{ line }}</span>
+              <span
+                v-for="copy in 2"
+                :key="`${line}-${copy}`"
+              >{{ line }}</span>
             </div>
           </div>
 
           <div class="showcase-center-mark">
-            <img class="showcase-mark" :src="aboutShowcaseSrc" alt="RankPeek eye logo artwork" />
+            <img
+              class="showcase-mark"
+              :src="aboutShowcaseSrc"
+              alt="RankPeek eye logo artwork"
+            >
           </div>
         </div>
       </div>
@@ -382,10 +632,140 @@ async function openExternal(url: string) {
   line-height: 1.5;
 }
 
+.account-status {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.account-role {
+  color: var(--text-tertiary);
+}
+
 .account-actions {
   display: flex;
   gap: 10px;
   flex: 0 0 auto;
+}
+
+.auth-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.58);
+}
+
+.auth-modal {
+  box-sizing: border-box;
+  width: min(100%, 420px);
+  padding: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.34);
+}
+
+.auth-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.auth-modal-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.auth-close-btn,
+.auth-link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.auth-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.auth-close-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.auth-field input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+}
+
+.auth-field input:focus {
+  border-color: var(--input-focus-border);
+  box-shadow:
+    0 0 0 1px rgba(var(--accent-rgb), 0.18),
+    0 0 16px rgba(var(--accent-rgb), 0.18);
+}
+
+.auth-error {
+  margin: 0;
+  color: #ef4444;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.auth-submit {
+  width: 100%;
+}
+
+.auth-switch {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.auth-link-btn {
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.auth-link-btn:hover:not(:disabled) {
+  color: var(--accent-color);
 }
 
 .settings-section {

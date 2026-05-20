@@ -17,9 +17,36 @@ test('settings page is organized for users instead of diagnostics', () => {
 
   assert.match(source, /settings\.accountTitle/)
   assert.match(source, /settings\.accountDescription/)
-  assert.match(source, /@click="handleAccountAction\('login'\)"/)
-  assert.match(source, /@click="handleAccountAction\('register'\)"/)
-  assert.doesNotMatch(source, /apiClient\.(login|register|auth)/)
+  assert.match(source, /@click="openAuthModal\('login'\)"/)
+  assert.doesNotMatch(source, /@click="handleAccountAction\('register'\)"/)
+})
+
+test('settings account card uses one login entry and shows stored account state', () => {
+  const accountActions = source.match(/<div class="account-actions">[\s\S]*?<\/div>/)?.[0] || ''
+
+  assert.match(source, /import \{[\s\S]*getStoredRankPeekAuthSession[\s\S]*logoutRankPeekAccount[\s\S]*storeRankPeekAuthSession/)
+  assert.match(source, /const authSession = ref<RankPeekAuthSession \| null>\(getStoredRankPeekAuthSession\(\)\)/)
+  assert.match(source, /const signedInUser = computed\(\(\) => authSession\.value\?\.user \?\? null\)/)
+  assert.match(source, /settings\.signedInAs/)
+  assert.match(source, /settings\.accountRole/)
+  assert.match(source, /settings\.logout/)
+  assert.match(accountActions, /settings\.login/)
+  assert.doesNotMatch(accountActions, /settings\.register/)
+})
+
+test('settings auth modal supports login first with an inline register mode', () => {
+  assert.match(source, /v-if="authModalOpen"/)
+  assert.match(source, /<form[\s\S]*class="auth-form"[\s\S]*@submit\.prevent="submitAuthForm"[\s\S]*>/)
+  assert.match(source, /v-model\.trim="authEmail"/)
+  assert.match(source, /v-model="authPassword"/)
+  assert.match(source, /v-if="authMode === 'register'"/)
+  assert.match(source, /@click="switchAuthMode\('register'\)"/)
+  assert.match(source, /@click="switchAuthMode\('login'\)"/)
+  assert.match(source, /loginRankPeekAccount\(/)
+  assert.match(source, /registerRankPeekAccount\(/)
+  assert.match(source, /storeRankPeekAuthSession\(result\.session\)/)
+  assert.match(source, /settings\.authSwitchToRegister/)
+  assert.match(source, /settings\.authSwitchToLogin/)
 })
 
 test('settings page keeps only the three common user settings', () => {
@@ -108,6 +135,21 @@ test('settings copy is user-facing in both locales', () => {
     'settings.accountDescription',
     'settings.login',
     'settings.register',
+    'settings.logout',
+    'settings.authEmail',
+    'settings.authPassword',
+    'settings.authDisplayName',
+    'settings.authSubmitLogin',
+    'settings.authSubmitRegister',
+    'settings.authSwitchToRegister',
+    'settings.authSwitchToLogin',
+    'settings.authLoginTitle',
+    'settings.authRegisterTitle',
+    'settings.authLoginFailed',
+    'settings.authRegisterFailed',
+    'settings.authRequiredFields',
+    'settings.signedInAs',
+    'settings.accountRole',
     'settings.checkLocalServer',
     'settings.checkingLocalServer',
     'settings.localServerAvailable',

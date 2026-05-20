@@ -105,6 +105,15 @@ Before using the real sample client outside local development, the endpoint temp
 
 Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, credits, third-party login, or any real AI integration. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
+Production deployments can create or reset a first administrator at startup by setting:
+
+- `RANKPEEK_INITIAL_ADMIN_ENABLED=true`
+- `RANKPEEK_INITIAL_ADMIN_EMAIL`
+- `RANKPEEK_INITIAL_ADMIN_PASSWORD`
+- `RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME`
+
+This is disabled by default. When enabled, startup creates the configured email as an `ADMIN`, or updates an existing account to `ADMIN`, `ACTIVE`, and the configured password.
+
 ## Run Tests
 
 ```powershell
