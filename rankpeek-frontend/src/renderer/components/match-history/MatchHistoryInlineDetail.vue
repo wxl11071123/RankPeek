@@ -4000,7 +4000,6 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
       :stream-state="postgameAiStreamState"
       :stream-text="postgameAiStreamText"
       :stream-error="postgameAiStreamError"
-      :stream-usage="postgameAiStreamUsage"
       :roster-players="postgameAiReviewRosterPlayers"
       @start-analysis="startPostgameAiAnalysis"
       @cancel-analysis="cancelPostgameAiAnalysis"

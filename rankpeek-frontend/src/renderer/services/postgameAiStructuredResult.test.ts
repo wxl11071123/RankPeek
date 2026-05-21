@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   parsePartialPostgameAiStructuredResult,
+  parsePostgameAiPraiseResult,
   parsePostgameAiStructuredResult,
   POSTGAME_LADU_LEVELS
 } from './postgameAiStructuredResult.ts'
@@ -107,4 +108,120 @@ DeepSeek 分析
   assert.equal(parsed.result.players[0]?.championName, '凯隐')
   assert.equal(parsed.result.players[0]?.level, POSTGAME_LADU_LEVELS[0])
   assert.equal(parsed.result.summary, '')
+})
+
+test('partially parses an unterminated streaming summary string', () => {
+  const parsed = parsePartialPostgameAiStructuredResult(`
+{
+  "schemaVersion": "postgame_review_result.v1",
+  "levels": [],
+  "summary": "客观总结：前期节奏清楚，中期资源团正在分析
+`)
+
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) {
+    return
+  }
+  assert.equal(parsed.partial, true)
+  assert.equal(parsed.result.players.length, 0)
+  assert.equal(parsed.result.summary, '客观总结：前期节奏清楚，中期资源团正在分析')
+})
+
+test('parses postgame praise JSON into a friend-note result', () => {
+  const parsed = parsePostgameAiPraiseResult(`\`\`\`json
+{
+  "schemaVersion": "postgame_praise_result.v1",
+  "headline": "奎因打野节奏拉满",
+  "body": "你前面虽然被针对得很难受，但你一直在找机会做事。队伍中期几波节奏断掉以后，本来就很难靠一个人硬掰回来。下局建议：继续按自己的节奏找机会就行，别给自己太大压力。"
+}
+\`\`\``)
+
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) {
+    return
+  }
+
+  assert.equal(parsed.result.schemaVersion, 'postgame_praise_result.v1')
+  assert.equal(parsed.result.headline, '奎因打野节奏拉满')
+  assert.match(parsed.result.body, /一直在找机会做事/)
+  assert.match(parsed.result.body, /下局建议/)
+  assert.doesNotMatch(parsed.result.body, /```|DeepSeek/)
+})
+
+test('keeps expressive AI praise headlines instead of falling back to a fixed blame title', () => {
+  const parsed = parsePostgameAiPraiseResult(`{
+  "schemaVersion": "postgame_praise_result.v1",
+  "headline": "奎因打野把节奏扛在肩上飞",
+  "body": "这局你用德玛西亚之翼打野，前中期一直在给队伍找节奏。"
+}`)
+
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) {
+    return
+  }
+
+  assert.equal(parsed.result.headline, '奎因打野把节奏扛在肩上飞')
+  assert.notEqual(parsed.result.headline, '这把真不能全怪你')
+})
+
+test('derives a contextual praise headline when the model sends a banned fixed title', () => {
+  const parsed = parsePostgameAiPraiseResult(`{
+  "schemaVersion": "postgame_praise_result.v1",
+  "headline": "这把真不能全怪你",
+  "body": "这局你用德玛西亚之翼（奎因）打野，21/8/7的豪华KDA和队内打钱第一都说明你是胜利核心。"
+}`)
+
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) {
+    return
+  }
+
+  assert.equal(parsed.result.headline, '这局你用德玛西亚之翼（奎因）打野')
+  assert.notEqual(parsed.result.headline, '这把真不能全怪你')
+})
+
+test('does not treat incomplete praise JSON before body starts as legacy text', () => {
+  const parsed = parsePostgameAiPraiseResult(`
+{
+  "schemaVersion": "postgame_praise_result.v1",
+  "headline": "逆风中的不屈猎鹰",
+`)
+
+  assert.equal(parsed.ok, false)
+})
+
+test('parses streaming postgame praise body before the JSON object is complete', () => {
+  const parsed = parsePostgameAiPraiseResult(`
+{
+  "schemaVersion": "postgame_praise_result.v1",
+  "headline": "这把真不能全怪你",
+  "body": "你这把不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后
+`)
+
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) {
+    return
+  }
+
+  assert.equal(parsed.result.headline, '你这把不是没声音')
+  assert.equal(parsed.result.body, '你这把不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后')
+})
+
+test('normalizes legacy postgame praise text for the new one-piece UI', () => {
+  const parsed = parsePostgameAiPraiseResult(`
+DeepSeek 分析
+【你的全图打野，虽败犹荣的暗影猎手！】
+这把真不能全怪你。你一直在找机会做事。
+
+下局建议：下把继续按自己的节奏找机会，别急着给自己背锅。
+`)
+
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) {
+    return
+  }
+
+  assert.equal(parsed.result.headline, '你的全图打野，虽败犹荣的暗影猎手')
+  assert.equal(parsed.result.body, '这把真不能全怪你。你一直在找机会做事。 下局建议：下把继续按自己的节奏找机会，别急着给自己背锅。')
+  assert.doesNotMatch(parsed.result.body, /DeepSeek|【|】/)
 })

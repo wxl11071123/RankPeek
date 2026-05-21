@@ -268,7 +268,7 @@ test('loading local AI analysis results keeps review and praise records with the
   assert.equal(result.results.every(item => item.inputHash === 'shared-postgame-hash'), true)
 })
 
-test('postgame AI run envelope parses raw result, usage, and CNY cost for history display', () => {
+test('postgame AI run envelope parses raw result without surfacing engineering metadata in history cards', () => {
   const rawOutputText = JSON.stringify({
     schemaVersion: 'postgame_review_result.v1',
     levels: [
@@ -343,15 +343,12 @@ test('postgame AI run envelope parses raw result, usage, and CNY cost for histor
   }))
 
   assert.equal(parsed.status, 'parsed')
-  assert.equal(parsed.title, '\u8d5b\u540e\u590d\u76d8')
+  assert.equal(parsed.title, '盲僧 · 胜利')
   assert.match(parsed.summary, /中期资源团/)
   assert.equal(parsed.postgameRun?.mode, 'review')
   assert.equal(parsed.postgameRun?.usage?.promptTokens, 3000)
   assert.equal(parsed.postgameRun?.costCny?.totalCny, 0.00282)
-  assert.deepEqual(parsed.highlights, [
-    '输入 3,000 / 输出 400 / 成本 ¥0.002820',
-    '对局 998877 / 盲僧 / 胜利'
-  ])
+  assert.deepEqual(parsed.highlights, [])
 })
 
 test('postgame praise run envelope keeps praise text as the history summary', () => {
@@ -376,10 +373,45 @@ test('postgame praise run envelope keeps praise text as the history summary', ()
   }))
 
   assert.equal(parsed.status, 'parsed')
-  assert.equal(parsed.title, '\u5938\u5938\u673a')
+  assert.equal(parsed.title, '盲僧 · 失败')
   assert.match(parsed.summary, /尽力/)
   assert.equal(parsed.postgameRun?.mode, 'praise')
-  assert.deepEqual(parsed.highlights, ['对局 998877 / 盲僧 / 失败'])
+  assert.deepEqual(parsed.highlights, [])
+})
+
+test('postgame praise run envelope uses structured praise body for the history summary', () => {
+  const parsed = parseAiAnalysisOutput(JSON.stringify({
+    schemaVersion: 'postgame_ai_run_output.v1',
+    analysisType: 'postgame',
+    mode: 'praise',
+    rawOutputText: JSON.stringify({
+      schemaVersion: 'postgame_praise_result.v1',
+      headline: '这把真不能全怪你',
+      body: '你这把已经把能做的事做了，中期局势断掉以后，本来就不是一个人能硬拽回来的局。'
+    }),
+    completedAt: '2026-05-20T12:02:00.000Z',
+    streamState: 'completed',
+    usage: null,
+    costCny: null,
+    match: {
+      matchId: '998877',
+      queueId: 420,
+      championId: 64,
+      championName: '盲僧',
+      win: false,
+      gameCreation: 1779278400000,
+      gameDuration: 1888
+    }
+  }))
+
+  assert.equal(parsed.status, 'parsed')
+  assert.equal(parsed.title, '盲僧 · 失败')
+  assert.equal(parsed.summary, '你这把已经把能做的事做了，中期局势断掉以后，本来就不是一个人能硬拽回来的局。')
+  assert.equal(parsed.postgamePraise?.headline, '你这把已经把能做的事做了')
+  assert.equal(parsed.postgamePraise?.body, '你这把已经把能做的事做了，中期局势断掉以后，本来就不是一个人能硬拽回来的局。')
+  assert.doesNotMatch(parsed.summary, /schemaVersion|headline|body/)
+  assert.equal(parsed.postgameRun?.mode, 'praise')
+  assert.deepEqual(parsed.highlights, [])
 })
 
 const coachSummaryReport = {

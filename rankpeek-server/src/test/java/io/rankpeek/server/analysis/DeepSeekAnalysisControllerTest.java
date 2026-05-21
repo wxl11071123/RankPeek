@@ -225,18 +225,44 @@ class DeepSeekAnalysisControllerTest {
                 .andExpect(content().string(containsString("event:done")));
 
         JsonNode body = OBJECT_MAPPER.readTree(capturedRequest.body());
-        String messages = body.get("messages").toString();
+        JsonNode messagesNode = body.get("messages");
+        String messages = messagesNode.toString();
+        String userMessage = messagesNode.get(1).get("content").asText();
+        assertThat(messages).contains("postgame_praise_result.v1");
+        assertThat(messages).contains("headline", "body");
         assertThat(messages).contains("只围绕当前用户");
         assertThat(messages).contains("带有【你｜");
         assertThat(messages).contains("护短但不造假");
-        assertThat(messages).contains("不要无脑吹");
+        assertThat(messages).contains("安慰但不要无脑吹");
+        assertThat(messages).contains("可以点名队友或对手的英雄和位置");
+        assertThat(messages).contains("不要暴露召唤师名");
+        assertThat(messages).contains("不能把百分比自动写成全队最高、第一、MVP");
+        assertThat(messages).contains("除非 playerFacts、teamFacts、timelineFacts 或 snapshot 明确给出排名");
+        assertThat(messages).contains("例如只有伤害占比 19%");
+        assertThat(messages).contains("优先引用 playerFacts 里的“排名：”和“高光：”事实");
+        assertThat(messages).contains("个人镀层");
+        assertThat(messages).contains("优先围绕【你】所选英雄和位置来解释");
+        assertThat(messages).contains("大方鼓励和吹嘘，可以写得爽一点");
+        assertThat(messages).contains("从其他英雄、其他位置、团队节奏、资源交换或阵容执行里找原因");
+        assertThat(messages).contains("明确表达玩家已经尽力，不让用户背锅");
+        assertThat(messages).contains("往胜利的基石、关键拼图、关键人物方向写");
+        assertThat(messages).contains("帮用户甩锅，不让用户吃一点压力");
+        assertThat(messages).contains("AI 自拟");
+        assertThat(messages).contains("headline 像一句醒目的夸夸标题");
+        assertThat(messages).contains("headline 不要使用固定模板“这把真不能全怪你”");
+        assertThat(messages).contains("赢局不要用“不背锅”“不能怪你”类标题");
+        assertThat(messages).contains("body 写 220 到 450 个中文字符");
         assertThat(messages).contains("表现好并且赢了");
+        assertThat(messages).contains("不是混赢");
         assertThat(messages).contains("表现好但输了");
         assertThat(messages).contains("数据不好看但赢了");
         assertThat(messages).contains("数据不好看且输了");
+        assertThat(messages).contains("必须结合【你】的英雄、位置、胜负、KDA");
+        assertThat(messages).contains("可以给 1 条很轻的下局建议");
         assertThat(messages).contains("不要辱骂");
-        assertThat(messages).contains("不要输出 JSON");
-        assertThat(messages).doesNotContain("postgame_review_result.v1");
+        assertThat(messages).doesNotContain("不要输出 JSON");
+        assertThat(messages).doesNotContain("\"headline\": \"这把真不能全怪你\"");
+        assertThat(userMessage).doesNotContain("postgame_review_result.v1");
     }
 
     @Test

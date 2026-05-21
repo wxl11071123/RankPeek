@@ -120,6 +120,12 @@ export interface PostgameAiPlayerSnapshot {
     visionScore: number
     cs: number
     csPerMinute: number | null
+    doubleKills: number
+    tripleKills: number
+    quadraKills: number
+    pentaKills: number
+    largestKillingSpree: number | null
+    legendaryCount: number
   }
   loadout: {
     spellIds: number[]
@@ -131,6 +137,10 @@ export interface PostgameAiPlayerSnapshot {
     laneGoldDiffAt15?: number
     teamGoldDiffAt15?: number
     turretPlatesTaken?: number
+  }
+  factTags?: {
+    rankings: string[]
+    highlights: string[]
   }
 }
 
@@ -224,7 +234,7 @@ export function buildPostgameAiInputSnapshot(
   const teamTotals = createTeamTotals(participants)
   const teamGoldDiffAt15 = getTeamGoldDiffAtMinute(params.timeline, participants, 15)
   const laneGoldDiffAt15 = createLaneGoldDiffAtMinuteMap(params.timeline, participants, 15)
-  const players = participants.map(participant => toPlayerSnapshot(
+  const players = withPlayerFactTags(participants.map(participant => toPlayerSnapshot(
     participant,
     currentParticipantId,
     teamTotals,
@@ -232,7 +242,7 @@ export function buildPostgameAiInputSnapshot(
     teamGoldDiffAt15,
     laneGoldDiffAt15,
     params.championNamesById
-  ))
+  )))
   const timelineSnapshot = createTimelineSnapshot(params.timeline, detail, playerKeyByParticipantId)
   const hasRankedTimelineMetrics = match.isRanked
     && teamGoldDiffAt15 !== null
@@ -351,7 +361,9 @@ function formatPlayerFact(player: PostgameAiPlayerSnapshot, currentSide: Postgam
     `补刀${formatInteger(player.stats.cs)}`,
     player.stats.csPerMinute !== null ? `每分钟补刀${formatDecimal(player.stats.csPerMinute)}` : '',
     formatLoadoutFact(player),
-    formatRankedMetricFact(player)
+    formatRankedMetricFact(player),
+    formatFactTagGroup('排名', player.factTags?.rankings),
+    formatFactTagGroup('高光', player.factTags?.highlights)
   ].filter(Boolean)
 
   return `${parts.join('，')}。`
@@ -422,9 +434,13 @@ function formatRankedMetricFact(player: PostgameAiPlayerSnapshot): string {
     parts.push(`15分钟团队经济${formatSignedInteger(metrics.teamGoldDiffAt15)}`)
   }
   if (metrics.turretPlatesTaken !== undefined && metrics.turretPlatesTaken > 0) {
-    parts.push(`镀层${metrics.turretPlatesTaken}`)
+    parts.push(`个人镀层${metrics.turretPlatesTaken}`)
   }
   return parts.join('，')
+}
+
+function formatFactTagGroup(label: string, values: string[] | undefined): string {
+  return values?.length ? `${label}：${values.join('、')}` : ''
 }
 
 function formatObjectiveCount(label: string, value: number | null, options: { positiveOnly?: boolean } = {}): string {
@@ -766,7 +782,13 @@ function toPlayerSnapshot(
       damageToGoldRatio: calculateRate(damage, goldEarned),
       visionScore,
       cs,
-      csPerMinute: durationSeconds && durationSeconds > 0 ? roundMetric(cs / (durationSeconds / 60)) : null
+      csPerMinute: durationSeconds && durationSeconds > 0 ? roundMetric(cs / (durationSeconds / 60)) : null,
+      doubleKills: finiteNumberOrZero(stats.doubleKills),
+      tripleKills: finiteNumberOrZero(stats.tripleKills),
+      quadraKills: finiteNumberOrZero(stats.quadraKills),
+      pentaKills: finiteNumberOrZero(stats.pentaKills),
+      largestKillingSpree: readStatNumber(stats, 'largestKillingSpree'),
+      legendaryCount: finiteNumberOrZero(stats.legendaryCount)
     },
     loadout: {
       spellIds: [
@@ -778,6 +800,98 @@ function toPlayerSnapshot(
       augmentIds: readPositiveIds(stats, ['playerAugment1', 'playerAugment2', 'playerAugment3', 'playerAugment4', 'playerAugment5', 'playerAugment6'])
     },
     ...(rankedMetrics ? { rankedMetrics } : {})
+  }
+}
+
+function withPlayerFactTags(players: PostgameAiPlayerSnapshot[]): PostgameAiPlayerSnapshot[] {
+  const rankingFactsByPlayerKey = new Map<string, string[]>()
+
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'team', player => player.stats.totalDamageDealtToChampions, '伤害', 'first')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'all', player => player.stats.totalDamageDealtToChampions, '伤害', 'first')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'team', player => player.stats.goldEarned, '打钱', 'first')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'all', player => player.stats.goldEarned, '打钱', 'first')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'team', player => player.stats.assists, '助攻', 'first')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'all', player => player.stats.assists, '助攻', 'first')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'team', player => player.stats.deaths, '死亡', 'most')
+  addMaxRankingFacts(rankingFactsByPlayerKey, players, 'all', player => player.stats.deaths, '死亡', 'most')
+
+  return players.map(player => {
+    const rankings = rankingFactsByPlayerKey.get(player.playerKey) ?? []
+    const highlights = buildPlayerHighlightFacts(player)
+    if (!rankings.length && !highlights.length) {
+      return player
+    }
+
+    return {
+      ...player,
+      factTags: {
+        rankings,
+        highlights
+      }
+    }
+  })
+}
+
+function addMaxRankingFacts(
+  factsByPlayerKey: Map<string, string[]>,
+  players: PostgameAiPlayerSnapshot[],
+  scope: 'team' | 'all',
+  readValue: (player: PostgameAiPlayerSnapshot) => number,
+  metricLabel: string,
+  rankKind: 'first' | 'most'
+): void {
+  const groups = scope === 'team'
+    ? groupPlayersByTeam(players)
+    : [players]
+
+  for (const group of groups) {
+    const candidates = group
+      .map(player => ({ player, value: readValue(player) }))
+      .filter(entry => Number.isFinite(entry.value) && entry.value > 0)
+    if (!candidates.length) {
+      continue
+    }
+
+    const maxValue = Math.max(...candidates.map(entry => entry.value))
+    const leaders = candidates.filter(entry => entry.value === maxValue)
+    const scopeLabel = scope === 'team' ? '队内' : '全场'
+    const suffix = rankKind === 'first'
+      ? (leaders.length > 1 ? `${metricLabel}并列第一` : `${metricLabel}第一`)
+      : (leaders.length > 1 ? `${metricLabel}并列最多` : `${metricLabel}最多`)
+    for (const leader of leaders) {
+      const currentFacts = factsByPlayerKey.get(leader.player.playerKey) ?? []
+      currentFacts.push(`${scopeLabel}${suffix}`)
+      factsByPlayerKey.set(leader.player.playerKey, currentFacts)
+    }
+  }
+}
+
+function groupPlayersByTeam(players: PostgameAiPlayerSnapshot[]): PostgameAiPlayerSnapshot[][] {
+  const groups = new Map<number, PostgameAiPlayerSnapshot[]>()
+  for (const player of players) {
+    const group = groups.get(player.teamId) ?? []
+    group.push(player)
+    groups.set(player.teamId, group)
+  }
+  return [...groups.values()]
+}
+
+function buildPlayerHighlightFacts(player: PostgameAiPlayerSnapshot): string[] {
+  const facts: string[] = []
+  addPositiveCountFact(facts, '双杀', player.stats.doubleKills)
+  addPositiveCountFact(facts, '三杀', player.stats.tripleKills)
+  addPositiveCountFact(facts, '四杀', player.stats.quadraKills)
+  addPositiveCountFact(facts, '五杀', player.stats.pentaKills)
+  if (player.stats.largestKillingSpree !== null && player.stats.largestKillingSpree >= 5) {
+    facts.push(`最高连杀${formatInteger(player.stats.largestKillingSpree)}`)
+  }
+  addPositiveCountFact(facts, '超神', player.stats.legendaryCount)
+  return facts
+}
+
+function addPositiveCountFact(facts: string[], label: string, value: number): void {
+  if (Number.isFinite(value) && value > 0) {
+    facts.push(`${label}${formatInteger(value)}次`)
   }
 }
 

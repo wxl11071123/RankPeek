@@ -402,6 +402,68 @@ test('AI analysis repository saves results and queries by account, id, and input
   }
 })
 
+test('AI analysis repository stores postgame review and praise records with the same snapshot hash', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    const base = {
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_998877',
+      gameVersion: null,
+      modelName: 'deepseek-v4-flash',
+      inputHash: 'postgame-snapshot-hash',
+      outputJson: {
+        schemaVersion: 'postgame_ai_run_output.v1',
+        analysisType: 'postgame',
+        rawOutputText: 'raw',
+        completedAt: '2026-05-20T12:00:00.000Z',
+        usage: null,
+        costCny: null,
+        streamState: 'completed',
+        match: {
+          matchId: 'HN1_998877',
+          queueId: 420,
+          championId: 64,
+          championName: '盲僧',
+          win: true,
+          gameCreation: 1779278400000,
+          gameDuration: 1888
+        }
+      }
+    }
+
+    database.aiAnalyses.saveAnalysisResult({
+      ...base,
+      analysisType: 'postgame_review',
+      subjectKey: 'postgame:review',
+      promptVersion: 'postgame_review_result.v1',
+      outputJson: {
+        ...base.outputJson,
+        mode: 'review'
+      }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      ...base,
+      analysisType: 'postgame_praise',
+      subjectKey: 'postgame:praise',
+      promptVersion: 'postgame_praise_result.v1',
+      outputJson: {
+        ...base.outputJson,
+        mode: 'praise'
+      }
+    })
+
+    const byAccount = database.aiAnalyses.listAnalysisResultsByAccount('test-puuid', { limit: 10 })
+    assert.deepEqual(
+      byAccount.map(result => result.analysisType).sort(),
+      ['postgame_praise', 'postgame_review']
+    )
+    assert.equal(byAccount.filter(result => result.inputHash === 'postgame-snapshot-hash').length, 2)
+  } finally {
+    cleanup()
+  }
+})
+
 test('storage retention keeps the newest 500 match records per account', () => {
   const { database, cleanup } = createTempLocalDatabase()
 

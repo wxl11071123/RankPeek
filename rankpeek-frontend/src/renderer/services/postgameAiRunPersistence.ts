@@ -104,7 +104,7 @@ export function createPostgameAiRunResultPayload({
     subjectKey: `postgame:${mode}`,
     gameVersion: null,
     modelName: usage?.model ?? null,
-    promptVersion: mode === 'review' ? 'postgame_review_result.v1' : 'postgame_praise.v1',
+    promptVersion: mode === 'review' ? 'postgame_review_result.v1' : 'postgame_praise_result.v1',
     inputHash: snapshot.inputHash,
     outputJson: runOutput
   }

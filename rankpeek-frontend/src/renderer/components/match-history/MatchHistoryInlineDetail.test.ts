@@ -338,7 +338,8 @@ test('inline match detail exposes postgame AI buttons near tabs and wires modal 
   assert.ok(tabsIndex >= 0 && actionIndex > tabsIndex && actionIndex < bodyIndex)
   assert.match(actionBlock, /@click="openPostgameAiModal\('review'\)"[\s\S]*赛后复盘/)
   assert.match(actionBlock, /@click="openPostgameAiModal\('praise'\)"[\s\S]*夸夸机/)
-  assert.match(source, /<PostgameAiAnalysisModal[\s\S]*:open="postgameAiModalOpen"[\s\S]*:mode="postgameAiModalMode"[\s\S]*:stream-state="postgameAiStreamState"[\s\S]*:stream-text="postgameAiStreamText"[\s\S]*:stream-error="postgameAiStreamError"[\s\S]*:stream-usage="postgameAiStreamUsage"[\s\S]*:roster-players="postgameAiReviewRosterPlayers"[\s\S]*@start-analysis="startPostgameAiAnalysis"[\s\S]*@cancel-analysis="cancelPostgameAiAnalysis"[\s\S]*@close="closePostgameAiModal"/)
+  assert.match(source, /<PostgameAiAnalysisModal[\s\S]*:open="postgameAiModalOpen"[\s\S]*:mode="postgameAiModalMode"[\s\S]*:stream-state="postgameAiStreamState"[\s\S]*:stream-text="postgameAiStreamText"[\s\S]*:stream-error="postgameAiStreamError"[\s\S]*:roster-players="postgameAiReviewRosterPlayers"[\s\S]*@start-analysis="startPostgameAiAnalysis"[\s\S]*@cancel-analysis="cancelPostgameAiAnalysis"[\s\S]*@close="closePostgameAiModal"/)
+  assert.doesNotMatch(source, /:stream-usage="postgameAiStreamUsage"/)
 })
 
 test('inline match detail postgame AI handlers open review and praise modes then close', () => {

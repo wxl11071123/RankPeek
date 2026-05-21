@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, watch } from 'vue'
 import {
   parsePartialPostgameAiStructuredResult,
+  parsePostgameAiPraiseResult,
   parsePostgameAiStructuredResult,
   type PostgameAiReviewRosterPlayer,
   type PostgameAiStructuredPlayer
@@ -10,7 +11,6 @@ import {
   downloadPostgameReviewImage,
   resolvePostgameReviewPlayerIconUrl
 } from '@/services/postgameAiShareImage'
-import type { PostgameAiTokenUsage } from '@/services/postgameAiServerStream'
 import { getChampionIconUrl } from '@/utils/gameAssetUrls'
 
 type PostgameAiAnalysisMode = 'review' | 'praise'
@@ -22,7 +22,6 @@ const props = withDefaults(defineProps<{
   streamState?: PostgameAiStreamState
   streamText?: string
   streamError?: string
-  streamUsage?: PostgameAiTokenUsage | null
   rosterPlayers?: PostgameAiReviewRosterPlayer[]
   championIdByName?: Record<string, number>
   showStartButton?: boolean
@@ -31,7 +30,6 @@ const props = withDefaults(defineProps<{
   streamState: 'idle',
   streamText: '',
   streamError: '',
-  streamUsage: null,
   rosterPlayers: () => [],
   championIdByName: () => ({}),
   showStartButton: true
@@ -56,16 +54,14 @@ const partialPostgameReview = computed(() => props.mode === 'review' && !structu
 const displayedPostgameReview = computed(() => structuredPostgameReview.value
   ?? (partialPostgameReview.value.ok ? partialPostgameReview.value.result : null))
 const postgameReviewRows = computed(() => displayedPostgameReview.value?.levels ?? [])
+const parsedPostgamePraise = computed(() => props.mode === 'praise'
+  ? parsePostgameAiPraiseResult(props.streamText)
+  : { ok: false as const, error: '不是夸夸机模式' })
+const displayedPostgamePraise = computed(() => parsedPostgamePraise.value.ok ? parsedPostgamePraise.value.result : null)
 const modalTitle = computed(() => props.mode === 'praise' ? '夸夸机' : '赛后复盘')
 const modalDescription = computed(() => props.mode === 'praise'
-  ? '只做情绪价值和夸赞安慰，本轮先验证赛后 snapshot 数据接收。'
+  ? '只负责把你这局说舒服，不做教学复盘。'
   : '从夯到拉排位表会按 5 档展示 10 个玩家，并把客观总结一起放进可分享图片。')
-const tokenUsageLine = computed(() => props.streamUsage
-  ? `输入 ${formatTokenCount(props.streamUsage.promptTokens)}（缓存命中 ${formatTokenCount(props.streamUsage.promptCacheHitTokens)} / 未命中 ${formatTokenCount(props.streamUsage.promptCacheMissTokens)}），输出 ${formatTokenCount(props.streamUsage.completionTokens)}，总计 ${formatTokenCount(props.streamUsage.totalTokens)}`
-  : '')
-const tokenCostLine = computed(() => props.streamUsage
-  ? `估算成本：¥${formatCny(props.streamUsage.cost.totalCny)}（按大陆 API 人民币价格）`
-  : '')
 const primaryButtonText = computed(() => {
   if (props.streamState === 'preparing') {
     return '准备中'
@@ -87,20 +83,6 @@ function emitStartAnalysis(): void {
     return
   }
   emit('start-analysis')
-}
-
-function formatTokenCount(value: number): string {
-  return Math.max(0, Math.round(value)).toLocaleString('zh-CN')
-}
-
-function formatCny(value: number): string {
-  if (value > 0 && value < 0.000001) {
-    return value.toFixed(10)
-  }
-  if (value < 0.01) {
-    return value.toFixed(6)
-  }
-  return value.toFixed(4)
 }
 
 function getPostgameReviewPlayerIconUrl(player: PostgameAiStructuredPlayer): string {
@@ -185,23 +167,6 @@ onBeforeUnmount(() => {
 
         <div class="postgame-ai-analysis-body">
           <section
-            v-if="props.streamState === 'preparing' || props.streamState === 'streaming'"
-            class="postgame-ai-analysis-status"
-            role="status"
-          >
-            {{ props.streamState === 'preparing' ? '正在整理本局数据' : '正在接收 rankpeek-server stream' }}
-          </section>
-
-          <section
-            v-if="props.streamUsage"
-            class="postgame-ai-token-usage"
-          >
-            <strong>Token 用量</strong>
-            <span>{{ tokenUsageLine }}</span>
-            <span>{{ tokenCostLine }}</span>
-          </section>
-
-          <section
             v-if="displayedPostgameReview"
             class="postgame-ai-analysis-result postgame-ai-analysis-structured"
           >
@@ -260,7 +225,26 @@ onBeforeUnmount(() => {
           </section>
 
           <section
-            v-else-if="hasStreamOutput && streamText && (mode !== 'review' || props.streamState === 'completed')"
+            v-else-if="displayedPostgamePraise"
+            class="postgame-ai-analysis-result postgame-praise-card"
+          >
+            <h3 class="postgame-praise-headline">
+              {{ displayedPostgamePraise.headline }}
+            </h3>
+            <p class="postgame-praise-body">
+              {{ displayedPostgamePraise.body }}
+            </p>
+          </section>
+
+          <section
+            v-else-if="hasStreamOutput && mode === 'praise'"
+            class="postgame-ai-analysis-result"
+          >
+            <p class="postgame-ai-analysis-streaming-note">正在组织夸夸内容，正文出来后会自动显示。</p>
+          </section>
+
+          <section
+            v-else-if="hasStreamOutput && streamText && mode !== 'review' && mode !== 'praise'"
             class="postgame-ai-analysis-result"
           >
             <pre class="postgame-ai-analysis-stream-text">{{ streamText }}</pre>
@@ -393,7 +377,6 @@ onBeforeUnmount(() => {
 }
 
 .postgame-ai-analysis-placeholder,
-.postgame-ai-analysis-status,
 .postgame-ai-analysis-result,
 .postgame-ai-analysis-error {
   display: grid;
@@ -411,37 +394,12 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.postgame-ai-analysis-status {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 750;
-}
-
 .postgame-ai-analysis-error {
   border-color: rgba(239, 111, 122, 0.32);
   background: rgba(239, 111, 122, 0.08);
   color: #ef6f7a;
   font-size: 13px;
   font-weight: 750;
-}
-
-.postgame-ai-token-usage {
-  display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-  border: 1px solid rgba(98, 212, 158, 0.22);
-  border-radius: 8px;
-  background: rgba(98, 212, 158, 0.08);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.4;
-}
-
-.postgame-ai-token-usage strong {
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 900;
 }
 
 .postgame-ai-analysis-eyebrow {
@@ -475,6 +433,48 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 750;
   line-height: 1.45;
+}
+
+.postgame-praise-card {
+  position: relative;
+  gap: 13px;
+  padding: 22px 24px 24px;
+  overflow: hidden;
+  border-style: solid;
+  border-color: rgba(236, 198, 96, 0.34);
+  background:
+    linear-gradient(135deg, rgba(236, 198, 96, 0.13), rgba(var(--accent-rgb), 0.07) 48%, rgba(255, 255, 255, 0.025)),
+    rgba(16, 21, 27, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 16px 34px rgba(0, 0, 0, 0.22);
+}
+
+.postgame-praise-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, #ecc660, rgba(98, 212, 158, 0.75), rgba(var(--accent-rgb), 0.62));
+  pointer-events: none;
+}
+
+.postgame-praise-headline {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.18;
+  letter-spacing: 0;
+}
+
+.postgame-praise-body {
+  margin: 0;
+  color: rgba(245, 248, 252, 0.94);
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.9;
+  white-space: pre-wrap;
 }
 
 .postgame-ladu-chart {
@@ -673,6 +673,19 @@ onBeforeUnmount(() => {
   .postgame-ai-analysis-body {
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .postgame-praise-card {
+    padding: 18px 16px 20px;
+  }
+
+  .postgame-praise-headline {
+    font-size: 21px;
+  }
+
+  .postgame-praise-body {
+    font-size: 14px;
+    line-height: 1.8;
   }
 }
 </style>

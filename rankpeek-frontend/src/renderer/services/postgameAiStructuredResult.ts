@@ -24,6 +24,12 @@ export interface PostgameAiStructuredResult {
   summary: string
 }
 
+export interface PostgameAiPraiseResult {
+  schemaVersion: 'postgame_praise_result.v1'
+  headline: string
+  body: string
+}
+
 export interface PostgameAiReviewRosterPlayer {
   playerRef: string
   championName: string
@@ -41,6 +47,12 @@ export type PostgameAiStructuredParseResult =
 export type PostgameAiStructuredPartialParseResult =
   | { ok: true; result: PostgameAiStructuredResult; partial: boolean }
   | { ok: false; error: string }
+
+export type PostgameAiPraiseParseResult =
+  | { ok: true; result: PostgameAiPraiseResult }
+  | { ok: false; error: string }
+
+const POSTGAME_PRAISE_HEADLINE_FALLBACK = '这局你有东西的'
 
 export function parsePostgameAiStructuredResult(text: string): PostgameAiStructuredParseResult {
   const jsonText = extractJsonObject(text)
@@ -83,6 +95,52 @@ export function parsePostgameAiStructuredResult(text: string): PostgameAiStructu
   }
 }
 
+export function parsePostgameAiPraiseResult(text: string): PostgameAiPraiseParseResult {
+  const jsonText = extractJsonObject(text)
+  if (jsonText) {
+    let payload: unknown
+    try {
+      payload = JSON.parse(jsonText)
+    } catch {
+      payload = null
+    }
+
+    if (payload && typeof payload === 'object') {
+      const source = payload as Record<string, unknown>
+      const body = normalizePraiseBody(readNonEmptyString(source.body))
+      if (body) {
+        const headline = normalizePraiseHeadline(readNonEmptyString(source.headline))
+          || createPraiseHeadlineFromBody(body)
+        return createPraiseResult(headline, body)
+      }
+    }
+  }
+
+  const source = stripJsonFence(text)
+  const partialBody = normalizePraiseBody(
+    extractCompleteJsonStringField(source, 'body')
+      || extractPartialJsonStringField(source, 'body')
+  )
+  if (partialBody) {
+    const partialHeadline = normalizePraiseHeadline(
+      extractCompleteJsonStringField(source, 'headline')
+        || extractPartialJsonStringField(source, 'headline')
+    ) || createPraiseHeadlineFromBody(partialBody)
+    return createPraiseResult(partialHeadline, partialBody)
+  }
+
+  if (looksLikeStructuredPraiseJson(source)) {
+    return { ok: false, error: '夸夸机 JSON 正在生成正文' }
+  }
+
+  const fallback = normalizeLegacyPraiseText(text)
+  if (fallback.body) {
+    return createPraiseResult(fallback.headline || createPraiseHeadlineFromBody(fallback.body), fallback.body)
+  }
+
+  return { ok: false, error: '未找到夸夸机正文' }
+}
+
 export function parsePartialPostgameAiStructuredResult(text: string): PostgameAiStructuredPartialParseResult {
   const complete = parsePostgameAiStructuredResult(text)
   if (complete.ok) {
@@ -102,6 +160,7 @@ export function parsePartialPostgameAiStructuredResult(text: string): PostgameAi
 
   const players = [...playersByKey.values()]
   const summary = extractCompleteJsonStringField(source, 'summary')
+    || extractPartialJsonStringField(source, 'summary')
   if (!players.length && !summary) {
     return { ok: false, error: complete.error }
   }
@@ -117,6 +176,108 @@ export function parsePartialPostgameAiStructuredResult(text: string): PostgameAi
       summary
     }
   }
+}
+
+function createPraiseResult(headline: string, body: string): PostgameAiPraiseParseResult {
+  return {
+    ok: true,
+    result: {
+      schemaVersion: 'postgame_praise_result.v1',
+      headline: headline || POSTGAME_PRAISE_HEADLINE_FALLBACK,
+      body
+    }
+  }
+}
+
+function normalizeLegacyPraiseText(text: string): { headline: string; body: string } {
+  const lines = stripJsonFence(text)
+    .split(/\r?\n/)
+    .map(cleanPraiseLine)
+    .filter((line): line is string => Boolean(line))
+
+  if (!lines.length) {
+    return { headline: '', body: '' }
+  }
+
+  const [firstLine, ...restLines] = lines
+  const firstAsHeadline = normalizePraiseHeadline(firstLine)
+  if (firstAsHeadline && restLines.length > 0 && isLikelyStandalonePraiseHeadline(firstLine)) {
+    const body = normalizePraiseBody(restLines.join(' '))
+    return { headline: firstAsHeadline, body }
+  }
+
+  const body = normalizePraiseBody(lines.join(' '))
+  return { headline: createPraiseHeadlineFromBody(body), body }
+}
+
+function normalizePraiseHeadline(value: string): string {
+  const compact = normalizePraiseBody(value)
+    .replace(/^【([^】]+)】$/u, '$1')
+    .replace(/[。！？.!?]+$/u, '')
+    .trim()
+  if (!compact || compact.length > 28 || /[。！？.!?].+/.test(compact) || isBannedPraiseHeadline(compact)) {
+    return ''
+  }
+  return compact
+}
+
+function normalizePraiseBody(value: string): string {
+  const lines = stripJsonFence(value)
+    .split(/\r?\n/)
+    .map(cleanPraiseLine)
+    .filter((line): line is string => Boolean(line))
+  return lines.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+function cleanPraiseLine(value: string): string {
+  const line = value
+    .trim()
+    .replace(/^#{1,6}\s*/u, '')
+    .replace(/^\s*(?:[-*•]|\d+[.、])\s*/u, '')
+    .replace(/\*\*/g, '')
+    .trim()
+
+  if (!line) {
+    return ''
+  }
+  if (/^DeepSeek\s*分析$/iu.test(line) || /^RankPeek\s*分析$/iu.test(line)) {
+    return ''
+  }
+  const bracketTitle = line.match(/^【([^】]+)】$/u)?.[1]?.trim()
+  if (bracketTitle) {
+    return bracketTitle
+  }
+  if (/证据条/u.test(line)) {
+    return ''
+  }
+  return line
+}
+
+function looksLikeStructuredPraiseJson(text: string): boolean {
+  const compact = stripJsonFence(text).trim()
+  return compact.startsWith('{') ||
+    /postgame_praise_result\.v1/u.test(compact) ||
+    /"(?:schemaVersion|headline|body)"\s*:/u.test(compact)
+}
+
+function createPraiseHeadlineFromBody(body: string): string {
+  const compact = body.replace(/\s+/g, ' ').trim()
+  const firstClause = compact.match(/^(.{4,28}?)[，,。！？.!?]/u)?.[1]?.trim() ?? ''
+  const normalizedFirstClause = normalizePraiseHeadline(firstClause)
+  if (normalizedFirstClause) {
+    return normalizedFirstClause
+  }
+  return POSTGAME_PRAISE_HEADLINE_FALLBACK
+}
+
+function isBannedPraiseHeadline(value: string): boolean {
+  return /这把真不能全怪你/u.test(value)
+    || /^这局真的?不能怪你$/u.test(value)
+    || /^不是你的锅$/u.test(value)
+}
+
+function isLikelyStandalonePraiseHeadline(value: string): boolean {
+  return Boolean(normalizePraiseHeadline(value))
 }
 
 function normalizeLevels(rawLevels: unknown[]): PostgameAiStructuredLevel[] {
@@ -352,6 +513,52 @@ function extractCompleteJsonStringField(text: string, fieldName: string): string
     }
   }
   return ''
+}
+
+function extractPartialJsonStringField(text: string, fieldName: string): string {
+  const fieldPattern = new RegExp(`"${escapeRegExp(fieldName)}"\\s*:\\s*"`, 'g')
+  const match = fieldPattern.exec(text)
+  if (!match) {
+    return ''
+  }
+
+  const contentStart = match.index + match[0].length
+  let rawValue = ''
+  let escaped = false
+  for (let index = contentStart; index < text.length; index += 1) {
+    const char = text[index]
+    if (escaped) {
+      rawValue += `\\${char}`
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+    if (char === '"') {
+      return ''
+    }
+    rawValue += char
+  }
+
+  if (escaped) {
+    rawValue += '\\'
+  }
+  return decodeJsonStringFragment(rawValue).trim()
+}
+
+function decodeJsonStringFragment(rawValue: string): string {
+  try {
+    return JSON.parse(`"${rawValue.replace(/\r?\n/g, '\\n')}"`) as string
+  } catch {
+    return rawValue
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+  }
 }
 
 function escapeRegExp(value: string): string {

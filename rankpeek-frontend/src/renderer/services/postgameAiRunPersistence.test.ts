@@ -235,6 +235,7 @@ test('praise mode changes only the stored analysis type and mode metadata', () =
 
   assert.equal(payload.analysisType, 'postgame_praise')
   assert.equal(payload.subjectKey, 'postgame:praise')
+  assert.equal(payload.promptVersion, 'postgame_praise_result.v1')
   assert.equal((payload.outputJson as Record<string, unknown>).mode, 'praise')
 })
 

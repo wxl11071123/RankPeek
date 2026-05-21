@@ -283,6 +283,49 @@ test('adds compact final item and rune build facts to every player line', () => 
   assert.equal(snapshot.analysisBrief.playerFacts.filter(fact => fact.includes('符文：')).length, 10)
 })
 
+test('adds explicit player ranking and highlight facts for postgame AI wording', () => {
+  const detail = createGameDetail()
+  detail.participants = detail.participants.map(participant => {
+    if (participant.participantId !== 1) {
+      return participant
+    }
+
+    return {
+      ...participant,
+      stats: {
+        ...participant.stats,
+        kills: 18,
+        deaths: 12,
+        assists: 25,
+        goldEarned: 22000,
+        totalDamageDealtToChampions: 52000,
+        doubleKills: 2,
+        tripleKills: 1,
+        quadraKills: 1,
+        pentaKills: 1,
+        largestKillingSpree: 9,
+        legendaryCount: 1,
+        turretPlatesTaken: 3
+      }
+    }
+  })
+
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory: createMatchHistory(),
+    gameDetail: detail,
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+
+  const currentPlayerFact = snapshot.analysisBrief.playerFacts[0] ?? ''
+  assert.match(currentPlayerFact, /排名：队内伤害第一、全场伤害第一、队内打钱第一、全场打钱第一、队内助攻第一、全场助攻第一、队内死亡最多、全场死亡最多/)
+  assert.match(currentPlayerFact, /高光：双杀2次、三杀1次、四杀1次、五杀1次、最高连杀9、超神1次/)
+  assert.match(currentPlayerFact, /个人镀层3/)
+  assert.doesNotMatch(currentPlayerFact, /，镀层3/)
+})
+
 test('keeps one mode-neutral snapshot hash for review and praise usage', () => {
   const base = {
     matchHistory: createMatchHistory(),

@@ -14,7 +14,11 @@ import {
   normalizePostgameAiRunOutput,
   type PostgameAiRunOutputV1
 } from './postgameAiRunPersistence.ts'
-import { parsePostgameAiStructuredResult } from './postgameAiStructuredResult.ts'
+import {
+  parsePostgameAiPraiseResult,
+  parsePostgameAiStructuredResult,
+  type PostgameAiPraiseResult
+} from './postgameAiStructuredResult.ts'
 import {
   listFallbackAiAnalysisResultsByAccount,
   type BrowserAiAnalysisStorage
@@ -47,6 +51,7 @@ export interface ParsedAiAnalysisOutput {
   summary: string
   highlights: string[]
   postgameRun?: PostgameAiRunOutputV1
+  postgamePraise?: PostgameAiPraiseResult
 }
 
 export interface LocalAiAnalysisDisplayResult extends AiAnalysisResult {
@@ -466,13 +471,17 @@ function normalizePostgameRunOutput(postgameRun: PostgameAiRunOutputV1): ParsedA
   const structuredSummary = postgameRun.mode === 'review'
     ? getStructuredPostgameSummary(postgameRun.rawOutputText)
     : ''
+  const praiseSummary = postgameRun.mode === 'praise'
+    ? getStructuredPostgamePraiseResult(postgameRun.rawOutputText)
+    : null
 
   return {
     status: 'parsed',
-    title: postgameRun.mode === 'praise' ? '夸夸机' : '赛后复盘',
-    summary: structuredSummary || truncate(postgameRun.rawOutputText),
-    highlights: createPostgameRunHighlights(postgameRun),
-    postgameRun
+    title: createPostgameRunTitle(postgameRun),
+    summary: structuredSummary || praiseSummary?.body || truncate(postgameRun.rawOutputText),
+    highlights: [],
+    postgameRun,
+    ...(praiseSummary ? { postgamePraise: praiseSummary } : {})
   }
 }
 
@@ -481,24 +490,25 @@ function getStructuredPostgameSummary(rawOutputText: string): string {
   return parsed.ok ? parsed.result.summary : ''
 }
 
-function createPostgameRunHighlights(postgameRun: PostgameAiRunOutputV1): string[] {
-  const highlights: string[] = []
-  if (postgameRun.usage) {
-    highlights.push(
-      `输入 ${formatTokenCount(postgameRun.usage.promptTokens)} / 输出 ${formatTokenCount(postgameRun.usage.completionTokens)} / 成本 ¥${formatCny(postgameRun.usage.cost.totalCny)}`
-    )
-  }
+function getStructuredPostgamePraiseResult(rawOutputText: string): PostgameAiPraiseResult | null {
+  const parsed = parsePostgameAiPraiseResult(rawOutputText)
+  return parsed.ok ? parsed.result : null
+}
 
-  const matchParts = [
-    postgameRun.match.matchId ? `对局 ${postgameRun.match.matchId}` : '',
-    postgameRun.match.championName ?? '',
-    formatWinState(postgameRun.match.win)
-  ].filter(Boolean)
-  if (matchParts.length) {
-    highlights.push(matchParts.join(' / '))
+function createPostgameRunTitle(postgameRun: PostgameAiRunOutputV1): string {
+  const fallbackTitle = postgameRun.mode === 'praise' ? '夸夸机' : '赛后复盘'
+  const championName = postgameRun.match.championName?.trim() ?? ''
+  const winState = formatWinState(postgameRun.match.win)
+  if (championName && winState) {
+    return `${championName} · ${winState}`
   }
-
-  return highlights
+  if (championName) {
+    return championName
+  }
+  if (winState) {
+    return `${fallbackTitle} · ${winState}`
+  }
+  return fallbackTitle
 }
 
 function formatWinState(win: boolean | null): string {
@@ -509,20 +519,6 @@ function formatWinState(win: boolean | null): string {
     return '失败'
   }
   return ''
-}
-
-function formatTokenCount(value: number): string {
-  return Math.max(0, Math.round(value)).toLocaleString('zh-CN')
-}
-
-function formatCny(value: number): string {
-  if (value > 0 && value < 0.000001) {
-    return value.toFixed(10)
-  }
-  if (value < 0.01) {
-    return value.toFixed(6)
-  }
-  return value.toFixed(4)
 }
 
 function getSectionHighlights(sections: unknown): string[] {

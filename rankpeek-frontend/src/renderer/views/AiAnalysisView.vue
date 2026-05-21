@@ -18,6 +18,16 @@ import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 type ReportTypeFilter = 'all' | 'pregame' | 'postgame' | 'praise' | 'coach'
 type ReportCategory = Exclude<ReportTypeFilter, 'all'> | 'fun' | 'other'
+type SavedPostgameReplayState = 'streaming' | 'completed'
+
+const SAVED_POSTGAME_REPLAY_INITIAL_DELAY_MS = 180
+const SAVED_POSTGAME_REPLAY_TARGET_DURATION_MS = 5200
+const SAVED_POSTGAME_REPLAY_MIN_STEP_DELAY_MS = 38
+const SAVED_POSTGAME_REPLAY_MAX_STEP_DELAY_MS = 120
+const SAVED_POSTGAME_REPLAY_SENTENCE_DELAY_MS = 180
+const SAVED_POSTGAME_REPLAY_COMMA_DELAY_MS = 80
+const SAVED_POSTGAME_REPLAY_MIN_STEPS = 60
+const SAVED_POSTGAME_REPLAY_MAX_STEPS = 140
 
 interface FeatureCard {
   key: string
@@ -33,6 +43,8 @@ const gameStore = useGameStore()
 const analysisResults = ref<LocalAiAnalysisDisplayResult[]>([])
 const selectedPostgameResult = ref<LocalAiAnalysisDisplayResult | null>(null)
 const selectedPostgameChampionIdByName = ref<Record<string, number>>({})
+const selectedPostgameReplayText = ref('')
+const selectedPostgameReplayState = ref<SavedPostgameReplayState>('completed')
 const loadingResults = ref(false)
 const historyUnavailable = ref(false)
 const historyError = ref<string | null>(null)
@@ -51,6 +63,7 @@ let loadRequestId = 0
 let prepareRequestId = 0
 let memoryStatsRequestId = 0
 let championIdByNamePromise: Promise<Record<string, number>> | null = null
+let selectedPostgameReplayTimer: ReturnType<typeof window.setTimeout> | null = null
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
 const accountPuuid = computed(() => currentSummoner.value?.puuid ?? '')
@@ -181,7 +194,7 @@ watch(
   () => accountPuuid.value,
   () => {
     prepareRequestId += 1
-    selectedPostgameResult.value = null
+    closeReportDetail()
     resetPreparedSnapshot()
     void loadAiMemoryStats()
     void refreshLocalAnalysisResults()
@@ -195,6 +208,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
+  stopSavedPostgameReplay()
 })
 
 function handleLocalAiAnalysisResultSaved() {
@@ -268,28 +282,90 @@ function getReportScopeLabel(result: LocalAiAnalysisDisplayResult) {
 }
 
 function openReportDetail(result: LocalAiAnalysisDisplayResult) {
-  if (!result.output.postgameRun) {
+  const postgameRun = result.output.postgameRun
+  if (!postgameRun) {
     return
   }
   selectedPostgameResult.value = result
+  startSavedPostgameReplay(postgameRun.rawOutputText)
   void hydrateSelectedPostgameChampionNames()
 }
 
 function closeReportDetail() {
+  stopSavedPostgameReplay()
+  selectedPostgameReplayText.value = ''
+  selectedPostgameReplayState.value = 'completed'
   selectedPostgameResult.value = null
+}
+
+function startSavedPostgameReplay(rawText: string) {
+  stopSavedPostgameReplay()
+  const fullText = rawText ?? ''
+  selectedPostgameReplayText.value = ''
+
+  if (!fullText) {
+    selectedPostgameReplayState.value = 'completed'
+    return
+  }
+
+  selectedPostgameReplayState.value = 'streaming'
+  let offset = 0
+  const targetStepCount = clampNumber(
+    Math.ceil(fullText.length / 4),
+    SAVED_POSTGAME_REPLAY_MIN_STEPS,
+    SAVED_POSTGAME_REPLAY_MAX_STEPS
+  )
+  const chunkSize = Math.max(1, Math.ceil(fullText.length / targetStepCount))
+  const stepCount = Math.max(1, Math.ceil(fullText.length / chunkSize))
+  const stepDelay = clampNumber(
+    Math.round(SAVED_POSTGAME_REPLAY_TARGET_DURATION_MS / stepCount),
+    SAVED_POSTGAME_REPLAY_MIN_STEP_DELAY_MS,
+    SAVED_POSTGAME_REPLAY_MAX_STEP_DELAY_MS
+  )
+
+  const revealNextChunk = () => {
+    const previousOffset = offset
+    offset = Math.min(fullText.length, offset + chunkSize)
+    selectedPostgameReplayText.value = fullText.slice(0, offset)
+
+    if (offset >= fullText.length) {
+      selectedPostgameReplayState.value = 'completed'
+      selectedPostgameReplayTimer = null
+      return
+    }
+
+    const delay = getSavedPostgameReplayDelay(fullText.slice(previousOffset, offset), stepDelay)
+    selectedPostgameReplayTimer = window.setTimeout(revealNextChunk, delay)
+  }
+
+  selectedPostgameReplayTimer = window.setTimeout(revealNextChunk, SAVED_POSTGAME_REPLAY_INITIAL_DELAY_MS)
+}
+
+function stopSavedPostgameReplay() {
+  if (selectedPostgameReplayTimer === null) {
+    return
+  }
+
+  window.clearTimeout(selectedPostgameReplayTimer)
+  selectedPostgameReplayTimer = null
+}
+
+function getSavedPostgameReplayDelay(chunk: string, baseDelay: number) {
+  if (/[。！？.!?]\s*$/u.test(chunk)) {
+    return baseDelay + SAVED_POSTGAME_REPLAY_SENTENCE_DELAY_MS
+  }
+  if (/[，、；;：:]\s*$/u.test(chunk)) {
+    return baseDelay + SAVED_POSTGAME_REPLAY_COMMA_DELAY_MS
+  }
+  return baseDelay
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
 }
 
 function noopPostgameDetailAction() {
   // Read-only history details do not start or cancel live analysis.
-}
-
-function getReportUsageLabel(result: LocalAiAnalysisDisplayResult) {
-  const usage = result.output.postgameRun?.usage
-  if (!usage) {
-    return ''
-  }
-
-  return `输入 ${formatTokenCount(usage.promptTokens)} / 输出 ${formatTokenCount(usage.completionTokens)} / 成本 ¥${formatCny(usage.cost.totalCny)}`
 }
 
 async function hydrateSelectedPostgameChampionNames() {
@@ -343,20 +419,6 @@ function getAnalysisTypeLabel(analysisType: string) {
     .filter(Boolean)
     .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(' ')
-}
-
-function formatTokenCount(value: number) {
-  return Math.max(0, Math.round(value)).toLocaleString('zh-CN')
-}
-
-function formatCny(value: number) {
-  if (value > 0 && value < 0.000001) {
-    return value.toFixed(10)
-  }
-  if (value < 0.01) {
-    return value.toFixed(6)
-  }
-  return value.toFixed(4)
 }
 
 function formatMemoryDate(value: string) {
@@ -667,7 +729,11 @@ async function refreshLocalAnalysisResults() {
           v-for="result in filteredAnalysisResults"
           :key="result.id"
           class="report-card"
-          :class="{ invalid: result.output.status === 'invalid', clickable: Boolean(result.output.postgameRun) }"
+          :class="{
+            invalid: result.output.status === 'invalid',
+            clickable: Boolean(result.output.postgameRun),
+            praise: Boolean(result.output.postgamePraise)
+          }"
           :tabindex="result.output.postgameRun ? 0 : undefined"
           @click="openReportDetail(result)"
           @keydown.enter="openReportDetail(result)"
@@ -677,30 +743,27 @@ async function refreshLocalAnalysisResults() {
               <span class="report-type-pill">{{ getReportCategoryLabel(result) }}</span>
               <time>{{ result.createdAtLabel }}</time>
             </div>
-            <h3>{{ getReportTitle(result) }}</h3>
-            <p>{{ result.output.summary }}</p>
+            <div v-if="result.output.postgamePraise" class="report-praise-card">
+              <h3 class="report-praise-headline">
+                {{ result.output.postgamePraise.headline }}
+              </h3>
+              <p class="report-praise-body">
+                {{ result.output.postgamePraise.body }}
+              </p>
+            </div>
+            <template v-else>
+              <h3>{{ getReportTitle(result) }}</h3>
+              <p>{{ result.output.summary }}</p>
+            </template>
           </div>
 
           <ul v-if="result.output.highlights.length" class="report-highlights">
             <li v-for="highlight in result.output.highlights.slice(0, 3)" :key="highlight">{{ highlight }}</li>
           </ul>
 
-          <div
-            v-if="getReportUsageLabel(result)"
-            class="report-usage"
-          >
-            {{ getReportUsageLabel(result) }}
-          </div>
-
           <div class="report-context">
             <span>{{ currentSummonerName || t('aiAnalysis.currentAccountFallback') }}</span>
             <span>{{ getReportScopeLabel(result) }}</span>
-          </div>
-
-          <div class="report-meta">
-            <span>{{ t('aiAnalysis.subjectKey') }}: {{ result.subjectKey || t('common.none') }}</span>
-            <span>{{ t('aiAnalysis.gameVersion') }}: {{ result.gameVersion || t('common.none') }}</span>
-            <span>{{ t('aiAnalysis.modelName') }}: {{ result.modelName || t('common.none') }}</span>
           </div>
         </article>
       </div>
@@ -709,9 +772,8 @@ async function refreshLocalAnalysisResults() {
         v-if="selectedPostgameRun"
         :open="Boolean(selectedPostgameRun)"
         :mode="selectedPostgameRunMode"
-        stream-state="completed"
-        :stream-text="selectedPostgameRun.rawOutputText"
-        :stream-usage="selectedPostgameRun.usage"
+        :stream-state="selectedPostgameReplayState"
+        :stream-text="selectedPostgameReplayText"
         :roster-players="selectedPostgameModalRosterPlayers"
         :champion-id-by-name="selectedPostgameChampionIdByName"
         :show-start-button="false"
@@ -893,12 +955,6 @@ async function refreshLocalAnalysisResults() {
   box-shadow: var(--ai-analysis-control-hover-shadow);
   color: var(--text-primary);
   outline: none;
-}
-
-.report-meta span {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
 }
 
 .account-avatar,
@@ -1211,6 +1267,27 @@ async function refreshLocalAnalysisResults() {
   outline: none;
 }
 
+.report-card.praise {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(236, 198, 96, 0.34);
+  background:
+    linear-gradient(135deg, rgba(236, 198, 96, 0.13), rgba(var(--accent-rgb), 0.07) 48%, rgba(255, 255, 255, 0.025)),
+    rgba(16, 21, 27, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 16px 34px rgba(0, 0, 0, 0.18);
+}
+
+.report-card.praise::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, #ecc660, rgba(98, 212, 158, 0.75), rgba(var(--accent-rgb), 0.62));
+  pointer-events: none;
+}
+
 .report-topline {
   display: flex;
   align-items: flex-start;
@@ -1227,6 +1304,28 @@ async function refreshLocalAnalysisResults() {
 
 .report-card h3 {
   font-size: 17px;
+}
+
+.report-praise-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.report-praise-headline {
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.report-praise-body {
+  margin: 0;
+  color: rgba(245, 248, 252, 0.94);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .report-main p {
@@ -1269,36 +1368,9 @@ async function refreshLocalAnalysisResults() {
   font-weight: 650;
 }
 
-.report-usage {
-  margin-top: 12px;
-  padding: 9px 10px;
-  border: 1px solid rgba(98, 212, 158, 0.22);
-  border-radius: var(--radius-sm);
-  background: rgba(98, 212, 158, 0.08);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.45;
-}
-
-.report-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px 12px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.report-meta span {
-  color: var(--text-tertiary);
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 1120px) {
   .feature-grid,
-  .memory-stats-grid,
-  .report-meta {
+  .memory-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1326,8 +1398,7 @@ async function refreshLocalAnalysisResults() {
 
   .feature-grid,
   .memory-stats-grid,
-  .report-highlights,
-  .report-meta {
+  .report-highlights {
     grid-template-columns: 1fr;
   }
 }
