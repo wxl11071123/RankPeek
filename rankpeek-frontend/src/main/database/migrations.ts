@@ -126,6 +126,18 @@ const migrations: Migration[] = [
       addColumnIfMissing(connection, 'match_records', 'player_augment3', 'INTEGER')
       addColumnIfMissing(connection, 'match_records', 'player_augment4', 'INTEGER')
     }
+  },
+  {
+    version: 3,
+    name: '3_ai_analysis_match_bound_records',
+    up(connection) {
+      connection.exec(`
+        DELETE FROM ai_analysis_results;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_analysis_account_match_type
+          ON ai_analysis_results(account_puuid, match_id, analysis_type);
+      `)
+    }
   }
 ]
 

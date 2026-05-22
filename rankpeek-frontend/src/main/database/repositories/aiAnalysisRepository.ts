@@ -63,6 +63,15 @@ export function createAiAnalysisRepository(connection: SqliteDatabase): AiAnalys
       @createdAt,
       @updatedAt
     )
+    ON CONFLICT(account_puuid, match_id, analysis_type) DO UPDATE SET
+      subject_key = excluded.subject_key,
+      game_version = excluded.game_version,
+      model_name = excluded.model_name,
+      prompt_version = excluded.prompt_version,
+      input_hash = excluded.input_hash,
+      output_json = excluded.output_json,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at
     RETURNING *
   `)
 
@@ -129,9 +138,35 @@ function listAnalysisResults(
     parameters.analysisType = options.analysisType
   }
 
+  const analysisTypesClause = createInClause(
+    'analysis_type',
+    normalizeStringList(options?.analysisTypes),
+    'analysisTypeList',
+    parameters
+  )
+  if (analysisTypesClause === '0') {
+    return []
+  }
+  if (analysisTypesClause) {
+    conditions.push(analysisTypesClause)
+  }
+
   if (typeof options?.matchId === 'string' && options.matchId.length > 0) {
     conditions.push('match_id = @matchId')
     parameters.matchId = options.matchId
+  }
+
+  const matchIdsClause = createInClause(
+    'match_id',
+    normalizeStringList(options?.matchIds),
+    'matchIdList',
+    parameters
+  )
+  if (matchIdsClause === '0') {
+    return []
+  }
+  if (matchIdsClause) {
+    conditions.push(matchIdsClause)
   }
 
   const rows = connection
@@ -145,6 +180,41 @@ function listAnalysisResults(
     .all(parameters) as AiAnalysisResultRow[]
 
   return rows.map(mapAiAnalysisResultRow)
+}
+
+function normalizeStringList(values: string[] | undefined): string[] | null {
+  if (!Array.isArray(values)) {
+    return null
+  }
+
+  return [...new Set(values.map(value => value.trim()).filter(Boolean))]
+}
+
+function createInClause(
+  columnName: string,
+  values: string[] | null,
+  parameterPrefix: string,
+  parameters: Record<string, string | number>
+): string {
+  if (values === null) {
+    return ''
+  }
+  if (values.length === 0) {
+    return '0'
+  }
+
+  const chunkClauses: string[] = []
+  for (let chunkStart = 0; chunkStart < values.length; chunkStart += 200) {
+    const chunk = values.slice(chunkStart, chunkStart + 200)
+    const placeholders = chunk.map((value, index) => {
+      const key = `${parameterPrefix}${chunkStart + index}`
+      parameters[key] = value
+      return `@${key}`
+    })
+    chunkClauses.push(`${columnName} IN (${placeholders.join(', ')})`)
+  }
+
+  return chunkClauses.length === 1 ? chunkClauses[0] : `(${chunkClauses.join(' OR ')})`
 }
 
 function listAllAnalysisResults(connection: SqliteDatabase, accountPuuid: string): AiAnalysisResult[] {

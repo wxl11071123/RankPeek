@@ -204,6 +204,7 @@
             <div
               v-for="match in matchHistory"
               :key="match.gameId"
+              :ref="element => setMatchListItemRef(match.gameId, element)"
               class="match-list-item"
             >
               <MatchHistoryCard
@@ -212,7 +213,9 @@
                 :current-puuid="currentSummoner.puuid"
                 :current-summoner-name="currentSummonerName"
                 :user-tag-summaries="visibleUserTagSummaries"
+                :saved-ai-reports="getSavedAiReportsForMatch(match)"
                 @open-detail="toggleInlineDetail"
+                @open-saved-ai-report="openSavedPostgameReport"
                 @navigate-to-player="handleNavigateToPlayer"
               />
 
@@ -274,17 +277,31 @@
 
       </div>
     </section>
+
+    <PostgameAiAnalysisModal
+      v-if="selectedSavedPostgameAiRun"
+      :open="Boolean(selectedSavedPostgameAiRun)"
+      :mode="selectedSavedPostgameAiMode"
+      stream-state="completed"
+      :stream-text="selectedSavedPostgameAiRun.rawOutputText"
+      :roster-players="selectedSavedPostgameAiRosterPlayers"
+      :show-start-button="false"
+      @start-analysis="noopSavedPostgameReportAction"
+      @cancel-analysis="noopSavedPostgameReportAction"
+      @close="closeSavedPostgameReport"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import MatchHistoryCard from '@/components/match-history/MatchHistoryCard.vue'
 import MatchHistoryInlineDetail from '@/components/match-history/MatchHistoryInlineDetail.vue'
+import PostgameAiAnalysisModal from '@/components/match-history/PostgameAiAnalysisModal.vue'
 import SummonerOverviewPanel from '@/components/summoner/SummonerOverviewPanel.vue'
 import { useI18n } from '@/i18n'
 import {
@@ -295,6 +312,11 @@ import {
   writeMatchHistoryToLocalCache
 } from '@/services/localMatchCache'
 import { clearPostgameAutoOpenLatestMatchToken } from '@/services/gameflowAutoNavigation'
+import {
+  loadLocalAiAnalysisResults,
+  type LocalAiAnalysisDisplayResult
+} from '@/services/localAiAnalysis'
+import type { PostgameAiRunOutputV1 } from '@/services/postgameAiRunPersistence'
 import {
   RANKED_OVERVIEW_SAMPLE_LIMIT,
   selectRecentMatchLookback,
@@ -385,6 +407,12 @@ interface MatchHistoryHydrateOptions {
 type UserTagLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 type DetailLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 type InlineDetailTabKey = 'overview' | 'runes' | 'chart'
+type SavedPostgameAiMode = 'review' | 'praise'
+
+interface SavedPostgameAiReports {
+  review?: LocalAiAnalysisDisplayResult
+  praise?: LocalAiAnalysisDisplayResult
+}
 
 interface RecentPerformanceStats {
   sampleCount: number
@@ -396,6 +424,7 @@ interface RecentPerformanceStats {
 }
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 
 const CONTROL_GLOW_RANGE = 96
@@ -598,20 +627,27 @@ const selectedMatchHistory = ref<MatchHistory | null>(null)
 const selectedGameDetailStatus = ref<DetailLoadStatus>('idle')
 const pendingAutoOpenLatestMatchToken = ref('')
 const consumedAutoOpenLatestMatchToken = ref('')
+const pendingOpenMatchId = ref('')
+const consumedOpenMatchId = ref('')
+const savedPostgameAiReportsByMatchId = ref<Record<string, SavedPostgameAiReports>>({})
+const selectedSavedPostgameAiResult = ref<LocalAiAnalysisDisplayResult | null>(null)
 const matchHistoryViewRef = ref<HTMLElement | null>(null)
 const championFilterRef = ref<HTMLElement | null>(null)
 const loadMoreSentinelRef = ref<HTMLElement | null>(null)
+const matchListItemRefs = new Map<string, HTMLElement>()
 let settingsLoadPromise: Promise<void> | null = null
 let matchHistoryRequestId = 0
 let matchDetailRequestId = 0
 let activeListLoadingRequestId: number | null = null
 let activeRefreshRunId: number | null = null
+let savedPostgameAiReportsRequestId = 0
 let refreshRunSequence = 0
 let refreshIndicatorStopTimer: number | null = null
 let autoOpenLatestMatchRefreshToken = ''
 let overviewUserTagAbortController: AbortController | null = null
 let summariesAbortController: AbortController | null = null
 let unsubscribeCacheUpdate: (() => void) | null = null
+let unsubscribeAiAnalysisSaved: (() => void) | null = null
 let loadMoreObserver: IntersectionObserver | null = null
 let nearbySurfaceGlowFrame: number | null = null
 let nearbySurfaceGlowPoint: { clientX: number; clientY: number } | null = null
@@ -640,6 +676,18 @@ const overviewSampleMatches = computed<MatchHistory[]>(() =>
 const visibleMatchStats = computed<RecentPerformanceStats>(() =>
   calculateVisibleMatchStats(overviewSampleMatches.value, currentSummoner.value?.puuid || '')
 )
+const visibleMatchIds = computed(() => (
+  [...new Set(matchHistory.value.map(match => String(match.gameId)).filter(Boolean))]
+))
+const selectedSavedPostgameAiRun = computed<PostgameAiRunOutputV1 | null>(() => (
+  selectedSavedPostgameAiResult.value?.output.postgameRun ?? null
+))
+const selectedSavedPostgameAiMode = computed<SavedPostgameAiMode>(() => (
+  selectedSavedPostgameAiRun.value?.mode ?? 'review'
+))
+const selectedSavedPostgameAiRosterPlayers = computed(() => (
+  selectedSavedPostgameAiRun.value?.rosterPlayers ?? []
+))
 const panelTitle = computed(() =>
   isLookup.value
     ? t('matchHistory.lookupTitle')
@@ -848,6 +896,10 @@ function markMatchHistoryPageLoaded(page: number) {
   loadedPages.value = [...loadedPages.value, page].sort((left, right) => left - right)
 }
 
+function createLoadedPageRange(pageCount: number): number[] {
+  return Array.from({ length: Math.max(0, pageCount) }, (_, index) => index + 1)
+}
+
 function applyMatchHistoryPage(matches: MatchHistory[], page: number, append: boolean) {
   matchHistory.value = append
     ? appendUniqueMatches(matchHistory.value, matches)
@@ -859,6 +911,90 @@ function applyMatchHistoryPage(matches: MatchHistory[], page: number, append: bo
   }
   currentPage.value = Math.max(currentPage.value, page)
   markMatchHistoryPageLoaded(page)
+}
+
+function applyOpenMatchHistoryPageFromCache(cachedMatches: MatchHistory[], targetIndex: number): void {
+  const targetPage = Math.floor(Math.max(0, targetIndex) / MATCH_HISTORY_PAGE_SIZE) + 1
+  const visibleCount = Math.min(cachedMatches.length, targetPage * MATCH_HISTORY_PAGE_SIZE)
+  const visibleMatches = cachedMatches.slice(0, visibleCount)
+  matchHistory.value = visibleMatches
+  if (filterChampionId.value <= 0) {
+    championCandidateMatches.value = [...cachedMatches]
+  }
+  currentPage.value = targetPage
+  loadedPages.value = createLoadedPageRange(targetPage)
+  hasNext.value = cachedMatches.length > visibleCount
+  loadMoreError.value = false
+  loadMoreRetryPage.value = null
+}
+
+function getSavedAiReportsForMatch(match: MatchHistory): { review?: boolean; praise?: boolean } {
+  const reports = savedPostgameAiReportsByMatchId.value[String(match.gameId)]
+  return {
+    review: Boolean(reports?.review),
+    praise: Boolean(reports?.praise)
+  }
+}
+
+async function refreshVisiblePostgameAiReports(): Promise<void> {
+  const puuid = currentSummoner.value?.puuid?.trim()
+  const matchIds = visibleMatchIds.value
+  const requestId = ++savedPostgameAiReportsRequestId
+  if (!puuid || matchIds.length === 0) {
+    savedPostgameAiReportsByMatchId.value = {}
+    return
+  }
+
+  const nextReports: Record<string, SavedPostgameAiReports> = {}
+  for (let index = 0; index < matchIds.length; index += 100) {
+    const chunk = matchIds.slice(index, index + 100)
+    const result = await loadLocalAiAnalysisResults(puuid, {
+      limit: 200,
+      offset: 0,
+      matchIds: chunk,
+      analysisTypes: ['postgame_review', 'postgame_praise']
+    })
+    if (requestId !== savedPostgameAiReportsRequestId) {
+      return
+    }
+    for (const report of result.results) {
+      const matchId = report.matchId
+      if (!matchId || !report.output.postgameRun) {
+        continue
+      }
+      const mode = report.output.postgameRun.mode
+      const reports = nextReports[matchId] ?? {}
+      if (mode === 'review') {
+        reports.review = report
+      } else if (mode === 'praise') {
+        reports.praise = report
+      }
+      nextReports[matchId] = reports
+    }
+  }
+
+  savedPostgameAiReportsByMatchId.value = nextReports
+}
+
+function openSavedPostgameReport(match: MatchHistory, mode: SavedPostgameAiMode): void {
+  const report = savedPostgameAiReportsByMatchId.value[String(match.gameId)]?.[mode]
+  if (!report?.output.postgameRun) {
+    return
+  }
+
+  selectedSavedPostgameAiResult.value = report
+}
+
+function closeSavedPostgameReport(): void {
+  selectedSavedPostgameAiResult.value = null
+}
+
+function noopSavedPostgameReportAction(): void {
+  // Read-only saved report modal.
+}
+
+function handlePostgameAiAnalysisSaved(): void {
+  void refreshVisiblePostgameAiReports()
 }
 
 function shouldLoadMoreMatchHistory() {
@@ -918,6 +1054,7 @@ function resetPanelState() {
   matchDetailRequestId += 1
   clearMatchHistoryLoadingState()
   resetMatchHistoryPagination()
+  matchListItemRefs.clear()
   overviewUserTagAbortController?.abort()
   overviewUserTagAbortController = null
   summariesAbortController?.abort()
@@ -937,7 +1074,32 @@ function resetPanelState() {
   selectedGameDetail.value = null
   selectedMatchHistory.value = null
   selectedGameDetailStatus.value = 'idle'
+  pendingOpenMatchId.value = ''
+  consumedOpenMatchId.value = ''
+  savedPostgameAiReportsByMatchId.value = {}
+  selectedSavedPostgameAiResult.value = null
   championFilterOpen.value = false
+}
+
+function setMatchListItemRef(gameId: number, element: Element | ComponentPublicInstance | null): void {
+  const key = String(gameId)
+  if (element instanceof HTMLElement) {
+    matchListItemRefs.set(key, element)
+    return
+  }
+
+  matchListItemRefs.delete(key)
+}
+
+function scrollMatchListItemIntoView(gameId: number): void {
+  void nextTick(() => {
+    window.requestAnimationFrame(() => {
+      matchListItemRefs.get(String(gameId))?.scrollIntoView({
+        block: 'center',
+        behavior: 'smooth'
+      })
+    })
+  })
 }
 
 async function refreshLcuConnectionStatus(): Promise<boolean> {
@@ -2193,6 +2355,96 @@ async function openPendingAutoLatestMatch(token: string, requestId = matchHistor
   return true
 }
 
+function normalizeOpenMatchId(matchId: unknown): string {
+  return typeof matchId === 'string' ? matchId.trim() : ''
+}
+
+function requestOpenMatchId(matchId: unknown): void {
+  const normalized = normalizeOpenMatchId(matchId)
+  if (!normalized || normalized === consumedOpenMatchId.value) {
+    return
+  }
+
+  filterChampionId.value = -1
+  filterQueueId.value = 0
+  const requestId = beginMatchHistoryRequest()
+  pendingOpenMatchId.value = normalized
+  void openPendingMatchId(requestId)
+}
+
+async function requestOpenMatchIdForCurrentRequest(matchId: unknown, requestId: number): Promise<boolean> {
+  const normalized = normalizeOpenMatchId(matchId)
+  if (!normalized || normalized === consumedOpenMatchId.value) {
+    return false
+  }
+
+  filterChampionId.value = -1
+  filterQueueId.value = 0
+  pendingOpenMatchId.value = normalized
+  return openPendingMatchId(requestId)
+}
+
+async function openPendingMatchId(requestId = matchHistoryRequestId): Promise<boolean> {
+  const matchId = pendingOpenMatchId.value
+  if (!matchId || requestId !== matchHistoryRequestId) {
+    return false
+  }
+
+  const match = await findMatchForOpenMatchId(matchId, requestId)
+  if (!match || requestId !== matchHistoryRequestId || pendingOpenMatchId.value !== matchId) {
+    return false
+  }
+
+  pendingOpenMatchId.value = ''
+  consumedOpenMatchId.value = matchId
+  const openTask = openInlineDetail(match)
+  scrollMatchListItemIntoView(match.gameId)
+  await openTask
+  clearOpenMatchIdQuery(matchId)
+  return true
+}
+
+async function findMatchForOpenMatchId(matchId: string, requestId: number): Promise<MatchHistory | null> {
+  const visibleMatch = matchHistory.value.find(match => String(match.gameId) === matchId)
+  if (visibleMatch) {
+    return visibleMatch
+  }
+
+  const puuid = currentSummoner.value?.puuid
+  if (!puuid || !shouldUseLocalMatchCache()) {
+    return null
+  }
+
+  const cachedMatches = await readMatchHistoryFromLocalCache({
+    accountPuuid: puuid,
+    options: {
+      limit: 200,
+      offset: 0
+    }
+  })
+  if (requestId !== matchHistoryRequestId) {
+    return null
+  }
+
+  const targetIndex = cachedMatches.findIndex(match => String(match.gameId) === matchId)
+  if (targetIndex < 0) {
+    return null
+  }
+
+  applyOpenMatchHistoryPageFromCache(cachedMatches, targetIndex)
+  return matchHistory.value.find(match => String(match.gameId) === matchId) || cachedMatches[targetIndex] || null
+}
+
+function clearOpenMatchIdQuery(matchId: string): void {
+  if (route.name !== 'MatchHistory' || route.query.openMatchId !== matchId) {
+    return
+  }
+
+  const nextQuery = { ...route.query }
+  delete nextQuery.openMatchId
+  void router.replace({ name: 'MatchHistory', query: nextQuery })
+}
+
 function collapseInlineDetail() {
   const collapsedGameId = expandedGameId.value
   matchDetailRequestId += 1
@@ -2314,6 +2566,9 @@ async function applyDefaultFiltersAfterSettings(requestId: number) {
   if (requestId !== matchHistoryRequestId) {
     return
   }
+  if (pendingOpenMatchId.value || consumedOpenMatchId.value) {
+    return
+  }
 
   const nextQueueId = defaultMatchQueueMode.value
   if (filterChampionId.value === -1 && filterQueueId.value === nextQueueId) {
@@ -2367,6 +2622,8 @@ onMounted(async () => {
   })
   void ensurePageSettingsLoaded()
   observeLoadMoreSentinel()
+  window.addEventListener('rankpeek:ai-analysis-result-saved', handlePostgameAiAnalysisSaved)
+  unsubscribeAiAnalysisSaved = () => window.removeEventListener('rankpeek:ai-analysis-result-saved', handlePostgameAiAnalysisSaved)
 })
 
 onUnmounted(() => {
@@ -2377,6 +2634,8 @@ onUnmounted(() => {
   window.removeEventListener('pointerdown', handleWindowPointerDown)
   unsubscribeCacheUpdate?.()
   unsubscribeCacheUpdate = null
+  unsubscribeAiAnalysisSaved?.()
+  unsubscribeAiAnalysisSaved = null
   disconnectLoadMoreObserver()
   if (nearbySurfaceGlowFrame) {
     window.cancelAnimationFrame(nearbySurfaceGlowFrame)
@@ -2392,12 +2651,20 @@ onUnmounted(() => {
 watch(
   () => props.connected,
   async connected => {
-    if (connected !== true || !currentSummoner.value?.puuid || lcuConnected.value) {
+    const summoner = currentSummoner.value
+    if (connected !== true || !summoner?.puuid || lcuConnected.value) {
       return
     }
     lcuConnected.value = true
     lcuConnectionChecked.value = true
+    const puuid = summoner.puuid
     const requestId = matchHistoryRequestId
+    if (await requestOpenMatchIdForCurrentRequest(route.query.openMatchId, requestId)) {
+      void hydrateOverviewLookbackMatches(requestId)
+      void loadRankSummary(puuid, requestId)
+      void loadOverviewUserTagSummary(puuid, requestId)
+      return
+    }
     await hydrateMatchHistoryFromLocalCache(requestId)
     void hydrateOverviewLookbackMatches(requestId)
     if (props.autoOpenLatestMatchToken) {
@@ -2421,6 +2688,12 @@ watch(
     if (!connected || requestId !== matchHistoryRequestId) {
       return
     }
+    if (await requestOpenMatchIdForCurrentRequest(route.query.openMatchId, requestId)) {
+      void hydrateOverviewLookbackMatches(requestId)
+      void loadRankSummary(puuid, requestId)
+      void loadOverviewUserTagSummary(puuid, requestId)
+      return
+    }
     await hydrateMatchHistoryFromLocalCache(requestId)
     void hydrateOverviewLookbackMatches(requestId)
     if (props.autoOpenLatestMatchToken) {
@@ -2437,6 +2710,23 @@ watch(
   () => props.autoOpenLatestMatchToken,
   token => {
     requestAutoOpenLatestMatch(token)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => route.query.openMatchId,
+  matchId => {
+    requestOpenMatchId(matchId)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [currentSummoner.value?.puuid ?? '', visibleMatchIds.value.join('|')],
+  () => {
+    void refreshVisiblePostgameAiReports()
+    void openPendingMatchId()
   },
   { immediate: true }
 )

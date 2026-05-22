@@ -169,7 +169,9 @@ export interface AiAnalysisListOptions {
   limit?: number
   offset?: number
   analysisType?: string
+  analysisTypes?: string[]
   matchId?: string
+  matchIds?: string[]
 }
 
 export interface AiMemoryTypeCount {
@@ -190,6 +192,31 @@ export interface AiMemoryExportResult {
   filePath: string | null
   exportedCount: number
   canceled?: boolean
+}
+
+export interface AccountMatchCount {
+  accountPuuid: string
+  matchCount: number
+}
+
+export interface LocalStorageHealthStats {
+  databasePath: string
+  fileBytes: number
+  pageCount: number
+  pageSize: number
+  freelistCount: number
+  accountCount: number
+  matchRecordCount: number
+  matchDetailCount: number
+  aiAnalysisCount: number
+  orphanSingleMatchAiCount: number
+  maxMatchesPerAccount: AccountMatchCount[]
+  matchSummaryJsonAvgBytes: number | null
+  matchSummaryJsonMaxBytes: number | null
+  matchDetailJsonAvgBytes: number | null
+  matchDetailJsonMaxBytes: number | null
+  aiOutputJsonAvgBytes: number | null
+  aiOutputJsonMaxBytes: number | null
 }
 
 export interface LocalStorageRetentionResult {
@@ -221,4 +248,5 @@ export interface LocalDatabaseAPI {
   getAiMemoryStats(accountPuuid: string): Promise<DatabaseResult<AiMemoryStats>>
   exportAiMemory(accountPuuid: string): Promise<DatabaseResult<AiMemoryExportResult>>
   runStorageRetention(): Promise<DatabaseResult<LocalStorageRetentionResult>>
+  getStorageHealthStats(): Promise<DatabaseResult<LocalStorageHealthStats>>
 }

@@ -176,6 +176,10 @@ export function registerDatabaseIpcHandlers(
   ipcMain.handle('db:storage:runRetention', () => (
     runDatabaseHandler('db:storage:runRetention', logger, () => getDatabase().runStorageRetention())
   ))
+
+  ipcMain.handle('db:storage:getHealthStats', () => (
+    runDatabaseHandler('db:storage:getHealthStats', logger, () => getDatabase().getStorageHealthStats())
+  ))
 }
 
 function runDatabaseHandler<T>(
@@ -233,6 +237,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isOptionalString(value: unknown): value is string | null | undefined {
   return value === undefined || value === null || typeof value === 'string'
+}
+
+function isOptionalStringArray(value: unknown): value is string[] | undefined {
+  return value === undefined || (Array.isArray(value) && value.every(item => typeof item === 'string'))
 }
 
 function isOptionalNumber(value: unknown): value is number | null | undefined {
@@ -358,7 +366,9 @@ function isAiAnalysisListOptions(value: unknown): value is AiAnalysisListOptions
     && isOptionalNumber(value.limit)
     && isOptionalNumber(value.offset)
     && isOptionalString(value.analysisType)
+    && isOptionalStringArray(value.analysisTypes)
     && isOptionalString(value.matchId)
+    && isOptionalStringArray(value.matchIds)
   )
 }
 

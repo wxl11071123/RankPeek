@@ -15,6 +15,7 @@ import {
   type PostgameAiRunOutputV1
 } from './postgameAiRunPersistence.ts'
 import {
+  parsePartialPostgameAiStructuredResult,
   parsePostgameAiPraiseResult,
   parsePostgameAiStructuredResult,
   type PostgameAiPraiseResult
@@ -119,8 +120,14 @@ export async function loadLocalAiAnalysisResults(
   if (options.analysisType !== undefined) {
     queryOptions.analysisType = options.analysisType
   }
+  if (options.analysisTypes !== undefined) {
+    queryOptions.analysisTypes = options.analysisTypes
+  }
   if (options.matchId !== undefined) {
     queryOptions.matchId = options.matchId
+  }
+  if (options.matchIds !== undefined) {
+    queryOptions.matchIds = options.matchIds
   }
 
   try {
@@ -139,7 +146,9 @@ export async function loadLocalAiAnalysisResults(
         result.data,
         listFallbackAiAnalysisResultsByAccount(trimmedPuuid, {
           analysisType: queryOptions.analysisType,
+          analysisTypes: queryOptions.analysisTypes,
           matchId: queryOptions.matchId,
+          matchIds: queryOptions.matchIds,
           limit: 200,
           offset: 0
         }, options.storage),
@@ -478,7 +487,9 @@ function normalizePostgameRunOutput(postgameRun: PostgameAiRunOutputV1): ParsedA
   return {
     status: 'parsed',
     title: createPostgameRunTitle(postgameRun),
-    summary: structuredSummary || praiseSummary?.body || truncate(postgameRun.rawOutputText),
+    summary: structuredSummary
+      || praiseSummary?.body
+      || createPostgameRunFallbackSummary(postgameRun),
     highlights: [],
     postgameRun,
     ...(praiseSummary ? { postgamePraise: praiseSummary } : {})
@@ -487,7 +498,12 @@ function normalizePostgameRunOutput(postgameRun: PostgameAiRunOutputV1): ParsedA
 
 function getStructuredPostgameSummary(rawOutputText: string): string {
   const parsed = parsePostgameAiStructuredResult(rawOutputText)
-  return parsed.ok ? parsed.result.summary : ''
+  if (parsed.ok) {
+    return parsed.result.summary
+  }
+
+  const partial = parsePartialPostgameAiStructuredResult(rawOutputText)
+  return partial.ok ? partial.result.summary : ''
 }
 
 function getStructuredPostgamePraiseResult(rawOutputText: string): PostgameAiPraiseResult | null {
@@ -509,6 +525,19 @@ function createPostgameRunTitle(postgameRun: PostgameAiRunOutputV1): string {
     return `${fallbackTitle} · ${winState}`
   }
   return fallbackTitle
+}
+
+function createPostgameRunFallbackSummary(postgameRun: PostgameAiRunOutputV1): string {
+  if (postgameRun.mode !== 'review') {
+    return truncate(postgameRun.rawOutputText)
+  }
+
+  const compact = postgameRun.rawOutputText.replace(/\s+/g, ' ').trim()
+  if (/postgame_review_result\.v1|"levels"\s*:|"playerRef"\s*:/u.test(compact)) {
+    return '已生成赛后复盘，打开记录查看分档结果。'
+  }
+
+  return truncate(postgameRun.rawOutputText)
 }
 
 function formatWinState(win: boolean | null): string {

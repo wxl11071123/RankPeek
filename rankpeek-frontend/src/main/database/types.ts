@@ -198,7 +198,9 @@ export interface AiAnalysisListOptions {
   limit?: number
   offset?: number
   analysisType?: string
+  analysisTypes?: string[]
   matchId?: string
+  matchIds?: string[]
 }
 
 export interface AiMemoryTypeCount {
@@ -237,6 +239,31 @@ export interface AiAnalysisRepository {
   exportMemory(accountPuuid: string): AiMemoryExportPayload
 }
 
+export interface AccountMatchCount {
+  accountPuuid: string
+  matchCount: number
+}
+
+export interface LocalStorageHealthStats {
+  databasePath: string
+  fileBytes: number
+  pageCount: number
+  pageSize: number
+  freelistCount: number
+  accountCount: number
+  matchRecordCount: number
+  matchDetailCount: number
+  aiAnalysisCount: number
+  orphanSingleMatchAiCount: number
+  maxMatchesPerAccount: AccountMatchCount[]
+  matchSummaryJsonAvgBytes: number | null
+  matchSummaryJsonMaxBytes: number | null
+  matchDetailJsonAvgBytes: number | null
+  matchDetailJsonMaxBytes: number | null
+  aiOutputJsonAvgBytes: number | null
+  aiOutputJsonMaxBytes: number | null
+}
+
 export interface LocalStorageRetentionResult {
   matchRecordsDeleted: number
   matchDetailsDeleted: number
@@ -251,6 +278,7 @@ export interface LocalDatabase {
   matches: MatchRepository
   aiAnalyses: AiAnalysisRepository
   runStorageRetention(): LocalStorageRetentionResult
+  getStorageHealthStats(): LocalStorageHealthStats
   close(): void
 }
 

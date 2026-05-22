@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLocalDatabase } from './index.ts'
@@ -71,6 +71,12 @@ function countAiAnalysisResults(database: LocalDatabase, accountPuuid: string) {
   return (database.connection
     .prepare('SELECT COUNT(*) AS count FROM ai_analysis_results WHERE account_puuid = ?')
     .get(accountPuuid) as { count: number }).count
+}
+
+function countAllAiAnalysisResults(database: LocalDatabase) {
+  return (database.connection
+    .prepare('SELECT COUNT(*) AS count FROM ai_analysis_results')
+    .get() as { count: number }).count
 }
 
 test('initializes database file and records migration version 1 once', () => {
@@ -464,56 +470,116 @@ test('AI analysis repository stores postgame review and praise records with the 
   }
 })
 
-test('storage retention keeps the newest 500 match records per account', () => {
+test('AI analysis repository upserts repeated single-match analysis by account, match, and type', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.matches.upsertMatchRecord(makeMatchRecord(1, 'test-puuid'))
+    const first = database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_test-puuid_1',
+      analysisType: 'postgame_review',
+      inputHash: 'hash-1',
+      outputJson: { summary: 'First version.' }
+    })
+    const second = database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_test-puuid_1',
+      analysisType: 'postgame_review',
+      inputHash: 'hash-2',
+      modelName: 'new-model',
+      outputJson: { summary: 'Updated version.' }
+    })
+
+    assert.equal(second.id, first.id)
+    assert.equal(countAiAnalysisResults(database, 'test-puuid'), 1)
+    assert.equal(database.aiAnalyses.findAnalysisByInputHash('hash-1'), null)
+    assert.equal(database.aiAnalyses.findAnalysisByInputHash('hash-2')?.id, first.id)
+    assert.match(database.aiAnalyses.getAnalysisResultById(first.id)?.outputJson || '', /Updated version/)
+    assert.equal(database.aiAnalyses.getAnalysisResultById(first.id)?.modelName, 'new-model')
+  } finally {
+    cleanup()
+  }
+})
+
+test('AI analysis repository filters by batched match ids and analysis types', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    for (let index = 1; index <= 205; index += 1) {
+      const matchId = `HN1_test-puuid_${index}`
+      database.aiAnalyses.saveAnalysisResult({
+        accountPuuid: 'test-puuid',
+        matchId,
+        analysisType: index % 2 === 0 ? 'postgame_review' : 'postgame_praise',
+        inputHash: `hash-${index}`,
+        outputJson: { summary: `Analysis ${index}` }
+      })
+    }
+
+    const results = database.aiAnalyses.listAnalysisResultsByAccount('test-puuid', {
+      limit: 250,
+      matchIds: Array.from({ length: 205 }, (_item, index) => `HN1_test-puuid_${index + 1}`),
+      analysisTypes: ['postgame_review']
+    })
+
+    assert.equal(results.length, 102)
+    assert.ok(results.every(result => result.analysisType === 'postgame_review'))
+  } finally {
+    cleanup()
+  }
+})
+
+test('storage retention keeps the newest 200 match records per account', () => {
   const { database, cleanup } = createTempLocalDatabase()
 
   try {
     database.matches.upsertMatchRecords(
-      Array.from({ length: 520 }, (_, index) => makeMatchRecord(index + 1, 'test-puuid'))
+      Array.from({ length: 220 }, (_, index) => makeMatchRecord(index + 1, 'test-puuid'))
     )
 
     const result = database.runStorageRetention()
 
     assert.equal(result.matchRecordsDeleted, 20)
-    assert.equal(result.matchRecordsRetained, 500)
-    assert.equal(countMatchRecords(database, 'test-puuid'), 500)
-    assert.equal(matchIdAtEdge(database, 'test-puuid', 'newest'), 'HN1_test-puuid_520')
+    assert.equal(result.matchRecordsRetained, 200)
+    assert.equal(countMatchRecords(database, 'test-puuid'), 200)
+    assert.equal(matchIdAtEdge(database, 'test-puuid', 'newest'), 'HN1_test-puuid_220')
     assert.equal(matchIdAtEdge(database, 'test-puuid', 'oldest'), 'HN1_test-puuid_21')
   } finally {
     cleanup()
   }
 })
 
-test('storage retention keeps 500 match records per account without global cross-account pruning', () => {
+test('storage retention keeps 200 match records per account without global cross-account pruning', () => {
   const { database, cleanup } = createTempLocalDatabase()
 
   try {
     database.matches.upsertMatchRecords([
-      ...Array.from({ length: 510 }, (_, index) => makeMatchRecord(index + 1, 'first-puuid')),
-      ...Array.from({ length: 505 }, (_, index) => makeMatchRecord(index + 1, 'second-puuid'))
+      ...Array.from({ length: 210 }, (_, index) => makeMatchRecord(index + 1, 'first-puuid')),
+      ...Array.from({ length: 205 }, (_, index) => makeMatchRecord(index + 1, 'second-puuid'))
     ])
 
     const result = database.runStorageRetention()
 
     assert.equal(result.matchRecordsDeleted, 15)
-    assert.equal(countMatchRecords(database, 'first-puuid'), 500)
-    assert.equal(countMatchRecords(database, 'second-puuid'), 500)
+    assert.equal(countMatchRecords(database, 'first-puuid'), 200)
+    assert.equal(countMatchRecords(database, 'second-puuid'), 200)
   } finally {
     cleanup()
   }
 })
 
-test('storage retention preserves AI memory and details referenced by AI memory', () => {
+test('storage retention deletes single-match AI and details when the parent match is pruned', () => {
   const { database, cleanup } = createTempLocalDatabase()
 
   try {
     database.matches.upsertMatchRecords(
-      Array.from({ length: 501 }, (_, index) => makeMatchRecord(index + 1, 'test-puuid'))
+      Array.from({ length: 201 }, (_, index) => makeMatchRecord(index + 1, 'test-puuid'))
     )
     database.matches.upsertMatchDetail({
       region: 'HN1',
       matchId: 'HN1_test-puuid_1',
-      rawDetailJson: { matchId: 'HN1_test-puuid_1', protectedByAiMemory: true },
+      rawDetailJson: { matchId: 'HN1_test-puuid_1', prunedParent: true },
       normalizedDetailJson: { participants: [] }
     })
     database.matches.upsertMatchDetail({
@@ -525,58 +591,96 @@ test('storage retention preserves AI memory and details referenced by AI memory'
     database.aiAnalyses.saveAnalysisResult({
       accountPuuid: 'test-puuid',
       matchId: 'HN1_test-puuid_1',
-      analysisType: 'match_summary',
+      analysisType: 'postgame_review',
       inputHash: 'ai-memory-1',
-      outputJson: { summary: 'Important long-term memory.' }
+      outputJson: { summary: 'Pruned with match.' }
     })
 
     const result = database.runStorageRetention()
 
     assert.equal(result.matchRecordsDeleted, 1)
-    assert.equal(result.matchDetailsDeleted, 1)
-    assert.equal(result.aiAnalysisDeleted, 0)
-    assert.equal(database.matches.getMatchDetail('HN1', 'HN1_test-puuid_1')?.matchId, 'HN1_test-puuid_1')
+    assert.equal(result.aiAnalysisDeleted, 1)
+    assert.equal(result.matchDetailsDeleted, 2)
+    assert.equal(database.matches.getMatchDetail('HN1', 'HN1_test-puuid_1'), null)
     assert.equal(database.matches.getMatchDetail('HN1', 'HN1_orphan_detail'), null)
-    assert.equal(database.aiAnalyses.getMemoryStats('test-puuid').totalCount, 1)
+    assert.equal(database.aiAnalyses.getMemoryStats('test-puuid').totalCount, 0)
   } finally {
     cleanup()
   }
 })
 
-test('storage retention keeps only AI analysis records from the last 30 days', () => {
+test('storage retention deletes single-match AI records without a parent match and does not use a time cutoff', () => {
   const { database, cleanup } = createTempLocalDatabase()
 
   try {
+    database.matches.upsertMatchRecord(makeMatchRecord(1, 'test-puuid'))
     database.aiAnalyses.saveAnalysisResult({
       accountPuuid: 'test-puuid',
-      matchId: 'HN1_old',
+      matchId: 'HN1_missing',
       analysisType: 'postgame_review',
-      inputHash: 'old-hash',
-      outputJson: { summary: 'Old AI report.' }
+      inputHash: 'orphan-hash',
+      outputJson: { summary: 'Orphan AI report.' }
     })
     database.aiAnalyses.saveAnalysisResult({
       accountPuuid: 'test-puuid',
-      matchId: 'HN1_recent',
+      matchId: 'HN1_test-puuid_1',
       analysisType: 'postgame_review',
       inputHash: 'recent-hash',
-      outputJson: { summary: 'Recent AI report.' }
+      outputJson: { summary: 'Old but still linked AI report.' }
     })
 
-    const oldCreatedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
-    const recentCreatedAt = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString()
+    const oldCreatedAt = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString()
     database.connection
       .prepare('UPDATE ai_analysis_results SET created_at = @createdAt, updated_at = @createdAt WHERE input_hash = @inputHash')
-      .run({ createdAt: oldCreatedAt, inputHash: 'old-hash' })
-    database.connection
-      .prepare('UPDATE ai_analysis_results SET created_at = @createdAt, updated_at = @createdAt WHERE input_hash = @inputHash')
-      .run({ createdAt: recentCreatedAt, inputHash: 'recent-hash' })
+      .run({ createdAt: oldCreatedAt, inputHash: 'recent-hash' })
 
     const result = database.runStorageRetention()
 
     assert.equal(result.aiAnalysisDeleted, 1)
     assert.equal(countAiAnalysisResults(database, 'test-puuid'), 1)
-    assert.equal(database.aiAnalyses.findAnalysisByInputHash('old-hash'), null)
+    assert.equal(database.aiAnalyses.findAnalysisByInputHash('orphan-hash'), null)
     assert.equal(database.aiAnalyses.findAnalysisByInputHash('recent-hash')?.inputHash, 'recent-hash')
+  } finally {
+    cleanup()
+  }
+})
+
+test('storage health stats report database size and record distribution', () => {
+  const { database, databasePath, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.accounts.upsertAccount({
+      region: 'HN1',
+      puuid: 'test-puuid',
+      displayName: 'RankPeek#0001'
+    })
+    database.matches.upsertMatchRecord(makeMatchRecord(1, 'test-puuid'))
+    database.matches.upsertMatchDetail({
+      region: 'HN1',
+      matchId: 'HN1_test-puuid_1',
+      rawDetailJson: { detail: 'x'.repeat(100) },
+      normalizedDetailJson: { normalized: true }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_test-puuid_1',
+      analysisType: 'postgame_review',
+      inputHash: 'health-hash',
+      outputJson: { summary: 'Health check.' }
+    })
+
+    const stats = database.getStorageHealthStats()
+
+    assert.equal(stats.databasePath, databasePath)
+    assert.equal(stats.fileBytes, statSync(databasePath).size)
+    assert.equal(stats.accountCount, 1)
+    assert.equal(stats.matchRecordCount, 1)
+    assert.equal(stats.matchDetailCount, 1)
+    assert.equal(stats.aiAnalysisCount, 1)
+    assert.equal(stats.orphanSingleMatchAiCount, 0)
+    assert.equal(stats.maxMatchesPerAccount[0]?.matchCount, 1)
+    assert.ok((stats.matchSummaryJsonAvgBytes ?? 0) > 0)
+    assert.ok((stats.matchDetailJsonMaxBytes ?? 0) > 0)
   } finally {
     cleanup()
   }

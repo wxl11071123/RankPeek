@@ -32,7 +32,7 @@ rankpeek:
     api-key:
     connect-timeout-ms: 5000
     read-timeout-ms: 30000
-    max-tokens: 800
+    max-tokens: 1600
     temperature: 0.4
   cn-meta:
     sync:

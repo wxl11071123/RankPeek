@@ -140,7 +140,11 @@ test('database IPC handlers expose storage retention and AI memory stats/export 
 
     const retention = await ipcMain.invoke('db:storage:runRetention')
     assert.equal(retention.success, true)
-    assert.equal(retention.data.aiAnalysisDeleted, 0)
+
+    const health = await ipcMain.invoke('db:storage:getHealthStats')
+    assert.equal(health.success, true)
+    assert.equal(health.data.aiAnalysisCount, 0)
+    assert.equal(health.data.orphanSingleMatchAiCount, 0)
 
     assert.equal(ipcMain.handlers.has('db:ai:deleteMemory'), false)
     assert.equal(ipcMain.handlers.has('db:ai:clearMemory'), false)

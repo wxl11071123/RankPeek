@@ -12,6 +12,7 @@ import type {
   MatchRecord,
   MatchRecordInput,
   MatchRecordListOptions,
+  LocalStorageHealthStats,
   LocalStorageRetentionResult,
   SummonerAccount,
   SummonerAccountInput
@@ -79,6 +80,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     runStorageRetention: () => (
       ipcRenderer.invoke('db:storage:runRetention') as Promise<DatabaseResult<LocalStorageRetentionResult>>
+    ),
+    getStorageHealthStats: () => (
+      ipcRenderer.invoke('db:storage:getHealthStats') as Promise<DatabaseResult<LocalStorageHealthStats>>
     )
   }
 } satisfies { database: LocalDatabaseAPI } & Record<string, unknown>)

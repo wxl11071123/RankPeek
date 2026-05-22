@@ -70,6 +70,23 @@ test('builds the five-row ladu chart share model with summary inside the image',
   assert.equal(model.summary, '客观总结：前期节奏清楚，中期资源团处理需要更稳。')
 })
 
+test('share model allocates more than four summary lines for long postgame reviews', () => {
+  const result = createResult()
+  result.summary = [
+    '本局敌方打野铁血狼母以15杀4死7连杀的完美数据掌控全局。',
+    '配合中单法外狂徒的强势联动，在前期就建立起巨大经济优势。',
+    '我方中单奥术先驱虽打出全场最高伤害，但全队阵亡过多、资源团前频繁减员。',
+    '最终敌方在29分钟凭借推进结束比赛，整体节奏差距主要来自野区主动权和中期资源交换。',
+    '后续如果要复盘这类局，重点应放在资源刷新前的站位选择、野区入口视野和劣势时的止损节奏。'
+  ].join('')
+
+  const model = buildPostgameLaduChartShareModel(result)
+
+  assert.ok(model.height > 956)
+  assert.ok(model.summaryMaxLines > 4)
+  assert.equal(model.summary, result.summary)
+})
+
 test('resolves postgame review icons from AI champion names without match detail hydration', () => {
   const iconUrl = resolvePostgameReviewPlayerIconUrl(
     {

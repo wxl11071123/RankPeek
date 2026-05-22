@@ -70,11 +70,40 @@ test('postgame AI analysis modal renders praise as a single friend note', () => 
   assert.match(source, /v-else-if="displayedPostgamePraise"/)
   assert.match(source, /class="postgame-ai-analysis-result postgame-praise-card"/)
   assert.match(source, /class="postgame-praise-headline"[\s\S]*displayedPostgamePraise\.headline/)
-  assert.match(source, /class="postgame-praise-body"[\s\S]*displayedPostgamePraise\.body/)
+  assert.match(source, /v-for="\([^"]*paragraph[^"]*\) in displayedPostgamePraise\.paragraphs"/)
+  assert.match(source, /class="postgame-praise-paragraph"[\s\S]*paragraph/)
+  assert.doesNotMatch(source, /class="postgame-praise-body"[\s\S]*displayedPostgamePraise\.body/)
   assert.match(source, /v-else-if="hasStreamOutput && mode === 'praise'"/)
   assert.match(source, /正在组织夸夸内容，正文出来后会自动显示。/)
   assert.ok(source.indexOf('v-else-if="displayedPostgamePraise"') < source.indexOf('v-else-if="hasStreamOutput && mode === \'praise\'"'))
   assert.doesNotMatch(source, /DeepSeek 分析|下局一句话建议|证据条|小署名|语气条/)
+})
+
+test('postgame praise card uses theme-specific YouYuan styling without synthetic bold', () => {
+  assert.equal(existsSync(modalUrl), true)
+  const source = readFileSync(modalUrl, 'utf8')
+  const panelRule = source.match(/\.postgame-ai-analysis-panel \{[\s\S]*?\n\}/)?.[0] ?? ''
+  const lightRule = source.match(/:global\(\[data-theme="light"\] \.postgame-ai-analysis-panel\) \{[\s\S]*?\n\}/)?.[0] ?? ''
+  const praiseCardRule = source.match(/\.postgame-praise-card \{[\s\S]*?\n\}/)?.[0] ?? ''
+  const praiseHeadlineRule = source.match(/\.postgame-praise-headline \{[\s\S]*?\n\}/)?.[0] ?? ''
+  const praiseParagraphRule = source.match(/\.postgame-praise-paragraph \{[\s\S]*?\n\}/)?.[0] ?? ''
+
+  assert.match(panelRule, /--postgame-praise-reading-font:\s*YouYuan/)
+  assert.match(panelRule, /--postgame-praise-card-bg:/)
+  assert.match(panelRule, /--postgame-praise-title-color:/)
+  assert.match(panelRule, /--postgame-praise-body-color:/)
+  assert.match(lightRule, /--postgame-praise-card-bg:[\s\S]*#fffaf0/)
+  assert.match(lightRule, /--postgame-praise-title-color:\s*#2b2110/)
+  assert.match(lightRule, /--postgame-praise-body-color:\s*#3d3220/)
+  assert.match(praiseCardRule, /font-synthesis-weight:\s*none/)
+  assert.match(praiseCardRule, /background:\s*var\(--postgame-praise-card-bg\)/)
+  assert.match(praiseCardRule, /border-color:\s*var\(--postgame-praise-card-border\)/)
+  assert.match(praiseHeadlineRule, /color:\s*var\(--postgame-praise-title-color\)/)
+  assert.match(praiseHeadlineRule, /font-weight:\s*400/)
+  assert.match(praiseParagraphRule, /color:\s*var\(--postgame-praise-body-color\)/)
+  assert.match(praiseParagraphRule, /font-weight:\s*400/)
+  assert.doesNotMatch(praiseHeadlineRule, /font-weight:\s*(?:8|9)\d{2}/)
+  assert.doesNotMatch(praiseParagraphRule, /font-weight:\s*(?:7|8|9)\d{2}/)
 })
 
 test('postgame AI analysis modal provides overlay, escape, close button, and cancel dismissal', () => {

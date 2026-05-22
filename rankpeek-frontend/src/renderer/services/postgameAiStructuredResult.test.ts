@@ -132,7 +132,10 @@ test('parses postgame praise JSON into a friend-note result', () => {
 {
   "schemaVersion": "postgame_praise_result.v1",
   "headline": "奎因打野节奏拉满",
-  "body": "你前面虽然被针对得很难受，但你一直在找机会做事。队伍中期几波节奏断掉以后，本来就很难靠一个人硬掰回来。下局建议：继续按自己的节奏找机会就行，别给自己太大压力。"
+  "paragraphs": [
+    "你这把德玛西亚之翼打野前面虽然被针对得很难受，但你一直在找机会做事，能把节奏往河道和边线带已经很不容易。",
+    "队伍中期几波节奏断掉以后，本来就很难靠一个人硬掰回来，这局输得更像是整体资源和阵容执行被压住，不是你一个人的锅。"
+  ]
 }
 \`\`\``)
 
@@ -143,8 +146,11 @@ test('parses postgame praise JSON into a friend-note result', () => {
 
   assert.equal(parsed.result.schemaVersion, 'postgame_praise_result.v1')
   assert.equal(parsed.result.headline, '奎因打野节奏拉满')
-  assert.match(parsed.result.body, /一直在找机会做事/)
-  assert.match(parsed.result.body, /下局建议/)
+  assert.deepEqual(parsed.result.paragraphs, [
+    '你这把德玛西亚之翼打野前面虽然被针对得很难受，但你一直在找机会做事，能把节奏往河道和边线带已经很不容易。',
+    '队伍中期几波节奏断掉以后，本来就很难靠一个人硬掰回来，这局输得更像是整体资源和阵容执行被压住，不是你一个人的锅。'
+  ])
+  assert.equal(parsed.result.body, parsed.result.paragraphs.join('\n\n'))
   assert.doesNotMatch(parsed.result.body, /```|DeepSeek/)
 })
 
@@ -162,6 +168,7 @@ test('keeps expressive AI praise headlines instead of falling back to a fixed bl
 
   assert.equal(parsed.result.headline, '奎因打野把节奏扛在肩上飞')
   assert.notEqual(parsed.result.headline, '这把真不能全怪你')
+  assert.deepEqual(parsed.result.paragraphs, ['这局你用德玛西亚之翼打野，前中期一直在给队伍找节奏。'])
 })
 
 test('derives a contextual praise headline when the model sends a banned fixed title', () => {
@@ -178,9 +185,10 @@ test('derives a contextual praise headline when the model sends a banned fixed t
 
   assert.equal(parsed.result.headline, '这局你用德玛西亚之翼（奎因）打野')
   assert.notEqual(parsed.result.headline, '这把真不能全怪你')
+  assert.deepEqual(parsed.result.paragraphs, ['这局你用德玛西亚之翼（奎因）打野，21/8/7的豪华KDA和队内打钱第一都说明你是胜利核心。'])
 })
 
-test('does not treat incomplete praise JSON before body starts as legacy text', () => {
+test('does not treat incomplete praise JSON before paragraphs start as legacy text', () => {
   const parsed = parsePostgameAiPraiseResult(`
 {
   "schemaVersion": "postgame_praise_result.v1",
@@ -190,12 +198,13 @@ test('does not treat incomplete praise JSON before body starts as legacy text', 
   assert.equal(parsed.ok, false)
 })
 
-test('parses streaming postgame praise body before the JSON object is complete', () => {
+test('parses streaming postgame praise paragraph before the JSON object is complete', () => {
   const parsed = parsePostgameAiPraiseResult(`
 {
   "schemaVersion": "postgame_praise_result.v1",
   "headline": "这把真不能全怪你",
-  "body": "你这把不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后
+  "paragraphs": [
+    "你这把奎因打野不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后
 `)
 
   assert.equal(parsed.ok, true)
@@ -203,8 +212,9 @@ test('parses streaming postgame praise body before the JSON object is complete',
     return
   }
 
-  assert.equal(parsed.result.headline, '你这把不是没声音')
-  assert.equal(parsed.result.body, '你这把不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后')
+  assert.equal(parsed.result.headline, '你这把奎因打野不是没声音')
+  assert.deepEqual(parsed.result.paragraphs, ['你这把奎因打野不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后'])
+  assert.equal(parsed.result.body, '你这把奎因打野不是没声音，前面几波节奏其实都在尽力往队伍身上补。中期局势断掉以后')
 })
 
 test('normalizes legacy postgame praise text for the new one-piece UI', () => {
@@ -222,6 +232,10 @@ DeepSeek 分析
   }
 
   assert.equal(parsed.result.headline, '你的全图打野，虽败犹荣的暗影猎手')
-  assert.equal(parsed.result.body, '这把真不能全怪你。你一直在找机会做事。 下局建议：下把继续按自己的节奏找机会，别急着给自己背锅。')
+  assert.deepEqual(parsed.result.paragraphs, [
+    '这把真不能全怪你。你一直在找机会做事。',
+    '下局建议：下把继续按自己的节奏找机会，别急着给自己背锅。'
+  ])
+  assert.equal(parsed.result.body, parsed.result.paragraphs.join('\n\n'))
   assert.doesNotMatch(parsed.result.body, /DeepSeek|【|】/)
 })

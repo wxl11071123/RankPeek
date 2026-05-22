@@ -11,7 +11,11 @@ const CHART_PADDING = 40
 const CHART_TITLE_HEIGHT = 88
 const CHART_ROW_HEIGHT = 132
 const CHART_LABEL_WIDTH = 132
-const CHART_SUMMARY_HEIGHT = 164
+const CHART_SUMMARY_BODY_TOP = 78
+const CHART_SUMMARY_LINE_HEIGHT = 25
+const CHART_SUMMARY_MIN_LINES = 4
+const CHART_SUMMARY_MAX_LINES = 8
+const CHART_SUMMARY_ESTIMATED_CHARS_PER_LINE = 42
 const CHART_FOOTER_HEIGHT = 44
 
 const LEVEL_COLORS: Record<PostgameLaduLevel, string> = {
@@ -51,6 +55,8 @@ export interface PostgameLaduChartShareModel {
   title: string
   rows: PostgameLaduChartShareRow[]
   summary: string
+  summaryHeight: number
+  summaryMaxLines: number
 }
 
 export interface PostgameLaduChartShareOptions {
@@ -75,12 +81,17 @@ export function buildPostgameLaduChartShareModel(
     }
   })
 
+  const summaryMaxLines = estimateSummaryLineCount(result.summary)
+  const summaryHeight = calculateSummaryHeight(summaryMaxLines)
+
   return {
     width: CHART_WIDTH,
-    height: CHART_TITLE_HEIGHT + CHART_ROW_HEIGHT * POSTGAME_LADU_LEVELS.length + CHART_SUMMARY_HEIGHT + CHART_FOOTER_HEIGHT,
+    height: CHART_TITLE_HEIGHT + CHART_ROW_HEIGHT * POSTGAME_LADU_LEVELS.length + summaryHeight + CHART_FOOTER_HEIGHT,
     title: options.title || '赛后复盘',
     rows,
-    summary: result.summary
+    summary: result.summary,
+    summaryHeight,
+    summaryMaxLines
   }
 }
 
@@ -223,7 +234,7 @@ async function drawPostgameReviewImage(
   }
 
   const summaryY = tableY + model.rows.length * CHART_ROW_HEIGHT
-  drawSummary(context, tableX, summaryY, tableWidth, model.summary)
+  drawSummary(context, tableX, summaryY, tableWidth, model.summary, model.summaryHeight, model.summaryMaxLines)
 
   context.fillStyle = '#596172'
   context.font = '700 14px "Microsoft YaHei", "PingFang SC", sans-serif'
@@ -312,13 +323,15 @@ function drawSummary(
   x: number,
   y: number,
   width: number,
-  summary: string
+  summary: string,
+  height: number,
+  maxLines: number
 ): void {
   context.fillStyle = '#f6f6f2'
-  context.fillRect(x, y, width, CHART_SUMMARY_HEIGHT)
+  context.fillRect(x, y, width, height)
   context.strokeStyle = '#1b1e24'
   context.lineWidth = 2
-  context.strokeRect(x, y, width, CHART_SUMMARY_HEIGHT)
+  context.strokeRect(x, y, width, height)
 
   context.fillStyle = '#111318'
   context.font = '900 22px "Microsoft YaHei", "PingFang SC", sans-serif'
@@ -326,9 +339,9 @@ function drawSummary(
 
   context.fillStyle = '#303642'
   context.font = '700 18px "Microsoft YaHei", "PingFang SC", sans-serif'
-  const lines = wrapCanvasText(context, summary, width - 48, 4)
+  const lines = wrapCanvasText(context, summary, width - 48, maxLines, true)
   for (let index = 0; index < lines.length; index += 1) {
-    context.fillText(lines[index] ?? '', x + 24, y + 78 + index * 25)
+    context.fillText(lines[index] ?? '', x + 24, y + CHART_SUMMARY_BODY_TOP + index * CHART_SUMMARY_LINE_HEIGHT)
   }
 }
 
@@ -336,7 +349,8 @@ function wrapCanvasText(
   context: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
-  maxLines: number
+  maxLines: number,
+  ellipsisOnTruncate = false
 ): string[] {
   const lines: string[] = []
   let line = ''
@@ -346,6 +360,9 @@ function wrapCanvasText(
       lines.push(line)
       line = char
       if (lines.length >= maxLines) {
+        if (ellipsisOnTruncate) {
+          lines[lines.length - 1] = fitTextWithEllipsis(context, lines[lines.length - 1] ?? '', maxWidth)
+        }
         return lines
       }
     } else {
@@ -356,6 +373,35 @@ function wrapCanvasText(
     lines.push(line)
   }
   return lines
+}
+
+function estimateSummaryLineCount(summary: string): number {
+  const compact = summary.replace(/\s+/g, '').trim()
+  if (!compact) {
+    return CHART_SUMMARY_MIN_LINES
+  }
+
+  return Math.max(
+    CHART_SUMMARY_MIN_LINES,
+    Math.min(CHART_SUMMARY_MAX_LINES, Math.ceil(compact.length / CHART_SUMMARY_ESTIMATED_CHARS_PER_LINE))
+  )
+}
+
+function calculateSummaryHeight(maxLines: number): number {
+  return CHART_SUMMARY_BODY_TOP - 14 + maxLines * CHART_SUMMARY_LINE_HEIGHT
+}
+
+function fitTextWithEllipsis(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string {
+  const suffix = '…'
+  let candidate = text.trimEnd()
+  while (candidate && context.measureText(`${candidate}${suffix}`).width > maxWidth) {
+    candidate = candidate.slice(0, -1)
+  }
+  return candidate ? `${candidate}${suffix}` : suffix
 }
 
 function loadImage(url: string): Promise<HTMLImageElement | null> {

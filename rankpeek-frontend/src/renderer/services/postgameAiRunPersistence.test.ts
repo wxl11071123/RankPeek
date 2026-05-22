@@ -163,7 +163,7 @@ test('postgame AI run payload stores raw output and metadata without the snapsho
   assert.equal(payload.inputHash, 'snapshot-hash-1')
 
   const outputText = JSON.stringify(payload.outputJson)
-  assert.match(outputText, /postgame_ai_run_output\.v1/)
+  assert.match(outputText, /postgame_ai_run_output\.v2/)
   assert.match(outputText, /rawOutputText/)
   assert.match(outputText, /deepseek-v4-flash/)
   assert.match(outputText, /0\.00282/)
@@ -176,9 +176,14 @@ test('postgame AI run payload stores raw output and metadata without the snapsho
   assert.deepEqual(output.match, {
     matchId: '998877',
     queueId: 420,
+    queueName: '单双排',
     championId: 64,
     championName: '盲僧',
     win: true,
+    position: null,
+    kills: null,
+    deaths: null,
+    assists: null,
     gameCreation: 1779278400000,
     gameDuration: 1888
   })
@@ -254,7 +259,7 @@ test('postgame AI run output parses back from the stored JSON envelope', () => {
   const parsed = parsePostgameAiRunOutput(JSON.stringify(payload.outputJson))
 
   assert.equal(parsed.status, 'parsed')
-  assert.equal(parsed.run?.schemaVersion, 'postgame_ai_run_output.v1')
+  assert.equal(parsed.run?.schemaVersion, 'postgame_ai_run_output.v2')
   assert.equal(parsed.run?.mode, 'review')
   assert.equal(parsed.run?.rawOutputText, rawReviewOutput)
   assert.equal(parsed.run?.usage?.promptTokens, 3000)

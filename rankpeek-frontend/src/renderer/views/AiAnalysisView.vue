@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { t } from '@/i18n'
 import PostgameAiAnalysisModal from '@/components/match-history/PostgameAiAnalysisModal.vue'
 import { apiClient } from '@/api/httpClient'
@@ -14,7 +15,7 @@ import {
   buildAccountAnalysisInputSnapshot,
   type AiAnalysisInputSnapshot
 } from '@/services/aiAnalysisInputSnapshot'
-import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
+import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 type ReportTypeFilter = 'all' | 'pregame' | 'postgame' | 'praise' | 'coach'
 type ReportCategory = Exclude<ReportTypeFilter, 'all'> | 'fun' | 'other'
@@ -37,6 +38,7 @@ interface FeatureCard {
 }
 
 const gameStore = useGameStore()
+const router = useRouter()
 // Future server AI final results should be saved through saveServerAiFinalResultToLocal()
 // and will appear in the existing local history list.
 
@@ -277,8 +279,109 @@ function getReportTitle(result: LocalAiAnalysisDisplayResult) {
   return result.output.title || result.analysisTypeLabel
 }
 
+function getReportDisplayTitle(result: LocalAiAnalysisDisplayResult) {
+  return result.output.postgamePraise?.headline || getReportTitle(result)
+}
+
+function isPraiseReport(result: LocalAiAnalysisDisplayResult) {
+  return Boolean(result.output.postgamePraise)
+}
+
+function isPostgameReviewResult(result: LocalAiAnalysisDisplayResult) {
+  return result.output.postgameRun?.mode === 'review'
+}
+
 function getReportScopeLabel(result: LocalAiAnalysisDisplayResult) {
   return result.matchId ? t('aiAnalysis.singleMatchReport') : t('aiAnalysis.accountReport')
+}
+
+function getPostgameMatchMetaText(result: LocalAiAnalysisDisplayResult): string {
+  const match = result.output.postgameRun?.match
+  if (!match) {
+    return getReportScopeLabel(result)
+  }
+
+  return [
+    formatMatchResult(match.win),
+    match.queueName || formatQueueLabel(match.queueId),
+    formatPositionLabel(match.position)
+  ].filter(Boolean).join(' · ')
+}
+
+function formatMatchResult(win: boolean | null): string {
+  if (win === true) {
+    return '胜利'
+  }
+  if (win === false) {
+    return '失败'
+  }
+  return '未知胜负'
+}
+
+function formatQueueLabel(queueId: number | null): string {
+  if (queueId === 420) {
+    return '单双排'
+  }
+  if (queueId === 440) {
+    return '灵活组排'
+  }
+  if (queueId === 450) {
+    return '极地大乱斗'
+  }
+  return queueId ? `队列 ${queueId}` : '未知模式'
+}
+
+function formatPositionLabel(position: string | null): string {
+  const normalized = position?.trim().toUpperCase()
+  if (!normalized || ['INVALID', 'NONE', 'UNKNOWN'].includes(normalized)) {
+    return ''
+  }
+  switch (normalized) {
+    case 'TOP':
+      return '上路'
+    case 'JUNGLE':
+      return '打野'
+    case 'MIDDLE':
+    case 'MID':
+      return '中路'
+    case 'BOTTOM':
+    case 'BOT':
+      return '下路'
+    case 'UTILITY':
+    case 'SUPPORT':
+      return '辅助'
+    default:
+      return normalized || ''
+  }
+}
+
+function formatPostgameKda(result: LocalAiAnalysisDisplayResult): string {
+  const match = result.output.postgameRun?.match
+  if (!match) {
+    return ''
+  }
+
+  const kills = match.kills ?? 0
+  const deaths = match.deaths ?? 0
+  const assists = match.assists ?? 0
+  return `${kills}/${deaths}/${assists}`
+}
+
+function getPostgameChampionIcon(result: LocalAiAnalysisDisplayResult): string {
+  return getChampionIconUrl(result.output.postgameRun?.match.championId) || ''
+}
+
+function openMatchHistoryForReport(result: LocalAiAnalysisDisplayResult, event?: MouseEvent): void {
+  event?.stopPropagation()
+  const matchId = result.output.postgameRun?.match.matchId || result.matchId
+  if (!matchId) {
+    return
+  }
+
+  void router.push({
+    name: 'MatchHistory',
+    query: { openMatchId: matchId }
+  })
 }
 
 function openReportDetail(result: LocalAiAnalysisDisplayResult) {
@@ -732,38 +835,50 @@ async function refreshLocalAnalysisResults() {
           :class="{
             invalid: result.output.status === 'invalid',
             clickable: Boolean(result.output.postgameRun),
-            praise: Boolean(result.output.postgamePraise)
+            review: isPostgameReviewResult(result),
+            praise: isPraiseReport(result)
           }"
           :tabindex="result.output.postgameRun ? 0 : undefined"
           @click="openReportDetail(result)"
           @keydown.enter="openReportDetail(result)"
         >
           <div class="report-main">
-            <div class="report-topline">
-              <span class="report-type-pill">{{ getReportCategoryLabel(result) }}</span>
-              <time>{{ result.createdAtLabel }}</time>
+            <div class="report-header">
+              <div class="report-title-block">
+                <h3 class="report-title">
+                  {{ getReportDisplayTitle(result) }}
+                </h3>
+              </div>
+              <div class="report-meta">
+                <time>{{ result.createdAtLabel }}</time>
+                <span class="report-type-pill">{{ getReportCategoryLabel(result) }}</span>
+              </div>
             </div>
-            <div v-if="result.output.postgamePraise" class="report-praise-card">
-              <h3 class="report-praise-headline">
-                {{ result.output.postgamePraise.headline }}
-              </h3>
-              <p class="report-praise-body">
-                {{ result.output.postgamePraise.body }}
-              </p>
-            </div>
-            <template v-else>
-              <h3>{{ getReportTitle(result) }}</h3>
-              <p>{{ result.output.summary }}</p>
-            </template>
           </div>
 
-          <ul v-if="result.output.highlights.length" class="report-highlights">
-            <li v-for="highlight in result.output.highlights.slice(0, 3)" :key="highlight">{{ highlight }}</li>
-          </ul>
-
           <div class="report-context">
-            <span>{{ currentSummonerName || t('aiAnalysis.currentAccountFallback') }}</span>
-            <span>{{ getReportScopeLabel(result) }}</span>
+            <button
+              v-if="result.output.postgameRun"
+              class="report-match-link"
+              type="button"
+              @click="openMatchHistoryForReport(result, $event)"
+            >
+              <span>{{ currentSummonerName || t('aiAnalysis.currentAccountFallback') }}</span>
+              <span class="report-context-separator">|</span>
+              <span>{{ getPostgameMatchMetaText(result) }}</span>
+              <img
+                v-if="getPostgameChampionIcon(result)"
+                class="report-context-champion"
+                :src="getPostgameChampionIcon(result)"
+                alt=""
+                @error="markAssetLoadFailed"
+              />
+              <strong>{{ formatPostgameKda(result) }}</strong>
+            </button>
+            <template v-else>
+              <span>{{ currentSummonerName || t('aiAnalysis.currentAccountFallback') }}</span>
+              <span>{{ getReportScopeLabel(result) }}</span>
+            </template>
           </div>
         </article>
       </div>
@@ -800,6 +915,25 @@ async function refreshLocalAnalysisResults() {
     0 0 0 1px rgba(var(--ai-analysis-control-hover-rgb), 0.13),
     0 0 14px rgba(var(--ai-analysis-control-hover-rgb), 0.18);
   --ai-analysis-accent-rgb: 212, 175, 55;
+  --ai-record-bg: rgba(24, 25, 29, 0.9);
+  --ai-record-border: rgba(255, 255, 255, 0.09);
+  --ai-record-title: #f5f1e8;
+  --ai-record-muted: rgba(245, 245, 247, 0.54);
+  --ai-record-divider: rgba(255, 255, 255, 0.07);
+  --ai-record-pill-bg: rgba(255, 255, 255, 0.045);
+  --ai-record-pill-border: rgba(255, 255, 255, 0.09);
+  --ai-record-hover-border: rgba(212, 175, 55, 0.42);
+  --ai-record-hover-shadow:
+    0 0 0 1px rgba(212, 175, 55, 0.08),
+    0 14px 28px rgba(0, 0, 0, 0.24);
+  --ai-record-review-font: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", "PMingLiU", "Times New Roman", serif;
+  --ai-record-praise-font: YouYuan, "You Yuan", "Microsoft YaHei UI", "Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif;
+  --ai-record-review-bg: linear-gradient(135deg, rgba(31, 29, 24, 0.96), rgba(18, 24, 30, 0.92));
+  --ai-record-review-border: rgba(212, 175, 55, 0.3);
+  --ai-record-review-accent: #d8b767;
+  --ai-record-praise-bg: linear-gradient(135deg, rgba(43, 32, 37, 0.94), rgba(22, 30, 38, 0.9));
+  --ai-record-praise-border: rgba(245, 184, 118, 0.32);
+  --ai-record-praise-accent: #f3bc7a;
   max-width: 1120px;
   margin: 0 auto;
   padding-bottom: 36px;
@@ -819,6 +953,23 @@ async function refreshLocalAnalysisResults() {
     0 0 0 1px rgba(var(--ai-analysis-control-hover-rgb), 0.13),
     0 0 12px rgba(var(--ai-analysis-control-hover-rgb), 0.2);
   --ai-analysis-accent-rgb: 166, 133, 32;
+  --ai-record-bg: rgba(255, 255, 255, 0.96);
+  --ai-record-border: rgba(29, 29, 31, 0.1);
+  --ai-record-title: #202124;
+  --ai-record-muted: rgba(29, 29, 31, 0.52);
+  --ai-record-divider: rgba(29, 29, 31, 0.08);
+  --ai-record-pill-bg: rgba(29, 29, 31, 0.035);
+  --ai-record-pill-border: rgba(29, 29, 31, 0.09);
+  --ai-record-hover-border: rgba(166, 133, 32, 0.36);
+  --ai-record-hover-shadow:
+    0 0 0 1px rgba(166, 133, 32, 0.08),
+    0 14px 26px rgba(21, 27, 35, 0.08);
+  --ai-record-review-bg: linear-gradient(135deg, rgba(255, 252, 244, 0.98), rgba(247, 249, 252, 0.98));
+  --ai-record-review-border: rgba(166, 133, 32, 0.28);
+  --ai-record-review-accent: #9a7418;
+  --ai-record-praise-bg: linear-gradient(135deg, rgba(255, 248, 244, 0.98), rgba(247, 250, 255, 0.98));
+  --ai-record-praise-border: rgba(194, 114, 76, 0.28);
+  --ai-record-praise-accent: #b86743;
 }
 
 .hero-panel {
@@ -854,8 +1005,7 @@ async function refreshLocalAnalysisResults() {
 .status-card,
 .feature-card,
 .empty-card,
-.memory-card,
-.report-card {
+.memory-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -868,9 +1018,7 @@ async function refreshLocalAnalysisResults() {
 .feature-card:hover,
 .feature-card:focus-within,
 .empty-card:hover,
-.empty-card:focus-within,
-.report-card:hover,
-.report-card:focus-within {
+.empty-card:focus-within {
   border-color: var(--ai-analysis-module-hover-border);
   box-shadow: var(--ai-analysis-module-hover-shadow);
 }
@@ -1038,8 +1186,7 @@ async function refreshLocalAnalysisResults() {
 }
 
 .feature-copy h2,
-.empty-card h2,
-.report-card h3 {
+.empty-card h2 {
   margin: 0;
   color: var(--text-primary);
   font-family: var(--font-display);
@@ -1065,9 +1212,7 @@ async function refreshLocalAnalysisResults() {
   gap: 10px;
 }
 
-.empty-card p,
-.report-main p,
-.report-highlights li {
+.empty-card p {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.55;
@@ -1250,7 +1395,34 @@ async function refreshLocalAnalysisResults() {
 }
 
 .report-card {
-  padding: 18px;
+  --ai-record-active-accent: rgb(var(--ai-analysis-accent-rgb));
+  position: relative;
+  overflow: hidden;
+  padding: 18px 18px 16px 20px;
+  border: 1px solid var(--ai-record-border);
+  border-radius: 12px;
+  background: var(--ai-record-bg);
+  box-shadow: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.report-card::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--ai-record-active-accent);
+  opacity: 0.76;
+  pointer-events: none;
+}
+
+.report-card:hover,
+.report-card:focus-within {
+  border-color: var(--ai-record-hover-border);
+  box-shadow: var(--ai-record-hover-shadow);
 }
 
 .report-card.invalid {
@@ -1262,98 +1434,105 @@ async function refreshLocalAnalysisResults() {
 }
 
 .report-card.clickable:focus-visible {
-  border-color: var(--ai-analysis-module-hover-border);
-  box-shadow: var(--ai-analysis-module-hover-shadow);
+  border-color: var(--ai-record-hover-border);
+  box-shadow: var(--ai-record-hover-shadow);
   outline: none;
 }
 
+.report-card.review {
+  --ai-record-active-accent: var(--ai-record-review-accent);
+  border-color: var(--ai-record-review-border);
+  background: var(--ai-record-review-bg);
+}
+
 .report-card.praise {
-  position: relative;
-  overflow: hidden;
-  border-color: rgba(236, 198, 96, 0.34);
-  background:
-    linear-gradient(135deg, rgba(236, 198, 96, 0.13), rgba(var(--accent-rgb), 0.07) 48%, rgba(255, 255, 255, 0.025)),
-    rgba(16, 21, 27, 0.78);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    0 16px 34px rgba(0, 0, 0, 0.18);
+  --ai-record-active-accent: var(--ai-record-praise-accent);
+  border-color: var(--ai-record-praise-border);
+  background: var(--ai-record-praise-bg);
 }
 
-.report-card.praise::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 3px;
-  background: linear-gradient(90deg, #ecc660, rgba(98, 212, 158, 0.75), rgba(var(--accent-rgb), 0.62));
-  pointer-events: none;
+.report-card.review:hover,
+.report-card.review:focus-within {
+  border-color: var(--ai-record-review-accent);
 }
 
-.report-topline {
+.report-card.praise:hover,
+.report-card.praise:focus-within {
+  border-color: var(--ai-record-praise-accent);
+}
+
+.report-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 18px;
 }
 
-.report-topline time {
-  flex: 0 0 auto;
-  color: var(--text-tertiary);
-  font-size: 12px;
+.report-title-block {
+  min-width: 0;
 }
 
-.report-card h3 {
-  font-size: 17px;
-}
-
-.report-praise-card {
-  display: grid;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.report-praise-headline {
-  font-size: 21px;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.report-praise-body {
+.report-title {
   margin: 0;
-  color: rgba(245, 248, 252, 0.94);
-  font-size: 14px;
+  color: var(--ai-record-title);
+  font-family: var(--font-display);
+  font-size: 18px;
   font-weight: 760;
-  line-height: 1.85;
-  white-space: pre-wrap;
+  line-height: 1.35;
+  letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
-.report-main p {
-  margin: 8px 0 0;
-  overflow-wrap: anywhere;
+.report-card.review .report-title {
+  font-family: var(--ai-record-review-font);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
-.report-highlights {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.report-card.praise .report-title {
+  font-family: var(--ai-record-praise-font);
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.34;
+}
+
+.report-meta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
+  max-width: 44%;
 }
 
-.report-highlights li {
-  padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
+.report-meta time {
+  flex: 0 0 auto;
+  color: var(--ai-record-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.report-meta .report-type-pill {
+  border-color: var(--ai-record-pill-border);
+  background: var(--ai-record-pill-bg);
+  color: var(--ai-record-active-accent);
+}
+
+.report-card.praise .report-type-pill {
+  font-family: var(--ai-record-praise-font);
+  font-weight: 800;
 }
 
 .report-context {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ai-record-divider);
 }
 
 .report-context span {
@@ -1362,10 +1541,58 @@ async function refreshLocalAnalysisResults() {
   min-height: 24px;
   padding: 0 9px;
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--ai-record-pill-bg);
+  color: var(--ai-record-muted);
   font-size: 12px;
   font-weight: 650;
+}
+
+.report-match-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 9px;
+  border: 1px solid var(--ai-record-pill-border);
+  border-radius: var(--radius-sm);
+  background: var(--ai-record-pill-bg);
+  color: var(--ai-record-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report-match-link:hover,
+.report-match-link:focus-visible {
+  border-color: var(--ai-record-active-accent);
+  color: var(--ai-record-title);
+  outline: none;
+}
+
+.report-match-link span,
+.report-match-link strong {
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  line-height: 1.35;
+}
+
+.report-context-separator {
+  opacity: 0.55;
+}
+
+.report-context-champion {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
 @media (max-width: 1120px) {
@@ -1390,15 +1617,20 @@ async function refreshLocalAnalysisResults() {
     font-size: 28px;
   }
 
-  .report-topline {
+  .report-header {
     align-items: stretch;
     flex-direction: column;
-    gap: 6px;
+    gap: 10px;
+  }
+
+  .report-meta {
+    max-width: none;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .feature-grid,
-  .memory-stats-grid,
-  .report-highlights {
+  .memory-stats-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -34,6 +34,12 @@ interface MatchLoadoutIconSlot {
 }
 
 type MatchTraitMode = 'perk' | 'augment'
+type SavedAiReportMode = 'review' | 'praise'
+
+interface SavedAiReports {
+  review?: boolean
+  praise?: boolean
+}
 
 interface MatchTraitIconSlot {
   key: string
@@ -51,16 +57,19 @@ const props = withDefaults(defineProps<{
   currentSummonerName?: string
   userTagSummaries?: Record<string, UserTagSummary>
   expanded?: boolean
+  savedAiReports?: SavedAiReports
 }>(), {
   currentPuuid: '',
   currentSummonerName: '',
   userTagSummaries: () => ({}),
-  expanded: false
+  expanded: false,
+  savedAiReports: () => ({})
 })
 
 const emit = defineEmits<{
   'open-detail': [match: MatchHistory]
   'navigate-to-player': [gameName: string, tagLine: string]
+  'open-saved-ai-report': [match: MatchHistory, mode: SavedAiReportMode]
 }>()
 
 const { t } = useI18n()
@@ -83,6 +92,7 @@ const currentTraitSlots = computed(() => getTraitSlots(currentPlayer.value))
 const performanceTags = computed<MatchPerformanceTag[]>(() =>
   getMatchPerformanceTags(currentPlayer.value, props.match.participants || [])
 )
+const hasSavedAiReports = computed(() => Boolean(props.savedAiReports.review || props.savedAiReports.praise))
 
 function getTeamChampionSlots(match: MatchHistory, teamId: number): Array<Participant | null> {
   const players = (match.participants || [])
@@ -422,6 +432,10 @@ function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
 
   return target.closest('button, a, input, select, textarea, [role="button"], [data-card-click-ignore], .asset-tooltip-trigger') !== null
 }
+
+function openSavedAiReport(mode: SavedAiReportMode): void {
+  emit('open-saved-ai-report', props.match, mode)
+}
 </script>
 
 <template>
@@ -534,6 +548,29 @@ function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
       </div>
     </div>
 
+    <div
+      class="saved-ai-actions"
+      :class="{ empty: !hasSavedAiReports }"
+      :data-card-click-ignore="hasSavedAiReports ? '' : null"
+    >
+      <button
+        v-if="savedAiReports.review"
+        class="saved-ai-action saved-ai-action-review"
+        type="button"
+        @click.stop="openSavedAiReport('review')"
+      >
+        复盘报告
+      </button>
+      <button
+        v-if="savedAiReports.praise"
+        class="saved-ai-action saved-ai-action-praise"
+        type="button"
+        @click.stop="openSavedAiReport('praise')"
+      >
+        夸夸报告
+      </button>
+    </div>
+
     <div class="teams-strip" aria-label="5v5 champion thumbnails">
       <div class="team-row blue" aria-label="blue team champions">
         <span
@@ -597,9 +634,10 @@ function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
   --win-color: #16865a;
   --loss-color: #c54856;
   --remake-color: #6b7280;
+  --saved-ai-actions-width: 74px;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 86px) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 86px) minmax(0, 1fr) var(--saved-ai-actions-width) auto auto;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -631,6 +669,48 @@ function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
   --loss-color: #ee7a82;
   --remake-color: #a3aab6;
   box-shadow: none;
+}
+
+.saved-ai-actions {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  justify-items: stretch;
+  width: var(--saved-ai-actions-width);
+  min-width: var(--saved-ai-actions-width);
+}
+
+.saved-ai-actions.empty {
+  pointer-events: none;
+}
+
+.saved-ai-action {
+  width: 100%;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  border-radius: 7px;
+  background: rgba(212, 175, 55, 0.1);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.saved-ai-action:hover,
+.saved-ai-action:focus-visible {
+  border-color: rgba(212, 175, 55, 0.58);
+  background: rgba(212, 175, 55, 0.18);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.saved-ai-action-praise {
+  border-color: rgba(245, 184, 118, 0.34);
+  background: rgba(245, 184, 118, 0.11);
 }
 
 [data-theme="light"] .match-history-card {
@@ -1027,7 +1107,8 @@ function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
 
 @media (max-width: 1100px) {
   .match-history-card {
-    grid-template-columns: minmax(0, 82px) minmax(0, 1fr) auto auto;
+    --saved-ai-actions-width: 72px;
+    grid-template-columns: minmax(0, 82px) minmax(0, 1fr) var(--saved-ai-actions-width) auto auto;
     gap: 10px;
   }
 
@@ -1040,7 +1121,8 @@ function isInteractiveCardClickTarget(target: EventTarget | null): boolean {
 
 @media (max-width: 720px) {
   .match-history-card {
-    grid-template-columns: minmax(0, 68px) minmax(0, 1fr) auto auto;
+    --saved-ai-actions-width: 68px;
+    grid-template-columns: minmax(0, 68px) minmax(0, 1fr) var(--saved-ai-actions-width) auto auto;
     gap: 8px;
     min-height: 96px;
     padding-right: 10px;

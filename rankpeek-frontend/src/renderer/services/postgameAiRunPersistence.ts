@@ -17,18 +17,24 @@ import {
   type BrowserAiAnalysisStorage
 } from './localAiAnalysisFallbackStore.ts'
 
-export const POSTGAME_AI_RUN_OUTPUT_SCHEMA_VERSION = 'postgame_ai_run_output.v1'
+export const POSTGAME_AI_RUN_OUTPUT_SCHEMA_VERSION = 'postgame_ai_run_output.v2'
+const LEGACY_POSTGAME_AI_RUN_OUTPUT_SCHEMA_VERSION = 'postgame_ai_run_output.v1'
 
 type AiAnalysisSaveDatabase = Pick<LocalDatabaseAPI, 'saveAnalysisResult'>
 type ChampionNameLookup = Record<number, string> | Map<number, string>
 type PostgameAiStoredAnalysisType = 'postgame_review' | 'postgame_praise'
 
 export interface PostgameAiRunMatchMetadata {
-  matchId: string | null
+  matchId: string
   queueId: number | null
+  queueName: string | null
   championId: number | null
   championName: string | null
   win: boolean | null
+  position: string | null
+  kills: number | null
+  deaths: number | null
+  assists: number | null
   gameCreation: number | null
   gameDuration: number | null
 }
@@ -124,6 +130,10 @@ export async function savePostgameAiRunResultToLocal({
   if (!params.snapshot.inputHash.trim()) {
     return { success: false, error: 'Missing inputHash' }
   }
+  const matchId = readFiniteNumber(params.matchHistory.gameId)?.toString() ?? ''
+  if (!matchId) {
+    return { success: false, error: 'Missing matchId' }
+  }
 
   const payload = createPostgameAiRunResultPayload(params)
   const databaseApi = database ?? getRendererDatabase()
@@ -186,7 +196,10 @@ export function parsePostgameAiRunOutput(outputJson: string): PostgameAiRunOutpu
 
 export function normalizePostgameAiRunOutput(value: unknown): PostgameAiRunOutputV1 | null {
   const source = readRecord(value)
-  if (!source || source.schemaVersion !== POSTGAME_AI_RUN_OUTPUT_SCHEMA_VERSION) {
+  if (!source || (
+    source.schemaVersion !== POSTGAME_AI_RUN_OUTPUT_SCHEMA_VERSION
+    && source.schemaVersion !== LEGACY_POSTGAME_AI_RUN_OUTPUT_SCHEMA_VERSION
+  )) {
     return null
   }
 
@@ -250,13 +263,19 @@ function createMatchMetadata(
   const participant = findCurrentParticipant(matchHistory, accountPuuid.trim())
   const championId = readFiniteNumber(participant?.championId)
   const championName = championId === null ? null : readChampionName(championNamesById, championId)
+  const stats = participant?.stats
 
   return {
-    matchId: readFiniteNumber(matchHistory.gameId)?.toString() ?? null,
+    matchId: readFiniteNumber(matchHistory.gameId)?.toString() ?? '',
     queueId: readFiniteNumber(matchHistory.queueId),
+    queueName: readNullableString(matchHistory.queueName),
     championId,
     championName,
-    win: typeof participant?.stats?.win === 'boolean' ? participant.stats.win : null,
+    win: typeof stats?.win === 'boolean' ? stats.win : null,
+    position: normalizePosition(participant),
+    kills: readFiniteNumber(stats?.kills),
+    deaths: readFiniteNumber(stats?.deaths),
+    assists: readFiniteNumber(stats?.assists),
     gameCreation: readFiniteNumber(matchHistory.gameCreation),
     gameDuration: readFiniteNumber(matchHistory.gameDuration)
   }
@@ -292,16 +311,43 @@ function normalizeMatchMetadata(value: unknown): PostgameAiRunMatchMetadata | nu
   if (!source) {
     return null
   }
+  const matchId = readNullableString(source.matchId)
+  if (!matchId) {
+    return null
+  }
 
   return {
-    matchId: readNullableString(source.matchId),
+    matchId,
     queueId: readNullableNumber(source.queueId),
+    queueName: readNullableString(source.queueName),
     championId: readNullableNumber(source.championId),
     championName: readNullableString(source.championName),
     win: typeof source.win === 'boolean' ? source.win : null,
+    position: readNullableString(source.position),
+    kills: readNullableNumber(source.kills),
+    deaths: readNullableNumber(source.deaths),
+    assists: readNullableNumber(source.assists),
     gameCreation: readNullableNumber(source.gameCreation),
     gameDuration: readNullableNumber(source.gameDuration)
   }
+}
+
+function normalizePosition(participant: Participant | null): string | null {
+  const raw = readNullableString(participant?.teamPosition)
+    || readNullableString(participant?.individualPosition)
+    || readNullableString(participant?.selectedPosition)
+    || readNullableString(participant?.lane)
+    || readNullableString(participant?.role)
+  if (!raw) {
+    return null
+  }
+
+  const normalized = raw.trim().toUpperCase()
+  if (!normalized || normalized === 'NONE' || normalized === 'UNKNOWN') {
+    return null
+  }
+
+  return normalized
 }
 
 function normalizeTokenUsage(value: unknown): PostgameAiTokenUsage | null {

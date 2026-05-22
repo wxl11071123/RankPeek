@@ -351,6 +351,61 @@ test('postgame AI run envelope parses raw result without surfacing engineering m
   assert.deepEqual(parsed.highlights, [])
 })
 
+test('postgame review run envelope uses partial structured summary instead of raw JSON in history cards', () => {
+  const rawOutputText = `DeepSeek 分析
+{
+  "schemaVersion": "postgame_review_result.v1",
+  "levels": [
+    { "label": "夯", "players": [
+      { "playerRef": "敌方打野｜铁血狼母", "championName": "铁血狼母", "phrase": "全场最高击钱，7连杀，节奏碾压全场。" }
+    ] },
+    { "label": "顶级", "players": [
+      { "playerRef": "法外狂徒", "championName": "法外狂徒", "phrase": "中野联动压制力强。" },
+      { "playerRef": "探险家", "championName": "探险家", "phrase": "对线期经济领先。" },
+      { "playerRef": "荒漠屠夫", "championName": "荒漠屠夫", "phrase": "助攻第一，边线单带压制。" },
+      { "playerRef": "流光镜影", "championName": "流光镜影", "phrase": "团队视野压制明显。" }
+    ] },
+    { "label": "人上人", "players": [
+      { "playerRef": "奥术先驱", "championName": "奥术先驱", "phrase": "但阵亡过多，节奏难以为继。" },
+      { "playerRef": "爆炎雏龙", "championName": "爆炎雏龙", "phrase": "队内扛输出第一。" }
+    ] },
+    { "label": "NPC", "players": [
+      { "playerRef": "腕豪", "championName": "腕豪", "phrase": "参团率偏低，边路崩盘。" },
+      { "playerRef": "放逐之刃", "championName": "放逐之刃", "phrase": "多次资源团前阵亡。" }
+    ] },
+    { "label": "拉完了", "players": [
+      { "playerRef": "你｜我方中单｜德玛西亚之翼", "championName": "德玛西亚之翼", "phrase": "全场死亡最多，经济落后。" }
+    ] }
+  ],
+  "summary": "本局敌方打野前期连续起节奏，我方中期资源交换被压制，最后一波推进前整体`
+
+  const parsed = parseAiAnalysisOutput(JSON.stringify({
+    schemaVersion: 'postgame_ai_run_output.v1',
+    analysisType: 'postgame',
+    mode: 'review',
+    rawOutputText,
+    completedAt: '2026-05-22T05:08:25.865Z',
+    streamState: 'completed',
+    usage: null,
+    costCny: null,
+    match: {
+      matchId: '10946133543',
+      queueId: 420,
+      championId: 133,
+      championName: '德玛西亚之翼',
+      win: false,
+      gameCreation: 1779206481827,
+      gameDuration: 1745
+    }
+  }))
+
+  assert.equal(parsed.status, 'parsed')
+  assert.equal(parsed.title, '德玛西亚之翼 · 失败')
+  assert.equal(parsed.summary, '本局敌方打野前期连续起节奏，我方中期资源交换被压制，最后一波推进前整体')
+  assert.doesNotMatch(parsed.summary, /DeepSeek|schemaVersion|levels|playerRef/)
+  assert.equal(parsed.postgameRun?.mode, 'review')
+})
+
 test('postgame praise run envelope keeps praise text as the history summary', () => {
   const parsed = parseAiAnalysisOutput(JSON.stringify({
     schemaVersion: 'postgame_ai_run_output.v1',

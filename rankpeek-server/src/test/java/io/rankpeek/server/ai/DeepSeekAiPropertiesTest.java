@@ -27,7 +27,7 @@ class DeepSeekAiPropertiesTest {
         assertThat(properties.model()).isEqualTo("deepseek-v4-flash");
         assertThat(properties.connectTimeoutMs()).isEqualTo(5_000);
         assertThat(properties.readTimeoutMs()).isEqualTo(30_000);
-        assertThat(properties.maxTokens()).isEqualTo(800);
+        assertThat(properties.maxTokens()).isEqualTo(1600);
         assertThat(properties.temperature()).isEqualTo(0.4);
     }
 

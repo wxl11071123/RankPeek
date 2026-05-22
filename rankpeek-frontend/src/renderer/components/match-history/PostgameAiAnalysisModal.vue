@@ -231,9 +231,15 @@ onBeforeUnmount(() => {
             <h3 class="postgame-praise-headline">
               {{ displayedPostgamePraise.headline }}
             </h3>
-            <p class="postgame-praise-body">
-              {{ displayedPostgamePraise.body }}
-            </p>
+            <div class="postgame-praise-copy">
+              <p
+                v-for="(paragraph, index) in displayedPostgamePraise.paragraphs"
+                :key="`praise-paragraph:${index}`"
+                class="postgame-praise-paragraph"
+              >
+                {{ paragraph }}
+              </p>
+            </div>
           </section>
 
           <section
@@ -295,6 +301,18 @@ onBeforeUnmount(() => {
 }
 
 .postgame-ai-analysis-panel {
+  --postgame-review-reading-font: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", "PMingLiU", "Times New Roman", serif;
+  --postgame-praise-reading-font: YouYuan, "You Yuan", "Microsoft YaHei UI", "Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif;
+  --postgame-praise-card-bg:
+    linear-gradient(135deg, rgba(236, 198, 96, 0.12), rgba(var(--accent-rgb), 0.07) 54%, rgba(255, 255, 255, 0.025)),
+    #111820;
+  --postgame-praise-card-border: rgba(236, 198, 96, 0.38);
+  --postgame-praise-card-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 16px 34px rgba(0, 0, 0, 0.2);
+  --postgame-praise-topline: linear-gradient(90deg, #ecc660, rgba(98, 212, 158, 0.74), rgba(var(--accent-rgb), 0.58));
+  --postgame-praise-title-color: #fff3d8;
+  --postgame-praise-body-color: rgba(248, 243, 231, 0.92);
   width: min(760px, calc(100vw - 64px));
   max-height: calc(100vh - 64px);
   min-height: 0;
@@ -333,6 +351,17 @@ onBeforeUnmount(() => {
   font-weight: 850;
   line-height: 1.25;
   letter-spacing: 0;
+}
+
+.postgame-ai-analysis-review .postgame-ai-analysis-heading h2 {
+  font-family: var(--postgame-review-reading-font);
+  font-weight: 700;
+}
+
+.postgame-ai-analysis-praise .postgame-ai-analysis-heading h2 {
+  font-family: var(--postgame-praise-reading-font);
+  font-synthesis-weight: none;
+  font-weight: 400;
 }
 
 .postgame-ai-analysis-heading p {
@@ -420,11 +449,19 @@ onBeforeUnmount(() => {
 .postgame-ai-analysis-stream-text {
   margin: 0;
   color: var(--text-primary);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.55;
+  font-family: var(--postgame-review-reading-font);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.85;
   white-space: pre-wrap;
+}
+
+.postgame-ai-analysis-praise .postgame-ai-analysis-stream-text {
+  font-family: var(--postgame-praise-reading-font);
+  font-synthesis-weight: none;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.92;
 }
 
 .postgame-ai-analysis-streaming-note {
@@ -441,13 +478,10 @@ onBeforeUnmount(() => {
   padding: 22px 24px 24px;
   overflow: hidden;
   border-style: solid;
-  border-color: rgba(236, 198, 96, 0.34);
-  background:
-    linear-gradient(135deg, rgba(236, 198, 96, 0.13), rgba(var(--accent-rgb), 0.07) 48%, rgba(255, 255, 255, 0.025)),
-    rgba(16, 21, 27, 0.78);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    0 16px 34px rgba(0, 0, 0, 0.22);
+  border-color: var(--postgame-praise-card-border);
+  background: var(--postgame-praise-card-bg);
+  box-shadow: var(--postgame-praise-card-shadow);
+  font-synthesis-weight: none;
 }
 
 .postgame-praise-card::before {
@@ -455,26 +489,45 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0 0 auto;
   height: 3px;
-  background: linear-gradient(90deg, #ecc660, rgba(98, 212, 158, 0.75), rgba(var(--accent-rgb), 0.62));
+  background: var(--postgame-praise-topline);
   pointer-events: none;
 }
 
 .postgame-praise-headline {
   margin: 0;
-  color: var(--text-primary);
+  color: var(--postgame-praise-title-color);
+  font-family: var(--postgame-praise-reading-font);
   font-size: 24px;
-  font-weight: 900;
-  line-height: 1.18;
+  font-weight: 400;
+  line-height: 1.24;
   letter-spacing: 0;
 }
 
-.postgame-praise-body {
+.postgame-praise-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.postgame-praise-paragraph {
   margin: 0;
-  color: rgba(245, 248, 252, 0.94);
-  font-size: 15px;
-  font-weight: 760;
-  line-height: 1.9;
-  white-space: pre-wrap;
+  color: var(--postgame-praise-body-color);
+  font-family: var(--postgame-praise-reading-font);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.92;
+}
+
+:global([data-theme="light"] .postgame-ai-analysis-panel) {
+  --postgame-praise-card-bg:
+    linear-gradient(135deg, rgba(255, 246, 222, 0.98), rgba(255, 250, 240, 0.96) 58%, rgba(244, 250, 255, 0.82)),
+    #fffaf0;
+  --postgame-praise-card-border: rgba(174, 128, 26, 0.34);
+  --postgame-praise-card-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 18px 36px rgba(111, 78, 18, 0.12);
+  --postgame-praise-topline: linear-gradient(90deg, rgba(190, 142, 32, 0.72), rgba(81, 158, 132, 0.52), rgba(var(--accent-rgb), 0.38));
+  --postgame-praise-title-color: #2b2110;
+  --postgame-praise-body-color: #3d3220;
 }
 
 .postgame-ladu-chart {
@@ -599,16 +652,18 @@ onBeforeUnmount(() => {
 
 .postgame-ladu-summary strong {
   color: #111318;
-  font-size: 13px;
-  font-weight: 900;
+  font-family: var(--postgame-review-reading-font);
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .postgame-ladu-summary p {
   margin: 0;
   color: #303642;
-  font-size: 13px;
-  font-weight: 750;
-  line-height: 1.5;
+  font-family: var(--postgame-review-reading-font);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.8;
 }
 
 .postgame-ai-analysis-share {
@@ -683,7 +738,7 @@ onBeforeUnmount(() => {
     font-size: 21px;
   }
 
-  .postgame-praise-body {
+  .postgame-praise-paragraph {
     font-size: 14px;
     line-height: 1.8;
   }

@@ -27,6 +27,7 @@ export interface PostgameAiStructuredResult {
 export interface PostgameAiPraiseResult {
   schemaVersion: 'postgame_praise_result.v1'
   headline: string
+  paragraphs: string[]
   body: string
 }
 
@@ -107,16 +108,29 @@ export function parsePostgameAiPraiseResult(text: string): PostgameAiPraiseParse
 
     if (payload && typeof payload === 'object') {
       const source = payload as Record<string, unknown>
-      const body = normalizePraiseBody(readNonEmptyString(source.body))
-      if (body) {
+      const paragraphs = normalizePraiseParagraphsFromSource(source)
+      if (paragraphs.length) {
+        const body = joinPraiseParagraphs(paragraphs)
         const headline = normalizePraiseHeadline(readNonEmptyString(source.headline))
           || createPraiseHeadlineFromBody(body)
-        return createPraiseResult(headline, body)
+        return createPraiseResult(headline, paragraphs)
       }
     }
   }
 
   const source = stripJsonFence(text)
+  const partialParagraphs = normalizePraiseParagraphs(
+    extractJsonStringArrayFieldFragments(source, 'paragraphs')
+  )
+  if (partialParagraphs.length) {
+    const partialBody = joinPraiseParagraphs(partialParagraphs)
+    const partialHeadline = normalizePraiseHeadline(
+      extractCompleteJsonStringField(source, 'headline')
+        || extractPartialJsonStringField(source, 'headline')
+    ) || createPraiseHeadlineFromBody(partialBody)
+    return createPraiseResult(partialHeadline, partialParagraphs)
+  }
+
   const partialBody = normalizePraiseBody(
     extractCompleteJsonStringField(source, 'body')
       || extractPartialJsonStringField(source, 'body')
@@ -126,7 +140,7 @@ export function parsePostgameAiPraiseResult(text: string): PostgameAiPraiseParse
       extractCompleteJsonStringField(source, 'headline')
         || extractPartialJsonStringField(source, 'headline')
     ) || createPraiseHeadlineFromBody(partialBody)
-    return createPraiseResult(partialHeadline, partialBody)
+    return createPraiseResult(partialHeadline, splitPraiseBodyIntoParagraphs(partialBody))
   }
 
   if (looksLikeStructuredPraiseJson(source)) {
@@ -134,8 +148,9 @@ export function parsePostgameAiPraiseResult(text: string): PostgameAiPraiseParse
   }
 
   const fallback = normalizeLegacyPraiseText(text)
-  if (fallback.body) {
-    return createPraiseResult(fallback.headline || createPraiseHeadlineFromBody(fallback.body), fallback.body)
+  if (fallback.paragraphs.length) {
+    const body = joinPraiseParagraphs(fallback.paragraphs)
+    return createPraiseResult(fallback.headline || createPraiseHeadlineFromBody(body), fallback.paragraphs)
   }
 
   return { ok: false, error: '未找到夸夸机正文' }
@@ -178,36 +193,90 @@ export function parsePartialPostgameAiStructuredResult(text: string): PostgameAi
   }
 }
 
-function createPraiseResult(headline: string, body: string): PostgameAiPraiseParseResult {
+function createPraiseResult(headline: string, paragraphs: string[]): PostgameAiPraiseParseResult {
+  const normalizedParagraphs = normalizePraiseParagraphs(paragraphs)
   return {
     ok: true,
     result: {
       schemaVersion: 'postgame_praise_result.v1',
       headline: headline || POSTGAME_PRAISE_HEADLINE_FALLBACK,
-      body
+      paragraphs: normalizedParagraphs,
+      body: joinPraiseParagraphs(normalizedParagraphs)
     }
   }
 }
 
-function normalizeLegacyPraiseText(text: string): { headline: string; body: string } {
-  const lines = stripJsonFence(text)
-    .split(/\r?\n/)
-    .map(cleanPraiseLine)
-    .filter((line): line is string => Boolean(line))
+function normalizeLegacyPraiseText(text: string): { headline: string; paragraphs: string[] } {
+  const sections = stripJsonFence(text)
+    .split(/\r?\n\s*\r?\n/)
+    .map(section => section
+      .split(/\r?\n/)
+      .map(cleanPraiseLine)
+      .filter((line): line is string => Boolean(line)))
+    .filter(section => section.length > 0)
+  const lines = sections.flat()
 
   if (!lines.length) {
-    return { headline: '', body: '' }
+    return { headline: '', paragraphs: [] }
   }
 
   const [firstLine, ...restLines] = lines
   const firstAsHeadline = normalizePraiseHeadline(firstLine)
   if (firstAsHeadline && restLines.length > 0 && isLikelyStandalonePraiseHeadline(firstLine)) {
-    const body = normalizePraiseBody(restLines.join(' '))
-    return { headline: firstAsHeadline, body }
+    const firstSection = sections[0] ?? []
+    const paragraphGroups = [
+      firstSection.slice(1),
+      ...sections.slice(1)
+    ]
+    return {
+      headline: firstAsHeadline,
+      paragraphs: normalizePraiseParagraphGroups(paragraphGroups)
+    }
   }
 
-  const body = normalizePraiseBody(lines.join(' '))
-  return { headline: createPraiseHeadlineFromBody(body), body }
+  const paragraphs = normalizePraiseParagraphGroups(sections)
+  return { headline: createPraiseHeadlineFromBody(joinPraiseParagraphs(paragraphs)), paragraphs }
+}
+
+function normalizePraiseParagraphsFromSource(source: Record<string, unknown>): string[] {
+  const paragraphs = normalizePraiseParagraphs(readArray(source.paragraphs))
+  if (paragraphs.length) {
+    return paragraphs
+  }
+  return splitPraiseBodyIntoParagraphs(readNonEmptyString(source.body))
+}
+
+function splitPraiseBodyIntoParagraphs(value: string): string[] {
+  if (!value) {
+    return []
+  }
+  const sections = stripJsonFence(value)
+    .split(/\r?\n\s*\r?\n/)
+    .map(section => normalizePraiseBody(section))
+    .filter((line): line is string => Boolean(line))
+  if (sections.length) {
+    return sections.slice(0, 2)
+  }
+  const compact = normalizePraiseBody(value)
+  return compact ? [compact] : []
+}
+
+function normalizePraiseParagraphGroups(groups: string[][]): string[] {
+  return groups
+    .map(group => normalizePraiseBody(group.join('\n')))
+    .filter((line): line is string => Boolean(line))
+    .slice(0, 2)
+}
+
+function normalizePraiseParagraphs(values: unknown[]): string[] {
+  return values
+    .map(value => normalizePraiseBody(readNonEmptyString(value)))
+    .filter((line): line is string => Boolean(line))
+    .slice(0, 2)
+}
+
+function joinPraiseParagraphs(paragraphs: string[]): string {
+  return paragraphs.join('\n\n')
 }
 
 function normalizePraiseHeadline(value: string): string {
@@ -257,7 +326,7 @@ function looksLikeStructuredPraiseJson(text: string): boolean {
   const compact = stripJsonFence(text).trim()
   return compact.startsWith('{') ||
     /postgame_praise_result\.v1/u.test(compact) ||
-    /"(?:schemaVersion|headline|body)"\s*:/u.test(compact)
+    /"(?:schemaVersion|headline|paragraphs|body)"\s*:/u.test(compact)
 }
 
 function createPraiseHeadlineFromBody(body: string): string {
@@ -546,6 +615,70 @@ function extractPartialJsonStringField(text: string, fieldName: string): string 
     rawValue += '\\'
   }
   return decodeJsonStringFragment(rawValue).trim()
+}
+
+function extractJsonStringArrayFieldFragments(text: string, fieldName: string): string[] {
+  const fieldPattern = new RegExp(`"${escapeRegExp(fieldName)}"\\s*:\\s*\\[`, 'g')
+  const match = fieldPattern.exec(text)
+  if (!match) {
+    return []
+  }
+
+  const values: string[] = []
+  let index = match.index + match[0].length
+  while (index < text.length) {
+    const char = text[index]
+    if (char === ']') {
+      break
+    }
+    if (char !== '"') {
+      index += 1
+      continue
+    }
+
+    const valueStart = index
+    let rawValue = ''
+    let escaped = false
+    let completed = false
+    index += 1
+    for (; index < text.length; index += 1) {
+      const valueChar = text[index]
+      if (escaped) {
+        rawValue += `\\${valueChar}`
+        escaped = false
+        continue
+      }
+      if (valueChar === '\\') {
+        escaped = true
+        continue
+      }
+      if (valueChar === '"') {
+        try {
+          const parsed = JSON.parse(text.slice(valueStart, index + 1)) as unknown
+          const value = readNonEmptyString(parsed)
+          if (value) {
+            values.push(value)
+          }
+        } catch {
+          // Ignore malformed strings while the model is still streaming.
+        }
+        completed = true
+        index += 1
+        break
+      }
+      rawValue += valueChar
+    }
+
+    if (!completed) {
+      const partialValue = decodeJsonStringFragment(rawValue).trim()
+      if (partialValue) {
+        values.push(partialValue)
+      }
+      break
+    }
+  }
+
+  return values
 }
 
 function decodeJsonStringFragment(rawValue: string): string {

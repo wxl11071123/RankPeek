@@ -5,9 +5,8 @@ import type {
   DatabaseResult
 } from '../types/localDatabase'
 
-const FALLBACK_SCHEMA_VERSION = 'rankpeek_ai_analysis_fallback_store.v1'
-const FALLBACK_STORAGE_KEY = 'rankpeek.aiAnalysisResults.v1'
-const FALLBACK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const FALLBACK_SCHEMA_VERSION = 'rankpeek_ai_analysis_fallback_store.v2'
+const FALLBACK_STORAGE_KEY = 'rankpeek.aiAnalysisResults.v2'
 const FALLBACK_MAX_RECORDS = 200
 
 export interface BrowserAiAnalysisStorage {
@@ -33,13 +32,21 @@ export function saveFallbackAiAnalysisResult(
 
   try {
     const store = readFallbackStore(storage)
-    const retainedRecords = applyFallbackRetention(store.records, now)
+    const retainedRecords = applyFallbackRetention(store.records)
     const nextId = Math.max(store.nextId, ...retainedRecords.map(record => record.id + 1), 1)
     const timestamp = now.toISOString()
+    const matchId = result.matchId ?? null
+    const existingIndex = matchId
+      ? retainedRecords.findIndex(record => (
+        record.accountPuuid === result.accountPuuid
+        && record.matchId === matchId
+        && record.analysisType === result.analysisType
+      ))
+      : -1
     const saved: AiAnalysisResult = {
-      id: nextId,
+      id: existingIndex >= 0 ? retainedRecords[existingIndex].id : nextId,
       accountPuuid: result.accountPuuid,
-      matchId: result.matchId ?? null,
+      matchId,
       analysisType: result.analysisType,
       subjectKey: result.subjectKey ?? null,
       gameVersion: result.gameVersion ?? null,
@@ -50,11 +57,14 @@ export function saveFallbackAiAnalysisResult(
       createdAt: timestamp,
       updatedAt: timestamp
     }
+    const retainedWithoutExisting = existingIndex >= 0
+      ? retainedRecords.filter((_record, index) => index !== existingIndex)
+      : retainedRecords
 
     writeFallbackStore(storage, {
       schemaVersion: FALLBACK_SCHEMA_VERSION,
-      nextId: nextId + 1,
-      records: [saved, ...retainedRecords].slice(0, FALLBACK_MAX_RECORDS)
+      nextId: existingIndex >= 0 ? store.nextId : nextId + 1,
+      records: [saved, ...retainedWithoutExisting].slice(0, FALLBACK_MAX_RECORDS)
     })
 
     return { success: true, data: saved }
@@ -76,9 +86,8 @@ export function listFallbackAiAnalysisResultsByAccount(
   }
 
   try {
-    const now = new Date()
     const store = readFallbackStore(storage)
-    const retainedRecords = applyFallbackRetention(store.records, now)
+    const retainedRecords = applyFallbackRetention(store.records)
     if (retainedRecords.length !== store.records.length) {
       writeFallbackStore(storage, {
         schemaVersion: FALLBACK_SCHEMA_VERSION,
@@ -92,7 +101,9 @@ export function listFallbackAiAnalysisResultsByAccount(
     const results = retainedRecords
       .filter(record => record.accountPuuid === accountPuuid)
       .filter(record => !options?.analysisType || record.analysisType === options.analysisType)
+      .filter(record => !options?.analysisTypes || options.analysisTypes.includes(record.analysisType))
       .filter(record => !options?.matchId || record.matchId === options.matchId)
+      .filter(record => !options?.matchIds || (record.matchId !== null && options.matchIds.includes(record.matchId)))
       .sort(compareAiAnalysisResultsDesc)
       .slice(offset, offset + limit)
 
@@ -156,12 +167,8 @@ function createEmptyStore(): FallbackStore {
   }
 }
 
-function applyFallbackRetention(records: AiAnalysisResult[], now: Date): AiAnalysisResult[] {
-  const cutoff = now.getTime() - FALLBACK_RETENTION_MS
-  return records.filter(record => {
-    const createdAt = Date.parse(record.createdAt)
-    return Number.isFinite(createdAt) && createdAt >= cutoff
-  })
+function applyFallbackRetention(records: AiAnalysisResult[]): AiAnalysisResult[] {
+  return records.filter(record => Number.isFinite(Date.parse(record.createdAt)))
 }
 
 function normalizeStoredRecord(value: unknown): AiAnalysisResult | null {

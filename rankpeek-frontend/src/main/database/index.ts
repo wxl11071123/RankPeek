@@ -5,7 +5,10 @@ import { runMigrations } from './migrations.ts'
 import { createAccountRepository } from './repositories/accountRepository.ts'
 import { createAiAnalysisRepository } from './repositories/aiAnalysisRepository.ts'
 import { createMatchRepository } from './repositories/matchRepository.ts'
-import { runStorageRetention } from './repositories/storageMaintenanceRepository.ts'
+import {
+  getStorageHealthStats,
+  runStorageRetention
+} from './repositories/storageMaintenanceRepository.ts'
 import type { CreateLocalDatabaseOptions, InitLocalDatabaseOptions, LocalDatabase } from './types.ts'
 
 let localDatabase: LocalDatabase | null = null
@@ -31,6 +34,9 @@ export function createLocalDatabase({ databasePath, logger }: CreateLocalDatabas
     aiAnalyses: createAiAnalysisRepository(connection),
     runStorageRetention() {
       return runStorageRetention(connection)
+    },
+    getStorageHealthStats() {
+      return getStorageHealthStats(connection, databasePath)
     },
     close() {
       connection.close()

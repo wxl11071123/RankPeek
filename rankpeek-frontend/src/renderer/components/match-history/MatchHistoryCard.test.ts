@@ -95,6 +95,26 @@ test('match history card exposes inline detail expanded state and chevron afford
   assert.match(source, /class="chevron-icon"/)
 })
 
+test('match history card renders saved AI report buttons without toggling the card', () => {
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+  const templateBlock = source.match(/<template>[\s\S]*?<\/template>/)?.[0] || ''
+
+  assert.match(source, /savedAiReports\?: SavedAiReports/)
+  assert.match(source, /const hasSavedAiReports = computed/)
+  assert.match(source, /'open-saved-ai-report': \[match: MatchHistory, mode: SavedAiReportMode\]/)
+  assert.match(source, /class="saved-ai-actions"/)
+  assert.doesNotMatch(source, /<div v-if="hasSavedAiReports" class="saved-ai-actions"/)
+  assert.match(source, /--saved-ai-actions-width:/)
+  assert.match(source, /grid-template-columns:\s*minmax\(0, 86px\) minmax\(0, 1fr\) var\(--saved-ai-actions-width\) auto auto/)
+  assert.match(source, /width:\s*var\(--saved-ai-actions-width\)/)
+  assert.match(source, /v-if="savedAiReports\.review"[\s\S]*@click\.stop="openSavedAiReport\('review'\)"[\s\S]*复盘报告/)
+  assert.match(source, /v-if="savedAiReports\.praise"[\s\S]*@click\.stop="openSavedAiReport\('praise'\)"[\s\S]*夸夸报告/)
+  assert.doesNotMatch(source, /v-if="savedAiReports\.review"[\s\S]*@click\.stop="openSavedAiReport\('review'\)"[\s\S]*赛后复盘/)
+  assert.doesNotMatch(source, /v-if="savedAiReports\.praise"[\s\S]*@click\.stop="openSavedAiReport\('praise'\)"[\s\S]*夸夸机/)
+  assert.match(source, /\.saved-ai-action/)
+  assert.ok(templateBlock.indexOf('class="saved-ai-actions"') < templateBlock.indexOf('class="teams-strip"'))
+})
+
 test('match history card renders remake result state without win or loss coloring', () => {
   const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
 
