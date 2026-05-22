@@ -16,6 +16,7 @@ export interface GamingAiAnalysisPreview {
 
 export interface GamingAiPlayerInsight {
   key: string
+  isSelf: boolean
   name: string
   championId?: number
   profileIconId?: number
@@ -93,7 +94,7 @@ interface PlayerStats {
 
 export function createGamingAiAnalysisPreview(input: CreateGamingAiAnalysisPreviewInput): GamingAiAnalysisPreview {
   const players = input.players || []
-  const insights = players.map(player => createPlayerInsight(input.mode, player))
+  const insights = players.map(player => createPlayerInsight(input.mode, player, input.currentSummonerPuuid || input.sessionData.currentSummoner?.puuid))
   const subtitle = `${formatPhase(input.sessionData.phase)} · ${formatQueueName(input.sessionData)}`
 
   if (!players.length) {
@@ -121,7 +122,7 @@ export function createGamingAiAnalysisPreview(input: CreateGamingAiAnalysisPrevi
   }
 }
 
-function createPlayerInsight(mode: GamingAiAnalysisMode, player: SessionSummoner): GamingAiPlayerInsight {
+function createPlayerInsight(mode: GamingAiAnalysisMode, player: SessionSummoner, currentSummonerPuuid?: string): GamingAiPlayerInsight {
   const recordStatus = player.userTag?.recordStatus || 'NORMAL'
   const stats = getPlayerStats(player)
   const statusInsight = getRecordStatusInsight(recordStatus)
@@ -129,6 +130,7 @@ function createPlayerInsight(mode: GamingAiAnalysisMode, player: SessionSummoner
 
   const base = {
     key: getPlayerKey(player),
+    isSelf: isCurrentPlayer(player, currentSummonerPuuid),
     name: formatPlayerName(player),
     championId: player.championId > 0 ? player.championId : undefined,
     profileIconId: player.summoner?.profileIconId || undefined,
@@ -163,6 +165,10 @@ function createPlayerInsight(mode: GamingAiAnalysisMode, player: SessionSummoner
     ...base,
     ...evaluated
   }
+}
+
+function isCurrentPlayer(player: SessionSummoner, currentSummonerPuuid?: string): boolean {
+  return Boolean(currentSummonerPuuid && player.summoner?.puuid === currentSummonerPuuid)
 }
 
 function getRecordStatusInsight(recordStatus: RecordStatus): Pick<GamingAiPlayerInsight, 'verdict' | 'tone' | 'reason'> | null {
@@ -404,7 +410,7 @@ function getPlayerKey(player: SessionSummoner): string {
   if (typeof summonerId === 'number' && Number.isFinite(summonerId)) {
     return `summoner:${summonerId}`
   }
-  return `name:${formatPlayerName(player)}:${player.championId || 0}`
+  return `name:${formatPlayerName(player)}`
 }
 
 export function formatGamingAiRankText(player: SessionSummoner): string {

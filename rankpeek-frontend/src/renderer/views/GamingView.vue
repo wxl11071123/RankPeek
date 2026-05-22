@@ -129,11 +129,11 @@
       :mode="gamingAiModalMode"
       :preview="gamingAiPreview"
       :queue-label="gamingAiQueueLabel"
-      :analysis-enabled="gamingAiAnalysisEnabled"
+      :analysis-enabled="gamingAiAnalysisReady"
       :stream-state="gamingAiStreamState"
-      :stream-text="gamingAiStreamText"
       :stream-error="gamingAiStreamError"
       :player-verdicts="gamingAiPlayerVerdicts"
+      :player-insights="gamingAiPlayerInsights"
       @start-analysis="startGamingAiServerAnalysis"
       @cancel-analysis="cancelGamingAiServerAnalysis"
       @close="closeGamingAiAnalysis"
@@ -161,13 +161,12 @@ import { buildGamingAiInputSnapshot } from '@/services/gamingAiInputSnapshot'
 import {
   createGamingAiStreamRequest,
   streamGamingAiAnalysis,
+  type GamingAiPlayerInsightEvent,
   type GamingAiPlayerStreamVerdict,
   type GamingAiStreamState
 } from '@/services/gamingAiServerStream'
-import {
-  isGamingAiAnalysisEnabledQueue,
-  normalizeGamingQueueLabel
-} from '@/services/gamingAiQueue'
+import { isGamingAiAnalysisReady } from '@/services/gamingAiAnalysisReadiness'
+import { normalizeGamingQueueLabel } from '@/services/gamingAiQueue'
 import {
   buildLobbyDisplaySessionSummoners,
   createGameflowPhaseTransitionTracker,
@@ -252,6 +251,7 @@ const gamingAiStreamState = ref<GamingAiStreamState>('idle')
 const gamingAiStreamText = ref('')
 const gamingAiStreamError = ref('')
 const gamingAiPlayerVerdicts = ref<Record<string, GamingAiPlayerStreamVerdict>>({})
+const gamingAiPlayerInsights = ref<Record<string, GamingAiPlayerInsightEvent>>({})
 let gamingAiStreamAbortController: AbortController | null = null
 
 const phaseCn = computed(() => {
@@ -319,7 +319,10 @@ const queueUnknown = computed(() => {
   return true
 })
 const gamingAiQueueLabel = computed(() => normalizeGamingQueueLabel(sessionData.value))
-const gamingAiAnalysisEnabled = computed(() => isGamingAiAnalysisEnabledQueue(sessionData.value))
+const gamingAiAnalysisReady = computed(() => isGamingAiAnalysisReady({
+  mode: gamingAiModalMode.value,
+  sessionData: sessionData.value
+}))
 const refreshButtonLabel = computed(() => {
   if (loading.value) return t('common.refreshing')
   return hasActiveSession.value ? t('common.refresh') : t('common.refreshStatus')
@@ -480,7 +483,10 @@ async function startGamingAiServerAnalysis() {
   if (gamingAiStreamState.value === 'preparing' || gamingAiStreamState.value === 'streaming') {
     return
   }
-  if (!isGamingAiAnalysisEnabledQueue(sessionData.value)) {
+  if (!isGamingAiAnalysisReady({
+    mode: gamingAiModalMode.value,
+    sessionData: sessionData.value
+  })) {
     return
   }
 
@@ -498,10 +504,19 @@ async function startGamingAiServerAnalysis() {
   gamingAiStreamText.value = ''
   gamingAiStreamError.value = ''
   gamingAiPlayerVerdicts.value = {}
+  gamingAiPlayerInsights.value = {}
 
   const result = await streamGamingAiAnalysis(request, {
     onEvent: (event) => {
       if (controller.signal.aborted) {
+        return
+      }
+      if (event.type === 'player_insight') {
+        gamingAiStreamState.value = 'streaming'
+        gamingAiPlayerInsights.value = {
+          ...gamingAiPlayerInsights.value,
+          [event.playerKey]: event
+        }
         return
       }
       if (event.type === 'player_verdict') {
@@ -517,15 +532,13 @@ async function startGamingAiServerAnalysis() {
       }
       if (event.type === 'section') {
         gamingAiStreamState.value = 'streaming'
-        gamingAiStreamText.value += `${gamingAiStreamText.value ? '\n\n' : ''}${event.title}\n`
       }
     },
-    onDelta: (text) => {
+    onDelta: () => {
       if (controller.signal.aborted) {
         return
       }
       gamingAiStreamState.value = 'streaming'
-      gamingAiStreamText.value += text
     },
     onError: (message) => {
       if (controller.signal.aborted) {
@@ -577,6 +590,7 @@ function resetGamingAiStreamState() {
   gamingAiStreamText.value = ''
   gamingAiStreamError.value = ''
   gamingAiPlayerVerdicts.value = {}
+  gamingAiPlayerInsights.value = {}
 }
 
 function syncSessionDataFromState() {

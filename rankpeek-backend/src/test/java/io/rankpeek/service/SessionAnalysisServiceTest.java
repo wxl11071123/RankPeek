@@ -94,6 +94,8 @@ class SessionAnalysisServiceTest {
         assertThat(data.getTeamOne()).hasSize(1);
         assertThat(data.getTeamTwo()).isEmpty();
         assertThat(data.getTeamOne().getFirst().getChampionId()).isZero();
+        assertThat(data.getTeamOne().getFirst().getSelectedPosition()).isEqualTo("UTILITY");
+        assertThat(data.getTeamOne().getFirst().getPosition()).isEqualTo("UTILITY");
         assertThat(data.getTeamOne().getFirst().getSummoner().getPuuid()).isEqualTo("player-puuid");
         assertThat(data.getTeamOne().getFirst().getMatchHistory()).hasSize(20);
         assertThat(data.getTeamOne().getFirst().getUserTag()).isNotNull();
@@ -184,6 +186,10 @@ class SessionAnalysisServiceTest {
         ChampionSelectSession.Player player = new ChampionSelectSession.Player();
         player.setPuuid("player-puuid");
         player.setChampionId(901);
+        player.setSelectedPosition("UTILITY");
+        player.setAssignedPosition("BOTTOM");
+        player.setTeamPosition("SUPPORT");
+        player.setIndividualPosition("support");
         selectSession.setMyTeam(List.of(player));
         selectSession.setTheirTeam(List.of());
         when(championSelectService.getChampionSelectSession()).thenReturn(selectSession);
@@ -198,6 +204,12 @@ class SessionAnalysisServiceTest {
         var data = service.getSessionData(420);
 
         assertThat(data.getQueueId()).isEqualTo(1700);
+        assertThat(data.getTeamOne()).hasSize(1);
+        assertThat(data.getTeamOne().getFirst().getSelectedPosition()).isEqualTo("UTILITY");
+        assertThat(data.getTeamOne().getFirst().getAssignedPosition()).isEqualTo("BOTTOM");
+        assertThat(data.getTeamOne().getFirst().getTeamPosition()).isEqualTo("SUPPORT");
+        assertThat(data.getTeamOne().getFirst().getIndividualPosition()).isEqualTo("support");
+        assertThat(data.getTeamOne().getFirst().getPosition()).isEqualTo("UTILITY");
         verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 1700, 50, 20);
     }
 
@@ -258,6 +270,10 @@ class SessionAnalysisServiceTest {
         assertThat(data.getTeamTwo()).hasSize(1);
         assertThat(data.getTeamOne().getFirst().getSummoner().getPuuid()).isEqualTo("my-puuid");
         assertThat(data.getTeamTwo().getFirst().getSummoner().getPuuid()).isEqualTo("enemy-puuid");
+        assertThat(data.getTeamOne().getFirst().getSelectedPosition()).isEqualTo("MIDDLE");
+        assertThat(data.getTeamOne().getFirst().getPosition()).isEqualTo("MIDDLE");
+        assertThat(data.getTeamTwo().getFirst().getSelectedPosition()).isEqualTo("TOP");
+        assertThat(data.getTeamTwo().getFirst().getPosition()).isEqualTo("TOP");
         assertThat(data.getSessionKey()).contains("phase:GameStart", "game:123", "queue:420", "my-puuid", "enemy-puuid");
     }
 

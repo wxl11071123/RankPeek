@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { GamingAiInputSnapshot } from './gamingAiInputSnapshot.ts'
+import type { GamingAiInputSnapshot, GamingAiTeamSnapshot } from './gamingAiInputSnapshot.ts'
 import {
   createPregameMockRequestFromSnapshot,
   flattenGamingAiSnapshotTags,
@@ -9,9 +9,7 @@ import {
 } from './gamingAiServerSync.ts'
 
 function createSnapshot(): GamingAiInputSnapshot {
-  return {
-    schemaVersion: 'gaming_ai_input_snapshot.v1',
-    mode: 'teammate',
+  const base = {
     generatedAt: '2026-05-12T00:00:00.000Z',
     phase: 'ChampSelect',
     queueId: 420,
@@ -20,123 +18,76 @@ function createSnapshot(): GamingAiInputSnapshot {
       puuid: 'self-puuid',
       gameName: 'Self',
       tagLine: 'CN1'
-    },
-    allyTeam: [
-      {
-        side: 'ally',
-        isSelf: true,
-        puuid: 'ally-puuid',
-        gameName: 'W',
-        tagLine: '1234',
-        displayName: 'W#1234',
-        championId: 141,
-        championKey: 'Kayn',
-        rankText: 'Emerald I 50 LP',
-        rank: {
-          solo: {
-            tier: 'EMERALD',
-            division: 'I',
-            leaguePoints: 50,
-            wins: 40,
-            losses: 35,
-            totalGames: 75
-          },
-          flex: null
-        },
-        recordStatus: 'NORMAL',
-        tags: [
-          { name: 'high win rate', good: true, desc: 'long description that should not be required' },
-          { name: 'stable output', good: true }
-        ],
-        metrics: {
-          sample: 20,
-          wins: 11,
-          losses: 9,
-          winRate: 55,
-          kda: 3.1,
-          kills: 7,
-          deaths: 3,
-          assists: 8,
-          averageGold: 10000,
-          averageDamageDealtToChampions: 15230,
-          damageRate: 152.3,
-          goldRate: 21.5,
-          groupRate: 12.5,
-          friendsRate: 4.5,
-          disputeRate: 1.5
-        }
-      }
-    ],
-    enemyTeam: [
-      {
-        side: 'enemy',
-        isSelf: false,
-        gameName: 'Hidden',
-        displayName: 'Hidden#CN1',
-        championId: 64,
-        rankText: 'Unranked',
-        recordStatus: 'PRIVATE',
-        tags: [],
-        metrics: {
-          sample: 0,
-          wins: 0,
-          losses: 0,
-          winRate: null,
-          kda: null,
-          kills: null,
-          deaths: null,
-          assists: null,
-          averageGold: null,
-          averageDamageDealtToChampions: null,
-          damageRate: null,
-          goldRate: null,
-          groupRate: null,
-          friendsRate: null,
-          disputeRate: null
-        }
-      }
-    ],
-    selectedPlayers: [],
-    dataQuality: {
-      allyCount: 1,
-      enemyCount: 1,
-      selectedCount: 1,
-      normalRecordCount: 1,
-      hiddenRecordCount: 1,
-      emptyRecordCount: 0,
-      errorRecordCount: 0
     }
+  } as const
+  const allySummaryLine = 'W#1234 当前位置：打野，tag：高胜率、稳定C、高伤，场均击杀/死亡/助攻：7.0/3.0/8.0，平均KDA：3.1，胜率：55.0%，伤转：152.3%，样本数：20，参团率：12.5%。'
+  const enemySummaryLine = 'Hidden#CN1 当前位置：上路，战绩状态：战绩隐藏，tag：无，场均击杀/死亡/助攻：未知/未知/未知，平均KDA：未知，胜率：未知，伤转：未知，样本数：0，参团率：未知。'
+  const teammateSnapshot: GamingAiTeamSnapshot = {
+    schemaVersion: 'gaming_ai_team_snapshot.v1',
+    side: 'ally',
+    text: `当前snapshot时间：${base.generatedAt}。模式：${base.queueName}。用户ID：Self#CN1。阵营：我方。\n\n${allySummaryLine}`,
+    players: [
+      {
+        key: 'puuid:ally-puuid',
+        isSelf: true,
+        summaryLine: allySummaryLine
+      }
+    ]
+  }
+  const opponentSnapshot: GamingAiTeamSnapshot = {
+    schemaVersion: 'gaming_ai_team_snapshot.v1',
+    side: 'enemy',
+    text: `当前snapshot时间：${base.generatedAt}。模式：${base.queueName}。用户ID：Self#CN1。阵营：敌方。\n\n${enemySummaryLine}`,
+    players: [
+      {
+        key: 'name:Hidden#CN1',
+        isSelf: false,
+        summaryLine: enemySummaryLine
+      }
+    ]
+  }
+
+  return {
+    schemaVersion: 'gaming_ai_input_snapshot.v2',
+    mode: 'teammate',
+    ...base,
+    teammateSnapshot,
+    opponentSnapshot
   }
 }
 
-test('flattens gaming AI snapshot player tags into compact team strings', () => {
+test('flattens gaming AI snapshot player tags into one-line natural language strings', () => {
   const flattened = flattenGamingAiSnapshotTags(createSnapshot())
 
   assert.equal(flattened.allyTeamTags.length, 1)
-  assert.equal(flattened.enemyTeamTags.length, 1)
-  assert.match(flattened.allyTeamTags[0] ?? '', /ally \| W#1234/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /self=true/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /champion=141/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /rank=Emerald I 50 LP/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /status=NORMAL/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /sample=20/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /winRate=55\.0%/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /kda=3\.1/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /damageRate=152\.3%/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /tags=high win rate, stable output/)
-  assert.match(flattened.enemyTeamTags[0] ?? '', /status=PRIVATE/)
+  assert.equal(flattened.enemyTeamTags.length, 0)
+  assert.match(flattened.allyTeamTags[0] ?? '', /^当前snapshot时间：2026-05-12T00:00:00.000Z。模式：Ranked Solo。用户ID：Self#CN1。阵营：我方。/)
+  assert.match(flattened.allyTeamTags[0] ?? '', /W#1234 当前位置：打野/)
+  assert.doesNotMatch(flattened.allyTeamTags[0] ?? '', /position=|status=|sample=|champion=|段位|样本中使用/)
 })
 
-test('creates a pregame mock request that carries both flattened tags and structured snapshot', () => {
+test('flattens opponent mode to enemy snapshot only', () => {
+  const snapshot = { ...createSnapshot(), mode: 'opponent' as const }
+  const flattened = flattenGamingAiSnapshotTags(snapshot)
+
+  assert.equal(flattened.allyTeamTags.length, 0)
+  assert.equal(flattened.enemyTeamTags.length, 1)
+  assert.match(flattened.enemyTeamTags[0] ?? '', /^当前snapshot时间：2026-05-12T00:00:00.000Z。模式：Ranked Solo。用户ID：Self#CN1。阵营：敌方。/)
+  assert.match(flattened.enemyTeamTags[0] ?? '', /Hidden#CN1 当前位置：上路/)
+})
+
+test('creates a pregame mock request that carries both flattened tags and compact snapshots', () => {
   const snapshot = createSnapshot()
   const request = createPregameMockRequestFromSnapshot(snapshot)
 
   assert.equal(request.queueId, 420)
-  assert.equal(request.championId, 141)
+  assert.equal(request.championId, undefined)
   assert.deepEqual(request.allyTeamTags, flattenGamingAiSnapshotTags(snapshot).allyTeamTags)
   assert.deepEqual(request.enemyTeamTags, flattenGamingAiSnapshotTags(snapshot).enemyTeamTags)
-  assert.equal(request.snapshotSchemaVersion, 'gaming_ai_input_snapshot.v1')
+  assert.equal(request.snapshotSchemaVersion, 'gaming_ai_input_snapshot.v2')
   assert.equal(request.snapshot, snapshot)
+  assert.equal(request.snapshot?.teammateSnapshot.side, 'ally')
+  assert.equal(request.snapshot?.opponentSnapshot.side, 'enemy')
 })
 
 test('submits the snapshot to the local rankpeek-server mock endpoint', async () => {
@@ -164,7 +115,7 @@ test('submits the snapshot to the local rankpeek-server mock endpoint', async ()
     assert.equal(calls[0]?.url, `http://127.0.0.1:18080${RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT}`)
     assert.equal(calls[0]?.init.method, 'POST')
     assert.deepEqual(calls[0]?.init.headers, { 'Content-Type': 'application/json' })
-    assert.equal(JSON.parse(String(calls[0]?.init.body)).snapshotSchemaVersion, 'gaming_ai_input_snapshot.v1')
+    assert.equal(JSON.parse(String(calls[0]?.init.body)).snapshotSchemaVersion, 'gaming_ai_input_snapshot.v2')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -180,7 +131,6 @@ test('returns a failed result instead of throwing when rankpeek-server is unavai
     const result = await submitGamingAiInputSnapshotToServer(createSnapshot())
 
     assert.equal(result.ok, false)
-    assert.match(result.ok ? '' : result.message, /rankpeek-server/)
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -82,18 +82,32 @@ class DeepSeekAnalysisControllerTest {
 
     @Test
     void pregameStreamUsesDeepSeekWhenEnabled() throws Exception {
+        nextResponse = new FakeResponse(200, """
+                data: {"choices":[{"delta":{"content":"{\\"playerKey\\":\\"puuid:ally-puuid\\",\\"label\\":\\"self\\","}}]}
+
+                data: {"choices":[{"delta":{"content":"\\"tone\\":\\"stable\\",\\"text\\":\\"jungler-state-ready early-path-mid-bot\\"}\\n"}}]}
+
+                data: [DONE]
+
+                """);
         String request = """
                 {
                   "mode": "teammate",
                   "queueId": 420,
-                  "allyTeamTags": ["ally | W#1234 | champion=141 | status=NORMAL | sample=20"],
-                  "enemyTeamTags": ["enemy | Hidden#CN1 | champion=64 | status=PRIVATE"],
-                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v1",
+                  "allyTeamTags": ["当前snapshot时间：2026-05-22T13:00:00.000Z。模式：单双排。用户ID：W#1234。阵营：我方。\\n\\nW#1234（用户） 战绩状态：正常。当前位置：打野，tag：高胜率，场均击杀/死亡/助攻：7.0/3.0/8.0，平均KDA：3.1，胜率：55.0%，伤转：152.3%，样本数：20，参团率：12.5%，最近对局：德邦总管 打野 胜 7/3/8。"],
+                  "enemyTeamTags": [],
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v2",
                   "snapshot": {
-                    "schemaVersion": "gaming_ai_input_snapshot.v1",
+                    "schemaVersion": "gaming_ai_input_snapshot.v2",
                     "mode": "teammate",
-                    "allyTeam": [{"key": "puuid:ally-puuid", "displayName": "W#1234"}],
-                    "enemyTeam": [{"key": "name:Hidden#CN1:64", "displayName": "Hidden#CN1"}]
+                    "teammateSnapshot": {
+                      "side": "ally",
+                      "players": [{"key": "puuid:ally-puuid", "isSelf": true}]
+                    },
+                    "opponentSnapshot": {
+                      "side": "enemy",
+                      "players": []
+                    }
                   }
                 }
                 """;
@@ -108,9 +122,9 @@ class DeepSeekAnalysisControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("event:start")))
-                .andExpect(content().string(containsString("event:section")))
-                .andExpect(content().string(containsString("event:delta")))
-                .andExpect(content().string(containsString("deepseek-stream-advice")))
+                .andExpect(content().string(containsString("event:player_insight")))
+                .andExpect(content().string(containsString("puuid:ally-puuid")))
+                .andExpect(content().string(containsString("jungler-state-ready")))
                 .andExpect(content().string(containsString("event:done")))
                 .andExpect(content().string(not(containsString("test-secret"))));
 
@@ -121,8 +135,103 @@ class DeepSeekAnalysisControllerTest {
         assertThat(body.get("model").asText()).isEqualTo("deepseek-v4-flash");
         assertThat(body.get("stream").asBoolean()).isTrue();
         assertThat(body.get("stream_options").get("include_usage").asBoolean()).isTrue();
-        assertThat(body.get("messages").toString()).contains("gaming_ai_input_snapshot.v1");
-        assertThat(body.get("messages").toString()).contains("ally | W#1234");
+        JsonNode messagesNode = body.get("messages");
+        String messages = messagesNode.toString();
+        String userMessage = messagesNode.get(1).get("content").asText();
+        assertThat(messages).contains("gaming_ai_input_snapshot.v2");
+        assertThat(messages).contains("player_insight_result.v1");
+        assertThat(messages).contains("NDJSON");
+        assertThat(messages).contains("allowedPlayerKeys");
+        assertThat(messages).contains("puuid:ally-puuid");
+        assertThat(messages).contains("当前snapshot时间");
+        assertThat(messages).contains("W#1234（用户）");
+        assertThat(messages).doesNotContain("snapshotJson");
+        assertThat(messages).doesNotContain("teammateSnapshot");
+        assertThat(userMessage).contains("队友模式");
+        assertThat(userMessage).contains("用户本人");
+        assertThat(userMessage).contains("非用户队友只做状态总结");
+        assertThat(userMessage).contains("不给操作建议、不写配合/规避方案");
+        assertThat(userMessage).contains("用户本人写状态总结 + 一句轻量本局思路提醒");
+        assertThat(userMessage).contains("label 只能从：上等马、中等马、下等马、？？？马");
+        assertThat(userMessage).contains("上等马 -> carry");
+        assertThat(userMessage).contains("？？？马 -> unknown");
+        assertThat(userMessage).doesNotContain("普通队友写状态与配合/规避建议");
+        assertThat(userMessage).doesNotContain("保守配合建议");
+        assertThat(userMessage).doesNotContain("对手模式");
+        assertThat(userMessage).doesNotContain("威胁点或破绽");
+        assertThat(userMessage).doesNotContain("代中代");
+        assertThat(userMessage).doesNotContain("突破口");
+    }
+
+    @Test
+    void pregameOpponentPromptUsesOpponentOnlyRules() throws Exception {
+        nextResponse = new FakeResponse(200, """
+                data: {"choices":[{"delta":{"content":"{\\"playerKey\\":\\"puuid:enemy-puuid\\",\\"label\\":\\"threat\\","}}]}
+
+                data: {"choices":[{"delta":{"content":"\\"tone\\":\\"risk\\",\\"text\\":\\"watch-level-three-pathing\\"}\\n"}}]}
+
+                data: [DONE]
+
+                """);
+        String request = """
+                {
+                  "mode": "opponent",
+                  "queueId": 420,
+                  "allyTeamTags": ["ally snapshot should not be selected"],
+                  "enemyTeamTags": ["当前snapshot时间：2026-05-22T13:00:00.000Z。模式：单双排。用户ID：W#1234。阵营：敌方。\\n\\nEnemy#1234 战绩状态：正常。当前位置：打野，tag：高胜率。"],
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v2",
+                  "snapshot": {
+                    "schemaVersion": "gaming_ai_input_snapshot.v2",
+                    "mode": "opponent",
+                    "teammateSnapshot": {
+                      "side": "ally",
+                      "players": [{"key": "puuid:ally-puuid", "isSelf": true}]
+                    },
+                    "opponentSnapshot": {
+                      "side": "enemy",
+                      "players": [{"key": "puuid:enemy-puuid", "isSelf": false}]
+                    }
+                  }
+                }
+                """;
+
+        MvcResult result = mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(request))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("event:player_insight")))
+                .andExpect(content().string(containsString("puuid:enemy-puuid")))
+                .andExpect(content().string(containsString("watch-level-three-pathing")))
+                .andExpect(content().string(not(containsString("test-secret"))));
+
+        JsonNode body = OBJECT_MAPPER.readTree(capturedRequest.body());
+        JsonNode messagesNode = body.get("messages");
+        String messages = messagesNode.toString();
+        String userMessage = messagesNode.get(1).get("content").asText();
+        assertThat(messages).contains("player_insight_result.v1");
+        assertThat(messages).contains("puuid:enemy-puuid");
+        assertThat(messages).contains("Enemy#1234");
+        assertThat(messages).doesNotContain("puuid:ally-puuid");
+        assertThat(messages).doesNotContain("ally snapshot should not be selected");
+        assertThat(userMessage).contains("对手模式");
+        assertThat(userMessage).contains("每个敌方玩家只做状态总结");
+        assertThat(userMessage).contains("不给用户操作建议");
+        assertThat(userMessage).contains("不写前期注意点、针对方案");
+        assertThat(userMessage).contains("label 只能从：代中代、小代、npc、突破口、？？？");
+        assertThat(userMessage).contains("代中代 -> carry");
+        assertThat(userMessage).contains("突破口 -> weak");
+        assertThat(userMessage).contains("？？？ -> unknown");
+        assertThat(userMessage).doesNotContain("威胁点或破绽，以及前期注意点");
+        assertThat(userMessage).doesNotContain("保守注意点");
+        assertThat(userMessage).doesNotContain("队友模式");
+        assertThat(userMessage).doesNotContain("用户本人");
+        assertThat(userMessage).doesNotContain("上等马");
+        assertThat(userMessage).doesNotContain("？？？马");
     }
 
     @Test

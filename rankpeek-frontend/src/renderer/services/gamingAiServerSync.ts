@@ -1,4 +1,4 @@
-import type { GamingAiInputPlayer, GamingAiInputSnapshot } from './gamingAiInputSnapshot.ts'
+import type { GamingAiInputPlayer, GamingAiInputSnapshot, GamingAiTeamSnapshot } from './gamingAiInputSnapshot.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
 export const RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT = '/api/analysis/pregame/mock'
@@ -28,19 +28,24 @@ export function flattenGamingAiSnapshotTags(snapshot: GamingAiInputSnapshot): {
   allyTeamTags: string[]
   enemyTeamTags: string[]
 } {
+  if (snapshot.mode === 'opponent') {
+    return {
+      allyTeamTags: [],
+      enemyTeamTags: [formatTeamSnapshotText(snapshot.opponentSnapshot)]
+    }
+  }
+
   return {
-    allyTeamTags: snapshot.allyTeam.map(player => formatPlayerTagLine(player)),
-    enemyTeamTags: snapshot.enemyTeam.map(player => formatPlayerTagLine(player))
+    allyTeamTags: [formatTeamSnapshotText(snapshot.teammateSnapshot)],
+    enemyTeamTags: []
   }
 }
 
 export function createPregameMockRequestFromSnapshot(snapshot: GamingAiInputSnapshot): PregameMockRequest {
   const flattened = flattenGamingAiSnapshotTags(snapshot)
-  const focusPlayer = snapshot.selectedPlayers[0] ?? snapshot.allyTeam[0] ?? snapshot.enemyTeam[0]
 
   return {
     queueId: snapshot.queueId,
-    ...(focusPlayer?.championId ? { championId: focusPlayer.championId } : {}),
     allyTeamTags: flattened.allyTeamTags,
     enemyTeamTags: flattened.enemyTeamTags,
     snapshotSchemaVersion: snapshot.schemaVersion,
@@ -96,39 +101,11 @@ export async function submitGamingAiInputSnapshotToServer(
 }
 
 function formatPlayerTagLine(player: GamingAiInputPlayer): string {
-  const parts = [
-    player.side,
-    player.displayName
-  ]
-
-  if (player.isSelf) {
-    parts.push('self=true')
-  }
-
-  parts.push(
-    `champion=${player.championId ?? 'unknown'}`,
-    `rank=${player.rankText || 'unknown'}`,
-    `status=${player.recordStatus}`,
-    `sample=${player.metrics.sample}`,
-    `winRate=${formatPercent(player.metrics.winRate)}`,
-    `kda=${formatNumber(player.metrics.kda)}`,
-    `damageRate=${formatPercent(player.metrics.damageRate)}`
-  )
-  const tagNames = player.tags.map(tag => tag.name).filter(Boolean)
-
-  if (tagNames.length) {
-    parts.push(`tags=${tagNames.join(', ')}`)
-  }
-
-  return parts.join(' | ')
+  return player.summaryLine || player.key
 }
 
-function formatPercent(value: number | null): string {
-  return Number.isFinite(value) && value != null ? `${value.toFixed(1)}%` : '--'
-}
-
-function formatNumber(value: number | null): string {
-  return Number.isFinite(value) && value != null ? value.toFixed(1) : '--'
+function formatTeamSnapshotText(snapshot: GamingAiTeamSnapshot): string {
+  return snapshot.text || snapshot.players.map(player => formatPlayerTagLine(player)).join('\n\n')
 }
 
 async function parsePregameMockResponse(response: Response): Promise<PregameMockResponse> {

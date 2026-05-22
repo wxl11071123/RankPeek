@@ -1,6 +1,7 @@
 package io.rankpeek.server.analysis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.server.ai.DeepSeekAiException;
 import io.rankpeek.server.ai.DeepSeekAiProperties;
@@ -11,8 +12,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class DeepSeekAnalysisStreamer {
@@ -39,7 +44,7 @@ public class DeepSeekAnalysisStreamer {
 
     public SseEmitter streamPregame(PregameAnalysisRequest request) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        Thread.ofVirtual().start(() -> stream(emitter, buildPregameMessages(request)));
+        Thread.ofVirtual().start(() -> streamPregameStructured(emitter, request));
         return emitter;
     }
 
@@ -68,36 +73,155 @@ public class DeepSeekAnalysisStreamer {
         }
     }
 
+    private void streamPregameStructured(SseEmitter emitter, PregameAnalysisRequest request) {
+        StringBuilder buffer = new StringBuilder();
+        Set<String> allowedPlayerKeys = readSelectedPlayerKeys(request);
+        try {
+            sendEvent(emitter, "start", "RankPeek DeepSeek stream started");
+            chatClient.streamChat(
+                    properties,
+                    buildPregameMessages(request),
+                    delta -> consumePregameDelta(emitter, buffer, allowedPlayerKeys, delta),
+                    usage -> sendUsage(emitter, usage)
+            );
+            flushPregameBuffer(emitter, buffer, allowedPlayerKeys);
+            sendEvent(emitter, "done", "done");
+            emitter.complete();
+        } catch (DeepSeekAiException exception) {
+            sendError(emitter, exception.getMessage());
+        } catch (Exception exception) {
+            sendError(emitter, "DeepSeek stream failed");
+        }
+    }
+
+    private void consumePregameDelta(
+            SseEmitter emitter,
+            StringBuilder buffer,
+            Set<String> allowedPlayerKeys,
+            String delta
+    ) {
+        buffer.append(delta);
+        int newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex >= 0) {
+            String line = buffer.substring(0, newlineIndex);
+            buffer.delete(0, newlineIndex + 1);
+            sendPregameInsightLine(emitter, allowedPlayerKeys, line);
+            newlineIndex = buffer.indexOf("\n");
+        }
+    }
+
+    private void flushPregameBuffer(SseEmitter emitter, StringBuilder buffer, Set<String> allowedPlayerKeys) {
+        if (buffer.toString().trim().isEmpty()) {
+            return;
+        }
+        sendPregameInsightLine(emitter, allowedPlayerKeys, buffer.toString());
+        buffer.setLength(0);
+    }
+
+    private void sendPregameInsightLine(SseEmitter emitter, Set<String> allowedPlayerKeys, String line) {
+        String trimmed = line == null ? "" : line.trim();
+        if (trimmed.isEmpty()) {
+            return;
+        }
+
+        JsonNode node;
+        try {
+            node = objectMapper.readTree(trimmed);
+        } catch (JsonProcessingException exception) {
+            throw new DeepSeekAiException("DeepSeek pregame insight is not valid NDJSON", exception);
+        }
+
+        String playerKey = readText(node, "playerKey");
+        String label = readText(node, "label");
+        String text = readText(node, "text");
+        if (playerKey.isBlank() || label.isBlank() || text.isBlank()) {
+            throw new DeepSeekAiException("DeepSeek pregame insight missing required fields");
+        }
+        if (!allowedPlayerKeys.isEmpty() && !allowedPlayerKeys.contains(playerKey)) {
+            return;
+        }
+
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("playerKey", playerKey);
+        payload.put("label", label);
+        payload.put("tone", normalizeTone(readText(node, "tone")));
+        payload.put("text", text);
+        try {
+            sendEvent(emitter, "player_insight", objectMapper.writeValueAsString(payload));
+        } catch (IOException exception) {
+            throw new DeepSeekAiException("DeepSeek stream delivery failed", exception);
+        }
+    }
+
     private List<DeepSeekChatMessage> buildPregameMessages(PregameAnalysisRequest request) {
+        String mode = nullToEmpty(request.mode());
+        String modeRules = buildPregameModeRules(mode);
         return List.of(
                 new DeepSeekChatMessage(
                         "system",
                         """
-                                你是 RankPeek 的英雄联盟赛前分析助手。只根据用户提供的 snapshot 和标签分析，不臆造外部战绩。
-                                用中文输出，保持简洁、可执行，重点说明风险、配合点和本局建议。
+                                你是 RankPeek 的英雄联盟赛前分析助手。只根据用户提供的 snapshot 分析，不准编造外部战绩。
+                                你必须输出 player_insight_result.v1 的 NDJSON：每一行都是一个完整 JSON 对象，不要 Markdown、不要代码块、不要总评、不要额外解释。
+                                每个对象字段固定为 playerKey、label、tone、text。tone 只能是 carry、stable、risk、weak、unknown。
                                 """
                 ),
                 new DeepSeekChatMessage(
                         "user",
                         """
-                                请做赛前分析。
+                                请做赛前结构化分析。
+                                schema: player_insight_result.v1
                                 mode: %s
                                 snapshotSchemaVersion: %s
-                                allyTeamTags:
+                                allowedPlayerKeys:
                                 %s
-                                enemyTeamTags:
+                                共同输出规则：
+                                - 只输出 NDJSON，每行一个 JSON 对象。
+                                - 必须为 allowedPlayerKeys 里的每个 playerKey 输出一行，不能输出其他 playerKey。
+                                - label 必须使用当前模式允许的固定标签，不准自创。
+                                - text 必须是 1 到 2 句话，不能有小标题、列表、编号或换行。
                                 %s
-                                snapshotJson:
+                                snapshotText:
                                 %s
                                 """.formatted(
-                                nullToEmpty(request.mode()),
+                                mode,
                                 nullToEmpty(request.snapshotSchemaVersion()),
-                                formatLines(request.allyTeamTags()),
-                                formatLines(request.enemyTeamTags()),
-                                toJson(request.snapshot())
+                                formatLines(readSelectedPlayerKeys(request).stream().toList()),
+                                modeRules,
+                                formatPregameSnapshotText(request)
                         )
                 )
         );
+    }
+
+    private static String buildPregameModeRules(String mode) {
+        if ("opponent".equalsIgnoreCase(mode)) {
+            return """
+                    对手模式规则：
+                    - 只分析敌方阵营，不评价我方。
+                    - label 只能从：代中代、小代、npc、突破口、？？？。
+                    - tone 必须按 label 映射：代中代 -> carry，小代 -> risk，npc -> stable，突破口 -> weak，？？？ -> unknown。
+                    - 每个敌方玩家只做状态总结：根据位置、近期状态、tag 和关键数据概括威胁程度或可突破程度。
+                    - 不给用户操作建议，不写前期注意点、针对方案、gank/入侵/控资源建议。
+                    - 查不到战绩、读取失败、隐藏战绩或样本不足时优先使用“？？？”和 unknown，只总结为信息有限。
+                    """;
+        }
+
+        return """
+                队友模式规则：
+                - 只分析我方阵营，不评价敌方玩家。
+                - label 只能从：上等马、中等马、下等马、？？？马。
+                - tone 必须按 label 映射：上等马 -> carry，中等马 -> stable，下等马 -> risk，？？？马 -> unknown。
+                - 非用户队友只做状态总结：根据位置、近期状态、tag 和关键数据概括这个人的可靠程度或风险，不给操作建议、不写配合/规避方案。
+                - 用户本人写状态总结 + 一句轻量本局思路提醒；提醒只基于用户当前位置和队友整体状态，不要展开成教学或路线清单。
+                - 查不到战绩、读取失败、隐藏战绩或样本不足时优先使用“？？？马”和 unknown，只总结为信息有限，不给操作建议。
+                """;
+    }
+
+    private static String formatPregameSnapshotText(PregameAnalysisRequest request) {
+        boolean opponentMode = "opponent".equalsIgnoreCase(nullToEmpty(request.mode()));
+        List<String> primary = opponentMode ? request.enemyTeamTags() : request.allyTeamTags();
+        List<String> fallback = opponentMode ? request.allyTeamTags() : request.enemyTeamTags();
+        return formatLines(primary == null || primary.isEmpty() ? fallback : primary);
     }
 
     private List<DeepSeekChatMessage> buildPostgameMessages(PostgameAnalysisRequest request) {
@@ -230,6 +354,117 @@ public class DeepSeekAnalysisStreamer {
         } catch (JsonProcessingException exception) {
             return "{}";
         }
+    }
+
+    private static Set<String> readSelectedPlayerKeys(PregameAnalysisRequest request) {
+        Set<String> playerKeys = new LinkedHashSet<>();
+        List<Map<String, Object>> players = readSelectedSnapshotPlayers(request);
+        for (int index = 0; index < players.size(); index += 1) {
+            String key = readPlayerKey(players.get(index), index);
+            if (!key.isBlank()) {
+                playerKeys.add(key);
+            }
+        }
+        return playerKeys;
+    }
+
+    private static List<Map<String, Object>> readSelectedSnapshotPlayers(PregameAnalysisRequest request) {
+        Map<String, Object> snapshot = readMap(request.snapshot());
+        if (snapshot.isEmpty()) {
+            return List.of();
+        }
+
+        List<Map<String, Object>> selectedPlayers = toPlayerMaps(snapshot.get("selectedPlayers"));
+        if (!selectedPlayers.isEmpty()) {
+            return selectedPlayers;
+        }
+
+        String mode = nullToEmpty(request.mode()).toLowerCase();
+        if ("opponent".equals(mode)) {
+            List<Map<String, Object>> opponentSnapshotPlayers = readTeamSnapshotPlayers(snapshot, "opponentSnapshot");
+            if (!opponentSnapshotPlayers.isEmpty()) {
+                return opponentSnapshotPlayers;
+            }
+            return toPlayerMaps(snapshot.get("enemyTeam"));
+        }
+
+        List<Map<String, Object>> teammateSnapshotPlayers = readTeamSnapshotPlayers(snapshot, "teammateSnapshot");
+        if (!teammateSnapshotPlayers.isEmpty()) {
+            return teammateSnapshotPlayers;
+        }
+        return toPlayerMaps(snapshot.get("allyTeam"));
+    }
+
+    private static List<Map<String, Object>> readTeamSnapshotPlayers(Map<String, Object> snapshot, String key) {
+        Object value = snapshot.get(key);
+        if (!(value instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        return toPlayerMaps(map.get("players"));
+    }
+
+    private static List<Map<String, Object>> toPlayerMaps(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+
+        List<Map<String, Object>> players = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                Map<String, Object> player = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (entry.getKey() instanceof String key) {
+                        player.put(key, entry.getValue());
+                    }
+                }
+                players.add(player);
+            }
+        }
+        return players;
+    }
+
+    private static String readPlayerKey(Map<String, Object> player, int index) {
+        String key = readString(player.get("key"));
+        if (!key.isBlank()) {
+            return key;
+        }
+
+        String puuid = readString(player.get("puuid"));
+        if (!puuid.isBlank()) {
+            return "puuid:" + puuid;
+        }
+
+        String displayName = readString(player.get("displayName"));
+        if (!displayName.isBlank()) {
+            return "name:" + displayName + ":" + readChampionKeyPart(player.get("championId"));
+        }
+
+        return "player:" + index;
+    }
+
+    private static String readChampionKeyPart(Object value) {
+        if (value instanceof Number number) {
+            return String.valueOf(number.intValue());
+        }
+        String text = readString(value);
+        return text.isBlank() ? "unknown" : text;
+    }
+
+    private static String readString(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static String readText(JsonNode node, String fieldName) {
+        JsonNode field = node.path(fieldName);
+        return field.isTextual() ? field.asText().trim() : "";
+    }
+
+    private static String normalizeTone(String tone) {
+        String normalized = nullToEmpty(tone);
+        return switch (normalized) {
+            case "carry", "stable", "risk", "weak", "unknown" -> normalized;
+            default -> "unknown";
+        };
     }
 
     private static String formatLines(List<String> values) {

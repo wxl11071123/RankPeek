@@ -29,6 +29,16 @@ public class SessionSummoner {
      */
     private String championKey;
 
+    private String selectedPosition;
+
+    private String assignedPosition;
+
+    private String teamPosition;
+
+    private String individualPosition;
+
+    private String position;
+
     /**
      * 召唤师信息
      */

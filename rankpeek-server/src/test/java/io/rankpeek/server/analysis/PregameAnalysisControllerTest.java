@@ -151,30 +151,36 @@ class PregameAnalysisControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("event:start")))
+                .andExpect(content().string(containsString("event:player_insight")))
                 .andExpect(content().string(containsString("event:player_verdict")))
                 .andExpect(content().string(containsString("puuid:ally-puuid")))
-                .andExpect(content().string(containsString("event:delta")))
+                .andExpect(content().string(containsString("\\u4E0A\\u7B49\\u9A6C")))
                 .andExpect(content().string(containsString("event:done")));
     }
 
     @Test
-    void pregameStreamLabelsSelfWithoutTreatingSelfAsRiskTeammate() throws Exception {
+    void pregameStreamLabelsSelfWithAllowedTeammateLabelWithoutTreatingSelfAsRisk() throws Exception {
         String request = """
                 {
                   "mode": "teammate",
                   "queueId": 420,
-                  "allyTeamTags": ["ally | Teammate#CN1 | champion=64 | status=NORMAL | sample=20", "ally | Self#CN1 | self=true | champion=141 | status=NORMAL | sample=20"],
+                  "allyTeamTags": ["ally | Teammate#CN1 | position=TOP | status=NORMAL | sample=20", "ally | Self#CN1 | self=true | position=JUNGLE | status=NORMAL | sample=20"],
                   "enemyTeamTags": [],
-                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v1",
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v2",
                   "snapshot": {
-                    "schemaVersion": "gaming_ai_input_snapshot.v1",
+                    "schemaVersion": "gaming_ai_input_snapshot.v2",
                     "mode": "teammate",
-                    "selectedPlayers": [
-                      {"key": "puuid:teammate-puuid", "puuid": "teammate-puuid", "displayName": "Teammate#CN1", "isSelf": false},
-                      {"key": "puuid:self-puuid", "puuid": "self-puuid", "displayName": "Self#CN1", "isSelf": true}
-                    ],
-                    "allyTeam": [],
-                    "enemyTeam": []
+                    "teammateSnapshot": {
+                      "side": "ally",
+                      "players": [
+                        {"key": "puuid:teammate-puuid", "puuid": "teammate-puuid", "displayName": "Teammate#CN1", "isSelf": false},
+                        {"key": "puuid:self-puuid", "puuid": "self-puuid", "displayName": "Self#CN1", "isSelf": true}
+                      ]
+                    },
+                    "opponentSnapshot": {
+                      "side": "enemy",
+                      "players": []
+                    }
                   }
                 }
                 """;
@@ -189,8 +195,47 @@ class PregameAnalysisControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("puuid:self-puuid")))
-                .andExpect(content().string(containsString("\\u5F53\\u524D\\u7528\\u6237")))
-                .andExpect(content().string(containsString("\"tone\":\"unknown\"")))
+                .andExpect(content().string(containsString("event:player_insight")))
+                .andExpect(content().string(containsString("\\u4E2D\\u7B49\\u9A6C")))
+                .andExpect(content().string(containsString("\"tone\":\"stable\"")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(containsString("\"tone\":\"risk\""))));
+    }
+
+    @Test
+    void pregameStreamUsesOpponentMockLabels() throws Exception {
+        String request = """
+                {
+                  "mode": "opponent",
+                  "queueId": 420,
+                  "allyTeamTags": [],
+                  "enemyTeamTags": ["enemy | Enemy#CN1 | position=JUNGLE | status=NORMAL | sample=20"],
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v2",
+                  "snapshot": {
+                    "schemaVersion": "gaming_ai_input_snapshot.v2",
+                    "mode": "opponent",
+                    "teammateSnapshot": {"side": "ally", "players": []},
+                    "opponentSnapshot": {
+                      "side": "enemy",
+                      "players": [
+                        {"key": "puuid:enemy-puuid", "puuid": "enemy-puuid", "displayName": "Enemy#CN1", "isSelf": false}
+                      ]
+                    }
+                  }
+                }
+                """;
+
+        MvcResult result = mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(request))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("puuid:enemy-puuid")))
+                .andExpect(content().string(containsString("event:player_insight")))
+                .andExpect(content().string(containsString("\\u4EE3\\u4E2D\\u4EE3")))
+                .andExpect(content().string(containsString("\"tone\":\"carry\"")));
     }
 }

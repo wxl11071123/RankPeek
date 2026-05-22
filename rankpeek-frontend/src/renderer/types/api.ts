@@ -639,6 +639,11 @@ export interface PreGroupMarker {
 export interface SessionSummoner {
   championId: number
   championKey: string
+  selectedPosition?: string
+  assignedPosition?: string
+  teamPosition?: string
+  individualPosition?: string
+  position?: string
   summoner: Summoner
   matchHistory: MatchHistory[]
   userTag?: UserTag | null

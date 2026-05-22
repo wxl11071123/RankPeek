@@ -194,12 +194,18 @@ public class SessionAnalysisService {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
             ScoutTagSample sample = safeGetScoutSample(puuid, currentQueueId);
-            UserTag userTag = buildScoutUserTag(puuid, currentQueueId, championId, currentPosition(player), teamPuuids, sample);
+            String position = currentPosition(player);
+            UserTag userTag = buildScoutUserTag(puuid, currentQueueId, championId, position, teamPuuids, sample);
             List<MatchHistory> history = sample != null ? sample.getCurrentModeMatches() : List.of();
 
             return SessionSummoner.builder()
                     .championId(championId)
                     .championKey(championId > 0 ? "champion_" + championId : "")
+                    .selectedPosition(player.getSelectedPosition())
+                    .assignedPosition(player.getAssignedPosition())
+                    .teamPosition(player.getTeamPosition())
+                    .individualPosition(player.getIndividualPosition())
+                    .position(position)
                     .summoner(summoner != null ? summoner : new Summoner())
                     .matchHistory(history != null ? history : List.of())
                     .userTag(userTag != null ? userTag : UserTag.builder().build())
@@ -545,12 +551,15 @@ public class SessionAnalysisService {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
             ScoutTagSample sample = safeGetScoutSample(puuid, currentQueueId);
-            UserTag userTag = buildScoutUserTag(puuid, currentQueueId, 0, member.getPosition(), teamPuuids, sample);
+            String position = member.getPosition();
+            UserTag userTag = buildScoutUserTag(puuid, currentQueueId, 0, position, teamPuuids, sample);
             List<MatchHistory> history = sample != null ? sample.getCurrentModeMatches() : List.of();
 
             return SessionSummoner.builder()
                 .championId(0)
                 .championKey("")
+                .selectedPosition(position)
+                .position(position)
                 .summoner(summoner != null ? summoner : new Summoner())
                 .matchHistory(history != null ? history : List.of())
                 .userTag(userTag != null ? userTag : UserTag.builder().build())
@@ -588,7 +597,10 @@ public class SessionAnalysisService {
                                     GameSession.OnePlayer player = new GameSession.OnePlayer();
                                     player.setChampionId(p.getChampionId());
                                     player.setPuuid(p.getPuuid());
-                                    player.setSelectedPosition("");
+                                    player.setSelectedPosition(p.getSelectedPosition());
+                                    player.setAssignedPosition(p.getAssignedPosition());
+                                    player.setTeamPosition(p.getTeamPosition());
+                                    player.setIndividualPosition(p.getIndividualPosition());
                                     return player;
                                 })
                                 .toList());
@@ -602,7 +614,10 @@ public class SessionAnalysisService {
                                     GameSession.OnePlayer player = new GameSession.OnePlayer();
                                     player.setChampionId(p.getChampionId());
                                     player.setPuuid(p.getPuuid());
-                                    player.setSelectedPosition("");
+                                    player.setSelectedPosition(p.getSelectedPosition());
+                                    player.setAssignedPosition(p.getAssignedPosition());
+                                    player.setTeamPosition(p.getTeamPosition());
+                                    player.setIndividualPosition(p.getIndividualPosition());
                                     return player;
                                 })
                                 .toList());
@@ -772,11 +787,12 @@ public class SessionAnalysisService {
             Summoner summoner = safeGetSummoner(puuid);
             Rank rank = safeGetRank(puuid);
             ScoutTagSample sample = safeGetScoutSample(puuid, currentQueueId);
+            String position = currentPosition(player);
             UserTag userTag = buildScoutUserTag(
                     puuid,
                     currentQueueId,
                     championId,
-                    currentPosition(player),
+                    position,
                     teamPuuids,
                     sample
             );
@@ -785,6 +801,11 @@ public class SessionAnalysisService {
             return SessionSummoner.builder()
                     .championId(championId)
                     .championKey("champion_" + championId)
+                    .selectedPosition(player.getSelectedPosition())
+                    .assignedPosition(player.getAssignedPosition())
+                    .teamPosition(player.getTeamPosition())
+                    .individualPosition(player.getIndividualPosition())
+                    .position(position)
                     .summoner(summoner != null ? summoner : new Summoner())
                     .matchHistory(history != null ? history : List.of())
                     .userTag(userTag != null ? userTag : UserTag.builder().build())
