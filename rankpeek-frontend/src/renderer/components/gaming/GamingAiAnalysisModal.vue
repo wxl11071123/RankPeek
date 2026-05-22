@@ -5,7 +5,7 @@ import type {
   GamingAiAnalysisPreview,
   GamingAiPlayerInsight
 } from '@/services/gamingAiAnalysisPreview'
-import type { GamingAiPlayerStreamVerdict } from '@/services/gamingAiServerStream'
+import type { GamingAiPlayerInsightEvent, GamingAiPlayerStreamVerdict } from '@/services/gamingAiServerStream'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 const props = withDefaults(defineProps<{
@@ -15,17 +15,17 @@ const props = withDefaults(defineProps<{
   queueLabel?: string
   analysisEnabled?: boolean
   streamState?: 'idle' | 'preparing' | 'streaming' | 'completed' | 'failed'
-  streamText?: string
   streamError?: string
   playerVerdicts?: Record<string, GamingAiPlayerStreamVerdict>
+  playerInsights?: Record<string, GamingAiPlayerInsightEvent>
 }>(), {
   mode: 'teammate',
   queueLabel: '',
   analysisEnabled: true,
   streamState: 'idle',
-  streamText: '',
   streamError: '',
-  playerVerdicts: () => ({})
+  playerVerdicts: () => ({}),
+  playerInsights: () => ({})
 })
 
 const emit = defineEmits<{
@@ -40,22 +40,23 @@ const playerSectionTitle = computed(() => props.mode === 'teammate' ? '当前队
 const streamBusy = computed(() => props.streamState === 'preparing' || props.streamState === 'streaming')
 const analysisButtonDisabled = computed(() => streamBusy.value || !props.analysisEnabled)
 const analysisButtonText = computed(() => streamBusy.value ? '分析中...' : '开始分析')
-const playerVerdictList = computed(() => {
-  const playersByKey = new Map((props.preview?.players ?? []).map(player => [player.key, player]))
-  return Object.values(props.playerVerdicts)
-    .filter(verdict => verdict.playerKey && verdict.label)
-    .map(verdict => ({
-      ...verdict,
-      player: playersByKey.get(verdict.playerKey)
-    }))
+const playerInsightByKey = computed(() => {
+  const insights: Record<string, GamingAiPlayerInsightEvent> = {}
+  for (const verdict of Object.values(props.playerVerdicts)) {
+    if (verdict.playerKey && verdict.label && verdict.reason) {
+      insights[verdict.playerKey] = {
+        playerKey: verdict.playerKey,
+        label: verdict.label,
+        ...(verdict.tone ? { tone: verdict.tone } : {}),
+        text: verdict.reason
+      }
+    }
+  }
+  return {
+    ...insights,
+    ...props.playerInsights
+  }
 })
-const streamVisible = computed(() => (
-  props.streamState === 'preparing' ||
-  props.streamState === 'streaming' ||
-  props.streamState === 'completed' ||
-  props.streamState === 'failed' ||
-  Boolean(props.streamText.trim())
-))
 const streamStatusText = computed(() => {
   if (props.streamState === 'failed') {
     return '服务器暂不可用，请稍后再试。'
@@ -67,10 +68,14 @@ const streamStatusText = computed(() => {
     return '正在准备请求...'
   }
   if (props.streamState === 'streaming') {
-    return props.streamText.trim() ? '' : '正在等待服务器返回...'
+    return '正在等待服务器返回...'
   }
   return ''
 })
+
+function getPlayerInsight(player: GamingAiPlayerInsight): GamingAiPlayerInsightEvent | undefined {
+  return playerInsightByKey.value[player.key]
+}
 
 function emitClose() {
   emit('close')
@@ -107,10 +112,6 @@ function playerAvatarUrl(player: GamingAiPlayerInsight | undefined): string {
     return getProfileIconUrl(player.profileIconId)
   }
   return ''
-}
-
-function displayPlayerName(verdict: GamingAiPlayerStreamVerdict & { player?: GamingAiPlayerInsight }): string {
-  return verdict.player?.name || verdict.playerKey
 }
 
 watch(
@@ -153,6 +154,14 @@ onBeforeUnmount(() => {
               class="gaming-ai-analysis-note"
             >
               队友成分/赛前分析只支持排位模式。
+            </p>
+            <p
+              v-else-if="streamStatusText"
+              class="gaming-ai-analysis-note"
+              :class="`stream-${streamState}`"
+              :title="streamState === 'failed' ? streamError : undefined"
+            >
+              {{ streamStatusText }}
             </p>
           </div>
           <div class="gaming-ai-analysis-actions">
@@ -207,6 +216,21 @@ onBeforeUnmount(() => {
                     <strong>{{ player.name }}</strong>
                     <span>{{ player.rankText }}</span>
                   </div>
+                  <div
+                    v-if="getPlayerInsight(player)"
+                    class="gaming-ai-analysis-insight"
+                    :class="[`tone-${getPlayerInsight(player)?.tone || 'unknown'}`, { 'is-self': player.isSelf }]"
+                  >
+                    <span class="gaming-ai-analysis-insight-label">{{ getPlayerInsight(player)?.label }}</span>
+                    <p class="gaming-ai-analysis-insight-text">{{ getPlayerInsight(player)?.text }}</p>
+                  </div>
+                  <div
+                    v-else-if="streamBusy"
+                    class="gaming-ai-analysis-insight gaming-ai-analysis-insight-loading"
+                    :class="{ 'is-self': player.isSelf }"
+                  >
+                    分析中...
+                  </div>
                 </div>
 
                 <div class="gaming-ai-analysis-side">
@@ -225,52 +249,6 @@ onBeforeUnmount(() => {
             当前还没有可用玩家数据，请进入英雄选择或加载阶段后再试。
           </section>
 
-          <section v-if="streamVisible" class="gaming-ai-analysis-section gaming-ai-analysis-stream">
-            <h3>服务器分析</h3>
-            <p
-              v-if="streamStatusText"
-              class="gaming-ai-analysis-stream-status"
-              :class="`stream-${streamState}`"
-              :title="streamState === 'failed' ? streamError : undefined"
-            >
-              {{ streamStatusText }}
-            </p>
-            <pre v-if="streamText.trim()" class="gaming-ai-analysis-stream-text">{{ streamText }}</pre>
-          </section>
-
-          <section v-if="playerVerdictList.length" class="gaming-ai-analysis-section">
-            <h3>玩家判断</h3>
-            <ul class="gaming-ai-analysis-player-list">
-              <li
-                v-for="verdict in playerVerdictList"
-                :key="verdict.playerKey"
-                class="gaming-ai-analysis-player"
-                :class="`tone-${verdict.tone || 'unknown'}`"
-              >
-                <div class="gaming-ai-analysis-avatar">
-                  <img
-                    v-if="playerAvatarUrl(verdict.player)"
-                    :src="playerAvatarUrl(verdict.player)"
-                    :alt="displayPlayerName(verdict)"
-                    @error="markAssetLoadFailed"
-                  />
-                  <span v-else>{{ displayPlayerName(verdict).slice(0, 1) }}</span>
-                </div>
-
-                <div class="gaming-ai-analysis-copy">
-                  <div class="gaming-ai-analysis-player-title">
-                    <strong>{{ displayPlayerName(verdict) }}</strong>
-                    <span v-if="verdict.player?.rankText">{{ verdict.player.rankText }}</span>
-                  </div>
-                  <p v-if="verdict.reason">{{ verdict.reason }}</p>
-                </div>
-
-                <div class="gaming-ai-analysis-side">
-                  <span class="gaming-ai-analysis-verdict">{{ verdict.label }}</span>
-                </div>
-              </li>
-            </ul>
-          </section>
         </div>
       </section>
     </div>
@@ -568,6 +546,63 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.gaming-ai-analysis-insight {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.gaming-ai-analysis-insight.is-self {
+  border-color: rgba(var(--accent-rgb), 0.26);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.gaming-ai-analysis-insight-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.gaming-ai-analysis-insight-text {
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.58;
+}
+
+.gaming-ai-analysis-insight-loading {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.gaming-ai-analysis-insight.tone-carry .gaming-ai-analysis-insight-label {
+  background: rgba(245, 194, 87, 0.14);
+  color: #e9b84f;
+}
+
+.gaming-ai-analysis-insight.tone-stable .gaming-ai-analysis-insight-label {
+  background: rgba(61, 155, 122, 0.13);
+  color: #55d187;
+}
+
+.gaming-ai-analysis-insight.tone-risk .gaming-ai-analysis-insight-label,
+.gaming-ai-analysis-insight.tone-weak .gaming-ai-analysis-insight-label {
+  background: rgba(255, 107, 107, 0.13);
+  color: #ff7d7d;
 }
 
 .gaming-ai-analysis-side {

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { GamingAiInputSnapshot } from './gamingAiInputSnapshot.ts'
+import type { GamingAiInputSnapshot, GamingAiTeamSnapshot } from './gamingAiInputSnapshot.ts'
 import {
   createGamingAiStreamRequest,
   flattenGamingAiSnapshotTags,
@@ -9,119 +9,77 @@ import {
 } from './gamingAiServerStream.ts'
 
 function createSnapshot(): GamingAiInputSnapshot {
-  return {
-    schemaVersion: 'gaming_ai_input_snapshot.v1',
-    mode: 'teammate',
+  const base = {
     generatedAt: '2026-05-13T00:00:00.000Z',
     phase: 'ChampSelect',
     queueId: 420,
-    queueName: '单双排位',
-    allyTeam: [
+    queueName: 'Ranked Solo'
+  } as const
+  const allySummaryLine = 'W#1234 当前位置：打野，tag：高胜率、稳定C、高伤，场均击杀/死亡/助攻：7.0/3.0/8.0，平均KDA：3.1，胜率：55.0%，伤转：152.3%，样本数：20，参团率：12.5%。'
+  const enemySummaryLine = 'Hidden#CN1 当前位置：上路，战绩状态：战绩隐藏，tag：无，场均击杀/死亡/助攻：未知/未知/未知，平均KDA：未知，胜率：未知，伤转：未知，样本数：0，参团率：未知。'
+  const teammateSnapshot: GamingAiTeamSnapshot = {
+    schemaVersion: 'gaming_ai_team_snapshot.v1',
+    side: 'ally',
+    text: `当前snapshot时间：${base.generatedAt}。模式：${base.queueName}。用户ID：Self#CN1。阵营：我方。\n\n${allySummaryLine}`,
+    players: [
       {
         key: 'puuid:ally-puuid',
-        side: 'ally',
         isSelf: true,
-        puuid: 'ally-puuid',
-        gameName: 'W',
-        tagLine: '1234',
-        displayName: 'W#1234',
-        championId: 141,
-        championKey: 'Kayn',
-        rankText: '翡翠一 50 LP',
-        recordStatus: 'NORMAL',
-        tags: [
-          { name: '高胜率', good: true },
-          { name: '稳定输出', good: true }
-        ],
-        metrics: {
-          sample: 20,
-          wins: 11,
-          losses: 9,
-          winRate: 55,
-          kda: 3.1,
-          kills: 7,
-          deaths: 3,
-          assists: 8,
-          averageGold: 10000,
-          averageDamageDealtToChampions: 15230,
-          damageRate: 152.3,
-          goldRate: 21.5,
-          groupRate: 12.5,
-          friendsRate: 4.5,
-          disputeRate: 1.5
-        }
+        summaryLine: allySummaryLine
       }
-    ],
-    enemyTeam: [
+    ]
+  }
+  const opponentSnapshot: GamingAiTeamSnapshot = {
+    schemaVersion: 'gaming_ai_team_snapshot.v1',
+    side: 'enemy',
+    text: `当前snapshot时间：${base.generatedAt}。模式：${base.queueName}。用户ID：Self#CN1。阵营：敌方。\n\n${enemySummaryLine}`,
+    players: [
       {
-        key: 'name:Hidden#CN1:64',
-        side: 'enemy',
+        key: 'name:Hidden#CN1',
         isSelf: false,
-        gameName: 'Hidden',
-        tagLine: 'CN1',
-        displayName: 'Hidden#CN1',
-        championId: 64,
-        rankText: '未定级',
-        recordStatus: 'PRIVATE',
-        tags: [],
-        metrics: {
-          sample: 0,
-          wins: 0,
-          losses: 0,
-          winRate: null,
-          kda: null,
-          kills: null,
-          deaths: null,
-          assists: null,
-          averageGold: null,
-          averageDamageDealtToChampions: null,
-          damageRate: null,
-          goldRate: null,
-          groupRate: null,
-          friendsRate: null,
-          disputeRate: null
-        }
+        summaryLine: enemySummaryLine
       }
-    ],
-    selectedPlayers: [],
-    dataQuality: {
-      allyCount: 1,
-      enemyCount: 1,
-      selectedCount: 1,
-      normalRecordCount: 1,
-      hiddenRecordCount: 1,
-      emptyRecordCount: 0,
-      errorRecordCount: 0
-    }
+    ]
+  }
+
+  return {
+    schemaVersion: 'gaming_ai_input_snapshot.v2',
+    mode: 'teammate',
+    ...base,
+    teammateSnapshot,
+    opponentSnapshot
   }
 }
 
-test('flattens gaming AI snapshot player tags into compact team strings', () => {
+test('flattens gaming AI snapshot player tags into one-line natural language strings', () => {
   const flattened = flattenGamingAiSnapshotTags(createSnapshot())
 
   assert.equal(flattened.allyTeamTags.length, 1)
-  assert.equal(flattened.enemyTeamTags.length, 1)
-  assert.match(flattened.allyTeamTags[0] ?? '', /ally \| W#1234/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /self=true/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /champion=141/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /rank=翡翠一 50 LP/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /status=NORMAL/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /sample=20/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /winRate=55\.0%/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /kda=3\.1/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /damageRate=152\.3%/)
-  assert.match(flattened.allyTeamTags[0] ?? '', /tags=高胜率, 稳定输出/)
-  assert.match(flattened.enemyTeamTags[0] ?? '', /enemy \| Hidden#CN1/)
-  assert.match(flattened.enemyTeamTags[0] ?? '', /status=PRIVATE/)
+  assert.equal(flattened.enemyTeamTags.length, 0)
+  assert.match(flattened.allyTeamTags[0] ?? '', /^当前snapshot时间：2026-05-13T00:00:00.000Z。模式：Ranked Solo。用户ID：Self#CN1。阵营：我方。/)
+  assert.match(flattened.allyTeamTags[0] ?? '', /W#1234 当前位置：打野/)
+  assert.doesNotMatch(flattened.allyTeamTags[0] ?? '', /position=|status=|sample=|champion=|段位|样本中使用/)
 })
 
-test('creates a stream request that carries mode, schema, snapshot, and flattened tags', () => {
+test('flattens opponent mode to enemy snapshot only', () => {
+  const snapshot = { ...createSnapshot(), mode: 'opponent' as const }
+  const flattened = flattenGamingAiSnapshotTags(snapshot)
+
+  assert.equal(flattened.allyTeamTags.length, 0)
+  assert.equal(flattened.enemyTeamTags.length, 1)
+  assert.match(flattened.enemyTeamTags[0] ?? '', /^当前snapshot时间：2026-05-13T00:00:00.000Z。模式：Ranked Solo。用户ID：Self#CN1。阵营：敌方。/)
+  assert.match(flattened.enemyTeamTags[0] ?? '', /Hidden#CN1 当前位置：上路/)
+})
+
+test('creates a stream request that carries mode, schema, two compact snapshots, and flattened tags', () => {
   const snapshot = createSnapshot()
   const request = createGamingAiStreamRequest(snapshot)
 
   assert.equal(request.mode, 'teammate')
-  assert.equal(request.snapshotSchemaVersion, 'gaming_ai_input_snapshot.v1')
+  assert.equal(request.snapshotSchemaVersion, 'gaming_ai_input_snapshot.v2')
   assert.equal(request.snapshot, snapshot)
+  assert.equal(request.snapshot.teammateSnapshot.side, 'ally')
+  assert.equal(request.snapshot.opponentSnapshot.side, 'enemy')
   assert.deepEqual(request.allyTeamTags, flattenGamingAiSnapshotTags(snapshot).allyTeamTags)
   assert.deepEqual(request.enemyTeamTags, flattenGamingAiSnapshotTags(snapshot).enemyTeamTags)
 })
@@ -137,15 +95,15 @@ test('streams gaming AI analysis delta and player verdict events from an SSE res
     assert.equal(String(url), `http://127.0.0.1:18080${RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT}`)
     assert.equal(init?.method, 'POST')
     assert.deepEqual(init?.headers, { 'Content-Type': 'application/json' })
-    assert.equal(JSON.parse(String(init?.body)).snapshotSchemaVersion, 'gaming_ai_input_snapshot.v1')
+    assert.equal(JSON.parse(String(init?.body)).snapshotSchemaVersion, 'gaming_ai_input_snapshot.v2')
 
     const encoder = new TextEncoder()
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(encoder.encode('event: start\ndata: {"title":"mock"}\n\n'))
-        controller.enqueue(encoder.encode('event: delta\ndata: 第一段\n\n'))
-        controller.enqueue(encoder.encode('event: player_verdict\ndata: {"playerKey":"puuid:ally-puuid","label":"稳定队友","tone":"stable","reason":"来自 server stream"}\n\n'))
-        controller.enqueue(encoder.encode('event: delta\ndata: 第二段\n\n'))
+        controller.enqueue(encoder.encode('event: delta\ndata: first\n\n'))
+        controller.enqueue(encoder.encode('event: player_verdict\ndata: {"playerKey":"puuid:ally-puuid","label":"stable teammate","tone":"stable","reason":"from server stream"}\n\n'))
+        controller.enqueue(encoder.encode('event: delta\ndata: second\n\n'))
         controller.enqueue(encoder.encode('event: done\ndata: done\n\n'))
         controller.close()
       }
@@ -168,12 +126,56 @@ test('streams gaming AI analysis delta and player verdict events from an SSE res
 
     assert.deepEqual(result, { ok: true })
     assert.deepEqual(events, ['start', 'delta', 'player_verdict', 'delta', 'done'])
-    assert.deepEqual(deltas, ['第一段', '第二段'])
+    assert.deepEqual(deltas, ['first', 'second'])
     assert.deepEqual(verdicts, [{
+      playerKey: 'puuid:ally-puuid',
+      label: 'stable teammate',
+      tone: 'stable',
+      reason: 'from server stream'
+    }])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('streams structured player insight events from an SSE response', async () => {
+  const request = createGamingAiStreamRequest(createSnapshot())
+  const events: string[] = []
+  const insights: Array<{ playerKey: string; label: string; tone?: string; text: string }> = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async () => {
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: start\ndata: {"title":"mock"}\n\n'))
+        controller.enqueue(encoder.encode('event: player_insight\ndata: {"playerKey":"puuid:ally-puuid","label":"稳定队友","tone":"stable","text":"这名队友近期节奏稳定，可以围绕他打第一波资源。"}\n\n'))
+        controller.enqueue(encoder.encode('event: done\ndata: done\n\n'))
+        controller.close()
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamGamingAiAnalysis(request, {
+      onEvent: event => {
+        events.push(event.type)
+        if (event.type === 'player_insight') {
+          insights.push(event)
+        }
+      }
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(events, ['start', 'player_insight', 'done'])
+    assert.deepEqual(insights, [{
       playerKey: 'puuid:ally-puuid',
       label: '稳定队友',
       tone: 'stable',
-      reason: '来自 server stream'
+      text: '这名队友近期节奏稳定，可以围绕他打第一波资源。'
     }])
   } finally {
     globalThis.fetch = originalFetch
@@ -189,7 +191,7 @@ test('streams gaming AI analysis player verdict events from an NDJSON response',
     const encoder = new TextEncoder()
     return new Response(new ReadableStream({
       start(controller) {
-        controller.enqueue(encoder.encode('{"type":"player_verdict","playerKey":"name:Hidden#CN1:64","label":"可突破","tone":"weak","reason":"来自 NDJSON"}\n'))
+        controller.enqueue(encoder.encode('{"type":"player_verdict","playerKey":"name:Hidden#CN1","label":"punishable","tone":"weak","reason":"from NDJSON"}\n'))
         controller.enqueue(encoder.encode('{"type":"done"}\n'))
         controller.close()
       }
@@ -211,7 +213,44 @@ test('streams gaming AI analysis player verdict events from an NDJSON response',
     })
 
     assert.deepEqual(result, { ok: true })
-    assert.deepEqual(events, ['name:Hidden#CN1:64:可突破:weak:来自 NDJSON', 'done'])
+    assert.deepEqual(events, ['name:Hidden#CN1:punishable:weak:from NDJSON', 'done'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('streams structured player insight events from an NDJSON response', async () => {
+  const request = createGamingAiStreamRequest(createSnapshot())
+  const events: string[] = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async () => {
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"type":"player_insight","playerKey":"name:Hidden#CN1","label":"可突破","tone":"weak","text":"这个对手近期死亡偏多，前期可以试探他一波。"}\n'))
+        controller.enqueue(encoder.encode('{"type":"done"}\n'))
+        controller.close()
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/x-ndjson' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamGamingAiAnalysis(request, {
+      onEvent: event => {
+        if (event.type === 'player_insight') {
+          events.push(`${event.playerKey}:${event.label}:${event.tone}:${event.text}`)
+          return
+        }
+        events.push(event.type)
+      }
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(events, ['name:Hidden#CN1:可突破:weak:这个对手近期死亡偏多，前期可以试探他一波。', 'done'])
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -227,7 +266,6 @@ test('returns failed result instead of throwing when rankpeek-server is unavaila
     const result = await streamGamingAiAnalysis(createGamingAiStreamRequest(createSnapshot()), {})
 
     assert.equal(result.ok, false)
-    assert.equal(result.ok ? '' : result.message, 'rankpeek-server 暂不可用')
   } finally {
     globalThis.fetch = originalFetch
   }

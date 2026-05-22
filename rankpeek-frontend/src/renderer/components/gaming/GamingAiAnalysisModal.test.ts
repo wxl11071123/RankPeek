@@ -67,17 +67,22 @@ test('gaming AI analysis modal renders current player basics before server verdi
   assert.doesNotMatch(source, /player\.reason/)
 })
 
-test('gaming AI analysis modal renders server stream text and stream player verdicts', () => {
+test('gaming AI analysis modal mounts structured player insights on the original player cards only', () => {
   const source = readFileSync(modalUrl, 'utf8')
 
+  assert.match(source, /playerInsights\?: Record<string, GamingAiPlayerInsightEvent>/)
   assert.match(source, /playerVerdicts\?: Record<string, GamingAiPlayerStreamVerdict>/)
-  assert.match(source, /const playerVerdictList = computed/)
-  assert.match(source, /v-for="verdict in playerVerdictList"/)
-  assert.match(source, /verdict\.label/)
-  assert.match(source, /verdict\.reason/)
-  assert.match(source, /玩家判断/)
-  assert.match(source, /服务器分析/)
-  assert.match(source, /streamText/)
+  assert.match(source, /const playerInsightByKey = computed/)
+  assert.match(source, /playerInsightByKey\.value\[player\.key\]/)
+  assert.match(source, /gaming-ai-analysis-insight/)
+  assert.match(source, /gaming-ai-analysis-insight-label/)
+  assert.match(source, /gaming-ai-analysis-insight-text/)
+  assert.match(source, /gaming-ai-analysis-insight-loading/)
+  assert.doesNotMatch(source, /const playerVerdictList = computed/)
+  assert.doesNotMatch(source, /v-for="verdict in playerVerdictList"/)
+  assert.doesNotMatch(source, /玩家判断/)
+  assert.doesNotMatch(source, /服务器分析/)
+  assert.doesNotMatch(source, /<pre v-if="streamText\.trim\(\)"/)
   assert.doesNotMatch(source, /稳定队友/)
 })
 

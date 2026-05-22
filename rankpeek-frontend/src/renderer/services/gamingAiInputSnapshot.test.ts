@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { RecordStatus, SessionData, SessionSummoner } from '../types/api.ts'
+import type { MatchHistory, RecordStatus, SessionData, SessionSummoner } from '../types/api.ts'
 import { buildGamingAiInputSnapshot } from './gamingAiInputSnapshot.ts'
 
 function createPlayer(overrides: Partial<SessionSummoner> & {
@@ -16,36 +16,27 @@ function createPlayer(overrides: Partial<SessionSummoner> & {
   assists?: number
   damage?: number
   gold?: number
-  tier?: string
-  division?: string
   tags?: Array<{ tagName: string; good?: boolean | null; tagDesc?: string }>
 } = {}): SessionSummoner {
   const wins = overrides.wins ?? 11
   const losses = overrides.losses ?? 9
+  const name = overrides.name ?? 'W'
+  const puuid = overrides.puuid ?? `${name}-puuid`
+
   return {
     championId: overrides.championId ?? 141,
     championKey: overrides.championKey ?? String(overrides.championId ?? 141),
+    selectedPosition: overrides.selectedPosition ?? 'JUNGLE',
+    position: overrides.position ?? overrides.selectedPosition ?? 'JUNGLE',
     summoner: {
-      gameName: overrides.name ?? 'W',
+      gameName: name,
       tagLine: overrides.tagLine ?? '1234',
       summonerLevel: 300,
       profileIconId: 29,
-      puuid: overrides.puuid ?? `${overrides.name ?? 'player'}-puuid`,
+      puuid,
       summonerId: 1
     },
-    matchHistory: [
-      {
-        gameId: 998877,
-        gameMode: 'CLASSIC',
-        gameType: 'MATCHED_GAME',
-        queueId: 420,
-        gameDuration: 1800,
-        gameCreation: 1710000000000,
-        platformId: 'HN1',
-        participants: [],
-        participantIdentities: []
-      }
-    ],
+    matchHistory: overrides.matchHistory ?? createRecentMatches(puuid),
     userTag: {
       recordStatus: overrides.recordStatus ?? 'NORMAL',
       recentData: {
@@ -70,35 +61,13 @@ function createPlayer(overrides: Partial<SessionSummoner> & {
         }
       },
       tag: overrides.tags ?? [
-        { tagName: 'high win rate', good: true, tagDesc: 'recently winning' },
-        { tagName: 'stable output', good: true }
+        { tagName: '高胜率', good: true },
+        { tagName: '稳定C', good: true },
+        { tagName: '高伤', good: true }
       ]
     },
     rank: {
-      queueMap: {
-        RANKED_SOLO_5x5: {
-          queueType: 'RANKED_SOLO_5x5',
-          tier: overrides.tier ?? 'EMERALD',
-          division: overrides.division ?? 'I',
-          leaguePoints: 50,
-          wins: 40,
-          losses: 35,
-          highestTier: '',
-          highestDivision: '',
-          isProvisional: false
-        },
-        RANKED_FLEX_SR: {
-          queueType: 'RANKED_FLEX_SR',
-          tier: 'PLATINUM',
-          division: 'IV',
-          leaguePoints: 10,
-          wins: 12,
-          losses: 11,
-          highestTier: '',
-          highestDivision: '',
-          isProvisional: false
-        }
-      }
+      queueMap: {}
     },
     meetGames: [],
     preGroupMarkers: { name: 'duo-a', type: 'same-team' },
@@ -113,7 +82,7 @@ function createSessionData(overrides: Partial<SessionData> = {}): SessionData {
   return {
     phase: 'ChampSelect',
     queueType: 'RANKED_SOLO_5x5',
-    typeCn: 'Ranked Solo',
+    typeCn: '单双排',
     queueId: 420,
     matchId: 'mock-match',
     roundIndex: 2,
@@ -124,7 +93,68 @@ function createSessionData(overrides: Partial<SessionData> = {}): SessionData {
   }
 }
 
-test('builds a gaming AI input snapshot from the current session teams', () => {
+function createRecentMatches(puuid: string, count = 20): MatchHistory[] {
+  return Array.from({ length: count }, (_, index) => {
+    const win = index % 2 === 0
+    return {
+      gameId: 998877 + index,
+      gameMode: 'CLASSIC',
+      gameType: 'MATCHED_GAME',
+      queueId: 420,
+      gameDuration: 1800,
+      gameCreation: 1710000000000 - index * 600000,
+      platformId: 'HN1',
+      participants: [
+        {
+          participantId: 1,
+          teamId: 100,
+          championId: 64,
+          championName: '德邦总管',
+          spell1Id: 4,
+          spell2Id: 11,
+          selectedPosition: index % 3 === 0 ? 'TOP' : 'JUNGLE',
+          teamPosition: index % 3 === 0 ? 'TOP' : 'JUNGLE',
+          individualPosition: index % 3 === 0 ? 'TOP' : 'JUNGLE',
+          stats: {
+            win,
+            kills: 1 + index,
+            deaths: 2,
+            assists: 3,
+            goldEarned: 10000,
+            totalMinionsKilled: 10,
+            neutralMinionsKilled: 100,
+            totalDamageDealtToChampions: 15000,
+            totalDamageTaken: 20000,
+            totalHeal: 1000,
+            item0: 0,
+            item1: 0,
+            item2: 0,
+            item3: 0,
+            item4: 0,
+            item5: 0,
+            item6: 0
+          }
+        } as MatchHistory['participants'][number] & { championName: string }
+      ],
+      participantIdentities: [
+        {
+          participantId: 1,
+          player: {
+            accountId: 1,
+            summonerId: 1,
+            summonerName: '',
+            gameName: 'Player',
+            tagLine: '1234',
+            puuid,
+            platformId: 'HN1'
+          }
+        }
+      ]
+    }
+  })
+}
+
+test('builds a compact v2 gaming AI snapshot with teammate and opponent players', () => {
   const sessionData = createSessionData()
   const snapshot = buildGamingAiInputSnapshot({
     mode: 'teammate',
@@ -133,27 +163,23 @@ test('builds a gaming AI input snapshot from the current session teams', () => {
     currentSummonerPuuid: 'ally-puuid'
   })
 
-  assert.equal(snapshot.schemaVersion, 'gaming_ai_input_snapshot.v1')
+  assert.equal(snapshot.schemaVersion, 'gaming_ai_input_snapshot.v2')
   assert.equal(snapshot.mode, 'teammate')
   assert.equal(snapshot.phase, 'ChampSelect')
   assert.equal(snapshot.queueId, 420)
-  assert.equal(snapshot.queueName, 'Ranked Solo')
+  assert.equal(snapshot.queueName, '单双排')
   assert.equal(snapshot.matchId, 'mock-match')
   assert.equal(snapshot.roundIndex, 2)
   assert.equal(snapshot.currentSummoner?.puuid, 'ally-puuid')
-  assert.equal(snapshot.allyTeam.length, 1)
-  assert.equal(snapshot.enemyTeam.length, 1)
-  assert.equal(snapshot.selectedPlayers.length, 1)
-  assert.equal(snapshot.allyTeam[0]?.key, 'puuid:ally-puuid')
-  assert.equal(snapshot.allyTeam[0]?.isSelf, true)
-  assert.equal(snapshot.enemyTeam[0]?.key, 'puuid:enemy-puuid')
-  assert.equal(snapshot.enemyTeam[0]?.isSelf, false)
-  assert.equal(snapshot.selectedPlayers[0]?.key, 'puuid:ally-puuid')
-  assert.equal(snapshot.selectedPlayers[0]?.side, 'ally')
-  assert.equal(snapshot.selectedPlayers[0]?.isSelf, true)
+  assert.equal(snapshot.teammateSnapshot.side, 'ally')
+  assert.equal(snapshot.opponentSnapshot.side, 'enemy')
+  assert.deepEqual(Object.keys(snapshot.teammateSnapshot.players[0] ?? {}).sort(), ['isSelf', 'key', 'summaryLine'])
+  assert.equal(snapshot.teammateSnapshot.players[0]?.key, 'puuid:ally-puuid')
+  assert.equal(snapshot.teammateSnapshot.players[0]?.isSelf, true)
+  assert.equal(snapshot.opponentSnapshot.players[0]?.key, 'puuid:enemy-puuid')
 })
 
-test('prefers teammates and opponents when session data has hydrated team aliases', () => {
+test('prefers hydrated teammates and opponents over raw team aliases', () => {
   const teammate = createPlayer({ name: 'HydratedAlly', puuid: 'hydrated-ally' })
   const opponent = createPlayer({ name: 'HydratedEnemy', puuid: 'hydrated-enemy' })
   const sessionData = createSessionData({
@@ -168,16 +194,17 @@ test('prefers teammates and opponents when session data has hydrated team aliase
     currentSummonerPuuid: 'hydrated-ally'
   })
 
-  assert.equal(snapshot.allyTeam[0]?.displayName, 'HydratedAlly#1234')
-  assert.equal(snapshot.enemyTeam[0]?.displayName, 'HydratedEnemy#1234')
-  assert.deepEqual(snapshot.selectedPlayers.map(player => player.side), ['enemy'])
+  assert.match(snapshot.teammateSnapshot.players[0]?.summaryLine ?? '', /HydratedAlly#1234/)
+  assert.match(snapshot.opponentSnapshot.players[0]?.summaryLine ?? '', /HydratedEnemy#1234/)
+  assert.equal(snapshot.mode, 'opponent')
 })
 
-test('reuses user tags, recent metrics, rank, champion, summoner, and record status', () => {
+test('turns each player into one compact natural-language line only', () => {
   const player = createPlayer({
-    name: 'MetricPlayer',
-    championId: 64,
-    championKey: 'LeeSin',
+    name: '练习两年半的ikun',
+    tagLine: '58092',
+    puuid: 'ikun-puuid',
+    selectedPosition: 'JUNGLE',
     wins: 13,
     losses: 7,
     kda: 3.25,
@@ -185,61 +212,27 @@ test('reuses user tags, recent metrics, rank, champion, summoner, and record sta
     deaths: 4,
     assists: 5,
     damage: 17750,
-    gold: 11000,
-    recordStatus: 'ERROR',
-    tags: [{ tagName: 'volatile', good: false, tagDesc: 'swings hard' }]
+    gold: 11000
   })
   const snapshot = buildGamingAiInputSnapshot({
     mode: 'teammate',
-    sessionData: createSessionData({ teamOne: [player], teamTwo: [] }),
-    selectedPlayers: [player]
+    sessionData: createSessionData({ teamOne: [player], teamTwo: [], currentSummoner: player.summoner }),
+    selectedPlayers: [player],
+    currentSummonerPuuid: 'ikun-puuid'
   })
-  const normalized = snapshot.allyTeam[0]
+  const normalized = snapshot.teammateSnapshot.players[0]
 
-  assert.equal(normalized?.puuid, 'MetricPlayer-puuid')
-  assert.equal(normalized?.gameName, 'MetricPlayer')
-  assert.equal(normalized?.tagLine, '1234')
-  assert.equal(normalized?.displayName, 'MetricPlayer#1234')
-  assert.equal(normalized?.championId, 64)
-  assert.equal(normalized?.championKey, 'LeeSin')
-  assert.equal(normalized?.recordStatus, 'ERROR')
-  assert.deepEqual(normalized?.tags, [{ name: 'volatile', good: false, desc: 'swings hard' }])
-  assert.equal(normalized?.metrics.sample, 20)
-  assert.equal(normalized?.metrics.wins, 13)
-  assert.equal(normalized?.metrics.losses, 7)
-  assert.equal(normalized?.metrics.winRate, 65)
-  assert.equal(normalized?.metrics.kda, 3.25)
-  assert.equal(normalized?.metrics.averageGold, 11000)
-  assert.equal(normalized?.metrics.averageDamageDealtToChampions, 17750)
-  assert.equal(Number(normalized?.metrics.damageRate?.toFixed(2)), 161.36)
-  assert.match(normalized?.rankText ?? '', /50/)
-})
+  assert.equal(normalized?.key, 'puuid:ikun-puuid')
+  assert.equal(normalized?.summaryLine, '练习两年半的ikun#58092（用户） 战绩状态：正常。当前位置：打野，tag：高胜率、稳定C、高伤，场均击杀/死亡/助攻：8.0/4.0/5.0，平均KDA：3.3，胜率：65.0%，伤转：161.4%，样本数：20，参团率：12.5%，最近对局：德邦总管 上路 胜 1/2/3、德邦总管 打野 负 2/2/3、德邦总管 打野 胜 3/2/3、德邦总管 上路 负 4/2/3、德邦总管 打野 胜 5/2/3、德邦总管 打野 负 6/2/3、德邦总管 上路 胜 7/2/3、德邦总管 打野 负 8/2/3、德邦总管 打野 胜 9/2/3、德邦总管 上路 负 10/2/3、德邦总管 打野 胜 11/2/3、德邦总管 打野 负 12/2/3、德邦总管 上路 胜 13/2/3、德邦总管 打野 负 14/2/3、德邦总管 打野 胜 15/2/3、德邦总管 上路 负 16/2/3、德邦总管 打野 胜 17/2/3、德邦总管 打野 负 18/2/3、德邦总管 上路 胜 19/2/3、德邦总管 打野 负 20/2/3。')
 
-test('keeps PRIVATE, EMPTY, and ERROR data quality counts without normalizing them away', () => {
-  const privatePlayer = createPlayer({ name: 'Private', recordStatus: 'PRIVATE' })
-  const emptyPlayer = createPlayer({ name: 'Empty', recordStatus: 'EMPTY' })
-  const errorPlayer = createPlayer({ name: 'Error', recordStatus: 'ERROR' })
-  const normalPlayer = createPlayer({ name: 'Normal', recordStatus: 'NORMAL' })
-  const snapshot = buildGamingAiInputSnapshot({
-    mode: 'teammate',
-    sessionData: createSessionData({
-      teamOne: [privatePlayer, emptyPlayer],
-      teamTwo: [errorPlayer, normalPlayer]
-    }),
-    selectedPlayers: [privatePlayer, emptyPlayer]
-  })
+  assert.match(snapshot.teammateSnapshot.text ?? '', /^当前snapshot时间：.+。模式：单双排。用户ID：练习两年半的ikun#58092。阵营：我方。/)
+  assert.match(snapshot.teammateSnapshot.text ?? '', /练习两年半的ikun#58092（用户） 战绩状态：正常。当前位置：打野/)
+  assert.equal((snapshot.teammateSnapshot.text ?? '').match(/德邦总管/g)?.length, 20)
+  assert.match(snapshot.opponentSnapshot.text ?? '', /阵营：敌方。/)
 
-  assert.deepEqual(snapshot.allyTeam.map(player => player.recordStatus), ['PRIVATE', 'EMPTY'])
-  assert.deepEqual(snapshot.enemyTeam.map(player => player.recordStatus), ['ERROR', 'NORMAL'])
-  assert.deepEqual(snapshot.dataQuality, {
-    allyCount: 2,
-    enemyCount: 2,
-    selectedCount: 2,
-    normalRecordCount: 1,
-    hiddenRecordCount: 1,
-    emptyRecordCount: 1,
-    errorRecordCount: 1
-  })
+  const serialized = JSON.stringify(snapshot)
+  assert.doesNotMatch(serialized, /matchHistory|participantIdentities|championId|championKey/)
+  assert.doesNotMatch(serialized, /"rank"|"metrics"|"tags"|"sampleMatches"|"preGroupMarker"|"displayName"|"selectedPosition"|"recordStatus"/)
 })
 
 test('does not copy raw match history into the snapshot', () => {
@@ -255,7 +248,7 @@ test('does not copy raw match history into the snapshot', () => {
   assert.doesNotMatch(serialized, /participantIdentities/)
 })
 
-test('converts NaN and Infinity metrics into null or zero before sending', () => {
+test('converts NaN and Infinity metrics into readable unknown values before sending', () => {
   const player = createPlayer({
     name: 'BadNumbers',
     wins: Number.NaN,
@@ -269,16 +262,11 @@ test('converts NaN and Infinity metrics into null or zero before sending', () =>
     sessionData: createSessionData({ teamOne: [player], teamTwo: [] }),
     selectedPlayers: [player]
   })
-  const metrics = snapshot.allyTeam[0]?.metrics
+  const summaryLine = snapshot.teammateSnapshot.players[0]?.summaryLine ?? ''
 
-  assert.equal(metrics?.sample, 0)
-  assert.equal(metrics?.wins, 0)
-  assert.equal(metrics?.losses, 0)
-  assert.equal(metrics?.winRate, null)
-  assert.equal(metrics?.kda, null)
-  assert.equal(metrics?.averageGold, null)
-  assert.equal(metrics?.averageDamageDealtToChampions, null)
-  assert.equal(metrics?.damageRate, null)
+  assert.match(summaryLine, /样本数：0/)
+  assert.match(summaryLine, /平均KDA：未知/)
+  assert.match(summaryLine, /伤转：未知/)
   assertNoNonFiniteNumbers(snapshot)
 })
 

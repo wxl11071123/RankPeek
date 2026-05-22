@@ -173,8 +173,23 @@ public class AnalysisService {
     private static void sendPlayerVerdicts(SseEmitter emitter, PregameAnalysisRequest request) throws IOException {
         List<Map<String, Object>> players = readSelectedSnapshotPlayers(request);
         for (int i = 0; i < players.size(); i++) {
+            sendEvent(emitter, "player_insight", buildPlayerInsightJson(request, players.get(i), i));
             sendEvent(emitter, "player_verdict", buildPlayerVerdictJson(request, players.get(i), i));
         }
+    }
+
+    private static String buildPlayerInsightJson(
+            PregameAnalysisRequest request,
+            Map<String, Object> player,
+            int index
+    ) throws JsonProcessingException {
+        Map<String, String> verdict = buildPlayerPayload(request, player, index);
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("playerKey", verdict.get("playerKey"));
+        payload.put("label", verdict.get("label"));
+        payload.put("tone", verdict.get("tone"));
+        payload.put("text", verdict.get("reason"));
+        return OBJECT_MAPPER.writeValueAsString(payload);
     }
 
     private static String buildPlayerVerdictJson(
@@ -182,20 +197,28 @@ public class AnalysisService {
             Map<String, Object> player,
             int index
     ) throws JsonProcessingException {
+        return OBJECT_MAPPER.writeValueAsString(buildPlayerPayload(request, player, index));
+    }
+
+    private static Map<String, String> buildPlayerPayload(
+            PregameAnalysisRequest request,
+            Map<String, Object> player,
+            int index
+    ) {
         boolean opponentMode = "opponent".equalsIgnoreCase(request.mode() == null ? "" : request.mode().trim());
         boolean selfPlayer = readBoolean(player.get("isSelf"));
-        String label = selfPlayer
-                ? "\u5f53\u524d\u7528\u6237"
-                : opponentMode
-                        ? (index % 2 == 0 ? "高威胁" : "可突破")
-                        : (index % 2 == 0 ? "稳定队友" : "风险队友");
-        String tone = selfPlayer
-                ? "unknown"
-                : opponentMode
-                        ? (index % 2 == 0 ? "carry" : "weak")
-                        : (index % 2 == 0 ? "stable" : "risk");
+        String label = opponentMode
+                ? (index % 2 == 0 ? "\u4ee3\u4e2d\u4ee3" : "\u7a81\u7834\u53e3")
+                : selfPlayer
+                        ? "\u4e2d\u7b49\u9a6c"
+                        : (index % 2 == 0 ? "\u4e0a\u7b49\u9a6c" : "\u4e0b\u7b49\u9a6c");
+        String tone = opponentMode
+                ? (index % 2 == 0 ? "carry" : "weak")
+                : selfPlayer
+                        ? "stable"
+                        : (index % 2 == 0 ? "carry" : "risk");
         String reason = selfPlayer
-                ? "\u8fd9\u662f\u5f53\u524d\u767b\u5f55\u7528\u6237\uff0c\u53ea\u4f5c\u4e3a\u4e0a\u4e0b\u6587\uff0c\u4e0d\u7eb3\u5165\u961f\u53cb\u98ce\u9669\u5224\u65ad\u3002"
+                ? "rankpeek-server mock \u5f53\u524d\u7528\u6237\u6309\u4e2d\u7b49\u9a6c\u5c55\u793a\uff0c\u771f\u5b9e\u5206\u6790\u4f1a\u7ed3\u5408\u961f\u53cb\u72b6\u6001\u7ed9\u524d\u671f\u63d0\u9192\u3002"
                 : opponentMode
                         ? "rankpeek-server mock 仅基于本次请求里的对手标签生成。"
                         : "rankpeek-server mock 仅基于本次请求里的队友标签生成。";
@@ -205,7 +228,7 @@ public class AnalysisService {
         payload.put("label", label);
         payload.put("tone", tone);
         payload.put("reason", reason);
-        return OBJECT_MAPPER.writeValueAsString(payload);
+        return payload;
     }
 
     private static List<Map<String, Object>> readSelectedSnapshotPlayers(PregameAnalysisRequest request) {
@@ -221,9 +244,25 @@ public class AnalysisService {
 
         String mode = request.mode() == null ? "" : request.mode().trim().toLowerCase();
         if ("opponent".equals(mode)) {
+            List<Map<String, Object>> opponentSnapshotPlayers = readTeamSnapshotPlayers(snapshot, "opponentSnapshot");
+            if (!opponentSnapshotPlayers.isEmpty()) {
+                return opponentSnapshotPlayers;
+            }
             return toPlayerMaps(snapshot.get("enemyTeam"));
         }
+        List<Map<String, Object>> teammateSnapshotPlayers = readTeamSnapshotPlayers(snapshot, "teammateSnapshot");
+        if (!teammateSnapshotPlayers.isEmpty()) {
+            return teammateSnapshotPlayers;
+        }
         return toPlayerMaps(snapshot.get("allyTeam"));
+    }
+
+    private static List<Map<String, Object>> readTeamSnapshotPlayers(Map<String, Object> snapshot, String key) {
+        Object value = snapshot.get(key);
+        if (!(value instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        return toPlayerMaps(map.get("players"));
     }
 
     private static List<Map<String, Object>> toPlayerMaps(Object value) {
