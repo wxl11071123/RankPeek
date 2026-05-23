@@ -34,6 +34,17 @@ rankpeek:
     read-timeout-ms: 30000
     max-tokens: 1600
     temperature: 0.4
+  opgg:
+    base-url: https://lol-api-champion.op.gg
+    user-agent: RankPeek/opgg-test-client
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
+    max-response-bytes: 2000000
+    cache-ttl-seconds: 1800
+    cache-enabled: true
+    cache-zone: Asia/Shanghai
+    cleanup-enabled: true
+    cleanup-cron: "0 20 4 * * *"
   cn-meta:
     sync:
       enabled: false

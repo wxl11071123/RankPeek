@@ -108,6 +108,27 @@ public class CnMetaRepository {
         return findChampionMetaByRole(patchKey, championId, CnMetaRoles.ALL, tierScope);
     }
 
+    public List<CnChampionMeta> findLatestChampionMeta(Integer championId, String tierScope) {
+        return jdbcTemplate.query(
+                """
+                        select s.source, s.patch_key, s.queue_id, s.tier_scope,
+                               c.champion_id, c.role, c.win_rate, c.pick_rate, c.ban_rate,
+                               c.avg_kda, c.avg_gold, c.avg_damage, c.avg_damage_taken,
+                               c.avg_heal, c.avg_duration_seconds, c.avg_kills, c.avg_assists,
+                               c.avg_damage_share, c.avg_damage_taken_share,
+                               c.rank_index, c.sample_note, c.data_source_note
+                        from cn_champion_stats c
+                        join cn_meta_snapshots s on s.id = c.snapshot_id
+                        where c.champion_id = ? and c.tier_scope = ? and s.status = 'ACTIVE'
+                        order by s.captured_at desc, c.id desc
+                        limit 1
+                        """,
+                metaMapper,
+                championId,
+                tierScope
+        );
+    }
+
     private List<CnChampionMeta> findChampionMetaByRole(String patchKey, Integer championId, String role, String tierScope) {
         return jdbcTemplate.query(
                 """

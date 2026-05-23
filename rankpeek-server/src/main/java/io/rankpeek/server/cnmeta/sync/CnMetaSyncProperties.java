@@ -49,7 +49,18 @@ public record CnMetaSyncProperties(
             defaultQueueId = 420;
         }
         if (tiers == null || tiers.isEmpty()) {
-            tiers = List.of("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND", "MASTER_PLUS");
+            tiers = List.of(
+                    "CHALLENGER",
+                    "GRANDMASTER",
+                    "MASTER",
+                    "DIAMOND",
+                    "EMERALD",
+                    "PLATINUM",
+                    "GOLD",
+                    "SILVER",
+                    "BRONZE",
+                    "IRON"
+            );
         }
         if (roles == null || roles.isEmpty()) {
             roles = List.of("TOP", "JUNGLE", "MID", "ADC", "SUPPORT");

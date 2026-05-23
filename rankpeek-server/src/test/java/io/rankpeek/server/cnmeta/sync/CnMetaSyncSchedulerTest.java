@@ -58,15 +58,15 @@ class CnMetaSyncSchedulerTest {
     }
 
     @Test
-    void enabledSchedulerDoesNotRunRealSourceMatrix() {
+    void enabledSchedulerRunsRealSourceMatrix() {
         CnMetaSyncService service = mock(CnMetaSyncService.class);
         PatchService patchService = mock(PatchService.class);
+        when(patchService.findCurrentPatch()).thenReturn(Optional.empty());
         CnMetaSyncScheduler scheduler = new CnMetaSyncScheduler(realSourceProperties(), service, patchService);
 
         scheduler.runScheduledSync();
 
-        verifyNoInteractions(service);
-        verifyNoInteractions(patchService);
+        verify(service).syncConfiguredMatrix("mock-current");
     }
 
     private static CnMetaSyncProperties disabledProperties() {

@@ -19,6 +19,14 @@ public class CnMetaController {
         this.cnMetaService = cnMetaService;
     }
 
+    @GetMapping("/champions/{championId}/latest")
+    public ApiResponse<List<CnChampionMeta>> latestChampionMeta(
+            @PathVariable Integer championId,
+            @RequestParam String tierScope
+    ) {
+        return ApiResponse.success(cnMetaService.findLatestChampionMeta(championId, tierScope));
+    }
+
     @GetMapping("/champions/{championId}")
     public ApiResponse<List<CnChampionMeta>> championMeta(
             @PathVariable Integer championId,

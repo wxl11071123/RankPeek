@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,6 +51,36 @@ class RealCnMetaSourceClientTest {
             assertThat(server.lastRequestUri()).doesNotContain("role=");
             assertThat(server.lastCookieHeader()).isNull();
             assertThat(server.lastUserAgent()).isEqualTo("RankPeek/dev-public-aggregate-client");
+        }
+    }
+
+    @Test
+    void fetchChampionStatsFallsBackToOlderDataDateWhenRecentResultIsEmpty() throws Exception {
+        LocalDate firstDate = LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1);
+        LocalDate secondDate = firstDate.minusDays(1);
+        String firstDateText = firstDate.format(DateTimeFormatter.BASIC_ISO_DATE);
+        String secondDateText = secondDate.format(DateTimeFormatter.BASIC_ISO_DATE);
+        try (ServerFixture server = ServerFixture.responding(uri -> {
+            if (uri.contains("dtstatdate=" + firstDateText)) {
+                return new ServerResponse(200, "{\"data\":{\"result\":\"\"}}");
+            }
+            if (uri.contains("dtstatdate=" + secondDateText)) {
+                return new ServerResponse(200, fixtureJson());
+            }
+            return new ServerResponse(500, "{}");
+        })) {
+            RealCnMetaSourceClient client = new RealCnMetaSourceClient(
+                    properties(true, server.url("/stats?championid={championId}&tier={tierCode}&dtstatdate={dataDate}")),
+                    new RealCnMetaSourceParser()
+            );
+
+            CnMetaSourcePayload payload = client.fetchChampionStats("26.09", 420, "PLATINUM", "MID");
+
+            assertThat(payload.sourceUrl()).contains("dtstatdate=" + secondDateText);
+            assertThat(payload.requestKey()).endsWith("|" + secondDateText);
+            assertThat(payload.rows()).singleElement()
+                    .satisfies(row -> assertThat(row.championId()).isEqualTo(103));
+            assertThat(server.requestCount()).isEqualTo(2);
         }
     }
 
@@ -195,21 +226,30 @@ class RealCnMetaSourceClientTest {
                 """;
     }
 
+    private record ServerResponse(int status, String body) {
+    }
+
     private static class ServerFixture implements AutoCloseable {
         private final HttpServer server;
+        private final Function<String, ServerResponse> responder;
         private final AtomicInteger requestCount = new AtomicInteger();
         private final AtomicReference<String> lastRequestUri = new AtomicReference<>();
         private final AtomicReference<String> lastCookieHeader = new AtomicReference<>();
         private final AtomicReference<String> lastUserAgent = new AtomicReference<>();
 
-        private ServerFixture(int status, String body) throws IOException {
+        private ServerFixture(Function<String, ServerResponse> responder) throws IOException {
+            this.responder = responder;
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-            server.createContext("/", exchange -> respond(exchange, status, body));
+            server.createContext("/", this::respond);
             server.start();
         }
 
         static ServerFixture respond(int status, String body) throws IOException {
-            return new ServerFixture(status, body);
+            return responding(uri -> new ServerResponse(status, body));
+        }
+
+        static ServerFixture responding(Function<String, ServerResponse> responder) throws IOException {
+            return new ServerFixture(responder);
         }
 
         String url(String path) {
@@ -232,14 +272,15 @@ class RealCnMetaSourceClientTest {
             return lastUserAgent.get();
         }
 
-        private void respond(HttpExchange exchange, int status, String body) throws IOException {
+        private void respond(HttpExchange exchange) throws IOException {
             requestCount.incrementAndGet();
             lastRequestUri.set(exchange.getRequestURI().toString());
             lastCookieHeader.set(exchange.getRequestHeaders().getFirst("Cookie"));
             lastUserAgent.set(exchange.getRequestHeaders().getFirst("User-Agent"));
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            ServerResponse response = responder.apply(exchange.getRequestURI().toString());
+            byte[] bytes = response.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.sendResponseHeaders(response.status(), bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.close();
         }

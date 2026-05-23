@@ -49,8 +49,8 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.data.mode").value("test"))
                 .andExpect(jsonPath("$.data.database.status").value("ok"))
                 .andExpect(jsonPath("$.data.flyway.status").value("ok"))
-                .andExpect(jsonPath("$.data.flyway.currentVersion").value("4"))
-                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(4)));
+                .andExpect(jsonPath("$.data.flyway.currentVersion").value("5"))
+                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(5)));
     }
 
     @Test

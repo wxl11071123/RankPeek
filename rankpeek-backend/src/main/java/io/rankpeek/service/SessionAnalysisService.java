@@ -887,6 +887,12 @@ public class SessionAnalysisService {
         return UserTag.builder()
                 .recordStatus(resolveScoutRecordStatus(safeSample))
                 .recentData(calculateScoutRecentData(puuid, currentQueueId, safeSample.getCurrentModeMatches()))
+                .championRecentData(calculateScoutChampionRecentData(
+                        puuid,
+                        currentQueueId,
+                        championId,
+                        safeSample.getLookbackMatches()
+                ))
                 .tag(tags)
                 .build();
     }
@@ -967,6 +973,39 @@ public class SessionAnalysisService {
                 .damageDealtToChampionsRate(damageRateCount > 0 ? (int) Math.round(totalDamageRate / damageRateCount) : null)
                 .oneGamePlayersMap(Map.of())
                 .build();
+    }
+
+    private RecentData calculateScoutChampionRecentData(
+            String puuid,
+            int currentQueueId,
+            Integer championId,
+            List<MatchHistory> lookbackMatches
+    ) {
+        if (championId == null || championId <= 0 || lookbackMatches == null || lookbackMatches.isEmpty()) {
+            return null;
+        }
+
+        List<MatchHistory> championMatches = new ArrayList<>();
+        for (MatchHistory match : lookbackMatches) {
+            if (!matchesCurrentQueue(match, currentQueueId)) {
+                continue;
+            }
+            MatchHistory.Participant participant = findParticipant(match, puuid);
+            if (participant != null && championId.equals(participant.getChampionId())) {
+                championMatches.add(match);
+            }
+        }
+
+        return championMatches.isEmpty()
+                ? null
+                : calculateScoutRecentData(puuid, currentQueueId, championMatches);
+    }
+
+    private boolean matchesCurrentQueue(MatchHistory match, int currentQueueId) {
+        if (match == null) {
+            return false;
+        }
+        return currentQueueId <= 0 || (match.getQueueId() != null && match.getQueueId() == currentQueueId);
     }
 
     private MatchHistory.Participant findParticipant(MatchHistory match, String puuid) {

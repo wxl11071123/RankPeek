@@ -88,6 +88,56 @@ test('keeps the damage conversion metric visible in compact gaming cards', () =>
   assert.match(source, /\.metric-separator\s*{[\s\S]*display:\s*none;/)
 })
 
+test('player card prioritizes current champion scout metrics when available', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+  const types = readFileSync(new URL('../../types/api.ts', import.meta.url), 'utf8')
+
+  assert.match(types, /championRecentData\?: RecentData \| null/)
+  assert.match(source, /const championRecentData = computed\(\(\) => props\.sessionSummoner\.userTag\?\.championRecentData \|\| null\)/)
+  assert.match(source, /const activeRecentData = computed\(\(\) => hasChampionRecentData\.value[\s\S]*championRecentData\.value[\s\S]*props\.sessionSummoner\.userTag\?\.recentData/)
+  assert.match(source, /v-if="hasChampionRecentData" class="metric-scope"/)
+  assert.match(source, />本英雄</)
+  assert.match(source, /activeRecentData\.value\?\.selectWins/)
+  assert.match(source, /activeRecentData\.value\?\.kda/)
+  assert.match(source, /activeRecentData\.value\?\.averageDamageDealtToChampions/)
+})
+
+test('player card fetches cached exact-tier 101 meta only for current champion samples', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+  const serverClient = readFileSync(new URL('../../services/rankpeekServerClient.ts', import.meta.url), 'utf8')
+
+  assert.match(serverClient, /export interface CnChampionMeta/)
+  assert.match(serverClient, /const championMetaCache = new Map<string, Promise<CnChampionMeta \| null>>\(\)/)
+  assert.match(serverClient, /getLatestChampionMeta\(championId: number, tierScope: string\)/)
+  assert.match(serverClient, /\/api\/cn-meta\/champions\/\$\{encodeURIComponent\(String\(championId\)\)\}\/latest\?tierScope=/)
+  assert.match(serverClient, /championMetaCache\.has\(cacheKey\)/)
+
+  assert.match(source, /import \{ getLatestChampionMeta, type CnChampionMeta \} from '@\/services\/rankpeekServerClient'/)
+  assert.match(source, /const cnMeta = ref<CnChampionMeta \| null>\(null\)/)
+  assert.match(source, /const exactTierScope = computed\(\(\) =>/)
+  assert.match(source, /const shouldFetchCnMeta = computed\(\(\) =>/)
+  assert.match(source, /hasChampionRecentData\.value/)
+  assert.match(source, /props\.sessionSummoner\.championId > 0/)
+  assert.match(source, /void loadCnMeta\(\)/)
+  assert.match(source, /getLatestChampionMeta\(championId, tierScope\)/)
+})
+
+test('player card colors KDA and damage conversion from 101 baseline with a five percent band', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /function getBaselineMetricTone\(value: number \| null, baseline: number \| null\): MetricTone/)
+  assert.match(source, /const high = baseline \* 1\.05/)
+  assert.match(source, /const low = baseline \* 0\.95/)
+  assert.match(source, /const cnMetaKdaValue = computed/)
+  assert.match(source, /cnMeta\.value\?\.avgKda/)
+  assert.match(source, /const cnMetaDamageConversionRate = computed/)
+  assert.match(source, /cnMeta\.value\?\.avgDamage/)
+  assert.match(source, /cnMeta\.value\?\.avgGold/)
+  assert.match(source, /const kdaTone = computed\(\(\) => getBaselineMetricTone\(kdaValue\.value, cnMetaKdaValue\.value\)\)/)
+  assert.match(source, /const damageRateTone = computed\(\(\) => getBaselineMetricTone\(damageConversionRate\.value, cnMetaDamageConversionRate\.value\)\)/)
+  assert.match(source, /const winRateTone = computed\(\(\) => getMetricTone\(winRateValue\.value, 45, 55\)\)/)
+})
+
 test('session tag API types accept nullable or omitted scout fields', () => {
   const source = readFileSync(new URL('../../types/api.ts', import.meta.url), 'utf8')
 

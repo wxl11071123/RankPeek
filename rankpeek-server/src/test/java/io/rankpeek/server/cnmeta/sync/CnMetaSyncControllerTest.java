@@ -52,6 +52,31 @@ class CnMetaSyncControllerTest {
     }
 
     @Test
+    void latestChampionEndpointUsesExactTierWithoutPatchKeyOrFallback() throws Exception {
+        mockMvc.perform(post("/api/cn-meta/sync/mock-once")
+                        .param("patchKey", "26.37")
+                        .param("tierScope", "GOLD")
+                        .param("role", "MID")
+                        .param("queueId", "420"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/cn-meta/champions/103/latest")
+                        .param("tierScope", "GOLD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].patchKey").value("26.37"))
+                .andExpect(jsonPath("$.data[0].championId").value(103))
+                .andExpect(jsonPath("$.data[0].tierScope").value("GOLD"));
+
+        mockMvc.perform(get("/api/cn-meta/champions/103/latest")
+                        .param("tierScope", "EMERALD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
     void serverHealthRemainsPublic() throws Exception {
         mockMvc.perform(get("/api/server/health"))
                 .andExpect(status().isOk())
@@ -92,7 +117,7 @@ class CnMetaSyncControllerTest {
 
         mockMvc.perform(post("/api/cn-meta/sync/mock-once")
                         .param("patchKey", "26.36")
-                        .param("tierScope", "CHALLENGER")
+                        .param("tierScope", "WOOD")
                         .param("role", "MID")
                         .param("queueId", "420"))
                 .andExpect(status().isBadRequest())

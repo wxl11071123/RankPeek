@@ -53,14 +53,34 @@ class CnMetaSyncControllerRealOnceTest {
     }
 
     @Test
-    void configuredMatrixRejectsRealSourceEvenWhenManualIsAllowed() throws Exception {
-        MockMvc mockMvc = mockMvc(properties(true, "real"), mock(CnMetaSyncService.class));
+    void configuredMatrixAllowsRealSourceWhenManualIsAllowed() throws Exception {
+        CnMetaSyncService service = mock(CnMetaSyncService.class);
+        CnMetaSyncResult result = new CnMetaSyncResult(
+                8L,
+                "real-101",
+                "26.09",
+                420,
+                "PLATINUM",
+                "ALL",
+                "SUCCESS",
+                1,
+                1,
+                "hash",
+                null,
+                Instant.parse("2026-05-15T00:00:00Z"),
+                Instant.parse("2026-05-15T00:00:01Z")
+        );
+        when(service.syncConfiguredMatrix("26.09")).thenReturn(List.of(result));
+        MockMvc mockMvc = mockMvc(properties(true, "real"), service);
 
         mockMvc.perform(post("/api/cn-meta/sync/configured-matrix")
                         .param("patchKey", "26.09"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("CN_META_REAL_SOURCE_DISABLED"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data[0].source").value("real-101"))
+                .andExpect(jsonPath("$.data[0].role").value("ALL"));
+
+        verify(service).syncConfiguredMatrix("26.09");
     }
 
     private static MockMvc mockMvc(CnMetaSyncProperties properties, CnMetaSyncService service) {

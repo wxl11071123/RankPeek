@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   checkRankPeekServerDiagnostics,
+  getOpggChampionDetail,
   RANKPEEK_SERVER_BASE_URL,
   RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
 } from './rankpeekServerClient.ts'
@@ -97,5 +98,83 @@ test('server AI services use the shared rankpeek-server base URL', () => {
     const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
     assert.match(source, /from '\.\/rankpeekServerClient\.ts'/)
     assert.doesNotMatch(source, /export const RANKPEEK_SERVER_BASE_URL =/)
+  }
+})
+
+test('fetches OP.GG champion detail through rankpeek-server with encoded filters', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        championId: 103,
+        championName: 'Ahri',
+        mode: 'ranked',
+        region: 'kr',
+        tier: 'emerald_plus',
+        position: 'mid',
+        version: '16.10',
+        updatedAt: '2026-05-23T04:00:00Z',
+        stats: { games: 1000, winRate: 0.51, pickRate: 0.12, banRate: 0.03, kda: 2.6 },
+        summonerSpells: [{ label: 'spells', ids: [4, 12], games: 100, winRate: 0.52, pickRate: 0.6 }],
+        runes: [],
+        skillOrders: [],
+        starterItems: [],
+        boots: [],
+        coreItems: []
+      },
+      error: null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const detail = await getOpggChampionDetail({
+      championId: 103,
+      mode: 'ranked',
+      region: 'kr',
+      tier: 'emerald_plus',
+      position: 'mid'
+    })
+
+    assert.equal(detail?.championId, 103)
+    assert.equal(detail?.stats.winRate, 0.51)
+    assert.deepEqual(detail?.summonerSpells[0]?.ids, [4, 12])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/opgg/champions/103/detail?mode=ranked&region=kr&tier=emerald_plus&position=mid`)
+    assert.equal(calls[0]?.init?.method, 'GET')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('OP.GG champion detail failures throw and do not return fake data', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    success: false,
+    data: null,
+    error: { message: 'OP.GG source failed' }
+  }), {
+    status: 502,
+    headers: { 'Content-Type': 'application/json' }
+  })) as typeof fetch
+
+  try {
+    await assert.rejects(
+      () => getOpggChampionDetail({
+        championId: 103,
+        mode: 'ranked',
+        region: 'kr',
+        tier: 'emerald_plus',
+        position: 'mid'
+      }),
+      /OP\.GG source failed/
+    )
+  } finally {
+    globalThis.fetch = originalFetch
   }
 })

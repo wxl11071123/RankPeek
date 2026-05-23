@@ -314,6 +314,7 @@ export type RecordStatus = 'NORMAL' | 'PRIVATE' | 'EMPTY' | 'ERROR'
 export interface UserTag {
   recordStatus: RecordStatus
   recentData: RecentData
+  championRecentData?: RecentData | null
   tag: RankTag[]
 }
 

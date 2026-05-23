@@ -4,6 +4,8 @@ import io.rankpeek.server.auth.AuthProperties;
 import io.rankpeek.server.ai.DeepSeekAiProperties;
 import io.rankpeek.server.cnmeta.sync.CnMetaSyncProperties;
 import io.rankpeek.server.common.ServerProperties;
+import io.rankpeek.server.opgg.OpggCacheProperties;
+import io.rankpeek.server.opgg.OpggSourceProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -15,7 +17,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         ServerProperties.class,
         AuthProperties.class,
         CnMetaSyncProperties.class,
-        DeepSeekAiProperties.class
+        DeepSeekAiProperties.class,
+        OpggCacheProperties.class,
+        OpggSourceProperties.class
 })
 public class RankPeekServerApplication {
 
