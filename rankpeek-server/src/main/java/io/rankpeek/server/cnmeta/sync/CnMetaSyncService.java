@@ -64,12 +64,13 @@ public class CnMetaSyncService {
     public CnMetaSyncResult syncOnceWithSource(String source, String patchKey, Integer queueId, String tierScope, String role) {
         String normalizedSource = normalizeSource(source);
         CnMetaSourceClient client = clientFor(normalizedSource);
+        String requestRole = aggregateRoleForRealSource(client.source(), role);
         Instant startedAt = Instant.now();
-        CnMetaSyncJob job = inTransaction(() -> repository.createJob(client.source(), patchKey, queueId, tierScope, role, startedAt));
+        CnMetaSyncJob job = inTransaction(() -> repository.createJob(client.source(), patchKey, queueId, tierScope, requestRole, startedAt));
 
         int[] requestCount = {0};
         try {
-            SourceFetch fetch = fetchWithRetries(client, patchKey, queueId, tierScope, role, requestCount);
+            SourceFetch fetch = fetchWithRetries(client, patchKey, queueId, tierScope, requestRole, requestCount);
             CnMetaSourcePayload payload = fetch.payload();
             String contentHash = hash(payload.rawContent());
             int finalRequestCount = fetch.requestCount();
@@ -79,7 +80,7 @@ public class CnMetaSyncService {
                     patchKey,
                     queueId,
                     tierScope,
-                    role,
+                    requestRole,
                     contentHash,
                     finalRequestCount
             ));
@@ -95,12 +96,22 @@ public class CnMetaSyncService {
 
     public List<CnMetaSyncResult> syncConfiguredMatrix(String patchKey) {
         String configuredSource = normalizeSource(properties.source());
-        if ("real".equals(configuredSource) || "real-101".equals(configuredSource)) {
-            throw new CnMetaSourceException("Configured matrix sync only allows the mock source in this foundation");
-        }
         List<CnMetaSyncResult> results = new ArrayList<>();
         boolean first = true;
+        boolean realSource = isRealSourceAlias(configuredSource);
         for (String tier : properties.tiers()) {
+            if (realSource) {
+                if (!first) {
+                    sleepBetweenRequests();
+                }
+                first = false;
+                CnMetaSyncResult result = syncOnceWithSource(configuredSource, patchKey, properties.defaultQueueId(), tier, CnMetaRoles.ALL);
+                results.add(result);
+                if ("STOPPED".equals(result.status())) {
+                    return results;
+                }
+                continue;
+            }
             for (String role : properties.roles()) {
                 if (!first) {
                     sleepBetweenRequests();
@@ -169,21 +180,9 @@ public class CnMetaSyncService {
         String storageRole = storageRole(payload, role);
         List<CnMetaChampionStatRow> storageRows = storageRows(payload.rows(), tierScope, storageRole, payload.source());
 
-        if (repository.hasSuccessfulSnapshot(payload.source(), patchKey, queueId, tierScope, storageRole, contentHash)) {
-            CnMetaSyncJob finished = repository.updateJobFinished(
-                    job.id(),
-                    "SUCCESS_NO_CHANGE",
-                    requestCount,
-                    0,
-                    contentHash,
-                    null,
-                    Instant.now()
-            );
-            return toResult(finished);
-        }
-
         Long snapshotId = repository.insertSnapshot(payload, patchKey, queueId, tierScope, storageRole, contentHash, Instant.now());
         repository.insertChampionStats(snapshotId, storageRows);
+        repository.deleteSupersededMeta(payload.source(), queueId, tierScope, storageRole, snapshotId, job.id());
         CnMetaSyncJob finished = repository.updateJobFinished(
                 job.id(),
                 "SUCCESS",
@@ -236,6 +235,14 @@ public class CnMetaSyncService {
             return "mock";
         }
         return source.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String aggregateRoleForRealSource(String source, String requestedRole) {
+        return isRealSourceAlias(source) ? CnMetaRoles.ALL : requestedRole;
+    }
+
+    private static boolean isRealSourceAlias(String source) {
+        return "real".equalsIgnoreCase(source) || "real-101".equalsIgnoreCase(source);
     }
 
     private static String storageRole(CnMetaSourcePayload payload, String requestedRole) {

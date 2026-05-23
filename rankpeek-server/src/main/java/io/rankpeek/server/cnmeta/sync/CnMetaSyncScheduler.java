@@ -29,9 +29,6 @@ public class CnMetaSyncScheduler {
         if (!properties.enabled()) {
             return;
         }
-        if (!"mock".equalsIgnoreCase(properties.source()) && !"mock-101".equalsIgnoreCase(properties.source())) {
-            return;
-        }
         if (!running.compareAndSet(false, true)) {
             return;
         }

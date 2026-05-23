@@ -21,6 +21,10 @@ public class CnMetaService {
         return cnMetaRepository.findChampionMeta(patchKey, championId, role, tierScope);
     }
 
+    public List<CnChampionMeta> findLatestChampionMeta(Integer championId, String tierScope) {
+        return cnMetaRepository.findLatestChampionMeta(championId, tierScope);
+    }
+
     public boolean isExternalNetworkDisabled() {
         return true;
     }

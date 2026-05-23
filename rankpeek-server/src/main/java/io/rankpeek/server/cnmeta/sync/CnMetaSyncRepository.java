@@ -187,6 +187,59 @@ public class CnMetaSyncRepository {
         }
     }
 
+    public void deleteSupersededMeta(
+            String source,
+            Integer queueId,
+            String tierScope,
+            String role,
+            Long keepSnapshotId,
+            Long keepJobId
+    ) {
+        jdbcTemplate.update(
+                """
+                        delete from cn_meta_source_documents
+                        where source = ?
+                          and sync_job_id in (
+                              select id
+                              from cn_meta_sync_jobs
+                              where source = ? and queue_id = ? and tier_scope = ? and role = ? and id <> ?
+                          )
+                        """,
+                source,
+                source,
+                queueId,
+                tierScope,
+                role,
+                keepJobId
+        );
+        jdbcTemplate.update(
+                """
+                        delete from cn_champion_stats
+                        where snapshot_id in (
+                            select id
+                            from cn_meta_snapshots
+                            where source = ? and queue_id = ? and tier_scope = ? and role = ? and id <> ?
+                        )
+                        """,
+                source,
+                queueId,
+                tierScope,
+                role,
+                keepSnapshotId
+        );
+        jdbcTemplate.update(
+                """
+                        delete from cn_meta_snapshots
+                        where source = ? and queue_id = ? and tier_scope = ? and role = ? and id <> ?
+                        """,
+                source,
+                queueId,
+                tierScope,
+                role,
+                keepSnapshotId
+        );
+    }
+
     public CnMetaSyncJob updateJobFinished(
             Long jobId,
             String status,

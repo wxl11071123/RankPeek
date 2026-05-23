@@ -522,6 +522,45 @@ class SessionAnalysisServiceTest {
         assertThat(recentData.getAverageDamageDealtToChampions()).isEqualTo(23456);
     }
 
+    @Test
+    void scoutChampionRecentDataUsesCurrentChampionFromFiftyGameLookback() {
+        Summoner me = new Summoner();
+        me.setPuuid("my-puuid");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("InProgress");
+
+        GameSession.OnePlayer player = new GameSession.OnePlayer();
+        player.setPuuid("player-puuid");
+        player.setChampionId(221);
+        when(gameFlowService.getGameSession()).thenReturn(gameSession(420, List.of(player), List.of()));
+
+        Summoner summoner = new Summoner();
+        summoner.setPuuid("player-puuid");
+        when(summonerService.getSummonerByPuuid("player-puuid")).thenReturn(summoner);
+        when(rankService.getRankByPuuid("player-puuid")).thenReturn(new Rank());
+
+        stubScout("player-puuid", 420, List.of(
+                createChampionMatchWithParticipantStats("player-puuid", 221, true, 10, 2, 8, 12000, 24000, 12000, 12000),
+                createChampionMatchWithParticipantStats("player-puuid", 221, false, 4, 4, 6, 10000, 16000, 10000, 24000),
+                createChampionMatchWithParticipantStats("player-puuid", 222, true, 20, 1, 10, 15000, 50000, 15000, 10000),
+                createChampionMatchWithParticipantStats("player-puuid", 221, true, 9, 3, 3, 11000, 22000, 11000, 22000)
+        ));
+
+        var data = service.getSessionData(null);
+        var championRecentData = data.getTeamOne().getFirst().getUserTag().getChampionRecentData();
+
+        assertThat(championRecentData).isNotNull();
+        assertThat(championRecentData.getSelectWins()).isEqualTo(2);
+        assertThat(championRecentData.getSelectLosses()).isEqualTo(1);
+        assertThat(championRecentData.getKills()).isEqualTo(7.7);
+        assertThat(championRecentData.getDeaths()).isEqualTo(3.0);
+        assertThat(championRecentData.getAssists()).isEqualTo(5.7);
+        assertThat(championRecentData.getKda()).isEqualTo(4.4);
+        assertThat(championRecentData.getAverageGold()).isEqualTo(11000);
+        assertThat(championRecentData.getAverageDamageDealtToChampions()).isEqualTo(20666);
+        assertThat(championRecentData.getDamageDealtToChampionsRate()).isEqualTo(52);
+    }
+
     private List<MatchHistory> createMatches(int count, int queueId) {
         return createMixedMatches(count, count, queueId, queueId + 1);
     }
@@ -623,6 +662,34 @@ class SessionAnalysisServiceTest {
         identity.setPlayer(player);
         history.setParticipantIdentities(List.of(identity));
 
+        return history;
+    }
+
+    private MatchHistory createChampionMatchWithParticipantStats(
+            String puuid,
+            int championId,
+            boolean win,
+            int kills,
+            int deaths,
+            int assists,
+            int goldEarned,
+            int damageDealt,
+            int teammateGoldEarned,
+            int teammateDamageDealt
+    ) {
+        MatchHistory history = createMatchWithParticipantStats(
+                puuid,
+                goldEarned,
+                damageDealt,
+                teammateGoldEarned,
+                teammateDamageDealt
+        );
+        MatchHistory.Participant participant = history.getParticipants().getFirst();
+        participant.setChampionId(championId);
+        participant.getStats().setWin(win);
+        participant.getStats().setKills(kills);
+        participant.getStats().setDeaths(deaths);
+        participant.getStats().setAssists(assists);
         return history;
     }
 

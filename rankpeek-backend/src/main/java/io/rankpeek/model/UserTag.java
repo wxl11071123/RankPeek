@@ -25,6 +25,8 @@ public class UserTag {
      */
     private RecentData recentData;
 
+    private RecentData championRecentData;
+
     /**
      * 标签列表
      */

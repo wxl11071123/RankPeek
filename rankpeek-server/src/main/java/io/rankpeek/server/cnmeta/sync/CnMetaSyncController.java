@@ -18,7 +18,7 @@ import java.util.Set;
 @RequestMapping("/api/cn-meta/sync")
 public class CnMetaSyncController {
 
-    private static final Set<String> ALLOWED_ROLES = Set.of("TOP", "JUNGLE", "MID", "ADC", "SUPPORT");
+    private static final Set<String> ALLOWED_ROLES = Set.of("TOP", "JUNGLE", "MID", "ADC", "SUPPORT", CnMetaRoles.ALL);
 
     private final CnMetaSyncProperties properties;
     private final CnMetaSyncService syncService;
@@ -80,13 +80,6 @@ public class CnMetaSyncController {
                     HttpStatus.FORBIDDEN,
                     "CN_META_SYNC_DISABLED",
                     "CN meta configured matrix sync is disabled"
-            );
-        }
-        if (!"mock".equalsIgnoreCase(properties.source())) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "CN_META_REAL_SOURCE_DISABLED",
-                    "Configured matrix sync only allows the mock source in this foundation"
             );
         }
         return ApiResponse.success(syncService.syncConfiguredMatrix(normalizedPatchKey));

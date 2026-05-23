@@ -10,8 +10,10 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,19 +84,120 @@ class CnMetaSyncServiceTest {
     }
 
     @Test
-    void duplicateContentHashSkipsNewSnapshotAndChampionStats() {
+    void configuredMatrixWithRealSourceFetchesEachExactTierOnceAsAggregateRole() {
+        List<String> requests = new ArrayList<>();
+        CnMetaSyncProperties exactTierProperties = properties(
+                "real-101",
+                List.of("GOLD", "EMERALD"),
+                List.of("TOP", "MID")
+        );
+        CnMetaSyncService exactTierService = new CnMetaSyncService(
+                exactTierProperties,
+                repository,
+                List.of(new CnMetaSourceClient() {
+                    @Override
+                    public String source() {
+                        return "real-101";
+                    }
+
+                    @Override
+                    public CnMetaSourcePayload fetchChampionStats(String patchKey, Integer queueId, String tierScope, String role) {
+                        requests.add("%s|%s".formatted(tierScope, role));
+                        return realPayload(patchKey, tierScope, role, "matrix-" + tierScope, new BigDecimal("9000"));
+                    }
+                })
+        );
+
+        List<CnMetaSyncResult> results = exactTierService.syncConfiguredMatrix("26.50");
+
+        assertThat(results).hasSize(2);
+        assertThat(requests).containsExactly("GOLD|ALL", "EMERALD|ALL");
+        assertThat(results)
+                .extracting(CnMetaSyncResult::tierScope)
+                .containsExactly("GOLD", "EMERALD");
+        assertThat(results)
+                .allSatisfy(result -> {
+                    assertThat(result.status()).isEqualTo("SUCCESS");
+                    assertThat(result.role()).isEqualTo("ALL");
+                    assertThat(result.rowCount()).isEqualTo(1);
+                });
+    }
+
+    @Test
+    void successfulRealSyncKeepsOnlyLatestSnapshotStatsAndRawPayloadForTier() {
+        AtomicInteger sequence = new AtomicInteger();
+        CnMetaSyncService replacingService = new CnMetaSyncService(
+                properties("real-101", List.of("DIAMOND"), List.of("MID")),
+                repository,
+                List.of(new CnMetaSourceClient() {
+                    @Override
+                    public String source() {
+                        return "real-101";
+                    }
+
+                    @Override
+                    public CnMetaSourcePayload fetchChampionStats(String patchKey, Integer queueId, String tierScope, String role) {
+                        int current = sequence.incrementAndGet();
+                        return realPayload(
+                                patchKey,
+                                tierScope,
+                                role,
+                                "replace-" + current,
+                                new BigDecimal(8000 + current)
+                        );
+                    }
+                })
+        );
+
+        CnMetaSyncResult first = replacingService.syncOnceWithSource("real-101", "26.51", 420, "DIAMOND", "MID");
+        CnMetaSyncResult second = replacingService.syncOnceWithSource("real-101", "26.51", 420, "DIAMOND", "MID");
+
+        assertThat(first.status()).isEqualTo("SUCCESS");
+        assertThat(second.status()).isEqualTo("SUCCESS");
+        assertThat(count("""
+                select count(*)
+                from cn_meta_snapshots
+                where source = 'real-101' and patch_key = '26.51' and queue_id = 420
+                  and tier_scope = 'DIAMOND' and role = 'ALL'
+                """)).isEqualTo(1);
+        assertThat(count("""
+                select count(*)
+                from cn_meta_source_documents
+                where source = 'real-101' and request_key like '26.51|420|DIAMOND|ALL|replace-%'
+                """)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                """
+                        select c.avg_damage
+                        from cn_champion_stats c
+                        join cn_meta_snapshots s on s.id = c.snapshot_id
+                        where s.source = 'real-101' and s.patch_key = '26.51'
+                          and s.queue_id = 420 and s.tier_scope = 'DIAMOND'
+                          and s.role = 'ALL'
+                        """,
+                BigDecimal.class
+        )).isEqualByComparingTo("8002");
+    }
+
+    @Test
+    void duplicateContentHashStillReplacesPreviousSnapshotAndRawPayload() {
         CnMetaSyncResult first = syncService.syncOnce("26.32", 420, "GOLD", "ADC");
         CnMetaSyncResult second = syncService.syncOnce("26.32", 420, "GOLD", "ADC");
 
         assertThat(first.status()).isEqualTo("SUCCESS");
-        assertThat(second.status()).isEqualTo("SUCCESS_NO_CHANGE");
-        assertThat(second.rowCount()).isZero();
+        assertThat(second.status()).isEqualTo("SUCCESS");
+        assertThat(second.rowCount()).isEqualTo(3);
         assertThat(second.contentHash()).isEqualTo(first.contentHash());
         assertThat(count("""
                 select count(*)
                 from cn_meta_snapshots
                 where source = ? and patch_key = ? and queue_id = ? and tier_scope = ? and role = ? and content_hash = ?
                 """, "mock-101", "26.32", 420, "GOLD", "ADC", first.contentHash())).isEqualTo(1);
+        assertThat(count("""
+                select count(*)
+                from cn_meta_source_documents d
+                join cn_meta_sync_jobs j on j.id = d.sync_job_id
+                where d.source = ? and j.patch_key = ? and j.queue_id = ? and j.tier_scope = ? and j.role = ?
+                """, "mock-101", "26.32", 420, "GOLD", "ADC")).isEqualTo(1);
         assertThat(count("""
                 select count(*)
                 from cn_champion_stats c
@@ -206,6 +309,74 @@ class CnMetaSyncServiceTest {
 
     private String queryString(String sql, Object... args) {
         return jdbcTemplate.queryForObject(sql, String.class, args);
+    }
+
+    private static CnMetaSyncProperties properties(String source, List<String> tiers, List<String> roles) {
+        return new CnMetaSyncProperties(
+                false,
+                false,
+                source,
+                "0 30 4 * * *",
+                "Asia/Shanghai",
+                0,
+                0,
+                java.util.List.of(401, 403, 429),
+                420,
+                tiers,
+                roles,
+                false,
+                "",
+                1,
+                666,
+                1,
+                Map.of(
+                        "GOLD", "30",
+                        "EMERALD", "15",
+                        "DIAMOND", "10"
+                ),
+                "RankPeek/dev-public-aggregate-client",
+                500,
+                2000,
+                20000
+        );
+    }
+
+    private static CnMetaSourcePayload realPayload(
+            String patchKey,
+            String tierScope,
+            String role,
+            String contentMarker,
+            BigDecimal avgDamage
+    ) {
+        return new CnMetaSourcePayload(
+                "real-101",
+                "mock://real-101/" + contentMarker,
+                "%s|420|%s|%s|%s".formatted(patchKey, tierScope, role, contentMarker),
+                200,
+                "championdetails-fixture-" + contentMarker,
+                LocalDate.of(2026, 5, 14),
+                List.of(new CnMetaChampionStatRow(
+                        666,
+                        role,
+                        tierScope,
+                        null,
+                        new BigDecimal("0.0056"),
+                        new BigDecimal("0.3114"),
+                        new BigDecimal("4.6825"),
+                        new BigDecimal("8296"),
+                        null,
+                        null,
+                        1,
+                        "fixture",
+                        avgDamage,
+                        new BigDecimal("9126"),
+                        new BigDecimal("7979"),
+                        1634,
+                        new BigDecimal("2"),
+                        new BigDecimal("18"),
+                        null
+                ))
+        );
     }
 
     @TestConfiguration

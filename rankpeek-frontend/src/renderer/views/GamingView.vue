@@ -12,6 +12,15 @@
           <span class="queue-name" :class="{ unknown: queueUnknown }">{{ queueName }}</span>
         </div>
         <div class="header-actions">
+          <button
+            class="opgg-action-btn control-glow"
+            type="button"
+            :disabled="!opggQuery.enabled"
+            :title="opggButtonTitle"
+            @click="openOpggModal"
+          >
+            OP.GG
+          </button>
           <RefreshIconButton
             :aria-label="refreshButtonLabel"
             :title="refreshButtonLabel"
@@ -138,6 +147,15 @@
       @cancel-analysis="cancelGamingAiServerAnalysis"
       @close="closeGamingAiAnalysis"
     />
+    <OpggChampionModal
+      :open="opggModalOpen"
+      :query="opggQuery"
+      :detail="opggDetail"
+      :loading="opggLoading"
+      :error="opggError"
+      @retry="loadOpggDetail"
+      @close="closeOpggModal"
+    />
   </div>
 </template>
 
@@ -149,6 +167,7 @@ import { wsClient } from '@/api/websocketClient'
 import { listenGameflowPhase } from '@/services/gameflowPhaseListener'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import GamingAiAnalysisModal from '@/components/gaming/GamingAiAnalysisModal.vue'
+import OpggChampionModal from '@/components/gaming/OpggChampionModal.vue'
 import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
 import type { CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
@@ -167,6 +186,11 @@ import {
 } from '@/services/gamingAiServerStream'
 import { isGamingAiAnalysisReady } from '@/services/gamingAiAnalysisReadiness'
 import { normalizeGamingQueueLabel } from '@/services/gamingAiQueue'
+import { buildOpggChampionQuery } from '@/services/opggChampionQuery'
+import {
+  getOpggChampionDetail,
+  type OpggChampionDetail
+} from '@/services/rankpeekServerClient.ts'
 import {
   buildLobbyDisplaySessionSummoners,
   createGameflowPhaseTransitionTracker,
@@ -253,6 +277,10 @@ const gamingAiStreamError = ref('')
 const gamingAiPlayerVerdicts = ref<Record<string, GamingAiPlayerStreamVerdict>>({})
 const gamingAiPlayerInsights = ref<Record<string, GamingAiPlayerInsightEvent>>({})
 let gamingAiStreamAbortController: AbortController | null = null
+const opggModalOpen = ref(false)
+const opggDetail = ref<OpggChampionDetail | null>(null)
+const opggLoading = ref(false)
+const opggError = ref('')
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -323,6 +351,8 @@ const gamingAiAnalysisReady = computed(() => isGamingAiAnalysisReady({
   mode: gamingAiModalMode.value,
   sessionData: sessionData.value
 }))
+const opggQuery = computed(() => buildOpggChampionQuery(sessionData.value))
+const opggButtonTitle = computed(() => opggQuery.value.enabled ? 'OP.GG' : opggQuery.value.reason)
 const refreshButtonLabel = computed(() => {
   if (loading.value) return t('common.refreshing')
   return hasActiveSession.value ? t('common.refresh') : t('common.refreshStatus')
@@ -593,6 +623,43 @@ function resetGamingAiStreamState() {
   gamingAiPlayerInsights.value = {}
 }
 
+async function openOpggModal() {
+  if (!opggQuery.value.enabled) {
+    return
+  }
+  opggModalOpen.value = true
+  await loadOpggDetail()
+}
+
+function closeOpggModal() {
+  opggModalOpen.value = false
+}
+
+async function loadOpggDetail() {
+  const query = opggQuery.value
+  opggError.value = ''
+  opggDetail.value = null
+  if (!query.enabled || !query.championId) {
+    opggLoading.value = false
+    return
+  }
+
+  opggLoading.value = true
+  try {
+    opggDetail.value = await getOpggChampionDetail({
+      championId: query.championId,
+      mode: query.mode,
+      region: query.region,
+      tier: query.tier,
+      position: query.position
+    })
+  } catch (error) {
+    opggError.value = error instanceof Error && error.message ? error.message : 'OP.GG 数据读取失败'
+  } finally {
+    opggLoading.value = false
+  }
+}
+
 function syncSessionDataFromState() {
   sessionData.value = sessionState.sessionData
 }
@@ -835,6 +902,9 @@ watch(sessionData, () => {
   if (gamingAiModalOpen.value) {
     refreshGamingAiPreview()
   }
+  if (opggModalOpen.value) {
+    void loadOpggDetail()
+  }
 })
 
 watch(() => sessionData.value.phase, (newVal, oldVal) => {
@@ -1067,6 +1137,59 @@ onUnmounted(() => {
   flex: 0 0 auto;
   justify-content: flex-end;
   margin-left: auto;
+}
+
+.opgg-action-btn {
+  min-width: 68px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(126, 198, 255, 0.44);
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), 0.065);
+  color: #c7e6ff;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast),
+    color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.opgg-action-btn:hover:not(:disabled),
+.opgg-action-btn:focus-visible:not(:disabled) {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+  color: #f7e6ad;
+  box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
+  outline: none;
+}
+
+.opgg-action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.opgg-action-btn.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible):not(:disabled) {
+  box-shadow: var(--gaming-control-edge-shadow);
+}
+
+:global([data-theme="light"] .gaming-view .opgg-action-btn) {
+  border-color: rgba(86, 109, 134, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  color: #2f4d6a;
+}
+
+:global([data-theme="light"] .gaming-view .opgg-action-btn:hover:not(:disabled)),
+:global([data-theme="light"] .gaming-view .opgg-action-btn:focus-visible:not(:disabled)) {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+  color: #24384d;
+  box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
 }
 
 .control-glow {

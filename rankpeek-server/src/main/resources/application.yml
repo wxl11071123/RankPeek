@@ -34,6 +34,17 @@ rankpeek:
     read-timeout-ms: ${RANKPEEK_AI_READ_TIMEOUT_MS:30000}
     max-tokens: ${RANKPEEK_AI_MAX_TOKENS:1600}
     temperature: ${RANKPEEK_AI_TEMPERATURE:0.4}
+  opgg:
+    base-url: ${RANKPEEK_OPGG_BASE_URL:https://lol-api-champion.op.gg}
+    user-agent: ${RANKPEEK_OPGG_USER_AGENT:RankPeek/opgg-client}
+    connect-timeout-ms: ${RANKPEEK_OPGG_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${RANKPEEK_OPGG_READ_TIMEOUT_MS:10000}
+    max-response-bytes: ${RANKPEEK_OPGG_MAX_RESPONSE_BYTES:2000000}
+    cache-ttl-seconds: ${RANKPEEK_OPGG_CACHE_TTL_SECONDS:1800}
+    cache-enabled: ${RANKPEEK_OPGG_CACHE_ENABLED:true}
+    cache-zone: ${RANKPEEK_OPGG_CACHE_ZONE:Asia/Shanghai}
+    cleanup-enabled: ${RANKPEEK_OPGG_CLEANUP_ENABLED:true}
+    cleanup-cron: ${RANKPEEK_OPGG_CLEANUP_CRON:0 20 4 * * *}
   cn-meta:
     sync:
       enabled: false
@@ -45,7 +56,7 @@ rankpeek:
       max-retries: 2
       stop-on-http-status: [401, 403, 429]
       default-queue-id: 420
-      tiers: ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND", "MASTER_PLUS"]
+      tiers: ["CHALLENGER", "GRANDMASTER", "MASTER", "DIAMOND", "EMERALD", "PLATINUM", "GOLD", "SILVER", "BRONZE", "IRON"]
       roles: ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
       real-source-enabled: false
       real-endpoint-template: ""
@@ -53,7 +64,16 @@ rankpeek:
       real-champion-id: 666
       real-data-date-offset-days: 1
       real-tier-code-map:
+        CHALLENGER: "0"
+        GRANDMASTER: "5"
+        MASTER: "6"
+        DIAMOND: "10"
+        EMERALD: "15"
         PLATINUM: "20"
+        GOLD: "30"
+        SILVER: "40"
+        BRONZE: "50"
+        IRON: "80"
       real-user-agent: "RankPeek/dev-public-aggregate-client"
       real-connect-timeout-ms: 5000
       real-read-timeout-ms: 10000

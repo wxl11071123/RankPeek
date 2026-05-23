@@ -110,6 +110,7 @@
 
       <template v-else>
         <div class="scout-metrics" aria-label="侦察指标">
+          <span v-if="hasChampionRecentData" class="metric-scope">本英雄</span>
           <span class="metric-item">
             <span>KDA</span>
             <strong :class="kdaTone">{{ kdaText }}</strong>
@@ -144,6 +145,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { QueueInfo, RankTag, RecordStatus, SessionSummoner } from '@/types/api'
+import { getLatestChampionMeta, type CnChampionMeta } from '@/services/rankpeekServerClient'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { formatRankDivisionLabel } from '@/utils/rankDisplay'
 import { buildSummonerLookupName, createSummonerLookupRoute } from '@/utils/summonerLookupRoute'
@@ -185,6 +187,19 @@ const tierIconMap: Record<string, string> = {
   grandmaster,
   challenger
 }
+
+const CN_META_EXACT_TIERS = new Set([
+  'CHALLENGER',
+  'GRANDMASTER',
+  'MASTER',
+  'DIAMOND',
+  'EMERALD',
+  'PLATINUM',
+  'GOLD',
+  'SILVER',
+  'BRONZE',
+  'IRON'
+])
 
 const recordStatus = computed<RecordStatus>(() => props.sessionSummoner.userTag?.recordStatus || 'NORMAL')
 
@@ -393,14 +408,26 @@ const avatarUrl = computed(() => {
   return ''
 })
 
+const championRecentData = computed(() => props.sessionSummoner.userTag?.championRecentData || null)
+const championRecentTotalGames = computed(() => {
+  const wins = championRecentData.value?.selectWins || 0
+  const losses = championRecentData.value?.selectLosses || 0
+  return wins + losses
+})
+const hasChampionRecentData = computed(() => championRecentTotalGames.value > 0)
+const activeRecentData = computed(() => hasChampionRecentData.value
+  ? championRecentData.value
+  : props.sessionSummoner.userTag?.recentData
+)
+
 const totalGames = computed(() => {
-  const wins = props.sessionSummoner.userTag?.recentData?.selectWins || 0
-  const losses = props.sessionSummoner.userTag?.recentData?.selectLosses || 0
+  const wins = activeRecentData.value?.selectWins || 0
+  const losses = activeRecentData.value?.selectLosses || 0
   return wins + losses
 })
 
 const winRateValue = computed(() => {
-  const wins = props.sessionSummoner.userTag?.recentData?.selectWins || 0
+  const wins = activeRecentData.value?.selectWins || 0
   const total = totalGames.value
   return total > 0 ? (wins / total) * 100 : null
 })
@@ -410,7 +437,7 @@ const winRateText = computed(() => {
 })
 
 const kdaValue = computed(() => {
-  const kda = props.sessionSummoner.userTag?.recentData?.kda
+  const kda = activeRecentData.value?.kda
   return typeof kda === 'number' && Number.isFinite(kda) ? kda : null
 })
 
@@ -419,9 +446,8 @@ const kdaText = computed(() => {
 })
 
 const damageConversionRate = computed(() => {
-  const recentData = props.sessionSummoner.userTag?.recentData
-  const damage = recentData?.averageDamageDealtToChampions
-  const gold = recentData?.averageGold
+  const damage = activeRecentData.value?.averageDamageDealtToChampions
+  const gold = activeRecentData.value?.averageGold
   if (
     typeof damage !== 'number' ||
     typeof gold !== 'number' ||
@@ -448,14 +474,79 @@ function getMetricTone(value: number | null, low: number, high: number): MetricT
   return 'metric-neutral'
 }
 
-const kdaTone = computed(() => getMetricTone(kdaValue.value, 1.8, 3))
-const damageRateTone = computed(() => getMetricTone(damageConversionRate.value, 120, 180))
-const winRateTone = computed(() => getMetricTone(winRateValue.value, 45, 55))
+function getBaselineMetricTone(value: number | null, baseline: number | null): MetricTone {
+  if (value == null || baseline == null || !Number.isFinite(baseline) || baseline <= 0) {
+    return 'metric-neutral'
+  }
+  const high = baseline * 1.05
+  const low = baseline * 0.95
+  if (value >= high) return 'metric-high'
+  if (value <= low) return 'metric-low'
+  return 'metric-neutral'
+}
 
 const primaryQueueInfo = computed<QueueInfo | null>(() => {
   const queueMap = props.sessionSummoner.rank?.queueMap
   return queueMap?.RANKED_SOLO_5x5 || queueMap?.RANKED_FLEX_SR || null
 })
+
+const cnMeta = ref<CnChampionMeta | null>(null)
+const exactTierScope = computed(() => {
+  const tier = primaryQueueInfo.value?.tier?.toUpperCase()
+  return tier && CN_META_EXACT_TIERS.has(tier) ? tier : null
+})
+const shouldFetchCnMeta = computed(() =>
+  hasChampionRecentData.value &&
+  props.sessionSummoner.championId > 0 &&
+  Boolean(exactTierScope.value)
+)
+
+let cnMetaRequestId = 0
+
+async function loadCnMeta() {
+  const requestId = ++cnMetaRequestId
+  cnMeta.value = null
+  if (!shouldFetchCnMeta.value) {
+    return
+  }
+
+  const championId = props.sessionSummoner.championId
+  const tierScope = exactTierScope.value
+  if (!tierScope) {
+    return
+  }
+
+  const meta = await getLatestChampionMeta(championId, tierScope)
+  if (requestId === cnMetaRequestId) {
+    cnMeta.value = meta
+  }
+}
+
+watch(
+  [() => props.sessionSummoner.championId, exactTierScope, hasChampionRecentData],
+  () => {
+    void loadCnMeta()
+  },
+  { immediate: true }
+)
+
+function getPositiveNumber(value?: number | null): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+const cnMetaKdaValue = computed(() => getPositiveNumber(cnMeta.value?.avgKda))
+const cnMetaDamageConversionRate = computed(() => {
+  const damage = getPositiveNumber(cnMeta.value?.avgDamage)
+  const gold = getPositiveNumber(cnMeta.value?.avgGold)
+  if (damage == null || gold == null) {
+    return null
+  }
+  return (damage / gold) * 100
+})
+
+const kdaTone = computed(() => getBaselineMetricTone(kdaValue.value, cnMetaKdaValue.value))
+const damageRateTone = computed(() => getBaselineMetricTone(damageConversionRate.value, cnMetaDamageConversionRate.value))
+const winRateTone = computed(() => getMetricTone(winRateValue.value, 45, 55))
 
 function getQueueTotalGames(queueInfo?: QueueInfo | null): number {
   if (!queueInfo) {
@@ -849,6 +940,24 @@ function noop() {
   line-height: 1.2;
   font-weight: 800;
   overflow: visible;
+}
+
+.metric-scope {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(var(--accent-rgb), 0.32);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--accent-hover);
+  font-size: 12px;
+  line-height: 22px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .metric-item {

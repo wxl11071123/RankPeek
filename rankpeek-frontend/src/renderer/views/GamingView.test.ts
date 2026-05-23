@@ -41,6 +41,25 @@ test('gaming refresh action uses the shared refresh icon button', () => {
   assert.doesNotMatch(source, /class="refresh-icon"[\s\S]*spinning/)
 })
 
+test('gaming header exposes OP.GG action immediately before refresh and opens the champion modal', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const opggIndex = source.indexOf('class="opgg-action-btn control-glow"')
+  const refreshIndex = source.indexOf('<RefreshIconButton')
+
+  assert.match(source, /import OpggChampionModal from '@\/components\/gaming\/OpggChampionModal\.vue'/)
+  assert.match(source, /import \{ buildOpggChampionQuery \} from '@\/services\/opggChampionQuery'/)
+  assert.match(source, /import \{[\s\S]*getOpggChampionDetail[\s\S]*\} from '@\/services\/rankpeekServerClient\.ts'/)
+  assert.equal(opggIndex > -1 && refreshIndex > -1 && opggIndex < refreshIndex, true)
+  assert.match(source, /<button[\s\S]*class="opgg-action-btn control-glow"[\s\S]*:disabled="!opggQuery\.enabled"[\s\S]*:title="opggButtonTitle"[\s\S]*@click="openOpggModal"[\s\S]*>[\s\S]*OP\.GG[\s\S]*<\/button>/)
+  assert.match(source, /const opggQuery = computed\(\(\) => buildOpggChampionQuery\(sessionData\.value\)\)/)
+  assert.match(source, /const opggButtonTitle = computed\(\(\) => opggQuery\.value\.enabled \? 'OP\.GG' : opggQuery\.value\.reason\)/)
+  assert.match(source, /async function openOpggModal\(\)/)
+  assert.match(source, /async function loadOpggDetail\(\)/)
+  assert.match(source, /getOpggChampionDetail\(\{[\s\S]*championId: query\.championId,[\s\S]*mode: query\.mode,[\s\S]*region: query\.region,[\s\S]*tier: query\.tier,[\s\S]*position: query\.position/)
+  assert.match(source, /<OpggChampionModal[\s\S]*:open="opggModalOpen"[\s\S]*:query="opggQuery"[\s\S]*:detail="opggDetail"[\s\S]*:loading="opggLoading"[\s\S]*:error="opggError"[\s\S]*@retry="loadOpggDetail"[\s\S]*@close="closeOpggModal"/)
+  assert.match(source, /\.opgg-action-btn\s*\{/)
+})
+
 test('gaming page applies the home-style cursor glow to panels, buttons, and player cards', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
 

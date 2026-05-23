@@ -49,7 +49,43 @@ public class RealCnMetaSourceClient implements CnMetaSourceClient {
         String championId = String.valueOf(properties.realChampionId());
         String timeType = String.valueOf(properties.realTimeType());
         String tierCode = tierCodeFor(tierScope);
-        String dataDate = dataDate();
+        CnMetaSourceException lastMissingData = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String dataDate = dataDate(attempt);
+            try {
+                return fetchChampionStatsForDate(
+                        patchKey,
+                        queueId,
+                        tierScope,
+                        effectiveRole,
+                        championId,
+                        timeType,
+                        tierCode,
+                        dataDate
+                );
+            } catch (CnMetaSourceException exception) {
+                if (isMissingDataResult(exception) && attempt < 4) {
+                    lastMissingData = exception;
+                    continue;
+                }
+                throw exception;
+            }
+        }
+        throw lastMissingData == null
+                ? new CnMetaSourceException("Real 101 source returned no usable data")
+                : lastMissingData;
+    }
+
+    private CnMetaSourcePayload fetchChampionStatsForDate(
+            String patchKey,
+            Integer queueId,
+            String tierScope,
+            String effectiveRole,
+            String championId,
+            String timeType,
+            String tierCode,
+            String dataDate
+    ) {
         String requestKey = "%s|%d|%s|%s|%s|%s|%s|%s".formatted(
                 patchKey,
                 queueId,
@@ -114,10 +150,20 @@ public class RealCnMetaSourceClient implements CnMetaSourceClient {
         return tierCode;
     }
 
-    private String dataDate() {
+    private String dataDate(int fallbackOffset) {
         return LocalDate.now(SHANGHAI)
-                .minusDays(properties.realDataDateOffsetDays())
+                .minusDays((long) properties.realDataDateOffsetDays() + fallbackOffset)
                 .format(DateTimeFormatter.BASIC_ISO_DATE);
+    }
+
+    private static boolean isMissingDataResult(CnMetaSourceException exception) {
+        String message = exception.getMessage();
+        return message != null && (
+                message.contains("data.result is empty")
+                        || message.contains("championdetails is empty")
+                        || message.contains("champion stats rows not found")
+                        || message.contains("championdetails not found")
+        );
     }
 
     private static URI buildUri(
