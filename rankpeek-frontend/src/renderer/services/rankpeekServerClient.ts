@@ -43,6 +43,7 @@ export interface OpggChampionStats {
 export interface OpggBuildOption {
   label: string
   ids: number[]
+  order?: number[]
   games?: number | null
   winRate?: number | null
   pickRate?: number | null
@@ -66,12 +67,49 @@ export interface OpggChampionDetail {
   coreItems: OpggBuildOption[]
 }
 
+export interface OpggChampionCounter {
+  championId: number
+  games: number
+  wins?: number | null
+}
+
+export interface OpggChampionPositionStats {
+  position: string
+  tier?: number | null
+  rank?: number | null
+  stats: OpggChampionStats
+  counters: OpggChampionCounter[]
+}
+
+export interface OpggChampionListItem {
+  championId: number
+  tier?: number | null
+  rank?: number | null
+  stats: OpggChampionStats
+  positions: OpggChampionPositionStats[]
+}
+
+export interface OpggChampionList {
+  mode: string
+  region: string
+  tier: string
+  version?: string | null
+  updatedAt?: string | null
+  items: OpggChampionListItem[]
+}
+
 export interface OpggChampionDetailRequest {
   championId: number
   mode: string
   region: string
   tier: string
   position: string
+}
+
+export interface OpggChampionListRequest {
+  mode: string
+  region: string
+  tier: string
 }
 
 export type RankPeekServerDiagnosticsCheck =
@@ -181,6 +219,28 @@ export async function getOpggChampionDetail(query: OpggChampionDetailRequest): P
   const payload = await parseServerJson<OpggChampionDetail>(response)
   if (!response.ok || payload.success === false) {
     throw new Error(payload.error?.message || `OP.GG detail request failed: HTTP ${response.status}`)
+  }
+  return payload.data || null
+}
+
+export async function getOpggChampionList(query: OpggChampionListRequest): Promise<OpggChampionList | null> {
+  if (!query.mode || !query.region) {
+    return null
+  }
+
+  const params = new URLSearchParams()
+  params.set('mode', query.mode)
+  params.set('region', query.region)
+  params.set('tier', query.tier || 'all')
+
+  const endpoint = `/api/opgg/champions?${params.toString()}`
+  const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  })
+  const payload = await parseServerJson<OpggChampionList>(response)
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.error?.message || `OP.GG champion list request failed: HTTP ${response.status}`)
   }
   return payload.data || null
 }

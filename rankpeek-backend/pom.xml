@@ -243,9 +243,12 @@
                                 <buildArg>--initialize-at-run-time=com.sun.jna.CallbackReference</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.Structure</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.Kernel32</buildArg>
+                                <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.User32</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.WinNT</buildArg>
+                                <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.WinUser</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.Tlhelp32</buildArg>
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.Kernel32</buildArg>
+                                <buildArg>--initialize-at-run-time=io.rankpeek.jna.User32</buildArg>
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.Ntdll</buildArg>
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.ProcessUtils</buildArg>
 

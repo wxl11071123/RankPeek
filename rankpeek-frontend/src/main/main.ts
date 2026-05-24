@@ -1,4 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, Tray, type MenuItemConstructorOptions } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  screen,
+  session,
+  shell,
+  Tray,
+  type IpcMainInvokeEvent,
+  type MenuItemConstructorOptions,
+  type Rectangle
+} from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import * as fs from 'fs'
@@ -14,6 +27,7 @@ import { getTrayMenuEntries, getWindowCloseAction, getWindowMinimizeAction, type
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
+let opggWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 let appTray: Tray | null = null
 let isQuitting = false
@@ -51,7 +65,32 @@ if (!fs.existsSync(logDir)) {
 rotateLogFile(logFile)
 const logStream = fs.createWriteStream(logFile, { flags: 'a' })
 const boundsFile = join(app.getPath('userData'), 'window-bounds.json')
+const opggBoundsFile = join(app.getPath('userData'), 'opgg-window-bounds.json')
 let storageRetentionTimer: NodeJS.Immediate | null = null
+
+interface OpggChampionQuery {
+  enabled?: boolean
+  reason?: string
+  championId?: number | null
+  mode?: string
+  region?: 'kr' | string
+  tier?: string
+  position?: string
+  filterLabel?: string
+}
+
+interface LcuWindowBoundsPayload {
+  found: boolean
+  x?: number | null
+  y?: number | null
+  width?: number | null
+  height?: number | null
+}
+
+interface OpggWindowBoundsState {
+  bounds: Rectangle
+  userMoved: boolean
+}
 
 function rotateLogFile(filePath: string) {
   try {
@@ -233,6 +272,47 @@ function saveWindowBounds() {
   }
 }
 
+function loadOpggWindowBounds(): OpggWindowBoundsState | null {
+  try {
+    if (!fs.existsSync(opggBoundsFile)) {
+      return null
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(opggBoundsFile, 'utf-8'))
+    const bounds = isWindowBounds(parsed?.bounds) ? parsed.bounds : parsed
+    if (!isWindowBounds(bounds)) {
+      return null
+    }
+
+    return {
+      bounds,
+      userMoved: parsed?.userMoved !== false
+    }
+  } catch {
+    log('WARN', 'Failed to load OP.GG window bounds')
+    return null
+  }
+}
+
+function saveOpggWindowBounds(bounds: Rectangle, userMoved = true) {
+  try {
+    fs.writeFileSync(opggBoundsFile, JSON.stringify({ bounds, userMoved }))
+  } catch {
+    log('WARN', 'Failed to save OP.GG window bounds')
+  }
+}
+
+function isWindowBounds(value: unknown): value is Rectangle {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return ['x', 'y', 'width', 'height'].every(key => {
+    const numberValue = value[key]
+    return typeof numberValue === 'number' && Number.isFinite(numberValue)
+  })
+}
+
 function showMainWindow() {
   if (!mainWindow) {
     createWindow()
@@ -396,6 +476,235 @@ function closeSplashWindow() {
     splashWindow.close()
   }
   splashWindow = null
+}
+
+function getOpggWindowUrl() {
+  return isDev
+    ? 'http://localhost:5173/#/opgg'
+    : join(__dirname, '../renderer/index.html')
+}
+
+async function openOpggWindow(query?: OpggChampionQuery) {
+  try {
+    const opened = await focusOrCreateOpggWindow(query)
+    return {
+      success: true,
+      data: { opened }
+    }
+  } catch (error) {
+    log('WARN', `Failed to open OP.GG window: ${String(error)}`)
+    return {
+      success: false,
+      error: String(error)
+    }
+  }
+}
+
+async function focusOrCreateOpggWindow(query?: OpggChampionQuery): Promise<boolean> {
+  if (opggWindow && !opggWindow.isDestroyed()) {
+    if (opggWindow.isMinimized()) {
+      opggWindow.restore()
+    }
+    if (!opggWindow.isVisible()) {
+      opggWindow.show()
+    }
+    opggWindow.focus()
+    sendOpggInitialQuery(query)
+    return false
+  }
+
+  await createOpggWindow(query)
+  return true
+}
+
+async function createOpggWindow(query?: OpggChampionQuery) {
+  const storedBounds = loadOpggWindowBounds()
+  const initialBounds = storedBounds?.userMoved
+    ? storedBounds.bounds
+    : await resolveInitialOpggWindowBounds()
+  let trackingUserBounds = false
+
+  opggWindow = new BrowserWindow({
+    width: initialBounds.width,
+    height: initialBounds.height,
+    x: initialBounds.x,
+    y: initialBounds.y,
+    minWidth: 720,
+    minHeight: 560,
+    show: false,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#111827',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: join(__dirname, '../preload/preload.js'),
+      webSecurity: true,
+      spellcheck: false
+    },
+    icon: getMainIconPath(),
+    titleBarStyle: 'hidden',
+    thickFrame: true
+  })
+
+  const createdWindow = opggWindow
+  const saveMovedBounds = () => {
+    if (!trackingUserBounds || createdWindow.isDestroyed()) {
+      return
+    }
+    saveOpggWindowBounds(createdWindow.getBounds(), true)
+  }
+
+  createdWindow.removeMenu()
+  createdWindow.on('closed', () => {
+    if (opggWindow === createdWindow) {
+      opggWindow = null
+    }
+  })
+  createdWindow.on('move', saveMovedBounds)
+  createdWindow.on('resize', saveMovedBounds)
+  createdWindow.once('ready-to-show', () => {
+    createdWindow.show()
+    createdWindow.focus()
+    setTimeout(() => {
+      trackingUserBounds = true
+    }, 300)
+  })
+  createdWindow.webContents.once('did-finish-load', () => {
+    sendOpggInitialQuery(query)
+  })
+  createdWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http')) {
+      void shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+
+  if (isDev) {
+    void createdWindow.loadURL(getOpggWindowUrl())
+  } else {
+    void createdWindow.loadFile(getOpggWindowUrl(), { hash: '/opgg' })
+  }
+}
+
+function sendOpggInitialQuery(query?: OpggChampionQuery) {
+  if (!opggWindow || opggWindow.isDestroyed() || !query) {
+    return
+  }
+
+  if (opggWindow.webContents.isLoadingMainFrame()) {
+    opggWindow.webContents.once('did-finish-load', () => {
+      opggWindow?.webContents.send('opgg:initialQuery', query)
+    })
+    return
+  }
+
+  opggWindow.webContents.send('opgg:initialQuery', query)
+}
+
+async function resolveInitialOpggWindowBounds(): Promise<Rectangle> {
+  const defaultSize = { width: 980, height: 720 }
+  const lcuBounds = await fetchLcuWindowBounds()
+  if (lcuBounds) {
+    return calculateAttachedWindowBounds(lcuBounds, defaultSize)
+  }
+
+  const mainBounds = mainWindow?.getBounds()
+  if (mainBounds) {
+    return calculateAttachedWindowBounds(mainBounds, defaultSize)
+  }
+
+  const workArea = screen.getPrimaryDisplay().workArea
+  return clampBoundsToWorkArea({
+    x: Math.round(workArea.x + (workArea.width - defaultSize.width) / 2),
+    y: Math.round(workArea.y + (workArea.height - defaultSize.height) / 2),
+    ...defaultSize
+  }, workArea)
+}
+
+async function fetchLcuWindowBounds(): Promise<Rectangle | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/session/lcu-window-bounds`)
+    if (!response.ok) {
+      return null
+    }
+
+    const payload = unwrapApiResponse(await response.json())
+    if (!isLcuWindowBoundsPayload(payload)) {
+      return null
+    }
+
+    return {
+      x: payload.x,
+      y: payload.y,
+      width: payload.width,
+      height: payload.height
+    }
+  } catch {
+    return null
+  }
+}
+
+function isLcuWindowBoundsPayload(value: unknown): value is Required<LcuWindowBoundsPayload> {
+  if (!isRecord(value) || value.found !== true) {
+    return false
+  }
+
+  const x = value.x
+  const y = value.y
+  const width = value.width
+  const height = value.height
+  return (
+    typeof x === 'number' &&
+    typeof y === 'number' &&
+    typeof width === 'number' &&
+    typeof height === 'number' &&
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0
+  )
+}
+
+function calculateAttachedWindowBounds(anchorBounds: Rectangle, size: { width: number; height: number }): Rectangle {
+  const display = screen.getDisplayMatching(anchorBounds)
+  const workArea = display.workArea
+  const margin = 8
+  const y = Math.round(anchorBounds.y + Math.max(0, (anchorBounds.height - size.height) / 2))
+  const rightBounds = {
+    x: anchorBounds.x + anchorBounds.width + margin,
+    y,
+    width: size.width,
+    height: size.height
+  }
+  if (rightBounds.x + rightBounds.width <= workArea.x + workArea.width) {
+    return clampBoundsToWorkArea(rightBounds, workArea)
+  }
+
+  const leftBounds = {
+    x: anchorBounds.x - size.width - margin,
+    y,
+    width: size.width,
+    height: size.height
+  }
+  if (leftBounds.x >= workArea.x) {
+    return clampBoundsToWorkArea(leftBounds, workArea)
+  }
+
+  return clampBoundsToWorkArea(rightBounds, workArea)
+}
+
+function clampBoundsToWorkArea(bounds: Rectangle, workArea: Rectangle): Rectangle {
+  const width = Math.min(bounds.width, workArea.width)
+  const height = Math.min(bounds.height, workArea.height)
+  return {
+    width,
+    height,
+    x: Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - width),
+    y: Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - height)
+  }
 }
 
 function clearStartupTimers() {
@@ -875,21 +1184,30 @@ function waitForBackendExit(processToWait: ChildProcess, timeoutMs: number): Pro
   })
 }
 
-ipcMain.handle('window:minimize', () => {
-  mainWindow?.minimize()
+function getIpcSenderWindow(event: IpcMainInvokeEvent) {
+  return BrowserWindow.fromWebContents(event.sender) ?? mainWindow
+}
+
+ipcMain.handle('window:minimize', (event) => {
+  getIpcSenderWindow(event)?.minimize()
 })
 
-ipcMain.handle('window:maximize', () => {
-  if (mainWindow?.isMaximized()) {
-    mainWindow.unmaximize()
+ipcMain.handle('window:maximize', (event) => {
+  const targetWindow = getIpcSenderWindow(event)
+  if (targetWindow?.isMaximized()) {
+    targetWindow.unmaximize()
     return
   }
 
-  mainWindow?.maximize()
+  targetWindow?.maximize()
 })
 
-ipcMain.handle('window:close', () => {
-  mainWindow?.close()
+ipcMain.handle('window:close', (event) => {
+  getIpcSenderWindow(event)?.close()
+})
+
+ipcMain.handle('opgg:openWindow', (_event, query?: OpggChampionQuery) => {
+  return openOpggWindow(query)
 })
 
 ipcMain.handle('shell:openExternal', async (_, url: string) => {

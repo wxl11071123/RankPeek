@@ -73,8 +73,15 @@ class RealOpggSourceClientTest {
                     });
             assertThat(detail.runes()).singleElement()
                     .satisfies(option -> assertThat(option.ids()).containsExactly(8000, 8100, 8005, 9111, 8138, 8135, 5008, 5008, 5002));
-            assertThat(detail.skillOrders()).singleElement()
-                    .satisfies(option -> assertThat(option.ids()).containsExactly(3, 1, 2));
+            assertThat(detail.skillOrders()).hasSize(2);
+            assertThat(detail.skillOrders().get(0))
+                    .satisfies(option -> {
+                        assertThat(option.ids()).containsExactly(3, 1, 2);
+                        assertThat(option.order()).containsExactly(3, 1, 2, 1, 4);
+                        assertThat(option.games()).isEqualTo(3000);
+                        assertThat(option.winRate()).isCloseTo(0.6, within(0.000001));
+                        assertThat(option.pickRate()).isEqualTo(0.375);
+                    });
             assertThat(detail.coreItems()).singleElement()
                     .satisfies(option -> assertThat(option.ids()).containsExactly(3118, 3152, 4645));
         }
@@ -104,6 +111,57 @@ class RealOpggSourceClientTest {
                     "/api/kr/champions/aram/103/none?tier=all&version=16.10",
                     "/api/kr/champions/arena/103?tier=all&version=16.10"
             );
+        }
+    }
+
+    @Test
+    void fetchChampionListUsesLatestVersionAndParsesRankedPositions() throws Exception {
+        try (ServerFixture server = ServerFixture.responding(uri -> {
+            if (uri.equals("/api/kr/champions/ranked/versions")) {
+                return new ServerResponse(200, "{\"data\":[\"16.10\"]}");
+            }
+            if (uri.equals("/api/kr/champions/ranked?tier=emerald_plus&version=16.10")) {
+                return new ServerResponse(200, listFixtureJson());
+            }
+            return new ServerResponse(404, "{}");
+        })) {
+            RealOpggSourceClient client = new RealOpggSourceClient(
+                    properties(server.url("")),
+                    new ObjectMapper(),
+                    Clock.fixed(Instant.parse("2026-05-23T04:00:00Z"), ZoneOffset.UTC)
+            );
+
+            OpggChampionList list = client.fetchChampionList(new OpggChampionListQuery(
+                    "ranked",
+                    "kr",
+                    "emerald_plus"
+            ));
+
+            assertThat(server.requestUris()).containsExactly(
+                    "/api/kr/champions/ranked/versions",
+                    "/api/kr/champions/ranked?tier=emerald_plus&version=16.10"
+            );
+            assertThat(list.mode()).isEqualTo("ranked");
+            assertThat(list.region()).isEqualTo("kr");
+            assertThat(list.tier()).isEqualTo("emerald_plus");
+            assertThat(list.version()).isEqualTo("16.10");
+            assertThat(list.updatedAt()).isEqualTo(Instant.parse("2026-05-23T04:00:00Z"));
+            assertThat(list.items()).singleElement()
+                    .satisfies(item -> {
+                        assertThat(item.championId()).isEqualTo(103);
+                        assertThat(item.tier()).isEqualTo(1);
+                        assertThat(item.rank()).isEqualTo(7);
+                        assertThat(item.stats().winRate()).isEqualTo(0.5123);
+                        assertThat(item.positions()).singleElement()
+                                .satisfies(position -> {
+                                    assertThat(position.position()).isEqualTo("mid");
+                                    assertThat(position.tier()).isZero();
+                                    assertThat(position.rank()).isEqualTo(2);
+                                    assertThat(position.stats().pickRate()).isEqualTo(0.0972);
+                                    assertThat(position.counters()).extracting(OpggChampionCounter::championId)
+                                            .containsExactly(238, 157);
+                                });
+                    });
         }
     }
 
@@ -160,11 +218,66 @@ class RealOpggSourceClientTest {
                       }
                     ],
                     "skill_masteries": [
-                      { "ids": [3, 1, 2], "play": 8000, "win": 4200, "pick_rate": 0.4 }
+                      {
+                        "ids": ["E", "Q", "W"],
+                        "play": 8000,
+                        "win": 4200,
+                        "pick_rate": 0.4,
+                        "builds": [
+                          { "order": ["E", "Q", "W", "Q", "R"], "play": 3000, "win": 1800, "pick_rate": 0.375 },
+                          { "order": ["E", "W", "Q", "Q", "R"], "play": 1200, "win": 660, "pick_rate": 0.15 }
+                        ]
+                      }
                     ],
                     "core_items": [
                       { "ids": [3118, 3152, 4645], "play": 3016, "win": 1623, "pick_rate": 0.1913 }
                     ]
+                  }
+                }
+                """;
+    }
+
+    private static String listFixtureJson() {
+        return """
+                {
+                  "data": [
+                    {
+                      "id": 103,
+                      "average_stats": {
+                        "win_rate": 0.5123,
+                        "pick_rate": 0.081,
+                        "ban_rate": 0.031,
+                        "kda": 2.65,
+                        "tier": 1,
+                        "rank": 7
+                      },
+                      "positions": [
+                        {
+                          "name": "MID",
+                          "stats": {
+                            "win_rate": 0.506869,
+                            "pick_rate": 0.0972,
+                            "ban_rate": 0.0308764,
+                            "kda": 2.565002,
+                            "tier_data": {
+                              "tier": 0,
+                              "rank": 2,
+                              "rank_prev": 4
+                            }
+                          },
+                          "counters": [
+                            { "champion_id": 238, "play": 1200, "win": 590 },
+                            { "champion_id": 157, "play": 900, "win": 480 }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "meta": {
+                    "version": "16.10",
+                    "cached_at": "2026-05-23T03:50:00Z",
+                    "match_count": 123456,
+                    "analyzed_at": "2026-05-23T03:30:00Z"
                   }
                 }
                 """;

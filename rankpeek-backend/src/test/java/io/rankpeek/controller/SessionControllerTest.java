@@ -2,9 +2,11 @@ package io.rankpeek.controller;
 
 import io.rankpeek.model.ApiResponse;
 import io.rankpeek.model.GameState;
+import io.rankpeek.model.LcuWindowBounds;
 import io.rankpeek.service.ChampionSelectService;
 import io.rankpeek.service.GameFlowService;
 import io.rankpeek.service.LcuHttpClient;
+import io.rankpeek.service.LcuWindowBoundsService;
 import io.rankpeek.service.SessionAnalysisService;
 import io.rankpeek.service.SummonerService;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +32,8 @@ class SessionControllerTest {
     private SessionAnalysisService sessionAnalysisService;
     @Mock
     private SummonerService summonerService;
+    @Mock
+    private LcuWindowBoundsService lcuWindowBoundsService;
 
     private SessionController controller;
 
@@ -40,7 +44,8 @@ class SessionControllerTest {
                 gameFlowService,
                 championSelectService,
                 sessionAnalysisService,
-                summonerService
+                summonerService,
+                lcuWindowBoundsService
         );
     }
 
@@ -62,5 +67,16 @@ class SessionControllerTest {
         controller.getSessionData(null, true);
 
         verify(sessionAnalysisService).getSessionData(null, true);
+    }
+
+    @Test
+    void getLcuWindowBoundsReturnsServiceResult() {
+        when(lcuWindowBoundsService.findLcuWindowBounds()).thenReturn(new LcuWindowBounds(true, 10, 20, 1280, 720));
+
+        ApiResponse<LcuWindowBounds> response = controller.getLcuWindowBounds();
+
+        assertThat(response.getData().found()).isTrue();
+        assertThat(response.getData().x()).isEqualTo(10);
+        assertThat(response.getData().width()).isEqualTo(1280);
     }
 }

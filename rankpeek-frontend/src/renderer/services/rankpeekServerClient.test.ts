@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import {
   checkRankPeekServerDiagnostics,
   getOpggChampionDetail,
+  getOpggChampionList,
   RANKPEEK_SERVER_BASE_URL,
   RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
 } from './rankpeekServerClient.ts'
@@ -174,6 +175,61 @@ test('OP.GG champion detail failures throw and do not return fake data', async (
       }),
       /OP\.GG source failed/
     )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('fetches OP.GG champion list through rankpeek-server without selecting a champion', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        mode: 'ranked',
+        region: 'kr',
+        tier: 'emerald_plus',
+        version: '16.10',
+        updatedAt: '2026-05-23T04:00:00Z',
+        items: [
+          {
+            championId: 103,
+            tier: 1,
+            rank: 7,
+            stats: { games: 0, winRate: 0.51, pickRate: 0.12, banRate: 0.03, kda: 2.6 },
+            positions: [
+              {
+                position: 'mid',
+                tier: 0,
+                rank: 2,
+                stats: { games: 0, winRate: 0.50, pickRate: 0.10, banRate: 0.03, kda: 2.5 },
+                counters: [{ championId: 238, games: 1200, wins: 590 }]
+              }
+            ]
+          }
+        ]
+      },
+      error: null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const list = await getOpggChampionList({
+      mode: 'ranked',
+      region: 'kr',
+      tier: 'emerald_plus'
+    })
+
+    assert.equal(list?.items[0]?.championId, 103)
+    assert.equal(list?.items[0]?.positions[0]?.counters[0]?.championId, 238)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/opgg/champions?mode=ranked&region=kr&tier=emerald_plus`)
+    assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -21,6 +21,7 @@ public class SessionController {
     private final ChampionSelectService championSelectService;
     private final SessionAnalysisService sessionAnalysisService;
     private final SummonerService summonerService;
+    private final LcuWindowBoundsService lcuWindowBoundsService;
 
     /**
      * 获取游戏状态
@@ -114,6 +115,11 @@ public class SessionController {
     @GetMapping("/connected")
     public ApiResponse<Boolean> isConnected() {
         return ApiResponse.success(lcuHttpClient.isConnected());
+    }
+
+    @GetMapping("/lcu-window-bounds")
+    public ApiResponse<LcuWindowBounds> getLcuWindowBounds() {
+        return ApiResponse.success(lcuWindowBoundsService.findLcuWindowBounds());
     }
 
     /**

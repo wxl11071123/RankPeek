@@ -15,9 +15,8 @@
           <button
             class="opgg-action-btn control-glow"
             type="button"
-            :disabled="!opggQuery.enabled"
             :title="opggButtonTitle"
-            @click="openOpggModal"
+            @click="openOpggWindow"
           >
             OP.GG
           </button>
@@ -147,15 +146,6 @@
       @cancel-analysis="cancelGamingAiServerAnalysis"
       @close="closeGamingAiAnalysis"
     />
-    <OpggChampionModal
-      :open="opggModalOpen"
-      :query="opggQuery"
-      :detail="opggDetail"
-      :loading="opggLoading"
-      :error="opggError"
-      @retry="loadOpggDetail"
-      @close="closeOpggModal"
-    />
   </div>
 </template>
 
@@ -167,7 +157,6 @@ import { wsClient } from '@/api/websocketClient'
 import { listenGameflowPhase } from '@/services/gameflowPhaseListener'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
 import GamingAiAnalysisModal from '@/components/gaming/GamingAiAnalysisModal.vue'
-import OpggChampionModal from '@/components/gaming/OpggChampionModal.vue'
 import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
 import type { CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
@@ -187,10 +176,6 @@ import {
 import { isGamingAiAnalysisReady } from '@/services/gamingAiAnalysisReadiness'
 import { normalizeGamingQueueLabel } from '@/services/gamingAiQueue'
 import { buildOpggChampionQuery } from '@/services/opggChampionQuery'
-import {
-  getOpggChampionDetail,
-  type OpggChampionDetail
-} from '@/services/rankpeekServerClient.ts'
 import {
   buildLobbyDisplaySessionSummoners,
   createGameflowPhaseTransitionTracker,
@@ -277,10 +262,6 @@ const gamingAiStreamError = ref('')
 const gamingAiPlayerVerdicts = ref<Record<string, GamingAiPlayerStreamVerdict>>({})
 const gamingAiPlayerInsights = ref<Record<string, GamingAiPlayerInsightEvent>>({})
 let gamingAiStreamAbortController: AbortController | null = null
-const opggModalOpen = ref(false)
-const opggDetail = ref<OpggChampionDetail | null>(null)
-const opggLoading = ref(false)
-const opggError = ref('')
 
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
@@ -352,7 +333,7 @@ const gamingAiAnalysisReady = computed(() => isGamingAiAnalysisReady({
   sessionData: sessionData.value
 }))
 const opggQuery = computed(() => buildOpggChampionQuery(sessionData.value))
-const opggButtonTitle = computed(() => opggQuery.value.enabled ? 'OP.GG' : opggQuery.value.reason)
+const opggButtonTitle = computed(() => opggQuery.value.reason || 'OP.GG')
 const refreshButtonLabel = computed(() => {
   if (loading.value) return t('common.refreshing')
   return hasActiveSession.value ? t('common.refresh') : t('common.refreshStatus')
@@ -623,41 +604,8 @@ function resetGamingAiStreamState() {
   gamingAiPlayerInsights.value = {}
 }
 
-async function openOpggModal() {
-  if (!opggQuery.value.enabled) {
-    return
-  }
-  opggModalOpen.value = true
-  await loadOpggDetail()
-}
-
-function closeOpggModal() {
-  opggModalOpen.value = false
-}
-
-async function loadOpggDetail() {
-  const query = opggQuery.value
-  opggError.value = ''
-  opggDetail.value = null
-  if (!query.enabled || !query.championId) {
-    opggLoading.value = false
-    return
-  }
-
-  opggLoading.value = true
-  try {
-    opggDetail.value = await getOpggChampionDetail({
-      championId: query.championId,
-      mode: query.mode,
-      region: query.region,
-      tier: query.tier,
-      position: query.position
-    })
-  } catch (error) {
-    opggError.value = error instanceof Error && error.message ? error.message : 'OP.GG 数据读取失败'
-  } finally {
-    opggLoading.value = false
-  }
+async function openOpggWindow() {
+  await window.electronAPI?.openOpggWindow?.(opggQuery.value)
 }
 
 function syncSessionDataFromState() {
@@ -901,9 +849,6 @@ watch(
 watch(sessionData, () => {
   if (gamingAiModalOpen.value) {
     refreshGamingAiPreview()
-  }
-  if (opggModalOpen.value) {
-    void loadOpggDetail()
   }
 })
 

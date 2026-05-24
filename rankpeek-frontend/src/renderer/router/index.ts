@@ -16,6 +16,12 @@ const routes: RouteRecordRaw[] = [
     meta: { titleKey: 'nav.gaming', keepAlive: false }
   },
   {
+    path: '/opgg',
+    name: 'OpggWindow',
+    component: () => import('@/views/OpggWindowView.vue'),
+    meta: { titleKey: 'nav.gaming', keepAlive: false, standalone: true }
+  },
+  {
     path: '/summoner',
     name: 'Summoner',
     component: () => import('@/views/SummonerView.vue'),
