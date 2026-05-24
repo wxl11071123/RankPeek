@@ -24,7 +24,7 @@ export function isGamingAiAnalysisReady(input: {
 }
 
 function isPregameAnalysisPhase(phase: string | undefined): boolean {
-  return phase === 'ChampSelect' || phase === 'GameStart'
+  return phase === 'ChampSelect' || phase === 'GameStart' || phase === 'InProgress'
 }
 
 function isPlayerReadComplete(player: SessionSummoner): boolean {

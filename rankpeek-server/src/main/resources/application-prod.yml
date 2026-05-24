@@ -56,22 +56,22 @@ rankpeek:
     cleanup-cron: ${RANKPEEK_OPGG_CLEANUP_CRON:0 20 4 * * *}
   cn-meta:
     sync:
-      enabled: false
-      allow-manual: false
-      source: mock
-      cron: "0 30 4 * * *"
-      zone: "Asia/Shanghai"
-      request-delay-ms: 3000
-      max-retries: 2
-      stop-on-http-status: [401, 403, 429]
-      default-queue-id: 420
+      enabled: ${RANKPEEK_CN_META_SYNC_ENABLED:false}
+      allow-manual: ${RANKPEEK_CN_META_SYNC_ALLOW_MANUAL:false}
+      source: ${RANKPEEK_CN_META_SYNC_SOURCE:mock}
+      cron: ${RANKPEEK_CN_META_SYNC_CRON:0 30 4 * * *}
+      zone: ${RANKPEEK_CN_META_SYNC_ZONE:Asia/Shanghai}
+      request-delay-ms: ${RANKPEEK_CN_META_SYNC_REQUEST_DELAY_MS:3000}
+      max-retries: ${RANKPEEK_CN_META_SYNC_MAX_RETRIES:2}
+      stop-on-http-status: ${RANKPEEK_CN_META_SYNC_STOP_ON_HTTP_STATUS:401,403,429}
+      default-queue-id: ${RANKPEEK_CN_META_SYNC_DEFAULT_QUEUE_ID:420}
       tiers: ["CHALLENGER", "GRANDMASTER", "MASTER", "DIAMOND", "EMERALD", "PLATINUM", "GOLD", "SILVER", "BRONZE", "IRON"]
-      roles: ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
-      real-source-enabled: false
-      real-endpoint-template: ""
-      real-time-type: 1
-      real-champion-id: 666
-      real-data-date-offset-days: 1
+      roles: ["ALL"]
+      real-source-enabled: ${RANKPEEK_CN_META_REAL_SOURCE_ENABLED:false}
+      real-endpoint-template: ${RANKPEEK_CN_META_REAL_ENDPOINT_TEMPLATE:}
+      real-time-type: ${RANKPEEK_CN_META_REAL_TIME_TYPE:1}
+      real-champion-id: ${RANKPEEK_CN_META_REAL_CHAMPION_ID:666}
+      real-data-date-offset-days: ${RANKPEEK_CN_META_REAL_DATA_DATE_OFFSET_DAYS:1}
       real-tier-code-map:
         CHALLENGER: "0"
         GRANDMASTER: "5"
@@ -83,7 +83,7 @@ rankpeek:
         SILVER: "40"
         BRONZE: "50"
         IRON: "80"
-      real-user-agent: "RankPeek/prod-public-aggregate-client"
-      real-connect-timeout-ms: 5000
-      real-read-timeout-ms: 10000
-      real-max-response-bytes: 1000000
+      real-user-agent: ${RANKPEEK_CN_META_REAL_USER_AGENT:RankPeek/prod-public-aggregate-client}
+      real-connect-timeout-ms: ${RANKPEEK_CN_META_REAL_CONNECT_TIMEOUT_MS:5000}
+      real-read-timeout-ms: ${RANKPEEK_CN_META_REAL_READ_TIMEOUT_MS:10000}
+      real-max-response-bytes: ${RANKPEEK_CN_META_REAL_MAX_RESPONSE_BYTES:1000000}

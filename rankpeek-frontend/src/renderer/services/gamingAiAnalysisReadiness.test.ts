@@ -128,6 +128,13 @@ test('opponent analysis waits until five enemy players are loaded', () => {
   }), true)
 })
 
+test('analysis remains available after champ select transitions into the live game phase', () => {
+  assert.equal(isGamingAiAnalysisReady({
+    mode: 'teammate',
+    sessionData: createSessionData({ phase: 'InProgress' })
+  }), true)
+})
+
 test('pregame analysis is disabled outside ranked queues', () => {
   assert.equal(isGamingAiAnalysisReady({
     mode: 'teammate',

@@ -100,13 +100,7 @@ public class AnalysisService {
             try {
                 sendEvent(emitter, "start", "RankPeek postgame mock stream started");
                 pauseBriefly();
-                sendEvent(emitter, "section", "Data received");
-                pauseBriefly();
-                sendEvent(emitter, "delta", buildPostgameReceivedDelta(request));
-                pauseBriefly();
-                sendEvent(emitter, "section", "Data quality");
-                pauseBriefly();
-                sendEvent(emitter, "delta", buildPostgameDataQualityDelta(request));
+                sendEvent(emitter, "delta", buildStructuredPostgameMockDelta(request));
                 pauseBriefly();
                 sendEvent(emitter, "done", "done");
                 emitter.complete();
@@ -147,27 +141,169 @@ public class AnalysisService {
         return "队友侧优先识别低样本、战绩隐藏和波动标签；本轮只使用前端提交的临时 snapshot。";
     }
 
-    private static String buildPostgameReceivedDelta(PostgameAnalysisRequest request) {
-        String mode = normalizePostgameMode(request.mode());
-        String label = "praise".equals(mode) ? "postgame praise snapshot" : "postgame review snapshot";
-        return "Received " + label + ". This is a rankpeek-server mock stream and does not call a real AI provider.";
-    }
-
-    private static String buildPostgameDataQualityDelta(PostgameAnalysisRequest request) {
-        Map<String, Object> dataQuality = readMap(readMap(request.snapshot()).get("dataQuality"));
-        boolean hasGameDetail = readBoolean(dataQuality.get("hasGameDetail"));
-        boolean hasTimeline = readBoolean(dataQuality.get("hasTimeline"));
-        int participantCount = readInt(dataQuality.get("participantCount"));
-
-        return "dataQuality: hasGameDetail=" + hasGameDetail
-                + ", hasTimeline=" + hasTimeline
-                + ", participantCount=" + participantCount
-                + ".";
-    }
-
     private static String normalizePostgameMode(String mode) {
         String value = mode == null ? "" : mode.trim().toLowerCase();
         return "praise".equals(value) ? "praise" : "review";
+    }
+
+    private static String buildStructuredPostgameMockDelta(PostgameAnalysisRequest request) throws JsonProcessingException {
+        if ("praise".equals(normalizePostgameMode(request.mode()))) {
+            return buildPostgamePraiseMockJson(request);
+        }
+        return buildPostgameReviewMockJson(request);
+    }
+
+    private static String buildPostgamePraiseMockJson(PostgameAnalysisRequest request) throws JsonProcessingException {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("schemaVersion", "postgame_praise_result.v1");
+        payload.put("headline", "这局你有东西的");
+
+        String firstFact = readFirstAnalysisBriefFact(request, "playerFacts");
+        String paragraphOne = "rankpeek-server mock：这局先按赛后 snapshot 给你撑腰，能进结算说明关键数据已经收到了。"
+                + (firstFact.isBlank() ? "" : " 你的核心表现会参考：" + firstFact);
+        String paragraphTwo = "真实 DeepSeek 打开后会结合完整对局细节输出更像老玩家的夸夸；当前 mock 只用于验证前端结构化展示链路。";
+        payload.put("paragraphs", List.of(paragraphOne, paragraphTwo));
+        payload.put("body", paragraphOne + "\n\n" + paragraphTwo);
+        return OBJECT_MAPPER.writeValueAsString(payload);
+    }
+
+    private static String buildPostgameReviewMockJson(PostgameAnalysisRequest request) throws JsonProcessingException {
+        List<Map<String, Object>> players = buildPostgameReviewMockPlayers(request);
+        Map<String, List<Map<String, Object>>> playersByLevel = new LinkedHashMap<>();
+        for (String level : List.of("\u592f", "\u9876\u7ea7", "\u4eba\u4e0a\u4eba", "NPC", "\u62c9\u5b8c\u4e86")) {
+            playersByLevel.put(level, new ArrayList<>());
+        }
+        for (Map<String, Object> player : players) {
+            String level = readString(player.get("level"));
+            playersByLevel.computeIfAbsent(level, ignored -> new ArrayList<>()).add(player);
+        }
+
+        List<Map<String, Object>> levels = new ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : playersByLevel.entrySet()) {
+            Map<String, Object> level = new LinkedHashMap<>();
+            level.put("label", entry.getKey());
+            level.put("players", entry.getValue());
+            levels.add(level);
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("schemaVersion", "postgame_review_result.v1");
+        payload.put("levels", levels);
+        payload.put("summary", "rankpeek-server mock：已返回 postgame_review_result.v1 结构化结果，用于验证赛后复盘表格渲染。真实 DeepSeek 开启后会基于同一份赛后 snapshot 给出完整客观总结。");
+        return OBJECT_MAPPER.writeValueAsString(payload);
+    }
+
+    private static List<Map<String, Object>> buildPostgameReviewMockPlayers(PostgameAnalysisRequest request) {
+        List<String> playerFacts = readAnalysisBriefFacts(request, "playerFacts");
+        String[] fallbackChampions = {
+                "\u94c1\u8840\u72fc\u6bcd", "\u76f2\u50e7", "\u5965\u672f\u5148\u9a71", "\u7206\u7834\u9b3c\u624d", "\u653e\u9010\u4e4b\u5203",
+                "\u5361\u724c\u5927\u5e08", "\u865a\u7a7a\u6398\u5730\u517d", "\u9006\u7fbd", "\u6df1\u6d77\u6cf0\u5766", "\u75db\u82e6\u4e4b\u62e5"
+        };
+        String[] levels = {
+                "\u592f", "\u9876\u7ea7", "\u9876\u7ea7", "\u4eba\u4e0a\u4eba", "\u4eba\u4e0a\u4eba",
+                "NPC", "NPC", "\u62c9\u5b8c\u4e86", "\u62c9\u5b8c\u4e86", "\u62c9\u5b8c\u4e86"
+        };
+
+        List<Map<String, Object>> players = new ArrayList<>();
+        for (int index = 0; index < 10; index++) {
+            String fact = index < playerFacts.size() ? playerFacts.get(index) : "";
+            PostgameMockPlayerIdentity identity = parsePostgameMockPlayerIdentity(fact, fallbackChampions[index]);
+            Map<String, Object> player = new LinkedHashMap<>();
+            player.put("level", levels[index]);
+            player.put("playerRef", "mock:" + (index + 1));
+            player.put("championName", identity.championName());
+            player.put("side", identity.side());
+            player.put("role", identity.role());
+            player.put("phrase", buildPostgameMockPhrase(levels[index], fact));
+            players.add(player);
+        }
+        return players;
+    }
+
+    private static PostgameMockPlayerIdentity parsePostgameMockPlayerIdentity(String fact, String fallbackChampion) {
+        String label = extractBetween(fact, '\u3010', '\u3011');
+        String[] parts = label.split("\uFF5C");
+        String ownerRole = parts.length >= 2 ? parts[parts.length - 2] : "";
+        String championName = parts.length >= 1 ? parts[parts.length - 1].trim() : "";
+        if (championName.isBlank()) {
+            championName = fallbackChampion;
+        }
+
+        String side = ownerRole.contains("\u6211\u65b9") ? "ally"
+                : ownerRole.contains("\u654c\u65b9") ? "enemy"
+                : ownerRole.contains("\u84dd\u65b9") ? "blue"
+                : ownerRole.contains("\u7ea2\u65b9") ? "red"
+                : "";
+        String role = ownerRole
+                .replace("\u4f60", "")
+                .replace("\u6211\u65b9", "")
+                .replace("\u654c\u65b9", "")
+                .replace("\u84dd\u65b9", "")
+                .replace("\u7ea2\u65b9", "")
+                .trim();
+        return new PostgameMockPlayerIdentity(championName, side, role);
+    }
+
+    private static String buildPostgameMockPhrase(String level, String fact) {
+        String kda = extractFirstKda(fact);
+        String metric = kda.isBlank() ? "" : kda + "\uff0c";
+        return switch (level) {
+            case "\u592f" -> metric + "mock 最高档，说明这名玩家在关键指标上最显眼。";
+            case "\u9876\u7ea7" -> metric + "mock 高档，整体表现靠前。";
+            case "\u4eba\u4e0a\u4eba" -> metric + "mock 中上档，能稳定交作业。";
+            case "NPC" -> metric + "mock 普通档，存在感不算特别突出。";
+            default -> metric + "mock 低档，本局数据相对吃亏。";
+        };
+    }
+
+    private static String extractFirstKda(String fact) {
+        if (fact == null || fact.isBlank()) {
+            return "";
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(\\d+)/(\\d+)/(\\d+)")
+                .matcher(fact);
+        return matcher.find() ? matcher.group(0) : "";
+    }
+
+    private static String extractBetween(String value, char startChar, char endChar) {
+        if (value == null) {
+            return "";
+        }
+        int start = value.indexOf(startChar);
+        if (start < 0) {
+            return "";
+        }
+        int end = value.indexOf(endChar, start + 1);
+        if (end <= start) {
+            return "";
+        }
+        return value.substring(start + 1, end).trim();
+    }
+
+    private static String readFirstAnalysisBriefFact(PostgameAnalysisRequest request, String key) {
+        List<String> facts = readAnalysisBriefFacts(request, key);
+        return facts.isEmpty() ? "" : facts.get(0);
+    }
+
+    private static List<String> readAnalysisBriefFacts(PostgameAnalysisRequest request, String key) {
+        Map<String, Object> analysisBrief = readMap(readMap(request.snapshot()).get("analysisBrief"));
+        Object value = analysisBrief.get(key);
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+
+        List<String> facts = new ArrayList<>();
+        for (Object item : list) {
+            String fact = readString(item);
+            if (!fact.isBlank()) {
+                facts.add(fact);
+            }
+        }
+        return facts;
+    }
+
+    private record PostgameMockPlayerIdentity(String championName, String side, String role) {
     }
 
     private static void sendPlayerVerdicts(SseEmitter emitter, PregameAnalysisRequest request) throws IOException {

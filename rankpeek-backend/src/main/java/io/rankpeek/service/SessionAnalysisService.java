@@ -134,6 +134,7 @@ public class SessionAnalysisService {
                 .queueType(queueType)
                 .typeCn(typeCn)
                 .queueId(currentQueueId)
+                .currentSummoner(mySummoner)
                 .teamOne(teamOne)
                 .teamTwo(teamTwo)
                 .build();
@@ -304,6 +305,7 @@ public class SessionAnalysisService {
                 .queueType(queueType)
                 .typeCn(typeCn)
                 .queueId(currentQueueId)
+                .currentSummoner(mySummoner)
                 .teamOne(teamOne)
                 .teamTwo(teamTwo)
                 .build();
@@ -351,6 +353,7 @@ public class SessionAnalysisService {
                 .queueType("")
                 .typeCn(typeCn)
                 .queueId(currentQueueId)
+                .currentSummoner(mySummoner)
                 .teamOne(teamOne)
                 .teamTwo(List.of())
                 .build();

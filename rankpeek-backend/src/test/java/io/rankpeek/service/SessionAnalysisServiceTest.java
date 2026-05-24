@@ -91,6 +91,7 @@ class SessionAnalysisServiceTest {
         assertThat(data.isStale()).isFalse();
         assertThat(data.getSource()).isEqualTo("LOBBY");
         assertThat(data.getQueueId()).isEqualTo(2400);
+        assertThat(data.getCurrentSummoner()).isSameAs(me);
         assertThat(data.getTeamOne()).hasSize(1);
         assertThat(data.getTeamTwo()).isEmpty();
         assertThat(data.getTeamOne().getFirst().getChampionId()).isZero();
@@ -210,6 +211,7 @@ class SessionAnalysisServiceTest {
         assertThat(data.getTeamOne().getFirst().getTeamPosition()).isEqualTo("SUPPORT");
         assertThat(data.getTeamOne().getFirst().getIndividualPosition()).isEqualTo("support");
         assertThat(data.getTeamOne().getFirst().getPosition()).isEqualTo("UTILITY");
+        assertThat(data.getCurrentSummoner()).isSameAs(me);
         verify(scoutTagSampleService).getCurrentModeSample("player-puuid", 1700, 50, 20);
     }
 
@@ -274,6 +276,7 @@ class SessionAnalysisServiceTest {
         assertThat(data.getTeamOne().getFirst().getPosition()).isEqualTo("MIDDLE");
         assertThat(data.getTeamTwo().getFirst().getSelectedPosition()).isEqualTo("TOP");
         assertThat(data.getTeamTwo().getFirst().getPosition()).isEqualTo("TOP");
+        assertThat(data.getCurrentSummoner()).isSameAs(me);
         assertThat(data.getSessionKey()).contains("phase:GameStart", "game:123", "queue:420", "my-puuid", "enemy-puuid");
     }
 

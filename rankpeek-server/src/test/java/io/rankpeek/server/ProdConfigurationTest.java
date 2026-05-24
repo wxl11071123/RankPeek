@@ -24,7 +24,15 @@ class ProdConfigurationTest {
         assertThat(properties.getProperty("rankpeek.server.mode")).isEqualTo("prod");
         assertThat(properties.getProperty("rankpeek.auth.access-token-secret"))
                 .isEqualTo("${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}");
-        assertThat(properties.getProperty("rankpeek.cn-meta.sync.real-source-enabled")).isEqualTo(false);
+        assertThat(properties.getProperty("rankpeek.cn-meta.sync.enabled"))
+                .isEqualTo("${RANKPEEK_CN_META_SYNC_ENABLED:false}");
+        assertThat(properties.getProperty("rankpeek.cn-meta.sync.source"))
+                .isEqualTo("${RANKPEEK_CN_META_SYNC_SOURCE:mock}");
+        assertThat(properties.getProperty("rankpeek.cn-meta.sync.roles[0]")).isEqualTo("ALL");
+        assertThat(properties.getProperty("rankpeek.cn-meta.sync.real-source-enabled"))
+                .isEqualTo("${RANKPEEK_CN_META_REAL_SOURCE_ENABLED:false}");
+        assertThat(properties.getProperty("rankpeek.cn-meta.sync.real-endpoint-template"))
+                .isEqualTo("${RANKPEEK_CN_META_REAL_ENDPOINT_TEMPLATE:}");
     }
 
     private static PropertySource<?> loadProdProperties() throws IOException {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   checkRankPeekServerDiagnostics,
+  getLatestChampionMeta,
   getOpggChampionDetail,
   getOpggChampionList,
   RANKPEEK_SERVER_BASE_URL,
@@ -99,6 +100,42 @@ test('server AI services use the shared rankpeek-server base URL', () => {
     const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
     assert.match(source, /from '\.\/rankpeekServerClient\.ts'/)
     assert.doesNotMatch(source, /export const RANKPEEK_SERVER_BASE_URL =/)
+  }
+})
+
+test('does not keep empty 101 champion meta responses in cache', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    const payload = calls.length === 1
+      ? { success: true, data: [], error: null }
+      : {
+          success: true,
+          data: [{
+            tierScope: 'PLATINUM',
+            championId: 777001,
+            avgKda: 2.5,
+            avgGold: 12000,
+            avgDamage: 25000
+          }],
+          error: null
+        }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    assert.equal(await getLatestChampionMeta(777001, 'platinum'), null)
+    const meta = await getLatestChampionMeta(777001, 'platinum')
+
+    assert.equal(calls.length, 2)
+    assert.equal(meta?.championId, 777001)
+    assert.equal(meta?.avgKda, 2.5)
+  } finally {
+    globalThis.fetch = originalFetch
   }
 })
 

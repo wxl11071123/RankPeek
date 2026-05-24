@@ -65,8 +65,9 @@ class PostgameAnalysisControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("event:start")))
                 .andExpect(content().string(containsString("RankPeek postgame mock stream started")))
-                .andExpect(content().string(containsString("postgame review snapshot")))
-                .andExpect(content().string(containsString("participantCount=10")))
+                .andExpect(content().string(containsString("postgame_review_result.v1")))
+                .andExpect(content().string(containsString("\\u592F")))
+                .andExpect(content().string(containsString("\\u62C9\\u5B8C\\u4E86")))
                 .andExpect(content().string(containsString("event:done")));
     }
 
@@ -81,7 +82,8 @@ class PostgameAnalysisControllerTest {
 
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("postgame praise snapshot")))
+                .andExpect(content().string(containsString("postgame_praise_result.v1")))
+                .andExpect(content().string(containsString("\\u8FD9\\u5C40\\u4F60\\u6709\\u4E1C\\u897F\\u7684")))
                 .andExpect(content().string(containsString("event:done")));
     }
 
@@ -103,7 +105,7 @@ class PostgameAnalysisControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("RankPeek postgame mock stream started")))
-                .andExpect(content().string(containsString("participantCount=0")))
+                .andExpect(content().string(containsString("postgame_review_result.v1")))
                 .andExpect(content().string(containsString("event:done")));
     }
 

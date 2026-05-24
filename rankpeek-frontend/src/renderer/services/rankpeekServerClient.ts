@@ -187,9 +187,14 @@ export function getLatestChampionMeta(championId: number, tierScope: string): Pr
       }
       const payload = await parseServerJson<CnChampionMeta[]>(response)
       if (payload.success === false || !Array.isArray(payload.data) || payload.data.length === 0) {
+        championMetaCache.delete(cacheKey)
         return null
       }
-      return payload.data[0] || null
+      const meta = payload.data[0] || null
+      if (!meta) {
+        championMetaCache.delete(cacheKey)
+      }
+      return meta
     })
     .catch(() => {
       championMetaCache.delete(cacheKey)

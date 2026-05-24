@@ -56,6 +56,11 @@ public class SessionData {
     private Integer queueId;
 
     /**
+     * 当前登录召唤师
+     */
+    private Summoner currentSummoner;
+
+    /**
      * 我方队伍（左）
      */
     private List<SessionSummoner> teamOne;

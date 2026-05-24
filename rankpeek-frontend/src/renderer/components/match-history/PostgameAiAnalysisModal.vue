@@ -58,6 +58,12 @@ const parsedPostgamePraise = computed(() => props.mode === 'praise'
   ? parsePostgameAiPraiseResult(props.streamText)
   : { ok: false as const, error: '不是夸夸机模式' })
 const displayedPostgamePraise = computed(() => parsedPostgamePraise.value.ok ? parsedPostgamePraise.value.result : null)
+const completedReviewParseError = computed(() => props.mode === 'review' &&
+  props.streamState === 'completed' &&
+  props.streamText.trim().length > 0 &&
+  !displayedPostgameReview.value
+    ? parsedPostgameReview.value.error || partialPostgameReview.value.error || '结构化复盘结果解析失败'
+    : '')
 const modalTitle = computed(() => props.mode === 'praise' ? '夸夸机' : '赛后复盘')
 const modalDescription = computed(() => props.mode === 'praise'
   ? '只负责把你这局说舒服，不做教学复盘。'
@@ -215,6 +221,18 @@ onBeforeUnmount(() => {
             >
               生成图片
             </button>
+          </section>
+
+          <section
+            v-else-if="completedReviewParseError"
+            class="postgame-ai-analysis-error"
+            role="alert"
+          >
+            <p>{{ completedReviewParseError }}</p>
+            <pre
+              v-if="streamText"
+              class="postgame-ai-analysis-stream-text"
+            >{{ streamText }}</pre>
           </section>
 
           <section
