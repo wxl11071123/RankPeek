@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  openOpggWindow: (query?: unknown) => ipcRenderer.invoke('opgg:openWindow', query),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<{ success: boolean; error?: string }>,
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   clearChromiumCache: () => ipcRenderer.invoke('app:clearChromiumCache'),
@@ -34,6 +35,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event: Electron.IpcRendererEvent, path: string) => callback(path)
     ipcRenderer.on('tray:navigate', listener)
     return () => ipcRenderer.removeListener('tray:navigate', listener)
+  },
+  onOpggInitialQuery: (callback: (query: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, query: unknown) => callback(query)
+    ipcRenderer.on('opgg:initialQuery', listener)
+    return () => ipcRenderer.removeListener('opgg:initialQuery', listener)
   },
   database: {
     upsertAccount: (account: SummonerAccountInput) => (

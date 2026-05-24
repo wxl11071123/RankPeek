@@ -48,6 +48,14 @@ public class RealOpggSourceClient implements OpggSourceClient {
         return parseDetail(rawContent, query, version, detailUri.toString());
     }
 
+    @Override
+    public OpggChampionList fetchChampionList(OpggChampionListQuery query) {
+        String version = fetchLatestVersion(query.region(), query.mode());
+        URI listUri = buildListUri(query, version);
+        String rawContent = fetchJson(listUri);
+        return parseList(rawContent, query, version, listUri.toString());
+    }
+
     private String fetchLatestVersion(String region, String mode) {
         URI versionsUri = buildUri("/api/%s/champions/%s/versions".formatted(encodePath(region), encodePath(mode)), Map.of());
         String rawContent = fetchJson(versionsUri);
@@ -76,6 +84,14 @@ public class RealOpggSourceClient implements OpggSourceClient {
                     encodePath(positionSegment)
             );
         }
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("tier", query.tier());
+        queryParams.put("version", version);
+        return buildUri(path, queryParams);
+    }
+
+    private URI buildListUri(OpggChampionListQuery query, String version) {
+        String path = "/api/%s/champions/%s".formatted(encodePath(query.region()), encodePath(query.mode()));
         Map<String, String> queryParams = new LinkedHashMap<>();
         queryParams.put("tier", query.tier());
         queryParams.put("version", version);
@@ -168,6 +184,44 @@ public class RealOpggSourceClient implements OpggSourceClient {
         }
     }
 
+    private OpggChampionList parseList(String rawContent, OpggChampionListQuery query, String version, String sourceUrl) {
+        try {
+            JsonNode root = objectMapper.readTree(rawContent);
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                throw new OpggSourceException("OP.GG champion list response did not contain data");
+            }
+            String responseVersion = text(root.path("meta").path("version"));
+            List<OpggChampionListItem> items = new ArrayList<>();
+            for (JsonNode item : data) {
+                Integer championId = nullableInt(item, "id");
+                if (championId == null || championId <= 0) {
+                    continue;
+                }
+                JsonNode averageStats = item.path("average_stats");
+                items.add(new OpggChampionListItem(
+                        championId,
+                        nullableInt(averageStats, "tier"),
+                        nullableInt(averageStats, "rank"),
+                        parseStats(averageStats),
+                        parsePositionStats(item.path("positions"))
+                ));
+            }
+            return new OpggChampionList(
+                    query.mode(),
+                    query.region(),
+                    query.tier(),
+                    responseVersion == null ? version : responseVersion,
+                    Instant.now(clock),
+                    items
+            );
+        } catch (OpggSourceException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw new OpggSourceException("Failed to parse OP.GG champion list response from " + sourceUrl, exception);
+        }
+    }
+
     private JsonNode resolveStatsNode(JsonNode summary, String position) {
         if (position != null && !position.isBlank() && !"none".equals(position)) {
             JsonNode positions = summary.path("positions");
@@ -201,6 +255,45 @@ public class RealOpggSourceClient implements OpggSourceClient {
                 doubleValue(node, "ban_rate"),
                 doubleValue(node, "kda")
         );
+    }
+
+    private static List<OpggChampionPositionStats> parsePositionStats(JsonNode array) {
+        List<OpggChampionPositionStats> positions = new ArrayList<>();
+        if (!array.isArray()) {
+            return positions;
+        }
+        for (JsonNode node : array) {
+            String position = normalizePosition(text(node.path("name")));
+            JsonNode stats = node.path("stats");
+            JsonNode tierData = stats.path("tier_data");
+            positions.add(new OpggChampionPositionStats(
+                    position,
+                    nullableInt(tierData, "tier"),
+                    nullableInt(tierData, "rank"),
+                    parseStats(stats),
+                    parseCounters(node.path("counters"))
+            ));
+        }
+        return positions;
+    }
+
+    private static List<OpggChampionCounter> parseCounters(JsonNode array) {
+        List<OpggChampionCounter> counters = new ArrayList<>();
+        if (!array.isArray()) {
+            return counters;
+        }
+        for (JsonNode node : array) {
+            Integer championId = nullableInt(node, "champion_id");
+            if (championId == null || championId <= 0) {
+                continue;
+            }
+            counters.add(new OpggChampionCounter(
+                    championId,
+                    longValue(node, "play"),
+                    nullableLong(node, "win")
+            ));
+        }
+        return counters;
     }
 
     private static List<OpggBuildOption> parseOptions(JsonNode array, String label, int limit) {
@@ -252,15 +345,34 @@ public class RealOpggSourceClient implements OpggSourceClient {
             return options;
         }
         for (JsonNode node : array) {
-            List<Integer> ids = intList(node.path("ids"));
+            List<Integer> ids = skillIdList(node.path("ids"));
+            List<Integer> fallbackOrder = new ArrayList<>();
+            fallbackOrder.addAll(skillIdList(node.path("order")));
+            fallbackOrder.addAll(skillIdList(node.path("skill_order")));
             if (ids.isEmpty()) {
-                ids.addAll(intList(node.path("order")));
-                ids.addAll(intList(node.path("skill_order")));
+                ids.addAll(fallbackOrder);
             }
             if (ids.isEmpty()) {
                 continue;
             }
-            options.add(parseOption("skill_order", ids, node));
+            JsonNode builds = node.path("builds");
+            if (builds.isArray() && !builds.isEmpty()) {
+                for (JsonNode build : builds) {
+                    List<Integer> order = skillIdList(build.path("order"));
+                    if (order.isEmpty()) {
+                        order.addAll(skillIdList(build.path("skill_order")));
+                    }
+                    if (order.isEmpty()) {
+                        continue;
+                    }
+                    options.add(parseOption("skill_order", ids, order, build));
+                    if (options.size() >= limit) {
+                        return options;
+                    }
+                }
+            } else {
+                options.add(parseOption("skill_order", ids, fallbackOrder, node));
+            }
             if (options.size() >= limit) {
                 break;
             }
@@ -269,6 +381,10 @@ public class RealOpggSourceClient implements OpggSourceClient {
     }
 
     private static OpggBuildOption parseOption(String label, List<Integer> ids, JsonNode node) {
+        return parseOption(label, ids, List.of(), node);
+    }
+
+    private static OpggBuildOption parseOption(String label, List<Integer> ids, List<Integer> order, JsonNode node) {
         Long games = nullableLong(node, "play");
         Double winRate = doubleValue(node, "win_rate");
         if (winRate == null && games != null && games > 0) {
@@ -280,6 +396,7 @@ public class RealOpggSourceClient implements OpggSourceClient {
         return new OpggBuildOption(
                 label,
                 List.copyOf(ids),
+                List.copyOf(order),
                 games,
                 winRate,
                 doubleValue(node, "pick_rate")
@@ -297,11 +414,45 @@ public class RealOpggSourceClient implements OpggSourceClient {
         return ids;
     }
 
+    private static List<Integer> skillIdList(JsonNode node) {
+        List<Integer> ids = new ArrayList<>();
+        if (!node.isArray()) {
+            return ids;
+        }
+        for (JsonNode item : node) {
+            addSkillId(ids, item);
+        }
+        return ids;
+    }
+
     private static void addPositiveId(List<Integer> ids, JsonNode node) {
         if (node.canConvertToInt() && node.asInt() > 0) {
             ids.add(node.asInt());
         }
     }
+
+    private static void addSkillId(List<Integer> ids, JsonNode node) {
+        if (node.canConvertToInt()) {
+            int value = node.asInt();
+            if (value >= 1 && value <= 4) {
+                ids.add(value);
+            }
+            return;
+        }
+        if (!node.isTextual()) {
+            return;
+        }
+        switch (node.asText("").trim().toUpperCase(Locale.ROOT)) {
+            case "Q" -> ids.add(1);
+            case "W" -> ids.add(2);
+            case "E" -> ids.add(3);
+            case "R" -> ids.add(4);
+            default -> {
+                // Ignore unknown source tokens instead of failing the whole OP.GG response.
+            }
+        }
+    }
+
 
     private static long longValue(JsonNode node, String field) {
         JsonNode value = node.path(field);
@@ -313,6 +464,11 @@ public class RealOpggSourceClient implements OpggSourceClient {
         return value.canConvertToLong() ? value.asLong() : null;
     }
 
+    private static Integer nullableInt(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.canConvertToInt() ? value.asInt() : null;
+    }
+
     private static Double doubleValue(JsonNode node, String field) {
         JsonNode value = node.path(field);
         return value.isNumber() ? value.asDouble() : null;
@@ -321,6 +477,19 @@ public class RealOpggSourceClient implements OpggSourceClient {
     private static String text(JsonNode node) {
         String value = node.asText("");
         return value.isBlank() ? null : value;
+    }
+
+    private static String normalizePosition(String value) {
+        if (value == null || value.isBlank()) {
+            return "none";
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "middle" -> "mid";
+            case "bottom" -> "adc";
+            case "utility" -> "support";
+            default -> normalized;
+        };
     }
 
     private static String encodePath(String value) {

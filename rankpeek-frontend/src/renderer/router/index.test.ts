@@ -12,3 +12,12 @@ test('retired standalone tag routes redirect to active pages', () => {
   assert.doesNotMatch(source, /titleKey:\s*'nav\.userTag'/)
   assert.doesNotMatch(source, /titleKey:\s*'nav\.tagConfig'/)
 })
+
+test('OP.GG route uses standalone window layout metadata', () => {
+  const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /path:\s*'\/opgg'/)
+  assert.match(source, /name:\s*'OpggWindow'/)
+  assert.match(source, /import\('@\/views\/OpggWindowView\.vue'\)/)
+  assert.match(source, /meta:\s*\{[\s\S]*standalone:\s*true[\s\S]*\}/)
+})

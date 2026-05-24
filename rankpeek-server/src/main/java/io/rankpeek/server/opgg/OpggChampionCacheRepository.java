@@ -41,6 +41,21 @@ public class OpggChampionCacheRepository {
         ).stream().findFirst();
     }
 
+    public Optional<OpggChampionList> findToday(OpggChampionListQuery query, LocalDate cacheDate) {
+        return jdbcTemplate.query(
+                """
+                        select list_json
+                        from opgg_champion_list_cache
+                        where mode = ? and region = ? and tier = ? and cache_date = ?
+                        """,
+                (rs, rowNum) -> readList(rs.getString("list_json")),
+                query.mode(),
+                query.region(),
+                query.tier(),
+                Date.valueOf(cacheDate)
+        ).stream().findFirst();
+    }
+
     @Transactional
     public void upsertToday(
             OpggChampionDetailQuery query,
@@ -62,10 +77,35 @@ public class OpggChampionCacheRepository {
     }
 
     public int deleteBefore(LocalDate cutoffDate) {
-        return jdbcTemplate.update(
+        int deletedDetails = jdbcTemplate.update(
                 "delete from opgg_champion_detail_cache where cache_date < ?",
                 Date.valueOf(cutoffDate)
         );
+        int deletedLists = jdbcTemplate.update(
+                "delete from opgg_champion_list_cache where cache_date < ?",
+                Date.valueOf(cutoffDate)
+        );
+        return deletedDetails + deletedLists;
+    }
+
+    @Transactional
+    public void upsertToday(
+            OpggChampionListQuery query,
+            LocalDate cacheDate,
+            OpggChampionList list,
+            Instant fetchedAt
+    ) {
+        String listJson = writeList(list);
+        int updated = updateToday(query, cacheDate, list, fetchedAt, listJson);
+        if (updated > 0) {
+            return;
+        }
+
+        try {
+            insertToday(query, cacheDate, list, fetchedAt, listJson);
+        } catch (DuplicateKeyException exception) {
+            updateToday(query, cacheDate, list, fetchedAt, listJson);
+        }
     }
 
     private OpggChampionDetail readDetail(String detailJson) {
@@ -81,6 +121,22 @@ public class OpggChampionCacheRepository {
             return objectMapper.writeValueAsString(detail);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Unable to write cached OP.GG champion detail", exception);
+        }
+    }
+
+    private OpggChampionList readList(String listJson) {
+        try {
+            return objectMapper.readValue(listJson, OpggChampionList.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to read cached OP.GG champion list", exception);
+        }
+    }
+
+    private String writeList(OpggChampionList list) {
+        try {
+            return objectMapper.writeValueAsString(list);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to write cached OP.GG champion list", exception);
         }
     }
 
@@ -133,6 +189,56 @@ public class OpggChampionCacheRepository {
                 Date.valueOf(cacheDate),
                 detail.version(),
                 detailJson,
+                Timestamp.from(fetchedAt),
+                Timestamp.from(fetchedAt),
+                Timestamp.from(fetchedAt)
+        );
+    }
+
+    private int updateToday(
+            OpggChampionListQuery query,
+            LocalDate cacheDate,
+            OpggChampionList list,
+            Instant fetchedAt,
+            String listJson
+    ) {
+        return jdbcTemplate.update(
+                """
+                        update opgg_champion_list_cache
+                        set source_version = ?, list_json = ?, fetched_at = ?, updated_at = ?
+                        where mode = ? and region = ? and tier = ? and cache_date = ?
+                        """,
+                list.version(),
+                listJson,
+                Timestamp.from(fetchedAt),
+                Timestamp.from(fetchedAt),
+                query.mode(),
+                query.region(),
+                query.tier(),
+                Date.valueOf(cacheDate)
+        );
+    }
+
+    private void insertToday(
+            OpggChampionListQuery query,
+            LocalDate cacheDate,
+            OpggChampionList list,
+            Instant fetchedAt,
+            String listJson
+    ) {
+        jdbcTemplate.update(
+                """
+                        insert into opgg_champion_list_cache (
+                            mode, region, tier, cache_date,
+                            source_version, list_json, fetched_at, created_at, updated_at
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                query.mode(),
+                query.region(),
+                query.tier(),
+                Date.valueOf(cacheDate),
+                list.version(),
+                listJson,
                 Timestamp.from(fetchedAt),
                 Timestamp.from(fetchedAt),
                 Timestamp.from(fetchedAt)

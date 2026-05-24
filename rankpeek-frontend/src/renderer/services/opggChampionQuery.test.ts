@@ -95,21 +95,35 @@ test('ranked OP.GG query maps flex rank, jungle position, and master-plus tiers'
   assert.equal(query.position, 'jungle')
 })
 
-test('ranked OP.GG query disables with a reason when required champion, lane, or rank is missing', () => {
-  assert.equal(buildOpggChampionQuery(session({}, player({ championId: 0 }))).enabled, false)
-  assert.match(buildOpggChampionQuery(session({}, player({ championId: 0 }))).reason, /英雄/)
+test('ranked OP.GG query opens with a reason when champion, lane, or rank is missing', () => {
+  const withoutChampion = buildOpggChampionQuery(session({}, player({ championId: 0 })))
+  assert.equal(withoutChampion.enabled, true)
+  assert.equal(withoutChampion.championId, null)
+  assert.equal(withoutChampion.mode, 'ranked')
+  assert.equal(withoutChampion.tier, 'emerald_plus')
+  assert.equal(withoutChampion.position, 'mid')
+  assert.match(withoutChampion.reason, /英雄/)
 
-  assert.equal(buildOpggChampionQuery(session({}, player({ selectedPosition: '' }))).enabled, false)
-  assert.match(buildOpggChampionQuery(session({}, player({ selectedPosition: '' }))).reason, /位置/)
+  const withoutLane = buildOpggChampionQuery(session({}, player({ selectedPosition: '' })))
+  assert.equal(withoutLane.enabled, true)
+  assert.equal(withoutLane.championId, 103)
+  assert.equal(withoutLane.tier, 'emerald_plus')
+  assert.equal(withoutLane.position, 'none')
+  assert.match(withoutLane.reason, /位置/)
 
-  assert.equal(buildOpggChampionQuery(session({}, player({
+  const withoutRank = buildOpggChampionQuery(session({}, player({
     rank: {
       queueMap: {
         RANKED_SOLO_5x5: { ...queueInfo('UNRANKED'), tier: 'UNRANKED' },
         RANKED_FLEX_SR: queueInfo('PLATINUM')
       }
     }
-  }))).enabled, false)
+  })))
+  assert.equal(withoutRank.enabled, true)
+  assert.equal(withoutRank.championId, 103)
+  assert.equal(withoutRank.tier, 'all')
+  assert.equal(withoutRank.position, 'mid')
+  assert.match(withoutRank.reason, /段位/)
 })
 
 test('non-ranked OP.GG query enables by mode and leaves champion detail empty when no champion is selected', () => {

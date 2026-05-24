@@ -60,29 +60,23 @@ export function buildOpggChampionQuery(sessionData: SessionData): OpggChampionQu
     }
   }
 
-  if (!championId) {
-    return disabled('未读取到当前英雄')
-  }
-
   const position = resolvePosition(currentPlayer)
-  if (!position) {
-    return disabled('未读取到当前位置')
-  }
-
   const tier = resolveTier(currentPlayer, sessionData)
-  if (!tier) {
-    return disabled('未读取到当前段位')
-  }
+  const missingParts = [
+    championId ? '' : '英雄',
+    position ? '' : '位置',
+    tier ? '' : '段位'
+  ].filter(Boolean)
 
   return {
     enabled: true,
-    reason: '',
+    reason: missingParts.length ? `OP.GG 将在读取到${missingParts.join('、')}后自动跳转详情` : '',
     championId,
     mode,
     region: REGION,
-    tier: tier.value,
-    position: position.value,
-    filterLabel: `KR · 排位 · ${tier.label} · ${position.label}`
+    tier: tier?.value || 'all',
+    position: position?.value || 'none',
+    filterLabel: tier && position ? `KR · 排位 · ${tier.label} · ${position.label}` : 'KR · 排位'
   }
 }
 

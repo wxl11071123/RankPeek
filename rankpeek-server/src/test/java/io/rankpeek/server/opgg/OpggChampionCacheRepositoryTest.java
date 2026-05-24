@@ -25,6 +25,7 @@ class OpggChampionCacheRepositoryTest {
 
     @BeforeEach
     void clearCacheRows() {
+        jdbcTemplate.update("delete from opgg_champion_list_cache");
         jdbcTemplate.update("delete from opgg_champion_detail_cache");
     }
 
@@ -58,6 +59,21 @@ class OpggChampionCacheRepositoryTest {
     }
 
     @Test
+    void upsertTodayKeepsOneListRowAndOverwritesForSameQueryAndDate() {
+        OpggChampionListQuery query = new OpggChampionListQuery("ranked", "kr", "emerald_plus");
+        LocalDate cacheDate = LocalDate.of(2026, 5, 24);
+
+        repository.upsertToday(query, cacheDate, championList(query, "16.10", 7), Instant.parse("2026-05-24T04:00:00Z"));
+        repository.upsertToday(query, cacheDate, championList(query, "16.11", 3), Instant.parse("2026-05-24T05:00:00Z"));
+
+        OpggChampionList cached = repository.findToday(query, cacheDate).orElseThrow();
+
+        assertThat(cached.version()).isEqualTo("16.11");
+        assertThat(cached.items()).singleElement().satisfies(item -> assertThat(item.rank()).isEqualTo(3));
+        assertThat(countListRows()).isEqualTo(1);
+    }
+
+    @Test
     void deleteBeforeRemovesOldDatesAndKeepsToday() {
         OpggChampionDetailQuery query = new OpggChampionDetailQuery(103, "ranked", "kr", "emerald_plus", "mid");
         LocalDate oldDate = LocalDate.of(2026, 5, 23);
@@ -65,16 +81,26 @@ class OpggChampionCacheRepositoryTest {
 
         repository.upsertToday(query, oldDate, detail(query, "16.09", 0.50), Instant.parse("2026-05-23T04:00:00Z"));
         repository.upsertToday(query, today, detail(query, "16.10", 0.51), Instant.parse("2026-05-24T04:00:00Z"));
+        OpggChampionListQuery listQuery = new OpggChampionListQuery("ranked", "kr", "emerald_plus");
+        repository.upsertToday(listQuery, oldDate, championList(listQuery, "16.09", 9), Instant.parse("2026-05-23T04:00:00Z"));
+        repository.upsertToday(listQuery, today, championList(listQuery, "16.10", 7), Instant.parse("2026-05-24T04:00:00Z"));
 
         int deleted = repository.deleteBefore(today);
 
-        assertThat(deleted).isEqualTo(1);
+        assertThat(deleted).isEqualTo(2);
         assertThat(repository.findToday(query, oldDate)).isEmpty();
         assertThat(repository.findToday(query, today)).isPresent();
+        assertThat(repository.findToday(listQuery, oldDate)).isEmpty();
+        assertThat(repository.findToday(listQuery, today)).isPresent();
     }
 
     private int countRows() {
         Integer count = jdbcTemplate.queryForObject("select count(*) from opgg_champion_detail_cache", Integer.class);
+        return count == null ? 0 : count;
+    }
+
+    private int countListRows() {
+        Integer count = jdbcTemplate.queryForObject("select count(*) from opgg_champion_list_cache", Integer.class);
         return count == null ? 0 : count;
     }
 
@@ -89,12 +115,35 @@ class OpggChampionCacheRepositoryTest {
                 version,
                 Instant.parse("2026-05-24T04:00:00Z"),
                 new OpggChampionStats(1000, winRate, 0.12, 0.03, 2.6),
-                List.of(new OpggBuildOption("spells", List.of(4, 12), 100L, 0.52, 0.6)),
+                List.of(new OpggBuildOption("spells", List.of(4, 12), List.of(), 100L, 0.52, 0.6)),
                 List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(new OpggBuildOption("core", List.of(3118, 3152, 4645), 70L, 0.54, 0.19))
+                List.of(new OpggBuildOption("core", List.of(3118, 3152, 4645), List.of(), 70L, 0.54, 0.19))
+        );
+    }
+
+    private static OpggChampionList championList(OpggChampionListQuery query, String version, int rank) {
+        return new OpggChampionList(
+                query.mode(),
+                query.region(),
+                query.tier(),
+                version,
+                Instant.parse("2026-05-24T04:00:00Z"),
+                List.of(new OpggChampionListItem(
+                        103,
+                        1,
+                        rank,
+                        new OpggChampionStats(0, 0.51, 0.12, 0.03, 2.6),
+                        List.of(new OpggChampionPositionStats(
+                                "mid",
+                                0,
+                                2,
+                                new OpggChampionStats(0, 0.50, 0.10, 0.03, 2.5),
+                                List.of(new OpggChampionCounter(238, 1200, 590L))
+                        ))
+                ))
         );
     }
 }

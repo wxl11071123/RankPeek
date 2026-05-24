@@ -13,13 +13,14 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
-public class OpggChampionService implements OpggChampionDetailProvider {
+public class OpggChampionService implements OpggChampionDetailProvider, OpggChampionListProvider {
     private final OpggSourceClient sourceClient;
     private final Duration cacheTtl;
     private final Clock clock;
     private final OpggCacheProperties cacheProperties;
     private final OpggChampionCacheRepository cacheRepository;
-    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final Map<String, DetailCacheEntry> detailCache = new ConcurrentHashMap<>();
+    private final Map<String, ListCacheEntry> listCache = new ConcurrentHashMap<>();
 
     @Autowired
     public OpggChampionService(
@@ -70,22 +71,54 @@ public class OpggChampionService implements OpggChampionDetailProvider {
             Optional<OpggChampionDetail> stored = cacheRepository.findToday(query, cacheDate);
             if (stored.isPresent()) {
                 OpggChampionDetail detail = stored.get();
-                cache.put(cacheKey, new CacheEntry(detail, now.plus(cacheTtl), cacheDate));
-                return detail;
+                if (isUsableCachedDetail(query, detail)) {
+                    detailCache.put(cacheKey, new DetailCacheEntry(detail, now.plus(cacheTtl), cacheDate));
+                    return detail;
+                }
             }
         }
 
-        CacheEntry cached = cache.get(cacheKey);
-        if (cached != null && now.isBefore(cached.expiresAt()) && cacheDate.equals(cached.cacheDate())) {
+        DetailCacheEntry cached = detailCache.get(cacheKey);
+        if (cached != null
+                && now.isBefore(cached.expiresAt())
+                && cacheDate.equals(cached.cacheDate())
+                && isUsableCachedDetail(query, cached.detail())) {
             return cached.detail();
         }
 
         OpggChampionDetail detail = sourceClient.fetchChampionDetail(query);
-        cache.put(cacheKey, new CacheEntry(detail, now.plus(cacheTtl), cacheDate));
+        detailCache.put(cacheKey, new DetailCacheEntry(detail, now.plus(cacheTtl), cacheDate));
         if (databaseCacheEnabled()) {
             cacheRepository.upsertToday(query, cacheDate, detail, now);
         }
         return detail;
+    }
+
+    @Override
+    public OpggChampionList getChampionList(OpggChampionListQuery query) {
+        String cacheKey = query.cacheKey();
+        Instant now = clock.instant();
+        LocalDate cacheDate = cacheDate(now);
+        if (databaseCacheEnabled()) {
+            Optional<OpggChampionList> stored = cacheRepository.findToday(query, cacheDate);
+            if (stored.isPresent()) {
+                OpggChampionList list = stored.get();
+                listCache.put(cacheKey, new ListCacheEntry(list, now.plus(cacheTtl), cacheDate));
+                return list;
+            }
+        }
+
+        ListCacheEntry cached = listCache.get(cacheKey);
+        if (cached != null && now.isBefore(cached.expiresAt()) && cacheDate.equals(cached.cacheDate())) {
+            return cached.list();
+        }
+
+        OpggChampionList list = sourceClient.fetchChampionList(query);
+        listCache.put(cacheKey, new ListCacheEntry(list, now.plus(cacheTtl), cacheDate));
+        if (databaseCacheEnabled()) {
+            cacheRepository.upsertToday(query, cacheDate, list, now);
+        }
+        return list;
     }
 
     private boolean databaseCacheEnabled() {
@@ -94,11 +127,21 @@ public class OpggChampionService implements OpggChampionDetailProvider {
                 && Boolean.TRUE.equals(cacheProperties.cacheEnabled());
     }
 
+    private boolean isUsableCachedDetail(OpggChampionDetailQuery query, OpggChampionDetail detail) {
+        if (!"ranked".equals(query.mode())) {
+            return true;
+        }
+        return detail.skillOrders() != null && !detail.skillOrders().isEmpty();
+    }
+
     private LocalDate cacheDate(Instant now) {
         String zone = cacheProperties == null ? "Asia/Shanghai" : cacheProperties.cacheZone();
         return LocalDate.ofInstant(now, ZoneId.of(zone));
     }
 
-    private record CacheEntry(OpggChampionDetail detail, Instant expiresAt, LocalDate cacheDate) {
+    private record DetailCacheEntry(OpggChampionDetail detail, Instant expiresAt, LocalDate cacheDate) {
+    }
+
+    private record ListCacheEntry(OpggChampionList list, Instant expiresAt, LocalDate cacheDate) {
     }
 }

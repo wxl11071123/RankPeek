@@ -1,0 +1,121 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+test('OP.GG window view provides manual filters and loads champion options', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import OpggChampionPanel from '@\/components\/gaming\/OpggChampionPanel\.vue'/)
+  assert.match(source, /import OpggChampionTierTable from '@\/components\/gaming\/OpggChampionTierTable\.vue'/)
+  assert.match(source, /apiClient\.getChampionOptions\(\)/)
+  assert.match(source, /class="opgg-filter-row"/)
+  assert.doesNotMatch(source, /class="opgg-filter-grid"/)
+  assert.doesNotMatch(source, /<span>英雄<\/span>|<span>模式<\/span>|<span>段位<\/span>|<span>分路<\/span>/u)
+  assert.match(source, /v-model\.number="filter\.championId"/)
+  assert.match(source, /v-model="filter\.mode"/)
+  assert.match(source, /v-model="filter\.tier"/)
+  assert.match(source, /v-model="filter\.position"/)
+  assert.match(source, /@change="handleModeFilterChange"/)
+  assert.match(source, /@change="handleRankFilterChange"/)
+  assert.match(source, /@click="restoreFollowCurrentGame"/)
+  assert.match(source, /@click="refreshActiveOpggPanel"/)
+})
+
+test('OP.GG window follows current session until a manual filter change pauses auto override', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const followCurrentGame = ref\(true\)/)
+  assert.match(source, /let lastAppliedAutoQueryKey = ''/)
+  assert.match(source, /function applyCurrentGameQueryIfChanged\(query: OpggChampionQuery\)/)
+  assert.match(source, /function buildAutoQueryKey\(query: OpggChampionQuery\)/)
+  assert.match(source, /function handleRankFilterChange/)
+  assert.match(source, /followCurrentGame\.value = false/)
+  assert.match(source, /function restoreFollowCurrentGame/)
+  assert.match(source, /followCurrentGame\.value = true/)
+  assert.match(source, /getGamingSessionData\(\{ forceRefresh: false \}\)/)
+  assert.match(source, /buildOpggChampionQuery\(sessionData\)/)
+  assert.match(source, /applyCurrentGameQueryIfChanged\(query\)/)
+  assert.match(source, /window\.electronAPI\?\.onOpggInitialQuery/)
+})
+
+test('OP.GG auto polling does not reapply unchanged filters on every tick', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+  const unchangedGuard = source.match(/function applyCurrentGameQueryIfChanged\(query: OpggChampionQuery\) \{[\s\S]*?function applyCurrentGameQuery\(query: OpggChampionQuery\)/)?.[0] || ''
+
+  assert.match(unchangedGuard, /const nextKey = buildAutoQueryKey\(query\)/)
+  assert.match(unchangedGuard, /if \(nextKey === lastAppliedAutoQueryKey\) \{[\s\S]*return[\s\S]*\}/)
+  assert.match(unchangedGuard, /applyCurrentGameQuery\(query\)/)
+})
+
+test('OP.GG default filter refresh keeps the last tier during transient rank reloads', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+  const refreshDefaults = source.match(/async function refreshDefaultRankedFilters[\s\S]*?async function refreshCurrentGameQuery/)?.[0] || ''
+
+  assert.match(refreshDefaults, /const hasKnownAccount = Boolean/)
+  assert.doesNotMatch(refreshDefaults, /defaultRankedTier\.value === 'all' && filter\.tier !== 'all'/)
+})
+
+test('OP.GG window loads tier list without champion and opens detail after champion selection', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /getOpggChampionList/)
+  assert.match(source, /resolveDefaultOpggTier/)
+  assert.match(source, /resolveDefaultOpggPosition/)
+  assert.match(source, /const defaultRankedTier = ref\('all'\)/)
+  assert.match(source, /const defaultRankedPosition = ref/)
+  assert.match(source, /const defaultPositionLoading = ref\(false\)/)
+  assert.match(source, /function canLoadList\(filterState: OpggManualFilterState\)/)
+  assert.match(source, /function canLoadList\(filterState: OpggManualFilterState\) \{[\s\S]*return Boolean\(filterState\.mode && filterState\.region\)[\s\S]*\}/)
+  assert.match(source, /function showChampionDetail\(championId: number\)/)
+  assert.match(source, /applyRankedDefaultsForDetail\(\)/)
+  assert.match(source, /activePanel\.value = 'detail'/)
+  assert.match(source, /<OpggChampionTierTable[\s\S]*:list="opggList"[\s\S]*@select-champion="showChampionDetail"/)
+  assert.doesNotMatch(source, /:filter-label="listFilterLabel"/)
+  assert.doesNotMatch(source, /const listFilterLabel = computed/)
+  assert.match(source, /getOpggChampionDetail\(\{[\s\S]*championId: filter\.championId,[\s\S]*mode: filter\.mode,[\s\S]*region: filter\.region,[\s\S]*tier: filter\.mode === 'ranked' \? filter\.tier : 'all',[\s\S]*position: filter\.mode === 'ranked' \? filter\.position : 'none'/)
+  assert.match(source, /<OpggChampionPanel[\s\S]*:query="panelQuery"[\s\S]*:detail="opggDetail"[\s\S]*:loading="opggLoading"[\s\S]*:error="opggError"/)
+})
+
+test('OP.GG window passes selected list counters into the champion detail panel', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /:counters="activeDetailCounters"/)
+  assert.match(source, /const selectedDetailPositionStats = computed/)
+  assert.match(source, /opggList\.value\?\.items\.find/)
+  assert.match(source, /position\.position === filter\.position/)
+  assert.match(source, /const activeDetailCounters = computed/)
+  assert.match(source, /return \(selectedDetailPositionStats\.value\?\.counters \|\| \[\]\)\.slice\(0, 3\)/)
+})
+
+test('OP.GG window places the back action in the top toolbar beside the OP.GG title', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /class="opgg-toolbar-back-btn"/)
+  assert.match(source, /v-if="activePanel === 'detail'"/)
+  assert.match(source, /@click="showListPanel"/)
+  assert.match(source, /\.opgg-heading \{[\s\S]*display: flex[\s\S]*align-items: center[\s\S]*gap: 8px/)
+  assert.doesNotMatch(source, /:show-back-button="true"/)
+  assert.doesNotMatch(source, /@back="showListPanel"/)
+  assert.doesNotMatch(source, /opgg-detail-actions/)
+})
+
+test('OP.GG window keeps the toolbar clean and passes the selected champion title to detail', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(source, /<p>{{ statusText }}<\/p>/)
+  assert.doesNotMatch(source, /const statusText = computed/)
+  assert.match(source, /const activeChampionTitle = computed/)
+  assert.match(source, /championOptions\.value\.find/)
+  assert.match(source, /opggDetail\.value\?\.championName/)
+  assert.match(source, /:title="activeChampionTitle"/)
+})
+
+test('OP.GG rank filter changes keep the selected champion in detail view', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+  const rankHandler = source.match(/function handleRankFilterChange\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(rankHandler, /if \(filter\.championId\)/)
+  assert.match(rankHandler, /activePanel\.value = 'detail'/)
+  assert.match(rankHandler, /loadOpggDetail/)
+  assert.doesNotMatch(rankHandler, /filter\.championId = 0/)
+})

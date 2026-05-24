@@ -3,6 +3,8 @@ package io.rankpeek.server.opgg;
 import io.rankpeek.server.common.ApiException;
 import io.rankpeek.server.common.ApiResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +15,7 @@ import java.util.Locale;
 import java.util.Set;
 
 @RestController
+@CrossOrigin(origins = "*")
 @RequestMapping("/api/opgg")
 public class OpggChampionController {
     private static final String REGION_KR = "kr";
@@ -32,9 +35,34 @@ public class OpggChampionController {
     private static final Set<String> POSITIONS = Set.of("top", "jungle", "mid", "adc", "support");
 
     private final OpggChampionDetailProvider detailProvider;
+    private final OpggChampionListProvider listProvider;
 
-    public OpggChampionController(OpggChampionDetailProvider detailProvider) {
+    @Autowired
+    public OpggChampionController(OpggChampionService service) {
+        this(service, service);
+    }
+
+    OpggChampionController(OpggChampionDetailProvider detailProvider, OpggChampionListProvider listProvider) {
         this.detailProvider = detailProvider;
+        this.listProvider = listProvider;
+    }
+
+    @GetMapping("/champions")
+    public ApiResponse<OpggChampionList> list(
+            @RequestParam String mode,
+            @RequestParam(defaultValue = REGION_KR) String region,
+            @RequestParam(defaultValue = "all") String tier
+    ) {
+        OpggChampionListQuery query = validateList(mode, region, tier);
+        try {
+            return ApiResponse.success(listProvider.getChampionList(query));
+        } catch (OpggSourceException exception) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "OPGG_SOURCE_FAILED",
+                    exception.getMessage() == null ? "OP.GG source request failed" : exception.getMessage()
+            );
+        }
     }
 
     @GetMapping("/champions/{championId}/detail")
@@ -98,6 +126,27 @@ public class OpggChampionController {
             throw new IllegalArgumentException("Unsupported OP.GG tier: " + rawTier);
         }
         return new OpggChampionDetailQuery(championId, mode, region, tier, "none");
+    }
+
+    private static OpggChampionListQuery validateList(String rawMode, String rawRegion, String rawTier) {
+        String mode = normalize(rawMode);
+        if (!MODES.contains(mode)) {
+            throw new IllegalArgumentException("Unsupported OP.GG mode: " + rawMode);
+        }
+
+        String region = normalize(rawRegion);
+        if (!REGION_KR.equals(region)) {
+            throw new IllegalArgumentException("Only OP.GG region=kr is supported");
+        }
+
+        String tier = normalize(rawTier);
+        if (tier.isBlank()) {
+            tier = "all";
+        }
+        if (!TIERS.contains(tier)) {
+            throw new IllegalArgumentException("Unsupported OP.GG tier: " + rawTier);
+        }
+        return new OpggChampionListQuery(mode, region, tier);
     }
 
     private static String normalize(String value) {

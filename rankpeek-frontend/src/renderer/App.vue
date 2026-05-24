@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import Sidebar from '@/components/layout/Sidebar.vue'
@@ -8,16 +8,33 @@ import { useGameStore } from '@/stores/game'
 
 const gameStore = useGameStore()
 const router = useRouter()
+const isStandaloneRoute = computed(() => isStandaloneRuntimeRoute())
 
 let removeTrayNavigateListener: (() => void) | null = null
 let stopGameflowAutoNavigation: (() => void) | null = null
+let standaloneConnectionTimer: ReturnType<typeof setInterval> | null = null
 
-gameStore.initConnection()
+if (!isStandaloneRuntimeRoute()) {
+  void gameStore.initConnection()
+}
+
+function isStandaloneRuntimeRoute() {
+  return router.currentRoute.value.meta.standalone === true || window.location.hash.startsWith('#/opgg')
+}
 
 onMounted(() => {
-  stopGameflowAutoNavigation = createGameflowAutoNavigator(router)
+  if (isStandaloneRoute.value) {
+    void gameStore.checkConnection()
+    standaloneConnectionTimer = setInterval(() => {
+      void gameStore.checkConnection()
+    }, 5000)
+  }
 
-  if (!window.electronAPI?.onTrayNavigate) {
+  if (!isStandaloneRoute.value) {
+    stopGameflowAutoNavigation = createGameflowAutoNavigator(router)
+  }
+
+  if (isStandaloneRoute.value || !window.electronAPI?.onTrayNavigate) {
     return
   }
 
@@ -35,6 +52,10 @@ onBeforeUnmount(() => {
   removeTrayNavigateListener = null
   stopGameflowAutoNavigation?.()
   stopGameflowAutoNavigation = null
+  if (standaloneConnectionTimer) {
+    clearInterval(standaloneConnectionTimer)
+    standaloneConnectionTimer = null
+  }
 })
 </script>
 
@@ -42,8 +63,8 @@ onBeforeUnmount(() => {
   <div class="app-container">
     <TitleBar />
     <div class="app-content">
-      <Sidebar />
-      <main class="main-content">
+      <Sidebar v-if="!isStandaloneRoute" />
+      <main class="main-content" :class="{ 'main-content-standalone': isStandaloneRoute }">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -76,6 +97,11 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 24px;
   background: var(--bg-primary);
+}
+
+.main-content-standalone {
+  padding: 0;
+  overflow: hidden;
 }
 
 .fade-enter-active,
