@@ -76,8 +76,47 @@ class DeepSeekChatClientTest {
         assertThat(body.get("thinking").get("type").asText()).isEqualTo("disabled");
         assertThat(body.get("max_tokens").asInt()).isEqualTo(256);
         assertThat(body.get("temperature").asDouble()).isEqualTo(0.3);
+        assertThat(body.has("response_format")).isFalse();
         assertThat(body.get("messages")).hasSize(2);
         assertThat(body.get("messages").get(0).get("role").asText()).isEqualTo("system");
+    }
+
+    @Test
+    void streamsJsonChatCompletionWithJsonObjectResponseFormat() throws Exception {
+        startServer(exchange -> {
+            capturedRequest = capture(exchange);
+            respond(exchange, 200, "text/event-stream", """
+                    data: {"choices":[{"delta":{"content":"{\\"title\\":\\"ok\\"}"}}]}
+
+                    data: [DONE]
+
+                    """);
+        });
+
+        DeepSeekChatClient client = new DeepSeekChatClient(OBJECT_MAPPER);
+        DeepSeekAiProperties properties = new DeepSeekAiProperties(
+                true,
+                "deepseek",
+                baseUrl(),
+                "deepseek-v4-flash",
+                "test-secret",
+                1000,
+                5000,
+                256,
+                0.3
+        );
+        List<String> deltas = new ArrayList<>();
+
+        client.streamJsonChat(properties, List.of(
+                new DeepSeekChatMessage("system", "Return json only."),
+                new DeepSeekChatMessage("user", "Output a JSON object.")
+        ), deltas::add, ignored -> {
+        });
+
+        assertThat(deltas).containsExactly("{\"title\":\"ok\"}");
+        JsonNode body = OBJECT_MAPPER.readTree(capturedRequest.body());
+        assertThat(body.get("response_format").get("type").asText()).isEqualTo("json_object");
+        assertThat(body.get("messages").get(0).get("content").asText()).contains("json");
     }
 
     @Test

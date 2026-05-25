@@ -7,10 +7,12 @@ import type {
   MatchRecordListOptions
 } from '../types/localDatabase'
 import type { GameDetail, MatchTimeline, MatchTimelineFetchResult } from '../types/api'
+import type { CoachSummaryOverview } from '../types/coachSummaryReport'
 import { stableStringify } from './aiAnalysisInputSnapshot.ts'
 
 export const COACH_SUMMARY_SCHEMA_VERSION = 'coach_summary.v1' as const
 export const COACH_SUMMARY_ANALYSIS_TYPE = 'coach_summary' as const
+export const COACH_SUMMARY_ANALYSIS_BRIEF_SCHEMA_VERSION = 'coach_summary_analysis_brief.v1' as const
 export const COACH_SUMMARY_REQUIRED_RANKED_MATCHES = 20
 export const COACH_SUMMARY_RANKED_QUEUE_IDS = [420, 440] as const
 export const COACH_SUMMARY_SGP_HYDRATION_DELAY_MS = 1200
@@ -18,7 +20,7 @@ export const COACH_SUMMARY_SGP_HYDRATION_RETRY_COUNT = 1
 export const COACH_SUMMARY_SGP_SUMMARY_PAGE_SIZE = 100
 
 const RANKED_MATCH_QUERY_LIMIT_PER_QUEUE = 80
-const OBJECTIVE_LOOKAHEAD_SECONDS = 120
+const OBJECTIVE_LOOKAHEAD_SECONDS = 60
 const BLUE_TEAM_ID = 100
 const RED_TEAM_ID = 200
 const COACH_SUMMARY_SGP_RETRY_BACKOFF_MS = 2400
@@ -33,13 +35,21 @@ export const COACH_SUMMARY_DEEPSEEK_PROMPT_GUARDRAILS = [
 ] as const
 
 const STABLE_CHAMPION_DICTIONARY: Record<number, CoachSummaryChampionDictionaryEntry> = {
+  43: { canonicalName: 'Karma', displayName: '卡尔玛' },
   59: { canonicalName: 'Jarvan IV', displayName: '嘉文四世' },
   76: { canonicalName: 'Nidalee', displayName: '奈德丽' },
+  89: { canonicalName: 'Leona', displayName: '蕾欧娜' },
   102: { canonicalName: 'Shyvana', displayName: '希瓦娜' },
   103: { canonicalName: 'Ahri', displayName: '阿狸' },
+  117: { canonicalName: 'Lulu', displayName: '璐璐' },
+  133: { canonicalName: 'Quinn', displayName: '奎因' },
   141: { canonicalName: 'Kayn', displayName: '凯隐' },
+  200: { canonicalName: "Bel'Veth", displayName: '卑尔维斯' },
   233: { canonicalName: 'Briar', displayName: '贝蕾亚' },
+  234: { canonicalName: 'Viego', displayName: '佛耶戈' },
   350: { canonicalName: 'Yuumi', displayName: '悠米' },
+  517: { canonicalName: 'Sylas', displayName: '塞拉斯' },
+  888: { canonicalName: 'Renata Glasc', displayName: '烈娜塔·戈拉斯克' },
   950: { canonicalName: 'Naafiri', displayName: '纳亚菲利' }
 }
 
@@ -138,6 +148,7 @@ export interface CoachSummaryInputSnapshot {
   }
   matches: CoachSummaryMatchDigest[]
   championDictionary: Record<string, CoachSummaryChampionDictionaryEntry>
+  analysisBrief: CoachSummaryAnalysisBrief
   dataQuality: CoachSummaryDataQuality
   metadata: {
     generatedInputAt: string
@@ -147,6 +158,27 @@ export interface CoachSummaryInputSnapshot {
     anchorMatchRefs: string[]
     source: 'local_sqlite'
   }
+}
+
+export interface CoachSummaryAnalysisBrief {
+  schemaVersion: 'coach_summary_analysis_brief.v1'
+  language: 'zh-CN'
+  text: string
+  overallState: CoachSummaryOverallStateSummary
+  overviewFacts: string[]
+  trendFacts: string[]
+  championFacts: string[]
+  roleFacts: string[]
+  matchFacts: string[]
+  dataQualityFacts: string[]
+}
+
+export type CoachSummaryOverallState = 'excellent' | 'good' | 'stable' | 'volatile' | 'struggling'
+
+export interface CoachSummaryOverallStateSummary {
+  state: CoachSummaryOverallState
+  label: string
+  reasons: string[]
 }
 
 export interface CoachSummaryChampionDictionaryEntry {
@@ -582,6 +614,7 @@ export async function buildCoachSummaryInputSnapshot({
   const latestMatchTimestamp = timestamps.length ? Math.max(...timestamps) : undefined
   const oldestMatchTimestamp = timestamps.length ? Math.min(...timestamps) : undefined
   const queueIds = uniqueSortedNumbers(selectedRecords.map(record => record.queueId))
+  const dataQuality = buildDataQuality(selectedRecords, digestResults, sgpHydration)
   const snapshotWithoutHash: Omit<CoachSummaryInputSnapshot, 'inputHash'> = {
     schemaVersion: COACH_SUMMARY_SCHEMA_VERSION,
     analysisType: COACH_SUMMARY_ANALYSIS_TYPE,
@@ -603,7 +636,15 @@ export async function buildCoachSummaryInputSnapshot({
     },
     matches,
     championDictionary: buildChampionDictionary(matches),
-    dataQuality: buildDataQuality(selectedRecords, digestResults, sgpHydration),
+    analysisBrief: buildCoachSummaryAnalysisBrief({
+      generatedInputAt,
+      matches,
+      queues: buildQueueSample(selectedRecords),
+      latestMatchTimestamp,
+      oldestMatchTimestamp,
+      dataQuality
+    }),
+    dataQuality,
     metadata: {
       generatedInputAt,
       ...(latestMatchTimestamp !== undefined ? { latestMatchTimestamp } : {}),
@@ -1602,19 +1643,20 @@ function parseMatchData(record: MatchRecord, detail: MatchDetail | null): Parsed
   const summaryInfo = toRecord(summary?.info)
   const detailInfo = toRecord(detailRecord?.info)
   const normalizedInfo = toRecord(normalizedDetail?.info)
-  const trustedDetail = isTrustedCoachSummaryDetail(detail, detailRecord, normalizedDetail)
-  const trustedTimeline = trustedDetail
+  const trustedParticipantDetail = isTrustedCoachSummaryParticipantDetail(detail, detailRecord, normalizedDetail)
+  const trustedTimelineSource = isTrustedCoachSummaryTimelineDetail(detail, detailRecord, normalizedDetail)
+  const trustedTimeline = trustedTimelineSource
     ? extractTimeline(detailRecord, detailInfo, normalizedDetail, normalizedInfo)
     : null
   const summaryTimeline = extractTimeline(summary, summaryInfo)
   const timeline = trustedTimeline ?? summaryTimeline
-  const trustedParticipants = trustedDetail ? firstRecordArray(
+  const trustedParticipants = trustedParticipantDetail ? firstRecordArray(
     detailRecord?.participants,
     detailInfo?.participants,
     normalizedDetail?.participants,
     normalizedInfo?.participants
   ) : []
-  const trustedIdentities = trustedDetail ? firstRecordArray(
+  const trustedIdentities = trustedParticipantDetail ? firstRecordArray(
     detailRecord?.participantIdentities,
     detailInfo?.participantIdentities,
     normalizedDetail?.participantIdentities,
@@ -1639,7 +1681,7 @@ function parseMatchData(record: MatchRecord, detail: MatchDetail | null): Parsed
   }
 }
 
-function isTrustedCoachSummaryDetail(
+function isTrustedCoachSummaryParticipantDetail(
   detail: MatchDetail | null,
   detailRecord: Record<string, unknown> | null,
   normalizedDetail: Record<string, unknown> | null
@@ -1665,12 +1707,53 @@ function isTrustedCoachSummaryDetail(
     normalizedDetail?.participants,
     normalizedInfo?.participants
   )
+  if (isRankpeekBackendSource(detail.source)) {
+    return participants.length > 0
+  }
   const timeline = extractTimeline(detailRecord, detailInfo, normalizedDetail, normalizedInfo)
   return participants.length > 0 && hasUsableTimeline(timeline)
 }
 
 function isSgpSource(source: string | null | undefined): boolean {
   return typeof source === 'string' && source.trim().toLowerCase().includes('sgp')
+}
+
+function isRankpeekBackendSource(source: string | null | undefined): boolean {
+  const normalized = typeof source === 'string' ? source.trim().toLowerCase() : ''
+  return normalized === 'rankpeek-backend'
+}
+
+function isTrustedCoachSummaryTimelineDetail(
+  detail: MatchDetail | null,
+  detailRecord: Record<string, unknown> | null,
+  normalizedDetail: Record<string, unknown> | null
+): boolean {
+  if (!detail) {
+    return false
+  }
+  const detailInfo = toRecord(detailRecord?.info)
+  const normalizedInfo = toRecord(normalizedDetail?.info)
+  const timeline = extractTimeline(detailRecord, detailInfo, normalizedDetail, normalizedInfo)
+  if (!hasUsableTimeline(timeline)) {
+    return false
+  }
+  if (isSgpSource(detail.source)) {
+    return true
+  }
+  const hydration = firstRecord(
+    toRecord(detailRecord?.coachSummaryHydration),
+    toRecord(normalizedDetail?.coachSummaryHydration)
+  )
+  if (firstString(hydration?.source)?.toLowerCase() === 'sgp') {
+    return true
+  }
+  const participants = firstRecordArray(
+    detailRecord?.participants,
+    detailInfo?.participants,
+    normalizedDetail?.participants,
+    normalizedInfo?.participants
+  )
+  return participants.length > 0
 }
 
 function hasTrustedParticipantDetail(parsed: ParsedMatchData, accountPuuid: string): boolean {
@@ -2324,6 +2407,520 @@ function buildRunes(stats: Record<string, unknown> | null): CoachSummaryMatchDig
   return selectedPerkIds.length || keystoneId !== null || result.primaryStyleId !== undefined || result.subStyleId !== undefined
     ? result
     : undefined
+}
+
+interface BuildCoachSummaryAnalysisBriefInput {
+  generatedInputAt: string
+  matches: CoachSummaryMatchDigest[]
+  queues: CoachSummaryInputSnapshot['sample']['queues']
+  latestMatchTimestamp?: number
+  oldestMatchTimestamp?: number
+  dataQuality: CoachSummaryDataQuality
+}
+
+interface CoachSummaryGroupAccumulator {
+  label: string
+  championId?: number
+  championCanonicalName?: string
+  games: number
+  wins: number
+  losses: number
+  kills: number
+  deaths: number
+  assists: number
+  kdaValues: number[]
+  laneGoldDiffAt15Values: number[]
+  killParticipationValues: number[]
+}
+
+function buildCoachSummaryAnalysisBrief({
+  generatedInputAt,
+  matches,
+  queues,
+  latestMatchTimestamp,
+  oldestMatchTimestamp,
+  dataQuality
+}: BuildCoachSummaryAnalysisBriefInput): CoachSummaryAnalysisBrief {
+  const overviewFacts = buildCoachSummaryOverviewFacts({
+    generatedInputAt,
+    matches,
+    queues,
+    latestMatchTimestamp,
+    oldestMatchTimestamp
+  })
+  const trendFacts = buildCoachSummaryTrendFacts(matches)
+  const championFacts = buildCoachSummaryChampionFacts(matches)
+  const roleFacts = buildCoachSummaryRoleFacts(matches)
+  const overallState = calculateCoachSummaryOverallState(matches)
+  const overallStateFacts = [
+    `整体状态：${overallState.label}。${overallState.reasons.join('；')}。`
+  ]
+  const matchFacts = matches.map(formatCoachSummaryMatchFact)
+  const dataQualityFacts = buildCoachSummaryDataQualityFacts(dataQuality, matches.length)
+  const sections = [
+    overallStateFacts,
+    overviewFacts,
+    trendFacts,
+    championFacts,
+    roleFacts,
+    matchFacts,
+    dataQualityFacts
+  ]
+    .filter(section => section.length > 0)
+    .map(section => section.join('\n'))
+
+  return {
+    schemaVersion: COACH_SUMMARY_ANALYSIS_BRIEF_SCHEMA_VERSION,
+    language: 'zh-CN',
+    text: sections.join('\n\n'),
+    overallState,
+    overviewFacts,
+    trendFacts,
+    championFacts,
+    roleFacts,
+    matchFacts,
+    dataQualityFacts
+  }
+}
+
+function buildCoachSummaryOverviewFacts({
+  generatedInputAt,
+  matches,
+  queues,
+  latestMatchTimestamp,
+  oldestMatchTimestamp
+}: Omit<BuildCoachSummaryAnalysisBriefInput, 'dataQuality'>): string[] {
+  const outcome = calculateCoachSummaryOutcome(matches)
+  const queueText = queues.length
+    ? queues.map(queue => `${formatQueueId(queue.queueId)}${queue.count}局`).join('、')
+    : '队列未知'
+  const dateRange = oldestMatchTimestamp !== undefined && latestMatchTimestamp !== undefined
+    ? `，时间范围${formatDateOnly(oldestMatchTimestamp)}到${formatDateOnly(latestMatchTimestamp)}`
+    : ''
+  const averageKda = averageNumber(matches.map(readMatchKdaRatio))
+  const primaryRoles = summarizeTopGroups(buildRoleGroups(matches), 3)
+  return [
+    `当前snapshot时间：${generatedInputAt}。样本：最近20局排位，${queueText}${dateRange}。`,
+    `整体表现：${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, outcome.wins + outcome.losses)}，平均KDA${formatNullableDecimal(averageKda)}，主要位置：${primaryRoles || '未知'}。`
+  ]
+}
+
+function buildCoachSummaryTrendFacts(matches: CoachSummaryMatchDigest[]): string[] {
+  const outcome = calculateCoachSummaryOutcome(matches)
+  const latestFive = matches.slice(0, 5)
+    .map(match => `${match.matchRef}${formatResultShort(match.result)}`)
+    .join('、')
+  const currentStreak = formatCurrentStreak(matches)
+  const averageGoldDiffAt15 = averageNumber(matches.map(match => match.laneDiff?.goldDiffAt15))
+  const resourceDeathCount = matches.reduce((total, match) => total + countDeathsBeforeObjective(match), 0)
+  return [
+    `最近20局走势：${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, outcome.wins + outcome.losses)}，${currentStreak}；最新5局：${latestFive || '暂无可用胜负'}。`,
+    `趋势证据：15分钟对位经济平均${formatSignedOrUnknown(averageGoldDiffAt15)}，资源前${OBJECTIVE_LOOKAHEAD_SECONDS}秒内死亡${resourceDeathCount}次。`
+  ]
+}
+
+function buildCoachSummaryChampionFacts(matches: CoachSummaryMatchDigest[]): string[] {
+  return summarizeGroupFacts(buildChampionGroups(matches), '英雄池')
+}
+
+function buildCoachSummaryRoleFacts(matches: CoachSummaryMatchDigest[]): string[] {
+  return summarizeGroupFacts(buildRoleGroups(matches), '位置')
+}
+
+function summarizeGroupFacts(groups: CoachSummaryGroupAccumulator[], prefix: string): string[] {
+  return groups
+    .sort(compareCoachSummaryGroups)
+    .slice(0, 5)
+    .map(group => {
+      const total = group.wins + group.losses
+      return `${prefix}：${group.label} ${group.games}局${group.wins}胜${group.losses}负，胜率${formatRate(group.wins, total)}，平均KDA${formatNullableDecimal(averageNumber(group.kdaValues))}，15分钟对位经济平均${formatSignedOrUnknown(averageNumber(group.laneGoldDiffAt15Values))}，参团率${formatNullablePercent(averageNumber(group.killParticipationValues))}。`
+    })
+}
+
+function formatCoachSummaryMatchFact(match: CoachSummaryMatchDigest): string {
+  const champion = formatChampionName(match)
+  const role = formatRoleName(match.self.position ?? match.self.lane ?? match.self.role)
+  const opponent = match.laneOpponent?.championName
+    ? `，对位${match.laneOpponent.championName}`
+    : ''
+  const metricParts = [
+    match.self.kdaText ? `KDA ${match.self.kdaText}` : '',
+    match.self.stats?.killParticipation !== undefined ? `参团率${formatPercent(match.self.stats.killParticipation)}` : '',
+    match.self.stats?.damageShare !== undefined ? `伤害占比${formatPercent(match.self.stats.damageShare)}` : '',
+    match.self.stats?.visionScore !== undefined ? `视野${formatNumber(match.self.stats.visionScore)}` : '',
+    match.self.stats?.csPerMin !== undefined ? `补刀${formatDecimal(match.self.stats.csPerMin)}/分` : ''
+  ].filter(Boolean)
+  const diffParts = [
+    match.laneDiff?.goldDiffAt10 !== undefined ? `10分钟对位经济${formatSignedInteger(match.laneDiff.goldDiffAt10)}` : '',
+    match.laneDiff?.goldDiffAt15 !== undefined ? `15分钟对位经济${formatSignedInteger(match.laneDiff.goldDiffAt15)}` : '',
+    match.economyTimeline?.teamGoldDiffAt15 !== undefined ? `15分钟团队经济${formatSignedInteger(match.economyTimeline.teamGoldDiffAt15)}` : ''
+  ].filter(Boolean)
+  const eventParts = [
+    match.events.objectives.length ? `参与样本资源事件${match.events.objectives.length}次` : '',
+    match.events.deaths.length ? `死亡${match.events.deaths.length}次` : '',
+    countDeathsBeforeObjective(match) > 0 ? `资源前死亡${countDeathsBeforeObjective(match)}次` : ''
+  ].filter(Boolean)
+  const factParts = [
+    `${match.matchRef} ${formatResult(match.result)}，${champion} ${role}${opponent}`,
+    ...metricParts,
+    ...diffParts,
+    ...eventParts
+  ]
+  return `${factParts.join('，')}。`
+}
+
+function buildCoachSummaryDataQualityFacts(dataQuality: CoachSummaryDataQuality, totalMatches: number): string[] {
+  const missingParts = [
+    dataQuality.missingParticipantDetailMatchRefs.length ? `缺详情${dataQuality.missingParticipantDetailMatchRefs.length}局` : '',
+    dataQuality.missingTimelineMatchRefs.length ? `缺timeline${dataQuality.missingTimelineMatchRefs.length}局` : '',
+    dataQuality.missingLaneOpponentMatchRefs.length ? `缺对位${dataQuality.missingLaneOpponentMatchRefs.length}局` : '',
+    dataQuality.missingEconomyDiffMatchRefs.length ? `缺经济差${dataQuality.missingEconomyDiffMatchRefs.length}局` : '',
+    dataQuality.missingRuneOrItemMatchRefs.length ? `缺符文或装备${dataQuality.missingRuneOrItemMatchRefs.length}局` : ''
+  ].filter(Boolean)
+  const hydration = dataQuality.sgpHydration
+    ? `SGP补全：尝试${dataQuality.sgpHydration.attempted ? '是' : '否'}，详情补全${dataQuality.sgpHydration.detailFetchedCount}局，timeline补全${dataQuality.sgpHydration.timelineFetchedCount}局，错误${dataQuality.sgpHydration.errors.length}条。`
+    : 'SGP补全：本次未记录补全摘要。'
+  return [
+    `数据质量：${formatConfidence(dataQuality.confidence)}，样本${totalMatches}局；${missingParts.length ? missingParts.join('、') : '关键详情、timeline、对位和经济差完整'}。`,
+    hydration
+  ]
+}
+
+export function buildCoachSummaryReportOverview(
+  snapshot: Pick<CoachSummaryInputSnapshot, 'matches' | 'analysisBrief'>
+): CoachSummaryOverview {
+  const matches = snapshot.matches
+  const outcome = calculateCoachSummaryOutcome(matches)
+  const total = outcome.wins + outcome.losses
+  const overallState = snapshot.analysisBrief?.overallState ?? calculateCoachSummaryOverallState(matches)
+  const primaryRoles = buildRoleGroups(matches)
+    .sort(compareCoachSummaryGroups)
+    .slice(0, 3)
+    .map(group => ({ role: group.label, count: group.games }))
+  const roleStats = buildRoleGroups(matches)
+    .sort(compareCoachSummaryGroups)
+    .slice(0, 5)
+    .map(group => ({
+      role: group.label,
+      games: group.games,
+      wins: group.wins,
+      losses: group.losses,
+      winRate: parseFloat(formatRateNumber(group.wins, group.wins + group.losses).toFixed(1))
+    }))
+  const heroStats = buildChampionGroups(matches)
+    .sort(compareCoachSummaryGroups)
+    .slice(0, 5)
+    .map(group => {
+      const heroStat = {
+        championDisplayName: group.label,
+        role: readMostCommonRoleForChampion(matches, group.label),
+        games: group.games,
+        wins: group.wins,
+        losses: group.losses,
+        winRate: parseFloat(formatRateNumber(group.wins, group.wins + group.losses).toFixed(1)),
+        averageKda: parseFloat((averageNumber(group.kdaValues) ?? 0).toFixed(1))
+      } as NonNullable<CoachSummaryOverview['heroStats']>[number]
+      if (group.championId !== undefined) {
+        heroStat.championId = group.championId
+      }
+      if (group.championCanonicalName) {
+        heroStat.championCanonicalName = group.championCanonicalName
+      }
+      return heroStat
+    })
+
+  return {
+    totalMatches: matches.length,
+    wins: outcome.wins,
+    losses: outcome.losses,
+    winRate: parseFloat(formatRateNumber(outcome.wins, total).toFixed(1)),
+    summary: `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, total)}，整体状态${overallState.label}。${overallState.reasons.join('；')}。`,
+    overallState: overallState.state,
+    overallStateLabel: overallState.label,
+    primaryRoles,
+    heroStats,
+    roleStats
+  }
+}
+
+export function buildCoachSummaryReportCardTitle(
+  snapshot: Pick<CoachSummaryInputSnapshot, 'matches' | 'analysisBrief'>
+): string {
+  const outcome = calculateCoachSummaryOutcome(snapshot.matches)
+  const state = snapshot.analysisBrief?.overallState ?? calculateCoachSummaryOverallState(snapshot.matches)
+  return `近20局${outcome.wins}胜，状态${state.label}`
+}
+
+function buildChampionGroups(matches: CoachSummaryMatchDigest[]): CoachSummaryGroupAccumulator[] {
+  const groups = new Map<string, CoachSummaryGroupAccumulator>()
+  for (const match of matches) {
+    const label = formatChampionName(match)
+    accumulateGroup(groups, label, match, {
+      championId: match.self.championId,
+      championCanonicalName: match.self.championCanonicalName
+    })
+  }
+  return Array.from(groups.values())
+}
+
+function buildRoleGroups(matches: CoachSummaryMatchDigest[]): CoachSummaryGroupAccumulator[] {
+  const groups = new Map<string, CoachSummaryGroupAccumulator>()
+  for (const match of matches) {
+    const label = formatRoleName(match.self.position ?? match.self.lane ?? match.self.role)
+    accumulateGroup(groups, label, match)
+  }
+  return Array.from(groups.values())
+}
+
+function accumulateGroup(
+  groups: Map<string, CoachSummaryGroupAccumulator>,
+  label: string,
+  match: CoachSummaryMatchDigest,
+  champion?: Pick<CoachSummaryGroupAccumulator, 'championId' | 'championCanonicalName'>
+): void {
+  const group = groups.get(label) ?? {
+    label,
+    games: 0,
+    wins: 0,
+    losses: 0,
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    kdaValues: [],
+    laneGoldDiffAt15Values: [],
+    killParticipationValues: []
+  }
+  if (group.championId === undefined && champion?.championId !== undefined) {
+    group.championId = champion.championId
+  }
+  if (!group.championCanonicalName && champion?.championCanonicalName) {
+    group.championCanonicalName = champion.championCanonicalName
+  }
+  group.games += 1
+  if (match.result === 'win') {
+    group.wins += 1
+  } else if (match.result === 'loss') {
+    group.losses += 1
+  }
+  group.kills += match.self.kills ?? 0
+  group.deaths += match.self.deaths ?? 0
+  group.assists += match.self.assists ?? 0
+  pushNumber(group.kdaValues, readMatchKdaRatio(match))
+  pushNumber(group.laneGoldDiffAt15Values, match.laneDiff?.goldDiffAt15)
+  pushNumber(group.killParticipationValues, match.self.stats?.killParticipation)
+  groups.set(label, group)
+}
+
+function compareCoachSummaryGroups(left: CoachSummaryGroupAccumulator, right: CoachSummaryGroupAccumulator): number {
+  if (right.games !== left.games) {
+    return right.games - left.games
+  }
+  if (right.wins !== left.wins) {
+    return right.wins - left.wins
+  }
+  return left.label.localeCompare(right.label, 'zh-CN')
+}
+
+function summarizeTopGroups(groups: CoachSummaryGroupAccumulator[], limit: number): string {
+  return groups
+    .sort(compareCoachSummaryGroups)
+    .slice(0, limit)
+    .map(group => `${group.label}${group.games}局`)
+    .join('、')
+}
+
+function calculateCoachSummaryOutcome(matches: CoachSummaryMatchDigest[]): { wins: number; losses: number; unknown: number } {
+  return {
+    wins: matches.filter(match => match.result === 'win').length,
+    losses: matches.filter(match => match.result === 'loss').length,
+    unknown: matches.filter(match => match.result === 'unknown').length
+  }
+}
+
+function calculateCoachSummaryOverallState(matches: CoachSummaryMatchDigest[]): CoachSummaryOverallStateSummary {
+  const outcome = calculateCoachSummaryOutcome(matches)
+  const decidedTotal = outcome.wins + outcome.losses
+  const winRate = decidedTotal > 0 ? outcome.wins / decidedTotal : 0
+  const latestFive = matches.slice(0, 5)
+  const latestFiveWins = latestFive.filter(match => match.result === 'win').length
+  const averageKda = averageNumber(matches.map(readMatchKdaRatio))
+  const reasons = [
+    `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, decidedTotal)}`,
+    `最近5局${latestFiveWins}胜${Math.max(0, latestFive.length - latestFiveWins)}负`,
+    averageKda === null ? '' : `平均KDA${formatDecimal(averageKda)}`
+  ].filter(Boolean)
+
+  if (winRate >= 0.68) {
+    return { state: 'excellent', label: '很好', reasons }
+  }
+  if (winRate >= 0.58 || (winRate >= 0.52 && latestFiveWins >= 3 && (averageKda ?? 0) >= 2.8)) {
+    return { state: 'good', label: '良好', reasons }
+  }
+  if (winRate >= 0.48) {
+    return { state: 'stable', label: '稳定', reasons }
+  }
+  if (winRate >= 0.4) {
+    return { state: 'volatile', label: '波动', reasons }
+  }
+  return { state: 'struggling', label: '低迷', reasons }
+}
+
+function readMostCommonRoleForChampion(matches: CoachSummaryMatchDigest[], championLabel: string): string {
+  const groups = new Map<string, number>()
+  for (const match of matches) {
+    if (formatChampionName(match) !== championLabel) {
+      continue
+    }
+    const role = formatRoleName(match.self.position ?? match.self.lane ?? match.self.role)
+    groups.set(role, (groups.get(role) ?? 0) + 1)
+  }
+  return Array.from(groups.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh-CN'))[0]?.[0] ?? '未知'
+}
+
+function readMatchKdaRatio(match: CoachSummaryMatchDigest): number | null {
+  if (match.self.kills === undefined || match.self.deaths === undefined || match.self.assists === undefined) {
+    return null
+  }
+  return match.self.deaths === 0
+    ? match.self.kills + match.self.assists
+    : (match.self.kills + match.self.assists) / match.self.deaths
+}
+
+function countDeathsBeforeObjective(match: CoachSummaryMatchDigest): number {
+  return match.events.deaths.filter(death => death.nearestUpcomingObjective !== undefined).length
+}
+
+function formatCurrentStreak(matches: CoachSummaryMatchDigest[]): string {
+  const first = matches[0]?.result
+  if (first !== 'win' && first !== 'loss') {
+    return '当前无明确连胜连败'
+  }
+  let count = 0
+  for (const match of matches) {
+    if (match.result !== first) {
+      break
+    }
+    count += 1
+  }
+  return `当前${first === 'win' ? '连胜' : '连败'}${count}局`
+}
+
+function formatQueueId(queueId: number): string {
+  if (queueId === 420) {
+    return '单双排'
+  }
+  if (queueId === 440) {
+    return '灵活排位'
+  }
+  return `队列${queueId}`
+}
+
+function formatChampionName(match: CoachSummaryMatchDigest): string {
+  return match.self.championDisplayName
+    || match.self.championCanonicalName
+    || match.self.championName
+    || (match.self.championId !== undefined ? `英雄${match.self.championId}` : '未知英雄')
+}
+
+function formatRoleName(value: unknown): string {
+  switch (normalizeText(value)) {
+    case 'TOP':
+      return '上路'
+    case 'JUNGLE':
+      return '打野'
+    case 'MIDDLE':
+    case 'MID':
+      return '中路'
+    case 'BOTTOM':
+    case 'BOT':
+    case 'DUO_CARRY':
+      return '下路'
+    case 'UTILITY':
+    case 'SUPPORT':
+    case 'DUO_SUPPORT':
+      return '辅助'
+    default:
+      return firstString(value) ?? '未知位置'
+  }
+}
+
+function formatResult(result: CoachSummaryMatchDigest['result']): string {
+  if (result === 'win') {
+    return '胜'
+  }
+  if (result === 'loss') {
+    return '负'
+  }
+  return '胜负未知'
+}
+
+function formatResultShort(result: CoachSummaryMatchDigest['result']): string {
+  return result === 'win' ? '胜' : result === 'loss' ? '负' : '未知'
+}
+
+function formatDateOnly(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10)
+}
+
+function formatConfidence(confidence: CoachSummaryDataQuality['confidence']): string {
+  if (confidence === 'high') {
+    return '高'
+  }
+  if (confidence === 'medium') {
+    return '中'
+  }
+  return '低'
+}
+
+function formatRate(count: number, total: number): string {
+  return total > 0 ? `${((count / total) * 100).toFixed(1)}%` : '未知'
+}
+
+function formatRateNumber(count: number, total: number): number {
+  return total > 0 ? (count / total) * 100 : 0
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`
+}
+
+function formatNullablePercent(value: number | null): string {
+  return value === null ? '未知' : formatPercent(value)
+}
+
+function formatNullableDecimal(value: number | null): string {
+  return value === null ? '未知' : formatDecimal(value)
+}
+
+function formatDecimal(value: number): string {
+  return value.toFixed(1)
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : formatDecimal(value)
+}
+
+function formatSignedInteger(value: number): string {
+  return `${value >= 0 ? '+' : ''}${Math.round(value)}`
+}
+
+function formatSignedOrUnknown(value: number | null): string {
+  return value === null ? '未知' : formatSignedInteger(value)
+}
+
+function averageNumber(values: Array<number | null | undefined>): number | null {
+  const numbers = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  if (!numbers.length) {
+    return null
+  }
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+}
+
+function pushNumber(target: number[], value: number | null | undefined): void {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    target.push(value)
+  }
 }
 
 function readModernRuneStyles(perks: Record<string, unknown> | null): {

@@ -1,23 +1,28 @@
 package io.rankpeek.server.analysis;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.rankpeek.server.ai.DeepSeekAiException;
 import io.rankpeek.server.ai.DeepSeekAiProperties;
 import io.rankpeek.server.ai.DeepSeekChatClient;
 import io.rankpeek.server.ai.DeepSeekChatMessage;
 import io.rankpeek.server.ai.DeepSeekTokenUsage;
+import io.rankpeek.server.analysis.coachsummary.CoachSummaryReport;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class DeepSeekAnalysisStreamer {
@@ -52,6 +57,29 @@ public class DeepSeekAnalysisStreamer {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         Thread.ofVirtual().start(() -> stream(emitter, buildPostgameMessages(request)));
         return emitter;
+    }
+
+    public CoachSummaryAnalysisResponse generateCoachSummary(CoachSummaryAnalysisRequest request) {
+        if (isBlank(request.systemPrompt()) || isBlank(request.userPrompt())) {
+            throw new DeepSeekAiException("Coach summary prompt is empty");
+        }
+
+        StringBuilder content = new StringBuilder();
+        AtomicReference<DeepSeekTokenUsage> usage = new AtomicReference<>();
+        chatClient.streamJsonChat(
+                properties,
+                List.of(
+                        new DeepSeekChatMessage("system", request.systemPrompt()),
+                        new DeepSeekChatMessage("user", request.userPrompt())
+                ),
+                content::append,
+                usage::set
+        );
+
+        return new CoachSummaryAnalysisResponse(
+                parseCoachSummaryReport(content.toString(), request, usage.get()),
+                usage.get()
+        );
     }
 
     private void stream(SseEmitter emitter, List<DeepSeekChatMessage> messages) {
@@ -354,6 +382,183 @@ public class DeepSeekAnalysisStreamer {
         } catch (JsonProcessingException exception) {
             return "{}";
         }
+    }
+
+    private Map<String, Object> parseCoachSummaryReport(
+            String rawContent,
+            CoachSummaryAnalysisRequest request,
+            DeepSeekTokenUsage usage
+    ) {
+        String json = extractJsonObject(rawContent);
+        ObjectNode root;
+        try {
+            JsonNode node = objectMapper.readTree(json);
+            node = unwrapCoachSummaryEnvelope(node);
+            if (!node.isObject()) {
+                throw new DeepSeekAiException("DeepSeek coach summary report is not a JSON object");
+            }
+            root = (ObjectNode) node;
+        } catch (JsonProcessingException exception) {
+            throw new DeepSeekAiException("DeepSeek coach summary report is not valid JSON", exception);
+        }
+
+        root.put("schemaVersion", CoachSummaryReport.SCHEMA_VERSION);
+        root.put("analysisType", CoachSummaryReport.ANALYSIS_TYPE);
+        root.put("inputHash", requireNonBlank(request.inputHash(), "Coach summary inputHash is empty"));
+        normalizeCoachSummaryTextFields(root);
+
+        ObjectNode metadata = readOrCreateObject(root, "metadata");
+        metadata.put("modelName", usage == null ? properties.model() : usage.model());
+        metadata.put("promptVersion", blankToDefault(request.promptVersion(), "coach_summary.prompt.v2"));
+        metadata.put("generatedAt", Instant.now().toString());
+        metadata.put("snapshotSchemaVersion", blankToDefault(request.snapshotSchemaVersion(), "coach_summary_input_snapshot.v1"));
+        metadata.put("dataQualityConfidence", normalizeConfidence(request.dataQualityConfidence()));
+
+        requireTextField(root, "title");
+        requireTextField(root, "summary");
+        normalizeCoachSummaryVerdict(root, request);
+        if (!root.path("verdict").isObject()) {
+            throw new DeepSeekAiException("DeepSeek coach summary report missing verdict");
+        }
+        ensureArrayField(root, "keyFindings");
+        ensureArrayField(root, "trainingPlan");
+        ensureArrayField(root, "championAdvice");
+        ensureArrayField(root, "chartBlocks");
+        ensureArrayField(root, "warnings");
+
+        return objectMapper.convertValue(root, new TypeReference<>() {
+        });
+    }
+
+    private static JsonNode unwrapCoachSummaryEnvelope(JsonNode node) {
+        if (!node.isObject() || hasCoachSummaryShape(node)) {
+            return node;
+        }
+        for (String fieldName : List.of("report", "result", "data")) {
+            JsonNode child = node.path(fieldName);
+            if (child.isObject() && hasCoachSummaryShape(child)) {
+                return child;
+            }
+        }
+        return node;
+    }
+
+    private static boolean hasCoachSummaryShape(JsonNode node) {
+        return !readFirstText(node, "title", "headline", "reportTitle", "summary").isBlank()
+                || node.path("verdict").isObject();
+    }
+
+    private static void normalizeCoachSummaryTextFields(ObjectNode root) {
+        putTextIfMissing(root, "title",
+                readFirstText(root, "headline", "reportTitle", "name", "topic"));
+        if (isBlank(readText(root, "title"))) {
+            JsonNode verdict = root.path("verdict");
+            putTextIfMissing(root, "title", readFirstText(verdict, "label", "title"));
+        }
+        putTextIfMissing(root, "summary",
+                readFirstText(root, "overview", "abstract", "finalSummary"));
+        if (isBlank(readText(root, "summary"))) {
+            JsonNode verdict = root.path("verdict");
+            putTextIfMissing(root, "summary", readFirstText(verdict, "summary", "label"));
+        }
+    }
+
+    private static void putTextIfMissing(ObjectNode root, String fieldName, String value) {
+        if (!isBlank(readText(root, fieldName)) || isBlank(value)) {
+            return;
+        }
+        root.put(fieldName, value.trim());
+    }
+
+    private static void normalizeCoachSummaryVerdict(ObjectNode root, CoachSummaryAnalysisRequest request) {
+        ObjectNode verdict = readOrCreateObject(root, "verdict");
+        putTextIfMissing(verdict, "label", readText(root, "title"));
+        if (!verdict.path("score").canConvertToInt()) {
+            verdict.put("score", 50);
+        }
+        String confidence = normalizeConfidence(readText(verdict, "confidence"));
+        if (confidence.equals("medium") && isBlank(readText(verdict, "confidence"))) {
+            confidence = normalizeConfidence(request.dataQualityConfidence());
+        }
+        verdict.put("confidence", confidence);
+        putTextIfMissing(verdict, "summary", readText(root, "summary"));
+    }
+
+    private static String readFirstText(JsonNode node, String... fieldNames) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        for (String fieldName : fieldNames) {
+            String value = readText(node, fieldName);
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static ObjectNode readOrCreateObject(ObjectNode root, String fieldName) {
+        JsonNode existing = root.get(fieldName);
+        if (existing instanceof ObjectNode objectNode) {
+            return objectNode;
+        }
+        return root.putObject(fieldName);
+    }
+
+    private static void ensureArrayField(ObjectNode root, String fieldName) {
+        if (!root.path(fieldName).isArray()) {
+            root.putArray(fieldName);
+        }
+    }
+
+    private static void requireTextField(ObjectNode root, String fieldName) {
+        if (!root.path(fieldName).isTextual() || root.path(fieldName).asText().isBlank()) {
+            throw new DeepSeekAiException("DeepSeek coach summary report missing " + fieldName);
+        }
+    }
+
+    private static String extractJsonObject(String rawContent) {
+        String trimmed = nullToEmpty(rawContent);
+        if (trimmed.isBlank()) {
+            throw new DeepSeekAiException("DeepSeek coach summary report is empty");
+        }
+
+        if (trimmed.startsWith("```")) {
+            int firstLineEnd = trimmed.indexOf('\n');
+            int lastFence = trimmed.lastIndexOf("```");
+            if (firstLineEnd >= 0 && lastFence > firstLineEnd) {
+                trimmed = trimmed.substring(firstLineEnd + 1, lastFence).trim();
+            }
+        }
+
+        int start = trimmed.indexOf('{');
+        int end = trimmed.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            throw new DeepSeekAiException("DeepSeek coach summary report does not contain JSON");
+        }
+        return trimmed.substring(start, end + 1);
+    }
+
+    private static String normalizeConfidence(String value) {
+        return switch (nullToEmpty(value).toLowerCase()) {
+            case "high", "medium", "low" -> nullToEmpty(value).toLowerCase();
+            default -> "medium";
+        };
+    }
+
+    private static String requireNonBlank(String value, String message) {
+        if (isBlank(value)) {
+            throw new DeepSeekAiException(message);
+        }
+        return value.trim();
+    }
+
+    private static String blankToDefault(String value, String fallback) {
+        return isBlank(value) ? fallback : value.trim();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static Set<String> readSelectedPlayerKeys(PregameAnalysisRequest request) {

@@ -30,13 +30,6 @@ const SAVED_POSTGAME_REPLAY_COMMA_DELAY_MS = 80
 const SAVED_POSTGAME_REPLAY_MIN_STEPS = 60
 const SAVED_POSTGAME_REPLAY_MAX_STEPS = 140
 
-interface FeatureCard {
-  key: string
-  title: string
-  positioning: string
-  tags: string[]
-}
-
 const gameStore = useGameStore()
 const router = useRouter()
 // Future server AI final results should be saved through saveServerAiFinalResultToLocal()
@@ -148,47 +141,6 @@ const reportTypeTabs = computed<Array<{ key: ReportTypeFilter; label: string; co
     key: 'coach',
     label: t('aiAnalysis.featureCoach'),
     count: countReportsByCategory('coach')
-  }
-])
-
-const featureCards = computed<FeatureCard[]>(() => [
-  {
-    key: 'pre-game',
-    title: t('aiAnalysis.featurePreGame'),
-    positioning: t('aiAnalysis.preGamePositioning'),
-    tags: [
-      t('aiAnalysis.tagTeammates'),
-      t('aiAnalysis.tagRiskTips'),
-      t('aiAnalysis.tagOpponentThreat')
-    ]
-  },
-  {
-    key: 'post-game',
-    title: t('aiAnalysis.featurePostGame'),
-    positioning: t('aiAnalysis.postGamePositioning'),
-    tags: [
-      t('aiAnalysis.tagFromStrongToWeak'),
-      t('aiAnalysis.tagSingleGameReview')
-    ]
-  },
-  {
-    key: 'praise',
-    title: t('aiAnalysis.featurePraise'),
-    positioning: t('aiAnalysis.praisePositioning'),
-    tags: [
-      t('aiAnalysis.tagPraise'),
-      t('aiAnalysis.tagEmotionalValue'),
-      t('aiAnalysis.tagEntertainment')
-    ]
-  },
-  {
-    key: 'coach',
-    title: t('aiAnalysis.featureCoach'),
-    positioning: t('aiAnalysis.coachPositioning'),
-    tags: [
-      t('aiAnalysis.tagRecent20'),
-      t('aiAnalysis.tagChampionPool')
-    ]
   }
 ])
 
@@ -721,26 +673,6 @@ async function refreshLocalAnalysisResults() {
 
     <p v-if="placeholderNotice" class="notice-line">{{ placeholderNotice }}</p>
 
-    <section class="feature-section">
-      <div class="feature-grid">
-        <article
-          v-for="card in featureCards"
-          :key="card.key"
-          class="feature-card"
-        >
-          <div class="feature-copy">
-            <div class="feature-title-row">
-              <h2>{{ card.title }}</h2>
-            </div>
-            <p class="feature-positioning">{{ card.positioning }}</p>
-          </div>
-          <div class="tag-list" aria-label="feature tags">
-            <span v-for="tag in card.tags" :key="tag">{{ tag }}</span>
-          </div>
-        </article>
-      </div>
-    </section>
-
     <section class="ai-memory-section">
       <div class="section-heading memory-heading">
         <span>{{ t('aiAnalysis.memoryTitle') }}</span>
@@ -1003,7 +935,6 @@ async function refreshLocalAnalysisResults() {
 
 .hero-panel,
 .status-card,
-.feature-card,
 .empty-card,
 .memory-card {
   background: var(--bg-secondary);
@@ -1015,8 +946,6 @@ async function refreshLocalAnalysisResults() {
 
 .hero-panel:hover,
 .hero-panel:focus-within,
-.feature-card:hover,
-.feature-card:focus-within,
 .empty-card:hover,
 .empty-card:focus-within {
   border-color: var(--ai-analysis-module-hover-border);
@@ -1142,7 +1071,6 @@ async function refreshLocalAnalysisResults() {
   font-weight: 600;
 }
 
-.feature-section,
 .ai-memory-section,
 .history-section {
   margin-top: 24px;
@@ -1171,21 +1099,6 @@ async function refreshLocalAnalysisResults() {
   text-transform: none;
 }
 
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.feature-card {
-  min-height: 132px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 18px;
-}
-
-.feature-copy h2,
 .empty-card h2 {
   margin: 0;
   color: var(--text-primary);
@@ -1194,37 +1107,12 @@ async function refreshLocalAnalysisResults() {
   letter-spacing: 0;
 }
 
-.feature-copy h2 {
-  font-size: 17px;
-}
-
-.feature-positioning {
-  margin: 8px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.feature-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
 .empty-card p {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.55;
 }
 
-.tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.tag-list span,
 .report-type-pill {
   display: inline-flex;
   align-items: center;
@@ -1596,7 +1484,6 @@ async function refreshLocalAnalysisResults() {
 }
 
 @media (max-width: 1120px) {
-  .feature-grid,
   .memory-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1629,7 +1516,6 @@ async function refreshLocalAnalysisResults() {
     flex-wrap: wrap;
   }
 
-  .feature-grid,
   .memory-stats-grid {
     grid-template-columns: 1fr;
   }

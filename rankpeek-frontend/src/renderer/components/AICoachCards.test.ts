@@ -12,8 +12,23 @@ test('coach cards use report headline fallback fields while preserving open-repo
   assert.match(source, /shortTitle\?: string/)
   assert.match(source, /getCoachReportHeadline\(\{ report \}\)/)
   assert.match(source, /emit\('open-report', activeReportForEmit\.value, activeIndex\.value\)/)
-  assert.match(source, /activeReport\.value\?\.isDevPlaceholder \? null : activeReport\.value/)
-  assert.doesNotMatch(source, /dev-preview|CoachSummaryReport/)
+  assert.match(source, /const activeReportForEmit = computed<CoachReport \| null>\(\(\) => activeReport\.value\)/)
+  assert.doesNotMatch(source, /dev-preview|CoachSummaryReport|isDevPlaceholder/)
+})
+
+test('coach cards do not render fake placeholder reports when there are no records', () => {
+  const source = readFileSync(new URL('./AICoachCards.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(source, /DEV_PLACEHOLDER_REPORTS/)
+  assert.doesNotMatch(source, /hasDevPlaceholders/)
+  assert.doesNotMatch(source, /using-dev-placeholders/)
+  assert.doesNotMatch(source, /涓湡璧勬簮鍥㈠け璇|中期资源团/)
+  assert.match(source, /v-if="hasDisplayReports"/)
+  assert.match(source, /<div v-else class="record-preview record-preview-empty">/)
+  assert.match(source, /使用电子教练生成第一份报告。/)
+  assert.match(source, /class="record-main-card record-placeholder-card"/)
+  assert.match(source, /<div v-if="hasDisplayReports" class="record-controls"/)
+  assert.doesNotMatch(source, /placeholder-\$\{index\}/)
 })
 
 test('coach cards build a vertical decorative deck behind the active report', () => {

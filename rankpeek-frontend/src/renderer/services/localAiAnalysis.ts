@@ -339,11 +339,32 @@ export function getCoachReportHeadline({
     getStringField(reportRecord, 'headline'),
     getStringField(reportRecord, 'cardTitle'),
     getStringField(reportRecord, 'shortTitle'),
-    getNestedString(reportRecord, 'verdict', 'label'),
-    truncateHeadline(getStringField(reportRecord, 'title') || '')
+    readUsefulVerdictLabel(reportRecord),
+    truncateHeadline(readNonGenericCoachTitle(reportRecord)),
+    truncateHeadline(getStringField(reportRecord, 'summary'))
   ].filter((item): item is string => Boolean(item))
 
   return candidates[0] || COACH_HEADLINE_FALLBACK
+}
+
+function readNonGenericCoachTitle(reportRecord: Record<string, unknown>): string {
+  const title = getStringField(reportRecord, 'title')
+  if (!title || /^RankPeek\s*训练报告\s*#?\d*$/i.test(title.trim())) {
+    return ''
+  }
+  return title
+}
+
+function readUsefulVerdictLabel(reportRecord: Record<string, unknown>): string {
+  const label = getNestedString(reportRecord, 'verdict', 'label')
+  if (!label) {
+    return ''
+  }
+  return isGradeLikeCoachVerdict(label) ? '' : label
+}
+
+function isGradeLikeCoachVerdict(value: string): boolean {
+  return /^[A-D][+-]?$/i.test(value.trim()) || /^S[+-]?$/i.test(value.trim())
 }
 
 export function getCoachReportFinalSentence(report: unknown): string {
@@ -599,7 +620,11 @@ function truncate(value: string): string {
   return `${compact.slice(0, SUMMARY_LIMIT - 3)}...`
 }
 
-function truncateHeadline(value: string): string {
+function truncateHeadline(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
   const compact = value.replace(/\s+/g, ' ').trim()
   if (!compact) {
     return ''
@@ -681,6 +706,8 @@ function normalizeOverview(value: unknown): CoachSummaryReportV1['overview'] | u
   if (winRate !== null) {
     overview.winRate = winRate
   }
+  copyOptionalString(value, overview, 'overallState')
+  copyOptionalString(value, overview, 'overallStateLabel')
   if (primaryRoles.length) {
     overview.primaryRoles = primaryRoles
   }

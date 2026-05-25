@@ -9,7 +9,8 @@ test('coach summary report modal exposes accessible dialog structure and close c
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.match(source, /import CoachSummaryReportContent from '@\/components\/CoachSummaryReportContent\.vue'/)
-  assert.match(source, /getCoachReportFinalSentence/)
+  assert.match(source, /getCoachReportHeadline/)
+  assert.doesNotMatch(source, /getCoachReportFinalSentence/)
   assert.match(source, /role="dialog"/)
   assert.match(source, /aria-modal="true"/)
   assert.match(source, /aria-label="关闭/)
@@ -49,7 +50,7 @@ test('coach summary report modal supports arrow keys without replacing escape cl
   assert.match(source, /emitNext\(\)/)
 })
 
-test('coach summary report modal header only shows the final AI sentence', () => {
+test('coach summary report modal header uses the report headline instead of final negative summary', () => {
   const source = readFileSync(modalUrl, 'utf8')
 
   assert.doesNotMatch(source, /AI 复盘报告/)
@@ -58,7 +59,9 @@ test('coach summary report modal header only shows the final AI sentence', () =>
   assert.match(source, /coach-report-modal-final-sentence/)
   assert.match(source, /class="coach-report-modal-final-sentence ai-report-prose"/)
   assert.match(source, /<h2 id="coach-report-modal-title" class="coach-report-modal-final-sentence ai-report-prose">\{\{ finalSentence \}\}<\/h2>/)
+  assert.match(source, /getCoachReportHeadline\(\{ report: props\.report \}\)/)
   assert.match(source, /\.coach-report-modal-final-sentence\.ai-report-prose\s*\{[\s\S]*font-family:\s*"Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif/)
+  assert.match(source, /\.coach-report-modal-title h2\s*\{[\s\S]*font-size:\s*30px/)
   assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"Noto Serif SC"/)
   assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"Source Han Serif SC"/)
   assert.match(source, /\.ai-report-prose\s*\{[\s\S]*"Songti SC"/)

@@ -12,13 +12,23 @@ import {
   loadFortuneRecord,
   saveFortuneRecord
 } from '@/utils/homeInsights'
-import { prepareCoachSummaryGeneration } from '@/services/coachSummaryInputSnapshot'
+import {
+  buildCoachSummaryReportCardTitle,
+  buildCoachSummaryReportOverview,
+  prepareCoachSummaryGeneration
+} from '@/services/coachSummaryInputSnapshot'
+import { buildCoachSummaryPromptPayload } from '@/services/coachSummaryPrompt'
+import {
+  generateCoachSummaryReport,
+  type CoachSummaryAiTokenUsage
+} from '@/services/coachSummaryAiClient'
 import {
   getCoachReportHeadline,
   loadLocalAiAnalysisResults,
   parseCoachSummaryReportOutput,
   type LocalAiAnalysisDisplayResult
 } from '@/services/localAiAnalysis'
+import { estimatePostgameAiTokenCostCny } from '@/services/postgameAiServerStream'
 import { DEV_COACH_SUMMARY_REPORT_PREVIEW } from '@/services/coachSummaryReportPreview'
 import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { t } from '@/i18n'
@@ -179,11 +189,14 @@ const DIVISION_CN_MAP: Record<string, string> = {
 const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
 const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
 const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
-const AI_COACH_READY_NOTICE = '电子教练数据已准备完成，等待 AI 服务接入。'
 const AI_COACH_ACCOUNT_MISSING_NOTICE = '当前账号未识别，请先连接并刷新客户端账号。'
 const AI_COACH_LOCAL_DATA_ERROR_NOTICE = '本地数据暂不可用，无法准备电子教练数据。'
+const AI_COACH_LOCAL_SAVE_ERROR_NOTICE = '电子教练报告保存失败，请稍后重试。'
 
 const AI_COACH_PREPARING_NOTICE = '正在准备最近 20 局排位数据...'
+const AI_COACH_GENERATING_NOTICE = '正在调用电子教练 AI...'
+const AI_COACH_GENERATED_NOTICE = '电子教练报告已生成。'
+const AI_COACH_SERVER_ERROR_NOTICE = '电子教练 AI 调用失败，请确认 rankpeek-server 已连接真实 AI 服务。'
 const AI_COACH_PARTIAL_TIMELINE_NOTICE = '部分对局时间线拉取失败，报告数据质量可能较低。'
 
 const AI_COACH_SNAPSHOT_INTEGRITY_FAILED_NOTICE = '电子教练数据校验失败，请刷新战绩后重试'
@@ -324,6 +337,10 @@ interface OpenCoachReportModalOptions {
   createdAt?: string | null
 }
 
+interface AutoAnalysisRunOptions {
+  force?: boolean
+}
+
 type RankBadgeKey = 'solo' | 'flex'
 
 const autoAnalysis = ref<AutoAnalysisSettings>({ enabled: false })
@@ -339,6 +356,7 @@ const coachReportError = ref('')
 const coachReportCreatedAt = ref<string | null>(null)
 const coachReportPreview = ref(false)
 let coachReportRequestSerial = 0
+let lastAutoAnalysisAttemptKey = ''
 
 const fortuneRecord = ref<FortuneRecord>({ history: [] })
 const currentFortune = ref<Fortune | null>(null)
@@ -405,7 +423,7 @@ const slotReelItems = computed(() => {
 
 onMounted(() => {
   void gameStore.checkConnection()
-  loadLocalHomeState()
+  void loadLocalHomeState()
   window.addEventListener('pointermove', updatePageGlow)
   window.addEventListener('blur', resetPageGlow)
   document.addEventListener('mouseleave', resetPageGlow)
@@ -420,16 +438,23 @@ onBeforeUnmount(() => {
 })
 
 watch(accountKey, () => {
-  loadLocalHomeState()
+  void loadLocalHomeState()
 })
 
-function loadLocalHomeState() {
+watch(accountConnected, (connected) => {
+  if (connected) {
+    void maybeRunAutoAnalysis('load')
+  }
+})
+
+async function loadLocalHomeState() {
   const key = accountKey.value
   autoAnalysis.value = loadAutoAnalysisSettings(key)
   fortuneRecord.value = loadFortuneRecord(key)
   currentFortune.value = getCurrentFortune(fortuneRecord.value)
   coachNotice.value = ''
-  void refreshLocalCoachReports()
+  await refreshLocalCoachReports()
+  void maybeRunAutoAnalysis('load')
 }
 
 async function refreshLocalCoachReports() {
@@ -631,10 +656,67 @@ async function runAnalysis() {
     })
     if (result.status === 'ready') {
       console.info('RankPeek coach_summary input snapshot ready:', result.snapshot)
+      const promptPayload = buildCoachSummaryPromptPayload({
+        snapshot: result.snapshot,
+        historicalCoachContext: buildCoachSummaryHistoricalContext()
+      })
+      console.info('RankPeek coach_summary prompt payload ready:', promptPayload)
+      setCoachProgressNotice(AI_COACH_GENERATING_NOTICE)
+      const aiResult = await generateCoachSummaryReport({
+        inputHash: result.snapshot.inputHash,
+        snapshotSchemaVersion: result.snapshot.schemaVersion,
+        dataQualityConfidence: result.snapshot.dataQuality.confidence,
+        promptPayload
+      })
+      if (!aiResult.ok) {
+        console.warn('Failed to generate coach_summary report:', aiResult.message)
+        showCoachNotice(`${AI_COACH_SERVER_ERROR_NOTICE} ${aiResult.message}`)
+        return
+      }
+
+      const reportWithLocalOverview = {
+        ...aiResult.report,
+        overview: buildCoachSummaryReportOverview(result.snapshot),
+        cardTitle: aiResult.report.cardTitle || buildCoachSummaryReportCardTitle(result.snapshot)
+      }
+      const parsed = parseCoachSummaryReportOutput(JSON.stringify(reportWithLocalOverview))
+      if (parsed.status !== 'parsed' || !parsed.report) {
+        console.warn('Failed to parse generated coach_summary report:', parsed.error)
+        showCoachNotice('电子教练报告格式异常，请稍后重试。')
+        return
+      }
+
+      const database = window.electronAPI?.database
+      if (!database) {
+        showCoachNotice(AI_COACH_LOCAL_SAVE_ERROR_NOTICE)
+        return
+      }
+
+      const report = addCoachSummaryUsageMetadata(parsed.report, aiResult.usage)
+      const saved = await database.saveAnalysisResult({
+        accountPuuid: puuid,
+        analysisType: 'coach_summary',
+        subjectKey: `coach_summary:${result.snapshot.inputHash}`,
+        modelName: report.metadata.modelName,
+        promptVersion: report.metadata.promptVersion,
+        inputHash: result.snapshot.inputHash,
+        outputJson: report
+      })
+      if (!saved.success) {
+        console.warn('Failed to save coach_summary report:', saved.error)
+        showCoachNotice(AI_COACH_LOCAL_SAVE_ERROR_NOTICE)
+        return
+      }
+
+      await refreshLocalCoachReports()
+      activeCoachReportIndex.value = 0
+      openCoachReportModal(report, {
+        createdAt: saved.data.createdAt
+      })
       showCoachNotice(
         (result.snapshot.dataQuality.sgpHydration?.errors.length ?? 0) > 0
-          ? AI_COACH_PARTIAL_TIMELINE_NOTICE
-          : AI_COACH_READY_NOTICE
+          ? `${AI_COACH_GENERATED_NOTICE} ${AI_COACH_PARTIAL_TIMELINE_NOTICE}`
+          : AI_COACH_GENERATED_NOTICE
       )
       return
     }
@@ -654,11 +736,86 @@ async function runAnalysis() {
   }
 }
 
+function buildCoachSummaryHistoricalContext(): string {
+  if (coachReports.value.length === 0) {
+    return ''
+  }
+
+  return coachReports.value
+    .slice(0, 3)
+    .map((report, index) => {
+      const parts = [
+        `历史报告 ${index + 1}`,
+        report.meta ? `时间：${report.meta}` : '',
+        report.title ? `标题：${report.title}` : '',
+        report.detail || report.body ? `结论：${report.detail || report.body}` : ''
+      ].filter(Boolean)
+      return parts.join('；')
+    })
+    .join('\n')
+}
+
+function addCoachSummaryUsageMetadata(
+  report: CoachSummaryReportV1,
+  usage: CoachSummaryAiTokenUsage | undefined
+): CoachSummaryReportV1 {
+  if (!usage) {
+    return report
+  }
+
+  const promptCacheHitTokens = usage.promptCacheHitTokens ?? 0
+  const normalizedUsage = {
+    ...usage,
+    promptCacheHitTokens,
+    promptCacheMissTokens: usage.promptCacheMissTokens ?? Math.max(0, usage.promptTokens - promptCacheHitTokens)
+  }
+  const costCny = estimatePostgameAiTokenCostCny(normalizedUsage)
+  console.info('RankPeek coach_summary token usage:', {
+    usage: normalizedUsage,
+    costCny
+  })
+
+  return {
+    ...report,
+    metadata: {
+      ...report.metadata,
+      tokenUsage: normalizedUsage,
+      costCny
+    }
+  } as CoachSummaryReportV1
+}
+
+function buildAutoAnalysisAttemptKey(): string {
+  const puuid = currentSummoner.value?.puuid?.trim() || accountKey.value
+  const latestReportId = coachReports.value[0]?.id ?? 'none'
+  return `${puuid}:${latestReportId}`
+}
+
+async function maybeRunAutoAnalysis(reason: 'load' | 'toggle', options: AutoAnalysisRunOptions = {}) {
+  if (!autoAnalysis.value.enabled || !accountConnected.value || coachAnalysisBusy.value) {
+    return
+  }
+
+  const attemptKey = buildAutoAnalysisAttemptKey()
+  if (!options.force && lastAutoAnalysisAttemptKey === attemptKey) {
+    return
+  }
+
+  lastAutoAnalysisAttemptKey = attemptKey
+  console.info('RankPeek coach_summary auto analysis triggered:', { reason, attemptKey })
+  await runAnalysis()
+}
+
 function toggleAutoAnalysis() {
   autoAnalysis.value = {
     enabled: !autoAnalysis.value.enabled
   }
   saveAutoAnalysisSettings(accountKey.value, autoAnalysis.value)
+  lastAutoAnalysisAttemptKey = ''
+  if (autoAnalysis.value.enabled) {
+    void maybeRunAutoAnalysis('toggle', { force: true })
+    return
+  }
   showCoachNotice()
 }
 

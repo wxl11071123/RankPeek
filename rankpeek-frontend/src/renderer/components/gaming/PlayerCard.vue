@@ -1,14 +1,7 @@
 <template>
   <article
     class="player-card"
-    :class="[teamClass, statusClass, { loading: sessionSummoner.isLoading }, { selected }]"
-    role="button"
-    tabindex="0"
-    :aria-pressed="selected ? 'true' : 'false'"
-    :aria-label="cardAriaLabel"
-    @click="onCardSelect"
-    @keydown.enter.prevent="onCardSelect"
-    @keydown.space.prevent="onCardSelect"
+    :class="[teamClass, statusClass, { loading: sessionSummoner.isLoading }]"
   >
     <div v-if="sessionSummoner.isLoading" class="skeleton">
       <div class="avatar-skeleton"></div>
@@ -23,25 +16,31 @@
         <div class="avatar-wrap">
           <img v-if="avatarUrl" :src="avatarUrl" class="avatar" alt="" @error="markAssetLoadFailed" />
           <span v-else class="avatar avatar-fallback"></span>
-          <span v-if="sessionSummoner.preGroupMarkers?.name" class="pregroup-badge">
-            {{ sessionSummoner.preGroupMarkers.name }}
-          </span>
         </div>
 
         <div class="player-copy">
-          <button
-            v-if="canNavigateToSummonerLookup"
-            class="player-id"
-            type="button"
-            :title="summonerLookupName"
-            :aria-label="`查询 ${summonerLookupName} 战绩`"
-            @click.stop="navigateToSummonerLookup"
-            @keydown.enter.stop
-            @keydown.space.stop
-          >
-            {{ playerIdText }}
-          </button>
-          <span v-else class="player-id player-id-text">{{ playerIdText }}</span>
+          <div class="player-id-row">
+            <button
+              v-if="canNavigateToSummonerLookup"
+              class="player-id"
+              type="button"
+              :title="summonerLookupName"
+              :aria-label="`查询 ${summonerLookupName} 战绩`"
+              @click.stop="navigateToSummonerLookup"
+              @keydown.enter.stop
+              @keydown.space.stop
+            >
+              {{ playerIdText }}
+            </button>
+            <span v-else class="player-id player-id-text">{{ playerIdText }}</span>
+            <span
+              v-if="sessionSummoner.preGroupMarkers?.name"
+              class="pregroup-badge"
+              :class="sessionSummoner.preGroupMarkers.type ? `type-${sessionSummoner.preGroupMarkers.type}` : ''"
+            >
+              {{ sessionSummoner.preGroupMarkers.name }}
+            </span>
+          </div>
 
           <div class="meta-row">
             <div class="tier-row">
@@ -110,7 +109,12 @@
 
       <template v-else>
         <div class="scout-metrics" aria-label="侦察指标">
-          <span v-if="hasChampionRecentData" class="metric-scope">本英雄</span>
+          <span
+            v-if="hasChampionRecentData"
+            class="metric-scope"
+            title="当前英雄数据"
+            aria-label="当前英雄数据"
+          >当前英雄</span>
           <span class="metric-item">
             <span>KDA</span>
             <strong :class="kdaTone">{{ kdaText }}</strong>
@@ -132,6 +136,15 @@
           </span>
         </div>
       </template>
+
+      <div v-if="hasAiInlineContent" class="player-ai-insight" :class="aiInlineToneClass">
+        <template v-if="props.aiInsight">
+          <span class="player-ai-label">{{ props.aiInsight.label }}</span>
+          <span class="player-ai-text">{{ props.aiInsight.text }}</span>
+        </template>
+        <span v-else-if="props.aiLoading" class="player-ai-text">AI 分析中...</span>
+        <span v-else-if="props.aiError" class="player-ai-text">{{ props.aiError }}</span>
+      </div>
     </template>
 
     <div v-else class="empty-state">
@@ -145,6 +158,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { QueueInfo, RankTag, RecordStatus, SessionSummoner } from '@/types/api'
+import type { GamingAiPlayerInsightEvent } from '@/services/gamingAiServerStream'
 import { getLatestChampionMeta, type CnChampionMeta } from '@/services/rankpeekServerClient'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import { formatRankDivisionLabel } from '@/utils/rankDisplay'
@@ -166,12 +180,11 @@ const props = defineProps<{
   sessionSummoner: SessionSummoner
   team?: 'blue' | 'red'
   isGameInProgress?: boolean
-  selected?: boolean
+  aiInsight?: GamingAiPlayerInsightEvent | null
+  aiLoading?: boolean
+  aiError?: string
 }>()
 
-const emit = defineEmits<{
-  selectPlayer: []
-}>()
 const router = useRouter()
 
 const tierIconMap: Record<string, string> = {
@@ -226,21 +239,15 @@ const recordStatusMeta = computed(() => {
 })
 
 const userTags = computed<RankTag[]>(() =>
-  (props.sessionSummoner.userTag?.tag || []).filter((tag): tag is RankTag => Boolean(tag?.tagName?.trim()))
+  (props.sessionSummoner.userTag?.tag || []).filter(
+    (tag): tag is RankTag => Boolean(tag?.tagName?.trim()) && tag.tagName !== '开黑'
+  )
 )
-const selected = computed(() => props.selected === true)
+const hasAiInlineContent = computed(() => Boolean(props.aiInsight || props.aiLoading || props.aiError))
+const aiInlineToneClass = computed(() => `tone-${props.aiInsight?.tone || 'unknown'}`)
 const summonerLookupName = computed(() => buildSummonerLookupName(props.sessionSummoner.summoner))
 const canNavigateToSummonerLookup = computed(() => Boolean(summonerLookupName.value))
 const playerIdText = computed(() => summonerLookupName.value || '未知玩家')
-const cardAriaLabel = computed(() => {
-  const summoner = props.sessionSummoner.summoner
-  const gameName = summoner?.gameName?.trim()
-  if (!gameName) {
-    return '选择玩家'
-  }
-  const tagLine = summoner?.tagLine?.trim()
-  return `查看 ${tagLine ? `${gameName}#${tagLine}` : gameName} 最近战绩`
-})
 const measuredVisibleTagCount = ref<number | null>(null)
 const tagContainerRef = ref<HTMLElement | null>(null)
 const tagMeasureRef = ref<HTMLElement | null>(null)
@@ -623,13 +630,6 @@ const tierText = computed(() => {
   return '未定级'
 })
 
-function onCardSelect() {
-  if (props.sessionSummoner.isLoading || !props.sessionSummoner.summoner) {
-    return
-  }
-  emit('selectPlayer')
-}
-
 function navigateToSummonerLookup() {
   const route = createSummonerLookupRoute(summonerLookupName.value)
   if (!route) {
@@ -654,7 +654,6 @@ function noop() {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: inherit;
-  cursor: pointer;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
@@ -664,26 +663,12 @@ function noop() {
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.16);
 }
 
-.player-card.selected {
-  border-color: rgba(240, 196, 79, 0.48);
-  background: linear-gradient(180deg, rgba(240, 196, 79, 0.1), rgba(255, 255, 255, 0.025)), var(--bg-secondary);
-  box-shadow: 0 0 0 1px rgba(240, 196, 79, 0.14), 0 10px 24px rgba(240, 196, 79, 0.1);
-}
-
 .player-card.team-blue {
   border-left: 4px solid rgba(92, 163, 234, 0.7);
 }
 
 .player-card.team-red {
   border-left: 4px solid rgba(222, 111, 111, 0.7);
-}
-
-.player-card.selected.team-blue {
-  border-left-color: rgba(92, 163, 234, 0.94);
-}
-
-.player-card.selected.team-red {
-  border-left-color: rgba(222, 111, 111, 0.94);
 }
 
 .player-card.status-private,
@@ -719,18 +704,6 @@ function noop() {
   display: none;
 }
 
-.pregroup-badge {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(92, 163, 234, 0.18);
-  color: #5ca3ea;
-  font-size: 10px;
-  line-height: 1.1;
-}
-
 .player-copy {
   min-width: 0;
   display: flex;
@@ -738,8 +711,19 @@ function noop() {
   gap: 7px;
 }
 
+.player-id-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
 .player-id {
   display: block;
+  align-self: flex-start;
+  width: fit-content;
   min-width: 0;
   max-width: 100%;
   padding: 0;
@@ -754,6 +738,38 @@ function noop() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pregroup-badge {
+  flex: 0 0 auto;
+  max-width: 86px;
+  padding: 3px 7px;
+  border: 1px solid rgba(92, 163, 234, 0.42);
+  border-radius: 999px;
+  background: rgba(92, 163, 234, 0.14);
+  color: #5ca3ea;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.pregroup-badge.type-warning {
+  border-color: rgba(245, 197, 86, 0.45);
+  background: rgba(245, 197, 86, 0.14);
+  color: #e5b93f;
+}
+
+.pregroup-badge.type-error {
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.14);
+  color: #ff7a7a;
+}
+
+.pregroup-badge.type-info {
+  border-color: rgba(143, 164, 255, 0.45);
+  background: rgba(143, 164, 255, 0.14);
+  color: #9aa8ff;
 }
 
 .player-id:hover {
@@ -1006,6 +1022,56 @@ function noop() {
   height: 14px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
+}
+
+.player-ai-insight {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.player-ai-label {
+  width: max-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-hover);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-ai-text {
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.player-ai-insight.tone-carry,
+.player-ai-insight.tone-stable {
+  border-color: rgba(61, 155, 122, 0.26);
+  background: rgba(61, 155, 122, 0.07);
+}
+
+.player-ai-insight.tone-risk,
+.player-ai-insight.tone-weak {
+  border-color: rgba(196, 92, 92, 0.26);
+  background: rgba(196, 92, 92, 0.07);
+}
+
+.player-ai-insight.tone-unknown {
+  border-color: rgba(var(--accent-rgb), 0.18);
 }
 
 .skeleton {

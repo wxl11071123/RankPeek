@@ -115,17 +115,14 @@ test('AI report center product copy, recharge copy, sidebar entry, and icon are 
   assert.match(svg, /stroke-linejoin="round"/)
 })
 
-test('AI report center feature cards keep titles, positioning copy, and short tags', () => {
+test('AI report center removes the old feature placeholder cards', () => {
   const source = readViewSource()
 
-  assert.match(source, /featureCards = computed<FeatureCard\[\]>/)
-  assert.match(source, /t\('aiAnalysis\.featurePreGame'\)[\s\S]*t\('aiAnalysis\.featurePostGame'\)[\s\S]*t\('aiAnalysis\.featurePraise'\)[\s\S]*t\('aiAnalysis\.featureCoach'\)/)
-  assert.match(source, /t\('aiAnalysis\.preGamePositioning'\)[\s\S]*t\('aiAnalysis\.postGamePositioning'\)[\s\S]*t\('aiAnalysis\.praisePositioning'\)[\s\S]*t\('aiAnalysis\.coachPositioning'\)/)
-  assert.match(source, /class="feature-positioning"[\s\S]*card\.positioning/)
-  assert.match(source, /t\('aiAnalysis\.tagTeammates'\)[\s\S]*t\('aiAnalysis\.tagRiskTips'\)[\s\S]*t\('aiAnalysis\.tagOpponentThreat'\)/)
-  assert.match(source, /t\('aiAnalysis\.tagFromStrongToWeak'\)[\s\S]*t\('aiAnalysis\.tagSingleGameReview'\)/)
-  assert.match(source, /t\('aiAnalysis\.tagPraise'\)[\s\S]*t\('aiAnalysis\.tagEmotionalValue'\)[\s\S]*t\('aiAnalysis\.tagEntertainment'\)/)
-  assert.match(source, /t\('aiAnalysis\.tagRecent20'\)[\s\S]*t\('aiAnalysis\.tagChampionPool'\)/)
+  assert.doesNotMatch(source, /interface FeatureCard/)
+  assert.doesNotMatch(source, /featureCards = computed<FeatureCard\[\]>/)
+  assert.doesNotMatch(source, /class="feature-section"|class="feature-grid"|class="feature-card"/)
+  assert.doesNotMatch(source, /feature-positioning|feature-title-row|tag-list/)
+  assert.doesNotMatch(source, /v-for="card in featureCards"/)
   assert.doesNotMatch(source, /description:|card\.description/)
   assert.doesNotMatch(source, /t\('aiAnalysis\.preGameDescription'\)|t\('aiAnalysis\.postGameDescription'\)|t\('aiAnalysis\.praiseDescription'\)|t\('aiAnalysis\.coachDescription'\)/)
   assert.doesNotMatch(source, /t\('aiAnalysis\.tagShareable'\)|t\('aiAnalysis\.tagWeeklyMonthly'\)/)

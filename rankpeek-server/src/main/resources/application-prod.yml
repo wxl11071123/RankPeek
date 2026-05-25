@@ -41,7 +41,7 @@ rankpeek:
     api-key: ${RANKPEEK_AI_API_KEY:}
     connect-timeout-ms: ${RANKPEEK_AI_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${RANKPEEK_AI_READ_TIMEOUT_MS:30000}
-    max-tokens: ${RANKPEEK_AI_MAX_TOKENS:1600}
+    max-tokens: ${RANKPEEK_AI_MAX_TOKENS:4096}
     temperature: ${RANKPEEK_AI_TEMPERATURE:0.4}
   opgg:
     base-url: ${RANKPEEK_OPGG_BASE_URL:https://lol-api-champion.op.gg}

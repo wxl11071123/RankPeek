@@ -4,23 +4,45 @@ import { readFileSync } from 'node:fs'
 
 const removedScoutLabels = ['\u66b4\u6bd9', '\u6446\u70c2', '\u5f00\u9ed1\u4ed4']
 
-test('player card is selectable by click and keyboard while preserving tag hover popovers', () => {
+test('player card itself is passive while preserving tag hover popovers', () => {
   const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /selected\?: boolean/)
-  assert.match(source, /selectPlayer: \[\]/)
-  assert.match(source, /role="button"/)
-  assert.match(source, /tabindex="0"/)
-  assert.match(source, /:aria-pressed="selected \? 'true' : 'false'"/)
-  assert.match(source, /@click="onCardSelect"/)
-  assert.match(source, /@keydown\.enter\.prevent="onCardSelect"/)
-  assert.match(source, /@keydown\.space\.prevent="onCardSelect"/)
-  assert.match(source, /\{ selected \}/)
-  assert.match(source, /function onCardSelect\(\)[\s\S]*emit\('selectPlayer'\)/)
+  assert.doesNotMatch(source, /selected\?: boolean/)
+  assert.doesNotMatch(source, /selectPlayer: \[\]/)
+  assert.doesNotMatch(source, /role="button"/)
+  assert.doesNotMatch(source, /tabindex="0"/)
+  assert.doesNotMatch(source, /:aria-pressed="selected \? 'true' : 'false'"/)
+  assert.doesNotMatch(source, /@click="onCardSelect"/)
+  assert.doesNotMatch(source, /@keydown\.enter\.prevent="onCardSelect"/)
+  assert.doesNotMatch(source, /@keydown\.space\.prevent="onCardSelect"/)
+  assert.doesNotMatch(source, /\{ selected \}/)
+  assert.doesNotMatch(source, /function onCardSelect\(\)/)
   assert.doesNotMatch(source, /class="player-id"[\s\S]{0,180}@click\.stop="onCardSelect"/)
   assert.match(source, /class="more-chip" type="button"[\s\S]*@click\.stop/)
   assert.match(source, /\.tag-overflow:hover \.hidden-tags-popover,/)
-  assert.match(source, /\.player-card\.selected/)
+  assert.doesNotMatch(source, /\.player-card\.selected/)
+})
+
+test('player card renders inline gaming AI insight only when content exists', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import type \{ GamingAiPlayerInsightEvent \} from '@\/services\/gamingAiServerStream'/)
+  assert.match(source, /aiInsight\?: GamingAiPlayerInsightEvent \| null/)
+  assert.match(source, /aiLoading\?: boolean/)
+  assert.match(source, /aiError\?: string/)
+  assert.match(source, /const hasAiInlineContent = computed\(\(\) => Boolean\(props\.aiInsight \|\| props\.aiLoading \|\| props\.aiError\)\)/)
+  assert.match(source, /const aiInlineToneClass = computed\(\(\) => `tone-\$\{props\.aiInsight\?\.tone \|\| 'unknown'\}`\)/)
+  assert.match(source, /v-if="hasAiInlineContent"/)
+  assert.match(source, /class="player-ai-insight"/)
+  assert.match(source, /:class="aiInlineToneClass"/)
+  assert.match(source, /v-if="props\.aiInsight"/)
+  assert.match(source, /{{ props\.aiInsight\.label }}/)
+  assert.match(source, /{{ props\.aiInsight\.text }}/)
+  assert.match(source, /v-else-if="props\.aiLoading"/)
+  assert.match(source, /AI 分析中/)
+  assert.match(source, /v-else-if="props\.aiError"/)
+  assert.match(source, /\.player-ai-insight\s*\{/)
+  assert.match(source, /\.player-ai-label\s*\{/)
 })
 
 test('player id navigates to match lookup without toggling the recent panel', () => {
@@ -34,6 +56,7 @@ test('player id navigates to match lookup without toggling the recent panel', ()
   assert.match(source, /class="player-id"[\s\S]*@click\.stop="navigateToSummonerLookup"/)
   assert.match(source, /class="player-id"[\s\S]*@keydown\.enter\.stop/)
   assert.match(source, /class="player-id"[\s\S]*@keydown\.space\.stop/)
+  assert.match(source, /\.player-id\s*{[\s\S]*align-self:\s*flex-start;[\s\S]*width:\s*fit-content;/)
   assert.match(source, /function navigateToSummonerLookup\(\)[\s\S]*createSummonerLookupRoute\(summonerLookupName\.value\)[\s\S]*router\.push\(route\)/)
   assert.doesNotMatch(source, /function navigateToSummonerLookup\(\)[\s\S]*emit\('selectPlayer'\)/)
 })
@@ -64,7 +87,7 @@ test('renders scout tags from sessionSummoner defensively without old label name
 
   assert.match(source, /import type \{ QueueInfo, RankTag, RecordStatus, SessionSummoner \}/)
   assert.match(source, /props\.sessionSummoner\.userTag\?\.tag \|\| \[\]/)
-  assert.match(source, /filter\(\(tag\): tag is RankTag => Boolean\(tag\?\.tagName\?\.trim\(\)\)\)/)
+  assert.match(source, /filter\([\s\S]*Boolean\(tag\?\.tagName\?\.trim\(\)\)[\s\S]*tag\.tagName !== '开黑'[\s\S]*\)/)
   assert.match(source, /:title="tag\.tagDesc \|\| tag\.tagName"/)
   assert.match(source, /tag\.good === true \? 'good' : tag\.good === false \? 'bad' : 'neutral'/)
   assert.doesNotMatch(source, new RegExp(removedScoutLabels.join('|')))
@@ -95,11 +118,22 @@ test('player card prioritizes current champion scout metrics when available', ()
   assert.match(types, /championRecentData\?: RecentData \| null/)
   assert.match(source, /const championRecentData = computed\(\(\) => props\.sessionSummoner\.userTag\?\.championRecentData \|\| null\)/)
   assert.match(source, /const activeRecentData = computed\(\(\) => hasChampionRecentData\.value[\s\S]*championRecentData\.value[\s\S]*props\.sessionSummoner\.userTag\?\.recentData/)
-  assert.match(source, /v-if="hasChampionRecentData" class="metric-scope"/)
-  assert.match(source, />本英雄</)
+  assert.match(source, /v-if="hasChampionRecentData"[\s\S]*class="metric-scope"[\s\S]*title="当前英雄数据"[\s\S]*aria-label="当前英雄数据"/)
+  assert.match(source, />当前英雄</)
   assert.match(source, /activeRecentData\.value\?\.selectWins/)
   assert.match(source, /activeRecentData\.value\?\.kda/)
   assert.match(source, /activeRecentData\.value\?\.averageDamageDealtToChampions/)
+})
+
+test('moves pre-group marker to the id row and filters the premade scout tag', () => {
+  const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /tag\.tagName !== '开黑'/)
+  assert.doesNotMatch(source, /<div class="avatar-wrap">[\s\S]*preGroupMarkers\?\.name[\s\S]*<\/div>\s*<div class="player-copy">/)
+  assert.match(source, /class="player-id-row"[\s\S]*class="pregroup-badge"[\s\S]*sessionSummoner\.preGroupMarkers\.name/)
+  assert.match(source, /\.player-id-row\s*{[\s\S]*display:\s*flex;[\s\S]*justify-content:\s*space-between;/)
+  const badgeBlock = source.match(/\.pregroup-badge\s*{[\s\S]*?}/)?.[0] || ''
+  assert.doesNotMatch(badgeBlock, /position:\s*absolute;/)
 })
 
 test('player card fetches cached exact-tier 101 meta only for current champion samples', () => {

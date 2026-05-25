@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 import CoachSummaryReportContent from '@/components/CoachSummaryReportContent.vue'
-import { getCoachReportFinalSentence } from '@/services/localAiAnalysis'
+import { getCoachReportHeadline } from '@/services/localAiAnalysis'
 import type { CoachSummaryReportV1 } from '@/types/coachSummaryReport'
 
 type ReportLoadState = 'loading' | 'ready' | 'missing' | 'unsupported' | 'invalid' | 'error'
@@ -33,7 +33,7 @@ const emit = defineEmits<{
 }>()
 
 const finalSentence = computed(() => (
-  props.report ? getCoachReportFinalSentence(props.report) : '近期排位复盘'
+  props.report ? getCoachReportHeadline({ report: props.report }) : '近期排位复盘'
 ))
 
 const navigationStatus = computed(() => {
@@ -255,7 +255,7 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 30px;
   font-weight: 800;
   line-height: 1.25;
   letter-spacing: 0;
@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
   }
 
   .coach-report-modal-title h2 {
-    font-size: 20px;
+    font-size: 24px;
   }
 
   .coach-report-modal-body {

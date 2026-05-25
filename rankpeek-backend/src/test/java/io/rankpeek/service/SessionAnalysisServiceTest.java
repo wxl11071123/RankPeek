@@ -564,6 +564,50 @@ class SessionAnalysisServiceTest {
         assertThat(championRecentData.getDamageDealtToChampionsRate()).isEqualTo(52);
     }
 
+    @Test
+    void preGroupMarkersUseOnlyCurrentSideRepeatedSameTeamMatches() {
+        Summoner me = new Summoner();
+        me.setPuuid("ally-a");
+        when(summonerService.getMySummoner()).thenReturn(me);
+        when(gameFlowService.getGamePhase()).thenReturn("InProgress");
+
+        GameSession.OnePlayer allyA = gamePlayer("ally-a", 11, "JUNGLE");
+        GameSession.OnePlayer allyB = gamePlayer("ally-b", 12, "MIDDLE");
+        GameSession.OnePlayer enemyC = gamePlayer("enemy-c", 13, "TOP");
+        when(gameFlowService.getGameSession()).thenReturn(gameSession(420, List.of(allyA, allyB), List.of(enemyC)));
+
+        stubPlayerProfile("ally-a");
+        stubPlayerProfile("ally-b");
+        stubPlayerProfile("enemy-c");
+        stubScout("ally-a", 420, List.of(
+                createEncounterMatch("ally-a", "ally-b", true),
+                createEncounterMatch("ally-a", "ally-b", true),
+                createEncounterMatch("ally-a", "ally-b", true),
+                createEncounterMatch("ally-a", "enemy-c", true),
+                createEncounterMatch("ally-a", "enemy-c", true),
+                createEncounterMatch("ally-a", "enemy-c", true)
+        ));
+        stubScout("ally-b", 420, List.of(
+                createEncounterMatch("ally-b", "ally-a", true),
+                createEncounterMatch("ally-b", "ally-a", true),
+                createEncounterMatch("ally-b", "ally-a", true)
+        ));
+        stubScout("enemy-c", 420, List.of(
+                createEncounterMatch("enemy-c", "ally-a", true),
+                createEncounterMatch("enemy-c", "ally-a", true),
+                createEncounterMatch("enemy-c", "ally-a", true)
+        ));
+
+        var data = service.getSessionData(null);
+
+        var allyAMarker = data.getTeamOne().get(0).getPreGroupMarkers();
+        var allyBMarker = data.getTeamOne().get(1).getPreGroupMarkers();
+        var enemyCMarker = data.getTeamTwo().getFirst().getPreGroupMarkers();
+        assertThat(allyAMarker.getName()).isNotBlank();
+        assertThat(allyBMarker.getName()).isEqualTo(allyAMarker.getName());
+        assertThat(enemyCMarker.getName()).isBlank();
+    }
+
     private List<MatchHistory> createMatches(int count, int queueId) {
         return createMixedMatches(count, count, queueId, queueId + 1);
     }
@@ -694,6 +738,29 @@ class SessionAnalysisServiceTest {
         participant.getStats().setDeaths(deaths);
         participant.getStats().setAssists(assists);
         return history;
+    }
+
+    private MatchHistory createEncounterMatch(String selfPuuid, String otherPuuid, boolean sameTeam) {
+        MatchHistory history = new MatchHistory();
+        history.setQueueId(420);
+        history.setParticipants(List.of(
+                participant(1, 100, 10000, 20000),
+                participant(2, sameTeam ? 100 : 200, 10000, 20000)
+        ));
+        history.setParticipantIdentities(List.of(
+                participantIdentity(1, selfPuuid),
+                participantIdentity(2, otherPuuid)
+        ));
+        return history;
+    }
+
+    private MatchHistory.ParticipantIdentity participantIdentity(int participantId, String puuid) {
+        MatchHistory.ParticipantIdentity identity = new MatchHistory.ParticipantIdentity();
+        identity.setParticipantId(participantId);
+        MatchHistory.Player player = new MatchHistory.Player();
+        player.setPuuid(puuid);
+        identity.setPlayer(player);
+        return identity;
     }
 
     private MatchHistory.Participant participant(int participantId, int teamId, int goldEarned, int damageDealt) {

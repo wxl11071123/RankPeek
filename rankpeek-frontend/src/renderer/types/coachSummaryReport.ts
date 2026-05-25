@@ -31,6 +31,8 @@ export interface CoachSummaryOverview {
   losses?: number
   winRate?: number
   summary: string
+  overallState?: 'excellent' | 'good' | 'stable' | 'volatile' | 'struggling'
+  overallStateLabel?: string
   primaryRoles?: Array<{
     role: string
     count: number

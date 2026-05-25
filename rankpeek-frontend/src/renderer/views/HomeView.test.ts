@@ -162,15 +162,36 @@ test('home refresh account button uses the shared refresh icon button', () => {
   assert.match(refreshFunction, /accountRefreshBusy\.value = true[\s\S]*await gameStore\.refreshSummoner\(\)[\s\S]*finally[\s\S]*accountRefreshBusy\.value = false/)
 })
 
-test('home analyze button prepares coach summary input without creating a fake AI report', () => {
+test('home analyze button generates and saves a real coach summary report', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
   const runAnalysisFunction = source.match(/async function runAnalysis\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
-  assert.match(source, /import \{ prepareCoachSummaryGeneration \} from '@\/services\/coachSummaryInputSnapshot'/)
+  assert.match(source, /import \{[\s\S]*prepareCoachSummaryGeneration[\s\S]*\} from '@\/services\/coachSummaryInputSnapshot'/)
+  assert.match(source, /import \{ buildCoachSummaryPromptPayload \} from '@\/services\/coachSummaryPrompt'/)
+  assert.match(source, /import \{[\s\S]*generateCoachSummaryReport[\s\S]*\} from '@\/services\/coachSummaryAiClient'/)
+  assert.match(source, /import \{ estimatePostgameAiTokenCostCny \} from '@\/services\/postgameAiServerStream'/)
+  assert.match(source, /buildCoachSummaryReportOverview/)
+  assert.match(source, /buildCoachSummaryReportCardTitle/)
   assert.match(source, /const coachAnalysisBusy = ref\(false\)/)
   assert.match(source, /async function runAnalysis\(\)/)
   assert.match(source, /prepareCoachSummaryGeneration\(\{[\s\S]*accountPuuid: puuid[\s\S]*\}\)/)
+  assert.doesNotMatch(source, /ignorePriorCoachSummary|event\?\.shiftKey/)
+  assert.match(source, /buildCoachSummaryPromptPayload\(\{[\s\S]*snapshot: result\.snapshot[\s\S]*historicalCoachContext: buildCoachSummaryHistoricalContext\(\)[\s\S]*\}\)/)
+  assert.match(source, /historicalCoachContext: buildCoachSummaryHistoricalContext\(\)/)
+  assert.match(source, /console\.info\('RankPeek coach_summary prompt payload ready:', promptPayload\)/)
+  assert.match(source, /generateCoachSummaryReport\(\{[\s\S]*inputHash: result\.snapshot\.inputHash[\s\S]*snapshotSchemaVersion: result\.snapshot\.schemaVersion[\s\S]*dataQualityConfidence: result\.snapshot\.dataQuality\.confidence[\s\S]*promptPayload[\s\S]*\}\)/)
+  assert.match(source, /parseCoachSummaryReportOutput\(JSON\.stringify\(reportWithLocalOverview\)\)/)
+  assert.match(source, /overview:\s*buildCoachSummaryReportOverview\(result\.snapshot\)/)
+  assert.match(source, /cardTitle:\s*aiResult\.report\.cardTitle \|\| buildCoachSummaryReportCardTitle\(result\.snapshot\)/)
+  assert.match(source, /addCoachSummaryUsageMetadata\(parsed\.report, aiResult\.usage\)/)
+  assert.match(source, /console\.info\('RankPeek coach_summary token usage:'/)
+  assert.match(source, /database\.saveAnalysisResult\(\{[\s\S]*accountPuuid: puuid[\s\S]*analysisType: 'coach_summary'[\s\S]*subjectKey: `coach_summary:\$\{result\.snapshot\.inputHash\}`[\s\S]*outputJson: report[\s\S]*\}\)/)
+  assert.match(source, /await refreshLocalCoachReports\(\)/)
+  assert.match(source, /openCoachReportModal\(report, \{[\s\S]*createdAt: saved\.data\.createdAt[\s\S]*\}\)/)
   assert.match(source, /AI_COACH_PREPARING_NOTICE/)
+  assert.match(source, /AI_COACH_GENERATING_NOTICE/)
+  assert.match(source, /AI_COACH_GENERATED_NOTICE/)
+  assert.match(source, /AI_COACH_SERVER_ERROR_NOTICE/)
   assert.match(source, /AI_COACH_PARTIAL_TIMELINE_NOTICE/)
   assert.match(source, /AI_COACH_SNAPSHOT_INTEGRITY_FAILED_NOTICE/)
   assert.match(source, /result\.status === 'snapshot_integrity_failed'/)
@@ -180,7 +201,19 @@ test('home analyze button prepares coach summary input without creating a fake A
   assert.match(source, /showCoachNotice\(result\.message\)/)
   assert.match(source, /AI_COACH_ACCOUNT_MISSING_NOTICE/)
   assert.match(source, /:disabled="coachAnalysisBusy"/)
-  assert.doesNotMatch(runAnalysisFunction, /saveAnalysisResult|saveServerAiFinalResultToLocal|router\.push|name: 'ai-analysis'|openCoachReportModal/)
+  assert.doesNotMatch(runAnalysisFunction, /saveServerAiFinalResultToLocal|router\.push|name: 'ai-analysis'/)
+})
+
+test('home auto analysis switch schedules real coach summary generation', () => {
+  const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /let lastAutoAnalysisAttemptKey = ''/)
+  assert.match(source, /onMounted\(\(\) => \{[\s\S]*void loadLocalHomeState\(\)/)
+  assert.match(source, /watch\(accountKey, \(\) => \{[\s\S]*void loadLocalHomeState\(\)/)
+  assert.match(source, /watch\(accountConnected, \(connected\) => \{[\s\S]*void maybeRunAutoAnalysis\('load'\)/)
+  assert.match(source, /async function loadLocalHomeState\(\)[\s\S]*await refreshLocalCoachReports\(\)[\s\S]*void maybeRunAutoAnalysis\('load'\)/)
+  assert.match(source, /function toggleAutoAnalysis\(\) \{[\s\S]*saveAutoAnalysisSettings\(accountKey\.value, autoAnalysis\.value\)[\s\S]*lastAutoAnalysisAttemptKey = ''[\s\S]*void maybeRunAutoAnalysis\('toggle', \{ force: true \}\)/)
+  assert.match(source, /async function maybeRunAutoAnalysis\([\s\S]*autoAnalysis\.value\.enabled[\s\S]*accountConnected\.value[\s\S]*coachAnalysisBusy\.value[\s\S]*buildAutoAnalysisAttemptKey\(\)[\s\S]*lastAutoAnalysisAttemptKey = attemptKey[\s\S]*await runAnalysis\(\)/)
 })
 
 test('home coach report cards load local coach summaries and open report modal by id', () => {
@@ -191,6 +224,7 @@ test('home coach report cards load local coach summaries and open report modal b
   assert.match(source, /loadLocalAiAnalysisResults/)
   assert.match(source, /analysisType:\s*'coach_summary'/)
   assert.match(source, /limit:\s*6/)
+  assert.match(source, /onMounted\(\(\) => \{[\s\S]*loadLocalHomeState\(\)/)
   assert.match(source, /<AICoachCards[\s\S]*:reports="coachReports"[\s\S]*@open-report="openCoachReport"/)
   assert.match(source, /const coachReportModalOpen = ref\(false\)/)
   assert.match(source, /const activeCoachReport = ref<CoachSummaryReportV1 \| null>\(null\)/)

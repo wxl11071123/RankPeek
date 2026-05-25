@@ -657,6 +657,32 @@ test('coach report headline uses product fallback order and truncates long templ
   assert.match(fallbackTitle, /\.\.\.$/)
 })
 
+test('coach report headline never uses grade-like verdict labels as the card title', () => {
+  assert.notEqual(getCoachReportHeadline({
+    report: {
+      ...coachSummaryReport,
+      headline: '',
+      cardTitle: '',
+      shortTitle: '',
+      verdict: { ...coachSummaryReport.verdict, label: 'B-' }
+    }
+  }), 'B-')
+})
+
+test('coach report headline does not evaluate missing fallback strings as render errors', () => {
+  assert.equal(getCoachReportHeadline({
+    report: {
+      ...coachSummaryReport,
+      headline: '',
+      cardTitle: '20 games, 12 wins',
+      shortTitle: '',
+      verdict: { ...coachSummaryReport.verdict, label: 'B-' },
+      title: null,
+      summary: null
+    }
+  }), '20 games, 12 wins')
+})
+
 test('coach report final sentence uses finalSummary first sentence for modal header', () => {
   assert.equal(
     getCoachReportFinalSentence({

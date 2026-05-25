@@ -44,6 +44,25 @@ public class DeepSeekChatClient {
             Consumer<String> onDelta,
             Consumer<DeepSeekTokenUsage> onUsage
     ) {
+        streamChat(properties, messages, onDelta, onUsage, false);
+    }
+
+    public void streamJsonChat(
+            DeepSeekAiProperties properties,
+            List<DeepSeekChatMessage> messages,
+            Consumer<String> onDelta,
+            Consumer<DeepSeekTokenUsage> onUsage
+    ) {
+        streamChat(properties, messages, onDelta, onUsage, true);
+    }
+
+    private void streamChat(
+            DeepSeekAiProperties properties,
+            List<DeepSeekChatMessage> messages,
+            Consumer<String> onDelta,
+            Consumer<DeepSeekTokenUsage> onUsage,
+            boolean jsonObjectResponse
+    ) {
         if (properties.apiKey().isBlank()) {
             throw new DeepSeekAiException("DeepSeek API key is not configured");
         }
@@ -56,7 +75,10 @@ public class DeepSeekChatClient {
                 .header("Authorization", "Bearer " + properties.apiKey())
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
-                .POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(properties, messages), StandardCharsets.UTF_8))
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        buildRequestBody(properties, messages, jsonObjectResponse),
+                        StandardCharsets.UTF_8
+                ))
                 .build();
 
         HttpResponse<java.io.InputStream> response;
@@ -78,7 +100,11 @@ public class DeepSeekChatClient {
         parseSseResponse(response, properties.model(), onDelta, onUsage);
     }
 
-    private String buildRequestBody(DeepSeekAiProperties properties, List<DeepSeekChatMessage> messages) {
+    private String buildRequestBody(
+            DeepSeekAiProperties properties,
+            List<DeepSeekChatMessage> messages,
+            boolean jsonObjectResponse
+    ) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", properties.model());
         body.put("stream", true);
@@ -86,6 +112,9 @@ public class DeepSeekChatClient {
         body.put("stream_options", Map.of("include_usage", true));
         body.put("max_tokens", properties.maxTokens());
         body.put("temperature", properties.temperature());
+        if (jsonObjectResponse) {
+            body.put("response_format", Map.of("type", "json_object"));
+        }
         body.put("messages", messages.stream()
                 .map(message -> Map.of(
                         "role", message.role(),

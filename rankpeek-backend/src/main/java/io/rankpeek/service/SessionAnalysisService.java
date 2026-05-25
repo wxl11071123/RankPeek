@@ -117,7 +117,7 @@ public class SessionAnalysisService {
 
         ensureMyTeamIsFirst(teamOne, teamTwo, mySummoner.getPuuid());
 
-        addPreGroupMarkers(teamOne, teamTwo);
+        addPreGroupMarkers(teamOne, teamTwo, currentQueueId);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
         rememberSessionPuuids(teamOne, teamTwo);
         long now = System.currentTimeMillis();
@@ -288,7 +288,7 @@ public class SessionAnalysisService {
         List<SessionSummoner> teamOne = processTeam(session.getGameData().getTeamOne(), currentQueueId);
         List<SessionSummoner> teamTwo = processTeam(session.getGameData().getTeamTwo(), currentQueueId);
 
-        addPreGroupMarkers(teamOne, teamTwo);
+        addPreGroupMarkers(teamOne, teamTwo, currentQueueId);
         insertMeetGamersRecord(teamOne, teamTwo, mySummoner.getPuuid());
         rememberSessionPuuids(teamOne, teamTwo);
         long now = System.currentTimeMillis();
@@ -1175,20 +1175,16 @@ public class SessionAnalysisService {
     /**
      * 标记预组队
      */
-    private void addPreGroupMarkers(List<SessionSummoner> teamOne, List<SessionSummoner> teamTwo) {
+    private void addPreGroupMarkers(List<SessionSummoner> teamOne, List<SessionSummoner> teamTwo, int currentQueueId) {
         // 安全获取所有有效 puuid
-        Set<String> currentGamePuuids = new HashSet<>();
-        addValidPuuids(currentGamePuuids, teamOne);
-        addValidPuuids(currentGamePuuids, teamTwo);
-
-        if (currentGamePuuids.isEmpty()) {
+        if (!isRankedPreGroupQueue(currentQueueId)) {
             return;
         }
 
         // 查找所有可能的预组队
         List<List<String>> allMaybeTeams = new ArrayList<>();
-        allMaybeTeams.addAll(findPreGroupsInTeam(teamOne, currentGamePuuids));
-        allMaybeTeams.addAll(findPreGroupsInTeam(teamTwo, currentGamePuuids));
+        allMaybeTeams.addAll(findPreGroupsInTeam(teamOne, currentQueueId));
+        allMaybeTeams.addAll(findPreGroupsInTeam(teamTwo, currentQueueId));
 
         // 合并并去重
         List<List<String>> mergedTeams = removeSubsets(allMaybeTeams);
@@ -1235,18 +1231,180 @@ public class SessionAnalysisService {
     /**
      * 在队伍中查找预组队
      */
-    private List<List<String>> findPreGroupsInTeam(List<SessionSummoner> team, Set<String> currentGamePuuids) {
-        List<List<String>> groups = new ArrayList<>();
-        if (team == null)
-            return groups;
-
+    private List<List<String>> findPreGroupsInTeam(List<SessionSummoner> team, int currentQueueId) {
+        Map<String, Integer> memberOrder = new LinkedHashMap<>();
+        if (team == null) {
+            return List.of();
+        }
         for (SessionSummoner summoner : team) {
-            List<String> group = findPreGroupMembers(summoner, currentGamePuuids);
-            if (!group.isEmpty()) {
-                groups.add(group);
+            String puuid = sessionSummonerPuuid(summoner);
+            if (hasText(puuid) && !memberOrder.containsKey(puuid)) {
+                memberOrder.put(puuid, memberOrder.size());
             }
         }
+        if (memberOrder.size() < PRE_GROUP_MIN_MEMBERS) {
+            return List.of();
+        }
+
+        Map<PreGroupPair, PreGroupPairStats> pairStats = collectPreGroupPairStats(team, memberOrder.keySet());
+        List<PreGroupPairStats> confirmedPairs = pairStats.values().stream()
+                .filter(stats -> stats.sameTeamCount() >= PRE_GROUP_FRIEND_THRESHOLD && stats.oppositeTeamCount() == 0)
+                .sorted((left, right) -> {
+                    int countCompare = Integer.compare(right.sameTeamCount(), left.sameTeamCount());
+                    if (countCompare != 0) {
+                        return countCompare;
+                    }
+                    int leftMin = Math.min(memberOrder.getOrDefault(left.pair.left(), Integer.MAX_VALUE),
+                            memberOrder.getOrDefault(left.pair.right(), Integer.MAX_VALUE));
+                    int rightMin = Math.min(memberOrder.getOrDefault(right.pair.left(), Integer.MAX_VALUE),
+                            memberOrder.getOrDefault(right.pair.right(), Integer.MAX_VALUE));
+                    return Integer.compare(leftMin, rightMin);
+                })
+                .toList();
+
+        if (confirmedPairs.isEmpty()) {
+            return List.of();
+        }
+
+        return currentQueueId == 420
+                ? buildDisjointDuoPreGroups(confirmedPairs, memberOrder)
+                : buildConnectedPreGroups(confirmedPairs, memberOrder);
+    }
+
+    private boolean isRankedPreGroupQueue(int queueId) {
+        return queueId == 420 || queueId == 440;
+    }
+
+    private String sessionSummonerPuuid(SessionSummoner summoner) {
+        if (summoner == null || summoner.getSummoner() == null) {
+            return null;
+        }
+        return summoner.getSummoner().getPuuid();
+    }
+
+    private Map<PreGroupPair, PreGroupPairStats> collectPreGroupPairStats(
+            List<SessionSummoner> team,
+            Set<String> currentSidePuuids
+    ) {
+        Map<PreGroupPair, PreGroupPairStats> pairStats = new LinkedHashMap<>();
+        if (team == null || currentSidePuuids == null || currentSidePuuids.size() < PRE_GROUP_MIN_MEMBERS) {
+            return pairStats;
+        }
+
+        for (SessionSummoner summoner : team) {
+            String sourcePuuid = sessionSummonerPuuid(summoner);
+            if (!hasText(sourcePuuid)) {
+                continue;
+            }
+            List<MatchHistory> history = summoner.getMatchHistory() != null ? summoner.getMatchHistory() : List.of();
+            int limit = Math.min(20, history.size());
+            for (int index = 0; index < limit; index++) {
+                MatchHistory match = history.get(index);
+                if (match == null || match.getQueueId() == null || !isRankedPreGroupQueue(match.getQueueId())) {
+                    continue;
+                }
+                MatchHistory.Participant sourceParticipant = findParticipant(match, sourcePuuid);
+                if (sourceParticipant == null || sourceParticipant.getTeamId() == null) {
+                    continue;
+                }
+                for (String otherPuuid : currentSidePuuids) {
+                    if (sourcePuuid.equals(otherPuuid)) {
+                        continue;
+                    }
+                    MatchHistory.Participant otherParticipant = findParticipant(match, otherPuuid);
+                    if (otherParticipant == null || otherParticipant.getTeamId() == null) {
+                        continue;
+                    }
+
+                    PreGroupPair pair = PreGroupPair.of(sourcePuuid, otherPuuid);
+                    PreGroupPairStats stats = pairStats.computeIfAbsent(pair, PreGroupPairStats::new);
+                    String gameKey = preGroupGameKey(match, index, sourcePuuid);
+                    if (sourceParticipant.getTeamId().equals(otherParticipant.getTeamId())) {
+                        stats.addSameTeamGame(gameKey);
+                    } else {
+                        stats.addOppositeTeamGame(gameKey);
+                    }
+                }
+            }
+        }
+
+        return pairStats;
+    }
+
+    private String preGroupGameKey(MatchHistory match, int index, String sourcePuuid) {
+        if (match != null && match.getGameId() != null) {
+            return String.valueOf(match.getGameId());
+        }
+        return sourcePuuid + ":" + index + ":" + System.identityHashCode(match);
+    }
+
+    private List<List<String>> buildDisjointDuoPreGroups(
+            List<PreGroupPairStats> confirmedPairs,
+            Map<String, Integer> memberOrder
+    ) {
+        List<List<String>> groups = new ArrayList<>();
+        Set<String> used = new HashSet<>();
+        for (PreGroupPairStats stats : confirmedPairs) {
+            String left = stats.pair.left();
+            String right = stats.pair.right();
+            if (used.contains(left) || used.contains(right)) {
+                continue;
+            }
+            groups.add(sortPreGroup(List.of(left, right), memberOrder));
+            used.add(left);
+            used.add(right);
+        }
         return groups;
+    }
+
+    private List<List<String>> buildConnectedPreGroups(
+            List<PreGroupPairStats> confirmedPairs,
+            Map<String, Integer> memberOrder
+    ) {
+        Map<String, Set<String>> graph = new LinkedHashMap<>();
+        for (String puuid : memberOrder.keySet()) {
+            graph.put(puuid, new LinkedHashSet<>());
+        }
+        for (PreGroupPairStats stats : confirmedPairs) {
+            graph.computeIfAbsent(stats.pair.left(), ignored -> new LinkedHashSet<>()).add(stats.pair.right());
+            graph.computeIfAbsent(stats.pair.right(), ignored -> new LinkedHashSet<>()).add(stats.pair.left());
+        }
+
+        List<List<String>> groups = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        for (String puuid : memberOrder.keySet()) {
+            if (visited.contains(puuid)) {
+                continue;
+            }
+            List<String> component = new ArrayList<>();
+            Deque<String> stack = new ArrayDeque<>();
+            stack.push(puuid);
+            visited.add(puuid);
+            while (!stack.isEmpty()) {
+                String current = stack.pop();
+                component.add(current);
+                for (String next : graph.getOrDefault(current, Set.of())) {
+                    if (visited.add(next)) {
+                        stack.push(next);
+                    }
+                }
+            }
+            if (component.size() >= PRE_GROUP_MIN_MEMBERS) {
+                groups.add(sortPreGroup(component, memberOrder));
+            }
+        }
+
+        groups.sort(Comparator.comparingInt(group -> group.stream()
+                .mapToInt(puuid -> memberOrder.getOrDefault(puuid, Integer.MAX_VALUE))
+                .min()
+                .orElse(Integer.MAX_VALUE)));
+        return groups;
+    }
+
+    private List<String> sortPreGroup(Collection<String> group, Map<String, Integer> memberOrder) {
+        return group.stream()
+                .sorted(Comparator.comparingInt(puuid -> memberOrder.getOrDefault(puuid, Integer.MAX_VALUE)))
+                .toList();
     }
 
     /**
@@ -1299,35 +1457,6 @@ public class SessionAnalysisService {
     /**
      * 查找预组队成员
      */
-    private List<String> findPreGroupMembers(SessionSummoner summoner, Set<String> currentGamePuuids) {
-        List<String> groupMembers = new ArrayList<>();
-
-        if (summoner == null || summoner.getUserTag() == null ||
-                summoner.getUserTag().getRecentData() == null ||
-                summoner.getUserTag().getRecentData().getOneGamePlayersMap() == null) {
-            return groupMembers;
-        }
-
-        Map<String, List<OneGamePlayer>> playersMap = summoner.getUserTag().getRecentData().getOneGamePlayersMap();
-
-        for (Map.Entry<String, List<OneGamePlayer>> entry : playersMap.entrySet()) {
-            String playerPuuid = entry.getKey();
-            if (!currentGamePuuids.contains(playerPuuid)) {
-                continue;
-            }
-
-            long teamCount = entry.getValue().stream()
-                    .filter(p -> p != null && Boolean.TRUE.equals(p.getIsMyTeam()))
-                    .count();
-
-            if (teamCount >= PRE_GROUP_FRIEND_THRESHOLD) {
-                groupMembers.add(playerPuuid);
-            }
-        }
-
-        return groupMembers;
-    }
-
     /**
      * 插入遇到过的玩家记录
      */
@@ -1429,6 +1558,41 @@ public class SessionAnalysisService {
             return false;
         }
         return new HashSet<>(b).containsAll(a);
+    }
+
+    private record PreGroupPair(String left, String right) {
+        private static PreGroupPair of(String first, String second) {
+            if (first.compareTo(second) <= 0) {
+                return new PreGroupPair(first, second);
+            }
+            return new PreGroupPair(second, first);
+        }
+    }
+
+    private static final class PreGroupPairStats {
+        private final PreGroupPair pair;
+        private final Set<String> sameTeamGames = new HashSet<>();
+        private final Set<String> oppositeTeamGames = new HashSet<>();
+
+        private PreGroupPairStats(PreGroupPair pair) {
+            this.pair = pair;
+        }
+
+        private void addSameTeamGame(String gameKey) {
+            sameTeamGames.add(gameKey);
+        }
+
+        private void addOppositeTeamGame(String gameKey) {
+            oppositeTeamGames.add(gameKey);
+        }
+
+        private int sameTeamCount() {
+            return sameTeamGames.size();
+        }
+
+        private int oppositeTeamCount() {
+            return oppositeTeamGames.size();
+        }
     }
 
     private enum MatchMetric {

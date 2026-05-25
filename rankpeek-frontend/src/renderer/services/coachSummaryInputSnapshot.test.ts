@@ -12,6 +12,8 @@ import {
   COACH_SUMMARY_SGP_HYDRATION_DELAY_MS,
   COACH_SUMMARY_REQUIRED_RANKED_MATCHES,
   auditCoachSummarySnapshot,
+  buildCoachSummaryReportCardTitle,
+  buildCoachSummaryReportOverview,
   buildCoachSummaryInputHash,
   validateCoachSummarySnapshotIntegrity,
   type CoachSummarySgpHydrationClient,
@@ -122,6 +124,48 @@ function makeDetail(
     schemaVersion: 1,
     fetchedAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z'
+  }
+}
+
+function makeDetailWithSelfDeathTimestamp(matchId: string, deathTimestamp: number): MatchDetail {
+  const detail = makeDetail(matchId)
+  const raw = JSON.parse(detail.rawDetailJson)
+  raw.timeline.frames[0].events[1].timestamp = deathTimestamp
+  return {
+    ...detail,
+    rawDetailJson: JSON.stringify(raw)
+  }
+}
+
+function makeDetailWithSelfWin(matchId: string, win: boolean): MatchDetail {
+  const detail = makeDetail(matchId)
+  const raw = JSON.parse(detail.rawDetailJson)
+  raw.participants = raw.participants.map((participant: { teamId?: number; stats?: { win?: boolean } }) => ({
+    ...participant,
+    stats: {
+      ...participant.stats,
+      win: participant.teamId === 100 ? win : !win
+    }
+  }))
+  return {
+    ...detail,
+    rawDetailJson: JSON.stringify(raw)
+  }
+}
+
+function makeRecordWithSelfWin(index: number, win: boolean): MatchRecord {
+  const record = makeRecord(index, { win })
+  const raw = JSON.parse(record.rawSummaryJson)
+  raw.participants = raw.participants.map((participant: { teamId?: number; stats?: { win?: boolean } }) => ({
+    ...participant,
+    stats: {
+      ...participant.stats,
+      win: participant.teamId === 100 ? win : !win
+    }
+  }))
+  return {
+    ...record,
+    rawSummaryJson: JSON.stringify(raw)
   }
 }
 
@@ -671,7 +715,7 @@ test('returns ready when exactly 20 ranked solo or flex matches are cached', asy
 
   const result = await prepareCoachSummaryGeneration({
     accountPuuid: ACCOUNT_PUUID,
-    database: makeDatabase(records)
+    database: makeDatabase(records, records.map(record => makeDetailWithSelfWin(record.matchId, record.win)))
   })
 
   assert.equal(result.status, 'ready')
@@ -688,6 +732,73 @@ test('returns ready when exactly 20 ranked solo or flex matches are cached', asy
   assert.equal(result.snapshot.matches[0]?.laneDiff?.csDiffAt10, 7)
   assert.equal(result.snapshot.matches[0]?.laneDiff?.xpDiffAt10, 200)
   assert.match(result.snapshot.inputHash, /^[a-f0-9]{8,}$/)
+
+  const brief = (result.snapshot as typeof result.snapshot & {
+    analysisBrief?: {
+      schemaVersion: string
+      language: string
+      text: string
+      overviewFacts: string[]
+      trendFacts: string[]
+      matchFacts: string[]
+      dataQualityFacts: string[]
+    }
+  }).analysisBrief
+  assert.equal(brief?.schemaVersion, 'coach_summary_analysis_brief.v1')
+  assert.equal(brief?.language, 'zh-CN')
+  assert.match(brief?.text ?? '', /最近20局走势/)
+  assert.doesNotMatch(brief?.text ?? '', /最近\s*10\s*局走势/)
+  assert.match(brief?.overviewFacts.join('\n') ?? '', /最近20局排位/)
+  assert.match(brief?.trendFacts.join('\n') ?? '', /最近20局走势/)
+  assert.equal(brief?.matchFacts.length, 20)
+  assert.match(brief?.matchFacts[0] ?? '', /^m01 /)
+  assert.match(brief?.matchFacts[0] ?? '', /10分钟对位经济\+300/)
+  assert.match(brief?.dataQualityFacts.join('\n') ?? '', /数据质量/)
+})
+
+test('coach_summary resource death window only marks deaths within 60 seconds before objective', async () => {
+  const records = Array.from({ length: 20 }, (_item, index) => makeRecord(index + 1))
+  const details = records.map((record, index) =>
+    index === 0
+      ? makeDetailWithSelfDeathTimestamp(record.matchId, 650_000)
+      : makeDetail(record.matchId)
+  )
+
+  const result = await prepareCoachSummaryGeneration({
+    accountPuuid: ACCOUNT_PUUID,
+    database: makeDatabase(records, details)
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.snapshot.matches[0]?.events.deaths[0]?.nearestUpcomingObjective, undefined)
+  assert.match(result.snapshot.analysisBrief.trendFacts.join('\n'), /60/)
+  assert.doesNotMatch(result.snapshot.analysisBrief.trendFacts.join('\n'), /120/)
+})
+
+test('coach_summary deterministic overview marks 12 wins in 20 games as a good recent state', async () => {
+  const records = Array.from({ length: 20 }, (_item, index) =>
+    makeRecordWithSelfWin(index + 1, index < 12)
+  )
+
+  const result = await prepareCoachSummaryGeneration({
+    accountPuuid: ACCOUNT_PUUID,
+    database: makeDatabase(records, records.map(record => makeDetailWithSelfWin(record.matchId, record.win)))
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.snapshot.analysisBrief.overallState.state, 'good')
+  assert.match(result.snapshot.analysisBrief.overallState.label, /良好/)
+
+  const overview = buildCoachSummaryReportOverview(result.snapshot)
+  assert.equal(overview.totalMatches, 20)
+  assert.equal(overview.wins, 12)
+  assert.equal(overview.losses, 8)
+  assert.equal(overview.winRate, 60)
+  assert.equal(overview.overallState, 'good')
+  assert.match(overview.summary, /状态良好/)
+  assert.equal(overview.heroStats?.[0]?.championId, 103)
+  assert.equal(overview.heroStats?.[0]?.championCanonicalName, 'Ahri')
+  assert.match(buildCoachSummaryReportCardTitle(result.snapshot), /20局12胜/)
 })
 
 test('does not count non-ranked queues toward the 20 match requirement', async () => {
@@ -771,6 +882,36 @@ test('coach_summary hydration fetches missing timeline from SGP only and persist
   assert.equal(result.snapshot.matches[0]?.events.buildings.length, 1)
   assert.equal(result.snapshot.matches[0]?.laneDiff?.goldDiffAt10, 300)
   assert(delays.every(delay => delay === COACH_SUMMARY_SGP_HYDRATION_DELAY_MS))
+})
+
+test('coach_summary hydration reuses rankpeek backend detail and only fills missing timeline for economy diff', async () => {
+  const records = makeNumericRecords()
+  const details = records.map((record, index) =>
+    makeDetail(record.matchId, {
+      includeTimeline: index !== 0,
+      source: index === 0 ? 'rankpeek-backend' : 'sgp'
+    })
+  )
+  const state = makeMutableDatabase(records, details)
+  const sgpClient = makeSgpClient()
+
+  const result = await prepareCoachSummaryGeneration({
+    accountPuuid: ACCOUNT_PUUID,
+    database: state.database,
+    sgpHydrationClient: sgpClient,
+    hydrationDelay: async () => undefined
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.deepEqual(sgpClient.detailCalls, [])
+  assert.deepEqual(sgpClient.timelineCalls, [10_001])
+  assert.equal(state.upsertedDetails.length, 1)
+  assert.equal(state.upsertedDetails[0]?.source, 'sgp')
+  assert.deepEqual(result.snapshot.dataQuality.missingParticipantDetailMatchRefs, [])
+  assert.deepEqual(result.snapshot.dataQuality.missingTimelineMatchRefs, [])
+  assert.deepEqual(result.snapshot.dataQuality.missingEconomyDiffMatchRefs, [])
+  assert.equal(result.snapshot.matches[0]?.laneDiff?.goldDiffAt10, 300)
+  assert.equal(result.snapshot.matches[0]?.laneDiff?.goldDiffAt15, 350)
 })
 
 test('coach_summary hydration can use SGP match-history summary as participant detail', async () => {
@@ -1063,15 +1204,23 @@ test('dataQuality records missing rune and item data separately', async () => {
   assert.deepEqual(result.snapshot.dataQuality.missingRuneOrItemMatchRefs, ['m01'])
 })
 
-test('champion metadata maps Briar, Naafiri, Kayn, Nidalee, Jarvan IV, Shyvana, and Yuumi by id', async () => {
+test('champion metadata maps stable coach-summary champion ids', async () => {
   const cases = [
+    { championId: 43, rawName: 'Karma', canonicalName: 'Karma' },
+    { championId: 89, rawName: 'Leona', canonicalName: 'Leona' },
+    { championId: 117, rawName: 'Lulu', canonicalName: 'Lulu' },
+    { championId: 133, rawName: 'Quinn', canonicalName: 'Quinn' },
     { championId: 141, rawName: 'Kayn', canonicalName: 'Kayn' },
+    { championId: 200, rawName: "Bel'Veth", canonicalName: "Bel'Veth" },
     { championId: 233, rawName: 'Nidalee', canonicalName: 'Briar' },
+    { championId: 234, rawName: 'Viego', canonicalName: 'Viego' },
     { championId: 950, rawName: 'Naafiri', canonicalName: 'Naafiri' },
     { championId: 76, rawName: 'Nidalee', canonicalName: 'Nidalee' },
     { championId: 59, rawName: 'JarvanIV', canonicalName: 'Jarvan IV' },
     { championId: 102, rawName: 'Jarvan IV', canonicalName: 'Shyvana' },
-    { championId: 350, rawName: 'Nidalee', canonicalName: 'Yuumi' }
+    { championId: 350, rawName: 'Nidalee', canonicalName: 'Yuumi' },
+    { championId: 517, rawName: 'Sylas', canonicalName: 'Sylas' },
+    { championId: 888, rawName: 'RenataGlasc', canonicalName: 'Renata Glasc' }
   ]
 
   for (const item of cases) {

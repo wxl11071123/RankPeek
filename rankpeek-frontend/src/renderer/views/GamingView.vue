@@ -35,17 +35,17 @@
           <div class="team-header team-header-blue">
             <div class="team-title">
               <div>
-                <h2>{{ t('gaming.blueTeam') }}</h2>
-                <span>{{ blueTeamCount }} / 5</span>
+                <h2>{{ t('gaming.blueTeam') }} {{ blueTeamCount }}/5</h2>
               </div>
             </div>
             <button
               class="team-analysis-btn team-analysis-btn-blue control-glow"
               type="button"
-              title="打开队友成分分析"
-              @click="openGamingAiAnalysis('teammate')"
+              :title="getGamingAiButtonTitle('teammate')"
+              :disabled="!canStartGamingAiInlineAnalysis('teammate')"
+              @click="startGamingAiInlineAnalysis('teammate')"
             >
-              队友成分
+              {{ getGamingAiButtonText('teammate') }}
             </button>
           </div>
           <div class="team-players">
@@ -56,14 +56,10 @@
               <PlayerCard
                 class="gaming-player-card surface-glow"
                 :session-summoner="player"
-                :selected="isParticipantExpanded(player)"
+                :ai-insight="getGamingAiInlinePlayerInsight('teammate', player)"
+                :ai-loading="isGamingAiInlinePlayerLoading('teammate', player)"
+                :ai-error="getGamingAiInlinePlayerError('teammate', player)"
                 team="blue"
-                @select-player="toggleParticipantRecentMatches(player)"
-              />
-              <ParticipantRecentMatchesPanel
-                v-if="isParticipantExpanded(player)"
-                class="participant-recent-inline-panel surface-glow"
-                :player="player"
               />
             </template>
             <span
@@ -85,17 +81,17 @@
           <div class="team-header team-header-red">
             <div class="team-title">
               <div>
-                <h2>{{ t('gaming.redTeam') }}</h2>
-                <span>{{ redTeamCount }} / 5</span>
+                <h2>{{ t('gaming.redTeam') }} {{ redTeamCount }}/5</h2>
               </div>
             </div>
             <button
               class="team-analysis-btn team-analysis-btn-red control-glow"
               type="button"
-              title="打开赛前对手分析"
-              @click="openGamingAiAnalysis('opponent')"
+              :title="getGamingAiButtonTitle('opponent')"
+              :disabled="!canStartGamingAiInlineAnalysis('opponent')"
+              @click="startGamingAiInlineAnalysis('opponent')"
             >
-              赛前分析
+              {{ getGamingAiButtonText('opponent') }}
             </button>
           </div>
           <div class="team-players">
@@ -106,14 +102,10 @@
               <PlayerCard
                 class="gaming-player-card surface-glow"
                 :session-summoner="player"
-                :selected="isParticipantExpanded(player)"
+                :ai-insight="getGamingAiInlinePlayerInsight('opponent', player)"
+                :ai-loading="isGamingAiInlinePlayerLoading('opponent', player)"
+                :ai-error="getGamingAiInlinePlayerError('opponent', player)"
                 team="red"
-                @select-player="toggleParticipantRecentMatches(player)"
-              />
-              <ParticipantRecentMatchesPanel
-                v-if="isParticipantExpanded(player)"
-                class="participant-recent-inline-panel surface-glow"
-                :player="player"
               />
             </template>
             <span
@@ -132,20 +124,6 @@
         </section>
       </div>
     </div>
-    <GamingAiAnalysisModal
-      :open="gamingAiModalOpen"
-      :mode="gamingAiModalMode"
-      :preview="gamingAiPreview"
-      :queue-label="gamingAiQueueLabel"
-      :analysis-enabled="gamingAiAnalysisReady"
-      :stream-state="gamingAiStreamState"
-      :stream-error="gamingAiStreamError"
-      :player-verdicts="gamingAiPlayerVerdicts"
-      :player-insights="gamingAiPlayerInsights"
-      @start-analysis="startGamingAiServerAnalysis"
-      @cancel-analysis="cancelGamingAiServerAnalysis"
-      @close="closeGamingAiAnalysis"
-    />
   </div>
 </template>
 
@@ -156,25 +134,28 @@ import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
 import { listenGameflowPhase } from '@/services/gameflowPhaseListener'
 import RefreshIconButton from '@/components/common/RefreshIconButton.vue'
-import GamingAiAnalysisModal from '@/components/gaming/GamingAiAnalysisModal.vue'
-import ParticipantRecentMatchesPanel from '@/components/gaming/ParticipantRecentMatchesPanel.vue'
 import type { CacheUpdateEvent, Lobby, SessionData, SessionSummoner, Summoner } from '@/types/api'
 import PlayerCard from '@/components/gaming/PlayerCard.vue'
-import {
-  createGamingAiAnalysisPreview,
-  type GamingAiAnalysisMode,
-  type GamingAiAnalysisPreview
-} from '@/services/gamingAiAnalysisPreview'
+import type { GamingAiAnalysisMode } from '@/services/gamingAiAnalysisPreview'
 import { buildGamingAiInputSnapshot } from '@/services/gamingAiInputSnapshot'
 import {
   createGamingAiStreamRequest,
   streamGamingAiAnalysis,
-  type GamingAiPlayerInsightEvent,
-  type GamingAiPlayerStreamVerdict,
-  type GamingAiStreamState
+  type GamingAiPlayerInsightEvent
 } from '@/services/gamingAiServerStream'
 import { isGamingAiAnalysisReady } from '@/services/gamingAiAnalysisReadiness'
-import { normalizeGamingQueueLabel } from '@/services/gamingAiQueue'
+import { isGamingAiAnalysisEnabledQueue, normalizeGamingQueueLabel } from '@/services/gamingAiQueue'
+import {
+  gamingAiInlineState,
+  beginGamingAiInlineRun,
+  clearGamingAiInlineMode,
+  completeGamingAiInlineRun,
+  isGamingAiInlineRunCurrent,
+  setGamingAiInlineError,
+  setGamingAiInlineStreamState,
+  upsertGamingAiInlineInsight,
+  upsertGamingAiInlineVerdict
+} from '@/services/gamingAiInlineState'
 import { buildOpggChampionQuery } from '@/services/opggChampionQuery'
 import {
   buildLobbyDisplaySessionSummoners,
@@ -248,21 +229,6 @@ const blueTeamCount = computed(() => blueTeamPlayers.value.length)
 const redTeamCount = computed(() => redTeamPlayers.value.length)
 const blueEmptySlots = computed(() => Math.max(0, 5 - blueTeamCount.value))
 const redEmptySlots = computed(() => Math.max(0, 5 - redTeamCount.value))
-const allSessionPlayers = computed<SessionSummoner[]>(() => [
-  ...blueTeamPlayers.value,
-  ...redTeamPlayers.value
-])
-const expandedParticipantKeys = ref<Set<string>>(new Set())
-const gamingAiModalOpen = ref(false)
-const gamingAiModalMode = ref<GamingAiAnalysisMode>('teammate')
-const gamingAiPreview = ref<GamingAiAnalysisPreview | null>(null)
-const gamingAiStreamState = ref<GamingAiStreamState>('idle')
-const gamingAiStreamText = ref('')
-const gamingAiStreamError = ref('')
-const gamingAiPlayerVerdicts = ref<Record<string, GamingAiPlayerStreamVerdict>>({})
-const gamingAiPlayerInsights = ref<Record<string, GamingAiPlayerInsightEvent>>({})
-let gamingAiStreamAbortController: AbortController | null = null
-
 const phaseCn = computed(() => {
   const phaseMap: Record<string, MessageKey> = {
     ChampSelect: 'gaming.phase.ChampSelect',
@@ -328,10 +294,6 @@ const queueUnknown = computed(() => {
   return true
 })
 const gamingAiQueueLabel = computed(() => normalizeGamingQueueLabel(sessionData.value))
-const gamingAiAnalysisReady = computed(() => isGamingAiAnalysisReady({
-  mode: gamingAiModalMode.value,
-  sessionData: sessionData.value
-}))
 const opggQuery = computed(() => buildOpggChampionQuery(sessionData.value))
 const opggButtonTitle = computed(() => opggQuery.value.reason || 'OP.GG')
 const refreshButtonLabel = computed(() => {
@@ -447,161 +409,227 @@ function normalizeKeyPart(value: unknown): string {
   return ''
 }
 
-function isParticipantExpanded(player: SessionSummoner): boolean {
-  const key = getParticipantKey(player)
-  return Boolean(key && expandedParticipantKeys.value.has(key))
+function getGamingAiModeState(mode: GamingAiAnalysisMode) {
+  return gamingAiInlineState[mode]
 }
 
-function toggleParticipantRecentMatches(player: SessionSummoner) {
-  const key = getParticipantKey(player)
-  if (!key) {
-    return
-  }
-  const nextKeys = new Set(expandedParticipantKeys.value)
-  if (nextKeys.has(key)) {
-    nextKeys.delete(key)
-  } else {
-    nextKeys.add(key)
-  }
-  expandedParticipantKeys.value = nextKeys
+function isGamingAiInlineModeBusy(mode: GamingAiAnalysisMode): boolean {
+  const streamState = getGamingAiModeState(mode).streamState
+  return streamState === 'preparing' || streamState === 'streaming'
 }
 
-function openGamingAiAnalysis(mode: GamingAiAnalysisMode) {
-  cancelGamingAiServerAnalysis()
-  gamingAiModalMode.value = mode
-  refreshGamingAiPreview(mode)
-  resetGamingAiStreamState()
-  gamingAiModalOpen.value = true
-}
-
-function closeGamingAiAnalysis() {
-  cancelGamingAiServerAnalysis()
-  resetGamingAiStreamState()
-  gamingAiModalOpen.value = false
-}
-
-function refreshGamingAiPreview(mode: GamingAiAnalysisMode = gamingAiModalMode.value) {
-  const players = mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
-  gamingAiPreview.value = createGamingAiAnalysisPreview({
+function canStartGamingAiInlineAnalysis(mode: GamingAiAnalysisMode): boolean {
+  return !isGamingAiInlineModeBusy(mode) && isGamingAiAnalysisReady({
     mode,
-    players,
-    sessionData: sessionData.value,
-    currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
+    sessionData: sessionData.value
   })
 }
 
-async function startGamingAiServerAnalysis() {
-  if (gamingAiStreamState.value === 'preparing' || gamingAiStreamState.value === 'streaming') {
+function getGamingAiButtonText(mode: GamingAiAnalysisMode): string {
+  if (isGamingAiInlineModeBusy(mode)) {
+    return '分析中...'
+  }
+  return mode === 'teammate' ? '队友成分' : '赛前分析'
+}
+
+function getGamingAiButtonTitle(mode: GamingAiAnalysisMode): string {
+  if (canStartGamingAiInlineAnalysis(mode)) {
+    return mode === 'teammate' ? '分析当前队友成分' : '分析当前对手阵容'
+  }
+  if (isGamingAiInlineModeBusy(mode)) {
+    return '分析正在进行'
+  }
+  return '排位阵容齐全并读取完成后可分析'
+}
+
+function getGamingAiModePlayers(mode: GamingAiAnalysisMode): SessionSummoner[] {
+  return mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
+}
+
+function buildGamingAiInlineRequestKey(mode: GamingAiAnalysisMode): string {
+  const playerKeys = getGamingAiModePlayers(mode).map(getGamingAiPlayerCacheKey).join('|')
+  const requestKey = [mode, gamingAiQueueLabel.value, String(sessionData.value.queueId || 0), playerKeys].join('::')
+  return requestKey
+}
+
+function getGamingAiPlayerCacheKey(player: SessionSummoner): string {
+  const gameName = player.summoner?.gameName?.trim()
+  const tagLine = player.summoner?.tagLine?.trim()
+  if (gameName) {
+    return `riot:${gameName}#${tagLine || ''}`
+  }
+
+  const summonerId = normalizeKeyPart(player.summoner?.summonerId)
+  if (summonerId) {
+    return `summoner:${summonerId}`
+  }
+
+  const puuid = player.summoner?.puuid?.trim()
+  if (puuid) {
+    return `puuid:${puuid}`
+  }
+
+  return `slot:${player.championId || 0}:${player.selectedPosition || player.position || ''}`
+}
+
+function isGamingAiInlineCacheAvailable(mode: GamingAiAnalysisMode): boolean {
+  if (!hasActiveSession.value || !isGamingAiAnalysisEnabledQueue(sessionData.value)) {
+    return false
+  }
+
+  const players = getGamingAiModePlayers(mode)
+  return players.length >= 5 && players.every(player => {
+    const recordStatus = player.userTag?.recordStatus
+    return !player.isLoading && Boolean(player.summoner || recordStatus === 'PRIVATE' || recordStatus === 'EMPTY' || recordStatus === 'ERROR')
+  })
+}
+
+function syncGamingAiInlineCacheWithSession() {
+  if (!hasCompletedInitialSessionFetch && !sessionData.value.phase) {
+    return
+  }
+
+  const teammateRequestKey = buildGamingAiInlineRequestKey('teammate')
+  const opponentRequestKey = buildGamingAiInlineRequestKey('opponent')
+
+  if (!isGamingAiInlineCacheAvailable('teammate') || gamingAiInlineState.teammate.requestKey !== teammateRequestKey) {
+    clearGamingAiInlineMode('teammate')
+  }
+
+  if (!isGamingAiInlineCacheAvailable('opponent') || gamingAiInlineState.opponent.requestKey !== opponentRequestKey) {
+    clearGamingAiInlineMode('opponent')
+  }
+}
+
+async function startGamingAiInlineAnalysis(mode: GamingAiAnalysisMode) {
+  if (isGamingAiInlineModeBusy(mode)) {
     return
   }
   if (!isGamingAiAnalysisReady({
-    mode: gamingAiModalMode.value,
+    mode,
     sessionData: sessionData.value
   })) {
     return
   }
 
-  const players = gamingAiModalMode.value === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
+  const requestKey = buildGamingAiInlineRequestKey(mode)
+  const { controller, requestId } = beginGamingAiInlineRun(mode, requestKey)
+  const players = mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
   const snapshot = buildGamingAiInputSnapshot({
-    mode: gamingAiModalMode.value,
+    mode,
     sessionData: sessionData.value,
     selectedPlayers: players,
     currentSummonerPuuid: sessionData.value.currentSummoner?.puuid
   })
   const request = createGamingAiStreamRequest(snapshot)
-  const controller = new AbortController()
-  gamingAiStreamAbortController = controller
-  gamingAiStreamState.value = 'preparing'
-  gamingAiStreamText.value = ''
-  gamingAiStreamError.value = ''
-  gamingAiPlayerVerdicts.value = {}
-  gamingAiPlayerInsights.value = {}
 
   const result = await streamGamingAiAnalysis(request, {
     onEvent: (event) => {
-      if (controller.signal.aborted) {
+      if (!isGamingAiInlineRunCurrent(mode, requestId, controller)) {
         return
       }
       if (event.type === 'player_insight') {
-        gamingAiStreamState.value = 'streaming'
-        gamingAiPlayerInsights.value = {
-          ...gamingAiPlayerInsights.value,
-          [event.playerKey]: event
-        }
+        upsertGamingAiInlineInsight(mode, requestId, event)
         return
       }
       if (event.type === 'player_verdict') {
-        gamingAiStreamState.value = 'streaming'
-        gamingAiPlayerVerdicts.value = {
-          ...gamingAiPlayerVerdicts.value,
-          [event.playerKey]: event
-        }
+        upsertGamingAiInlineVerdict(mode, requestId, event)
         return
       }
-      if (event.type === 'start') {
-        gamingAiStreamState.value = 'streaming'
-      }
-      if (event.type === 'section') {
-        gamingAiStreamState.value = 'streaming'
+      if (event.type === 'start' || event.type === 'section') {
+        setGamingAiInlineStreamState(mode, requestId, 'streaming')
       }
     },
     onDelta: () => {
-      if (controller.signal.aborted) {
-        return
+      if (isGamingAiInlineRunCurrent(mode, requestId, controller)) {
+        setGamingAiInlineStreamState(mode, requestId, 'streaming')
       }
-      gamingAiStreamState.value = 'streaming'
     },
     onError: (message) => {
-      if (controller.signal.aborted) {
-        return
+      if (isGamingAiInlineRunCurrent(mode, requestId, controller)) {
+        setGamingAiInlineError(mode, requestId, message)
       }
-      gamingAiStreamError.value = message
-      gamingAiStreamState.value = 'failed'
     },
     onDone: () => {
-      if (controller.signal.aborted) {
-        return
-      }
-      gamingAiStreamState.value = 'completed'
+      completeGamingAiInlineRun(mode, requestId, controller)
     }
   }, { signal: controller.signal })
 
-  if (gamingAiStreamAbortController !== controller) {
+  if (!isGamingAiInlineRunCurrent(mode, requestId, controller)) {
     return
   }
 
-  gamingAiStreamAbortController = null
   if (!result.ok) {
-    if (controller.signal.aborted) {
-      gamingAiStreamState.value = 'idle'
-      return
+    if (!controller.signal.aborted) {
+      setGamingAiInlineError(mode, requestId, result.message)
     }
-    gamingAiStreamError.value = result.message
-    gamingAiStreamState.value = 'failed'
     return
   }
 
-  if (gamingAiStreamState.value !== 'completed') {
-    gamingAiStreamState.value = 'completed'
-  }
+  completeGamingAiInlineRun(mode, requestId, controller)
 }
 
-function cancelGamingAiServerAnalysis() {
-  if (gamingAiStreamAbortController) {
-    gamingAiStreamAbortController.abort()
-    gamingAiStreamAbortController = null
+function getGamingAiInlinePlayerInsight(
+  mode: GamingAiAnalysisMode,
+  player: SessionSummoner
+): GamingAiPlayerInsightEvent | null {
+  const state = getGamingAiModeState(mode)
+  for (const key of getGamingAiInlinePlayerKeys(player)) {
+    const insight = state.playerInsights[key]
+    if (insight) {
+      return insight
+    }
   }
-  if (gamingAiStreamState.value === 'preparing' || gamingAiStreamState.value === 'streaming') {
-    gamingAiStreamState.value = 'idle'
+
+  for (const key of getGamingAiInlinePlayerKeys(player)) {
+    const verdict = state.playerVerdicts[key]
+    if (verdict?.reason) {
+      return {
+        playerKey: verdict.playerKey,
+        label: verdict.label,
+        text: verdict.reason,
+        ...(verdict.tone ? { tone: verdict.tone } : {})
+      }
+    }
   }
+
+  return null
 }
 
-function resetGamingAiStreamState() {
-  gamingAiStreamState.value = 'idle'
-  gamingAiStreamText.value = ''
-  gamingAiStreamError.value = ''
-  gamingAiPlayerVerdicts.value = {}
-  gamingAiPlayerInsights.value = {}
+function isGamingAiInlinePlayerLoading(mode: GamingAiAnalysisMode, player: SessionSummoner): boolean {
+  return isGamingAiInlineModeBusy(mode) && !getGamingAiInlinePlayerInsight(mode, player)
+}
+
+function getGamingAiInlinePlayerError(mode: GamingAiAnalysisMode, player: SessionSummoner): string {
+  if (getGamingAiInlinePlayerInsight(mode, player)) {
+    return ''
+  }
+  const state = getGamingAiModeState(mode)
+  return state.streamState === 'failed' ? state.streamError : ''
+}
+
+function getGamingAiInlinePlayerKeys(player: SessionSummoner): string[] {
+  const keys = [
+    getGamingAiInputPlayerKey(player),
+    getParticipantKey(player)
+  ].filter(Boolean)
+  return Array.from(new Set(keys))
+}
+
+function getGamingAiInputPlayerKey(player: SessionSummoner): string {
+  const puuid = player.summoner?.puuid?.trim()
+  if (puuid) {
+    return `puuid:${puuid}`
+  }
+
+  const summonerId = normalizeKeyPart(player.summoner?.summonerId)
+  if (summonerId) {
+    return `summoner:${summonerId}`
+  }
+
+  const gameName = player.summoner?.gameName?.trim() || 'Unknown player'
+  const tagLine = player.summoner?.tagLine?.trim()
+  return `name:${tagLine ? `${gameName}#${tagLine}` : gameName}`
 }
 
 async function openOpggWindow() {
@@ -836,21 +864,18 @@ onMounted(() => {
 })
 
 watch(
-  () => allSessionPlayers.value.map(getParticipantKey).join('|'),
-  () => {
-    const currentKeys = new Set(allSessionPlayers.value.map(getParticipantKey).filter(Boolean))
-    const nextKeys = new Set([...expandedParticipantKeys.value].filter(key => currentKeys.has(key)))
-    if (nextKeys.size !== expandedParticipantKeys.value.size) {
-      expandedParticipantKeys.value = nextKeys
-    }
-  }
+  () => [
+    hasActiveSession.value ? 'active' : 'inactive',
+    String(sessionData.value.queueId || 0),
+    gamingAiQueueLabel.value,
+    buildGamingAiInlineRequestKey('teammate'),
+    buildGamingAiInlineRequestKey('opponent'),
+    isGamingAiInlineCacheAvailable('teammate') ? 'teammate-ready' : 'teammate-unavailable',
+    isGamingAiInlineCacheAvailable('opponent') ? 'opponent-ready' : 'opponent-unavailable'
+  ].join('||'),
+  syncGamingAiInlineCacheWithSession,
+  { immediate: true }
 )
-
-watch(sessionData, () => {
-  if (gamingAiModalOpen.value) {
-    refreshGamingAiPreview()
-  }
-})
 
 watch(() => sessionData.value.phase, (newVal, oldVal) => {
   if (!hasActiveSession.value) {
@@ -890,7 +915,6 @@ function checkAndRetryFetch() {
 }
 
 onUnmounted(() => {
-  cancelGamingAiServerAnalysis()
   if (refreshInterval) {
     clearInterval(refreshInterval)
   }
@@ -1277,14 +1301,6 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.team-title div > span {
-  display: block;
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
 .team-analysis-btn {
   flex: 0 0 auto;
   min-width: 92px;
@@ -1308,8 +1324,8 @@ onUnmounted(() => {
     color var(--transition-fast);
 }
 
-.team-analysis-btn:hover,
-.team-analysis-btn:focus-visible {
+.team-analysis-btn:hover:not(:disabled),
+.team-analysis-btn:focus-visible:not(:disabled) {
   border-color: transparent;
   background: var(--gaming-control-bg-hover-local);
   color: #f7e6ad;
@@ -1317,7 +1333,12 @@ onUnmounted(() => {
   outline: none;
 }
 
-.team-analysis-btn.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
+.team-analysis-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.team-analysis-btn.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible):not(:disabled) {
   box-shadow: var(--gaming-control-edge-shadow);
 }
 
@@ -1328,8 +1349,8 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
-:global([data-theme="light"] .gaming-view .team-analysis-btn:hover),
-:global([data-theme="light"] .gaming-view .team-analysis-btn:focus-visible) {
+:global([data-theme="light"] .gaming-view .team-analysis-btn:hover:not(:disabled)),
+:global([data-theme="light"] .gaming-view .team-analysis-btn:focus-visible:not(:disabled)) {
   border-color: transparent;
   background: var(--gaming-control-bg-hover-local);
   color: #24384d;

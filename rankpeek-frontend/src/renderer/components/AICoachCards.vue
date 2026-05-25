@@ -13,7 +13,6 @@ interface CoachReport {
 }
 
 type DisplayReport = CoachReport & {
-  isDevPlaceholder?: boolean
   meta?: string
 }
 
@@ -24,15 +23,6 @@ interface LeavingCardSnapshot {
   title: string
   meta: string
 }
-
-const DEV_PLACEHOLDER_REPORTS: DisplayReport[] = [
-  { title: '中期资源团失误正在吞掉你的优势。', body: '', meta: '04/27 · 排位 20', isDevPlaceholder: true },
-  { title: '优势局收尾过慢正在拉低胜率。', body: '', meta: '04/26 · 排位 20', isDevPlaceholder: true },
-  { title: '前十分钟视野断档影响节奏。', body: '', meta: '04/25 · 排位 10', isDevPlaceholder: true },
-  { title: '过度追击正在放大死亡成本。', body: '', meta: '04/24 · 排位 20', isDevPlaceholder: true },
-  { title: '边线处理正在决定你的团战空间。', body: '', meta: '04/23 · 排位 10', isDevPlaceholder: true },
-  { title: '逆风局视野缺口正在拖垮翻盘窗口。', body: '', meta: '04/22 · 排位 20', isDevPlaceholder: true }
-]
 
 const COACH_GLOW_RESET_DELAY_MS = 190
 const CARD_SWITCH_ANIMATION_MS = 230
@@ -55,10 +45,7 @@ let glowResetTimer: number | undefined
 let cardSwitchTimer: number | undefined
 
 const reportCount = computed(() => props.reports.length)
-const hasDevPlaceholders = computed(() => import.meta.env.DEV && reportCount.value === 0)
-const displayReports = computed<DisplayReport[]>(() =>
-  hasDevPlaceholders.value ? DEV_PLACEHOLDER_REPORTS : props.reports
-)
+const displayReports = computed<DisplayReport[]>(() => props.reports)
 const displayCount = computed(() => displayReports.value.length)
 const hasDisplayReports = computed(() => displayCount.value > 0)
 const activeReport = computed<DisplayReport | null>(() =>
@@ -83,11 +70,9 @@ const activeCardAriaLabel = computed(() =>
 )
 const activeCardKey = computed(() => `active-${activeIndex.value}-${switchSerial.value}`)
 const controlItems = computed(() =>
-  hasDisplayReports.value
-    ? displayReports.value.map((report, index) => ({
-        key: report.isDevPlaceholder ? `placeholder-${index}` : `report-${index}`
-      }))
-    : [{ key: 'empty' }]
+  displayReports.value.map((_report, index) => ({
+    key: `report-${index}`
+  }))
 )
 const deckDecorativeLayers = computed(() => {
   if (displayCount.value < 2) {
@@ -97,9 +82,7 @@ const deckDecorativeLayers = computed(() => {
   const layerCount = Math.min(displayCount.value - 1, 2)
   return Array.from({ length: layerCount }, (_item, index) => (index + 1) as 1 | 2)
 })
-const activeReportForEmit = computed<CoachReport | null>(() =>
-  activeReport.value?.isDevPlaceholder ? null : activeReport.value
-)
+const activeReportForEmit = computed<CoachReport | null>(() => activeReport.value)
 
 watch(displayCount, (count) => {
   if (count === 0) {
@@ -124,10 +107,6 @@ onBeforeUnmount(() => {
 
 function getReportTitle(report: DisplayReport, index: number): string {
   const title = report.title.trim()
-  if (report.isDevPlaceholder) {
-    return title
-  }
-
   return getCoachReportHeadline({ report }) || title || `第 ${index + 1} 份复盘`
 }
 
@@ -274,6 +253,10 @@ function resetCoachGlow(event: PointerEvent) {
 }
 
 function openActiveReport() {
+  if (!activeReportForEmit.value) {
+    return
+  }
+
   emit('open-report', activeReportForEmit.value, activeIndex.value)
 }
 </script>
@@ -282,7 +265,6 @@ function openActiveReport() {
   <section
     class="ai-coach-cards"
     :class="{
-      'using-dev-placeholders': hasDevPlaceholders,
       'is-switching': leavingCard,
       'switch-next': switchDirection === 'next',
       'switch-prev': switchDirection === 'prev'
@@ -297,7 +279,7 @@ function openActiveReport() {
       <span class="record-count" aria-label="复盘记录数量">{{ reportCount }}</span>
     </header>
 
-    <div class="record-preview" :class="{ empty: !hasDisplayReports }">
+    <div v-if="hasDisplayReports" class="record-preview">
       <span
         v-for="layer in deckDecorativeLayers"
         :key="layer"
@@ -328,16 +310,24 @@ function openActiveReport() {
         <span v-if="activeMeta" class="record-meta">{{ activeMeta }}</span>
       </button>
     </div>
+    <div v-else class="record-preview record-preview-empty">
+      <div
+        ref="activeCardRef"
+        class="record-main-card record-placeholder-card"
+        aria-hidden="true"
+      >
+        <span class="record-title">使用电子教练生成第一份报告。</span>
+      </div>
+    </div>
 
-    <div class="record-controls" aria-label="复盘记录切换">
+    <div v-if="hasDisplayReports" class="record-controls" aria-label="复盘记录切换">
       <button
         v-for="(item, index) in controlItems"
         :key="item.key"
         class="record-dot"
-        :class="{ active: hasDisplayReports && index === activeIndex, placeholder: !hasDisplayReports }"
+        :class="{ active: index === activeIndex }"
         :aria-current="hasDisplayReports && index === activeIndex ? 'true' : undefined"
         :aria-label="hasDisplayReports ? `切换到第 ${index + 1} 份复盘` : undefined"
-        :disabled="!hasDisplayReports"
         type="button"
         @click="selectReport(index)"
       >
@@ -367,7 +357,6 @@ function openActiveReport() {
   --record-heading-color: var(--text-primary, rgba(230, 238, 246, 0.96));
   --record-count-color: rgba(190, 212, 232, 0.76);
   --record-card-bg: var(--bg-tertiary, #272729);
-  --record-placeholder-card-bg: rgba(39, 39, 41, 0.78);
   --record-card-border: rgba(255, 255, 255, 0.1);
   --record-card-border-hover: rgba(112, 185, 255, 0.54);
   --record-card-local-glow: rgba(41, 151, 255, 0.15);
@@ -500,6 +489,28 @@ function openActiveReport() {
   isolation: isolate;
   z-index: 1;
   overflow: visible;
+}
+
+.record-empty-state {
+  flex: 1 1 auto;
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--text-tertiary, rgba(190, 212, 232, 0.52));
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.record-preview-empty {
+  min-height: 164px;
+}
+
+.record-placeholder-card {
+  cursor: default;
+  pointer-events: none;
 }
 
 .record-main-card,
@@ -837,31 +848,9 @@ function openActiveReport() {
   background: var(--record-gold);
 }
 
-.record-dot.placeholder {
-  cursor: default;
-  opacity: 0.58;
-}
-
 .record-dot:focus-visible {
   outline: 2px solid var(--record-focus);
   outline-offset: 2px;
-}
-
-.record-dot:disabled {
-  pointer-events: none;
-}
-
-.using-dev-placeholders .record-main-card {
-  background: var(--record-placeholder-card-bg);
-  border-color: rgba(120, 151, 178, 0.16);
-}
-
-.using-dev-placeholders .record-title {
-  opacity: 0.78;
-}
-
-.using-dev-placeholders .record-stack-card {
-  border-color: rgba(120, 151, 178, 0.12);
 }
 
 :global([data-theme="light"] .ai-coach-cards) {
@@ -880,7 +869,6 @@ function openActiveReport() {
   --record-heading-color: #2c2c2c;
   --record-count-color: rgba(49, 87, 120, 0.64);
   --record-card-bg: var(--bg-tertiary, #fafafc);
-  --record-placeholder-card-bg: rgba(250, 250, 252, 0.72);
   --record-card-border: rgba(0, 0, 0, 0.1);
   --record-card-border-hover: rgba(41, 151, 255, 0.42);
   --record-card-local-glow: rgba(41, 151, 255, 0.12);

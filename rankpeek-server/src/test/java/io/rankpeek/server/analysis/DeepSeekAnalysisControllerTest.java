@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -28,6 +30,7 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -78,6 +81,242 @@ class DeepSeekAnalysisControllerTest {
                 data: [DONE]
 
                 """);
+    }
+
+    @Test
+    void coachSummaryUsesDeepSeekAndReturnsNormalizedStructuredReport() throws Exception {
+        String aiJson = """
+                {
+                  "schemaVersion": "coach_summary_report.v1",
+                  "analysisType": "coach_summary",
+                  "inputHash": "ai-placeholder-hash",
+                  "title": "Mid game deaths slow the climb",
+                  "summary": "Twenty ranked games show a clear mid-game pattern.",
+                  "verdict": {
+                    "label": "Resource fights need cleaner setup",
+                    "score": 72,
+                    "confidence": "medium",
+                    "summary": "The current sample shows playable lane and champion pool stability, but repeated deaths before major resources are limiting conversion."
+                  },
+                  "keyFindings": [
+                    {
+                      "id": "finding-1",
+                      "priority": "high",
+                      "category": "death",
+                      "claim": "Mid-game deaths are the main repeated risk.",
+                      "evidence": "m03 and m07 both mention deaths before objectives.",
+                      "reasoning": "Those deaths remove tempo before neutral fights.",
+                      "advice": "Enter river only after the nearby wave is handled.",
+                      "confidence": "medium",
+                      "evidenceRefs": ["m03", "m07"]
+                    }
+                  ],
+                  "trainingPlan": [
+                    {
+                      "focus": "Objective setup",
+                      "why": "Most lost tempo appears before neutral resources.",
+                      "nextGames": 5,
+                      "task": "Before dragon or Baron, reset or push one wave before walking in.",
+                      "metricToTrack": "Deaths before neutral objectives",
+                      "target": "No more than one in five games",
+                      "priority": "high"
+                    }
+                  ],
+                  "championAdvice": [
+                    {
+                      "championName": "Kindred",
+                      "role": "jungle",
+                      "recommendation": "keep",
+                      "reason": "The sample is large enough to keep using it while cleaning mid-game setup.",
+                      "confidence": "medium"
+                    }
+                  ],
+                  "chartBlocks": [],
+                  "warnings": [],
+                  "finalSummary": "Keep the current champion direction, but make the next block about safer objective setup."
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputHash": "coach-hash-1",
+                                  "snapshotSchemaVersion": "coach_summary_input_snapshot.v2",
+                                  "promptVersion": "coach_summary.prompt.v2",
+                                  "dataQualityConfidence": "medium",
+                                  "systemPrompt": "system coach prompt",
+                                  "userPrompt": "{\\"currentSnapshotText\\":\\"最近20局走势：资源团前死亡偏多\\",\\"historicalCoachContext\\":\\"无历史报告\\"}"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.schemaVersion").value("coach_summary_report.v1"))
+                .andExpect(jsonPath("$.data.report.analysisType").value("coach_summary"))
+                .andExpect(jsonPath("$.data.report.inputHash").value("coach-hash-1"))
+                .andExpect(jsonPath("$.data.report.metadata.modelName").value("deepseek-v4-flash"))
+                .andExpect(jsonPath("$.data.report.metadata.promptVersion").value("coach_summary.prompt.v2"))
+                .andExpect(jsonPath("$.data.report.metadata.snapshotSchemaVersion").value("coach_summary_input_snapshot.v2"))
+                .andExpect(jsonPath("$.data.report.metadata.dataQualityConfidence").value("medium"))
+                .andExpect(jsonPath("$.data.usage.totalTokens").value(117))
+                .andExpect(content().string(not(containsString("test-secret"))));
+
+        assertThat(capturedRequest).isNotNull();
+        assertThat(capturedRequest.path()).isEqualTo("/chat/completions");
+        assertThat(capturedRequest.authorization()).isEqualTo("Bearer test-secret");
+        JsonNode body = OBJECT_MAPPER.readTree(capturedRequest.body());
+        assertThat(body.get("stream").asBoolean()).isTrue();
+        assertThat(body.get("response_format").get("type").asText()).isEqualTo("json_object");
+        JsonNode messagesNode = body.get("messages");
+        assertThat(messagesNode.get(0).get("role").asText()).isEqualTo("system");
+        assertThat(messagesNode.get(0).get("content").asText()).isEqualTo("system coach prompt");
+        assertThat(messagesNode.get(1).get("role").asText()).isEqualTo("user");
+        assertThat(messagesNode.get(1).get("content").asText()).contains("最近20局走势");
+    }
+
+    @Test
+    void coachSummaryNormalizesFrontendParseableSparseReport() throws Exception {
+        String aiJson = """
+                {
+                  "schemaVersion": "coach_summary_report.v1",
+                  "analysisType": "coach_summary",
+                  "inputHash": "ai-placeholder-hash",
+                  "title": "资源团前先站稳",
+                  "summary": "最近20局显示资源团前死亡偏多。",
+                  "verdict": {
+                    "label": "中期资源处理需要收紧",
+                    "score": 72,
+                    "confidence": "medium",
+                    "summary": "你有稳定的英雄池和可用的节奏点，但资源刷新前的死亡会把优势送回去。"
+                  }
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputHash": "coach-hash-sparse",
+                                  "snapshotSchemaVersion": "coach_summary_input_snapshot.v2",
+                                  "promptVersion": "coach_summary.prompt.v2",
+                                  "dataQualityConfidence": "low",
+                                  "systemPrompt": "system coach prompt",
+                                  "userPrompt": "{\\"currentSnapshotText\\":\\"最近20局走势：资源团前死亡偏多\\"}"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.inputHash").value("coach-hash-sparse"))
+                .andExpect(jsonPath("$.data.report.title").value("资源团前先站稳"))
+                .andExpect(jsonPath("$.data.report.keyFindings").isArray())
+                .andExpect(jsonPath("$.data.report.trainingPlan").isArray())
+                .andExpect(jsonPath("$.data.report.championAdvice").isArray())
+                .andExpect(jsonPath("$.data.report.chartBlocks").isArray())
+                .andExpect(jsonPath("$.data.report.warnings").isArray())
+                .andExpect(jsonPath("$.data.report.metadata.dataQualityConfidence").value("low"));
+    }
+
+    @Test
+    void coachSummaryNormalizesAlternateTitleFieldsInsteadOfFailingReport() throws Exception {
+        String aiJson = """
+                {
+                  "headline": "中期资源团前先站稳",
+                  "summary": "最近20局显示资源团前死亡偏多。",
+                  "verdict": {
+                    "label": "资源团前少掉点",
+                    "score": 68,
+                    "confidence": "medium",
+                    "summary": "你有可用的节奏点，但资源刷新前的死亡会让优势断档。"
+                  }
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputHash": "coach-hash-headline",
+                                  "snapshotSchemaVersion": "coach_summary_input_snapshot.v2",
+                                  "promptVersion": "coach_summary.prompt.v2",
+                                  "dataQualityConfidence": "medium",
+                                  "systemPrompt": "system coach prompt",
+                                  "userPrompt": "{\\"currentSnapshotText\\":\\"最近20局走势：资源团前死亡偏多\\"}"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.title").value("中期资源团前先站稳"))
+                .andExpect(jsonPath("$.data.report.summary").value("最近20局显示资源团前死亡偏多。"))
+                .andExpect(jsonPath("$.data.report.inputHash").value("coach-hash-headline"));
+    }
+
+    @Test
+    void coachSummaryUnwrapsCommonReportEnvelope() throws Exception {
+        String aiJson = """
+                {
+                  "report": {
+                    "title": "最近20局先控资源前站位",
+                    "summary": "优势建立不错，但资源刷新前站位还要收紧。",
+                    "verdict": {
+                      "label": "资源前站位",
+                      "score": 70,
+                      "confidence": "medium",
+                      "summary": "报告主体被模型包在 report 字段里时，服务端仍应归一化成前端可读格式。"
+                    }
+                  }
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputHash": "coach-hash-envelope",
+                                  "snapshotSchemaVersion": "coach_summary_input_snapshot.v2",
+                                  "promptVersion": "coach_summary.prompt.v2",
+                                  "dataQualityConfidence": "medium",
+                                  "systemPrompt": "system coach prompt",
+                                  "userPrompt": "{\\"currentSnapshotText\\":\\"最近20局走势：资源团前死亡偏多\\"}"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.title").value("最近20局先控资源前站位"))
+                .andExpect(jsonPath("$.data.report.inputHash").value("coach-hash-envelope"));
+    }
+
+    @Test
+    void coachSummarySynthesizesVerdictWhenModelOmitsIt() throws Exception {
+        String aiJson = """
+                {
+                  "title": "最近20局先控资源前站位",
+                  "summary": "优势建立不错，但资源刷新前站位还要收紧。"
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputHash": "coach-hash-no-verdict",
+                                  "snapshotSchemaVersion": "coach_summary_input_snapshot.v2",
+                                  "promptVersion": "coach_summary.prompt.v2",
+                                  "dataQualityConfidence": "low",
+                                  "systemPrompt": "system coach prompt",
+                                  "userPrompt": "{\\"currentSnapshotText\\":\\"最近20局走势：资源团前死亡偏多\\"}"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.title").value("最近20局先控资源前站位"))
+                .andExpect(jsonPath("$.data.report.verdict.label").value("最近20局先控资源前站位"))
+                .andExpect(jsonPath("$.data.report.verdict.confidence").value("low"))
+                .andExpect(jsonPath("$.data.report.verdict.summary").value("优势建立不错，但资源刷新前站位还要收紧。"));
     }
 
     @Test
@@ -481,6 +720,27 @@ class DeepSeekAnalysisControllerTest {
         exchange.sendResponseHeaders(nextResponse.status(), bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
+    }
+
+    private static String deepSeekContentStream(String content) throws IOException {
+        String deltaChunk = OBJECT_MAPPER.writeValueAsString(Map.of(
+                "choices", List.of(Map.of("delta", Map.of("content", content))),
+                "model", "deepseek-v4-flash"
+        ));
+        String usageChunk = OBJECT_MAPPER.writeValueAsString(Map.of(
+                "choices", List.of(),
+                "model", "deepseek-v4-flash",
+                "usage", Map.of(
+                        "prompt_tokens", 80,
+                        "completion_tokens", 37,
+                        "total_tokens", 117,
+                        "prompt_cache_hit_tokens", 0,
+                        "prompt_cache_miss_tokens", 80
+                )
+        ));
+        return "data: " + deltaChunk + "\n\n"
+                + "data: " + usageChunk + "\n\n"
+                + "data: [DONE]\n\n";
     }
 
     private record CapturedRequest(String path, String authorization, String body) {

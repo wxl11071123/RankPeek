@@ -3,11 +3,31 @@ import { computed } from 'vue'
 import CoachSummaryChartBlock from '@/components/CoachSummaryChartBlock.vue'
 import { getChampionIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import type {
+  CoachSummaryKeyFinding,
   CoachSummaryHeroStat,
   CoachSummaryReportV1
 } from '@/types/coachSummaryReport'
 
 const MAX_REPORT_CHARTS = 3
+const COACH_SUMMARY_HERO_ICON_FALLBACK_IDS = buildHeroIconFallbackIds([
+  [43, ['Karma', '卡尔玛']],
+  [59, ['Jarvan IV', '嘉文四世']],
+  [76, ['Nidalee', '奈德丽']],
+  [89, ['Leona', '蕾欧娜']],
+  [102, ['Shyvana', '希瓦娜']],
+  [103, ['Ahri', '阿狸']],
+  [117, ['Lulu', '璐璐']],
+  [133, ['Quinn', '奎因']],
+  [141, ['Kayn', '凯隐']],
+  [200, ["Bel'Veth", '卑尔维斯']],
+  [233, ['Briar', '贝蕾亚']],
+  [234, ['Viego', '佛耶戈']],
+  [350, ['Yuumi', '悠米']],
+  [517, ['Sylas', '塞拉斯']],
+  [888, ['Renata Glasc', '烈娜塔·戈拉斯克']],
+  [897, ["K'Sante", '奎桑提']],
+  [950, ['Naafiri', '纳亚菲利']]
+])
 
 type ReportLoadState = 'loading' | 'ready' | 'missing' | 'unsupported' | 'invalid' | 'error'
 
@@ -59,7 +79,7 @@ const overviewCharts = computed(() => (
       .filter(chart => chart.placement === 'overview')
       .slice(0, Math.min(2, MAX_REPORT_CHARTS))
 ))
-const findings = computed(() => (props.report?.keyFindings || []).slice(0, 5))
+const findings = computed(() => (props.report?.keyFindings || []).slice(0, 2))
 const closingSummary = computed(() =>
   props.report?.finalSummary ||
   props.report?.verdict.summary ||
@@ -101,7 +121,79 @@ function clampPercent(value?: number): number {
 }
 
 function heroIcon(hero: CoachSummaryHeroStat): string {
-  return getChampionIconUrl(hero.championId)
+  return getChampionIconUrl(heroIconChampionId(hero))
+}
+
+function heroIconChampionId(hero: CoachSummaryHeroStat): number | null {
+  return hero.championId ?? readHeroIconFallbackId(hero)
+}
+
+function formatHeroChartLabel(hero: CoachSummaryHeroStat): string {
+  return `${hero.championDisplayName}，${hero.games} 场，胜率 ${formatPercent(hero.winRate)}`
+}
+
+function heroDetailLine(hero: CoachSummaryHeroStat): string {
+  return [
+    formatRoleLabel(hero.role),
+    `${hero.games} 场`,
+    heroRecordText(hero),
+    heroAverageKdaText(hero)
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function heroRecordText(hero: CoachSummaryHeroStat): string {
+  if (hero.wins !== undefined && hero.losses !== undefined) {
+    return `${hero.wins}胜${hero.losses}负`
+  }
+  return ''
+}
+
+function heroAverageKdaText(hero: CoachSummaryHeroStat): string {
+  if (hero.averageKda !== undefined) {
+    return `KDA ${formatCompactNumber(hero.averageKda)}`
+  }
+  return hero.kda ? `KDA ${hero.kda}` : ''
+}
+
+function formatCompactNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function findingText(finding: CoachSummaryKeyFinding): string {
+  return [
+    finding.claim,
+    finding.evidence,
+    finding.reasoning,
+    finding.advice
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function readHeroIconFallbackId(hero: CoachSummaryHeroStat): number | null {
+  for (const name of [hero.championCanonicalName, hero.championDisplayName]) {
+    const fallbackId = COACH_SUMMARY_HERO_ICON_FALLBACK_IDS.get(normalizeHeroIconLookupKey(name))
+    if (fallbackId !== undefined) {
+      return fallbackId
+    }
+  }
+  return null
+}
+
+function buildHeroIconFallbackIds(entries: Array<[number, string[]]>): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const [championId, names] of entries) {
+    for (const name of names) {
+      map.set(normalizeHeroIconLookupKey(name), championId)
+    }
+  }
+  return map
+}
+
+function normalizeHeroIconLookupKey(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 </script>
 
@@ -150,7 +242,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
                   </div>
                   <div class="hero-main">
                     <h3>{{ hero.championDisplayName }}</h3>
-                    <p>{{ formatRoleLabel(hero.role) }} · {{ hero.games }} 场</p>
+                    <p>{{ heroDetailLine(hero) }}</p>
                   </div>
                   <div class="hero-metrics">
                     <span>{{ formatPercent(hero.winRate) }}</span>
@@ -184,11 +276,15 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
                     class="hero-win-rate-column"
                     :style="{ '--hero-win-rate': `${clampPercent(hero.winRate)}%` }"
                     tabindex="0"
-                    :aria-label="`${hero.championDisplayName} ${formatPercent(hero.winRate)}`"
+                    :aria-label="formatHeroChartLabel(hero)"
+                    :title="formatHeroChartLabel(hero)"
                   >
                     <div class="hero-win-bar-plot">
                       <div class="hero-win-bar-fill"></div>
-                      <span class="hero-win-tooltip">{{ formatPercent(hero.winRate) }}</span>
+                      <span class="hero-win-tooltip">
+                        <strong>{{ formatPercent(hero.winRate) }}</strong>
+                        <em>{{ hero.games }} 场</em>
+                      </span>
                     </div>
                     <div class="hero-win-rate-x-axis">
                       <div class="hero-win-rate-avatar" :title="hero.championDisplayName">
@@ -200,6 +296,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
                         />
                         <span v-else>{{ hero.championDisplayName.slice(0, 1) }}</span>
                       </div>
+                      <span class="hero-win-rate-games">{{ hero.games }} 场</span>
                     </div>
                   </div>
                 </div>
@@ -226,8 +323,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 
         <ol class="finding-list report-list">
           <li v-for="finding in findings" :key="finding.id" class="finding-item">
-            <strong class="ai-report-prose">{{ finding.claim }}</strong>
-            <p class="ai-report-prose">{{ finding.advice || finding.reasoning || finding.evidence }}</p>
+            <p class="finding-copy ai-report-prose">{{ findingText(finding) }}</p>
           </li>
         </ol>
       </section>
@@ -294,7 +390,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   margin: 0;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 21px;
+  font-size: 28px;
   font-weight: 800;
   line-height: 1.25;
   letter-spacing: 0;
@@ -311,8 +407,8 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 .final-summary {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 24px;
+  line-height: 1.65;
 }
 
 .section-summary {
@@ -370,7 +466,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   --overview-bottom-gap: 8px;
   display: grid;
   grid-template-columns: minmax(260px, 0.85fr) minmax(340px, 1.15fr);
-  gap: 22px;
+  gap: 18px;
   align-items: stretch;
   margin-top: 16px;
   padding-bottom: var(--overview-bottom-gap);
@@ -380,24 +476,24 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   padding-bottom: var(--overview-bottom-gap);
 }
 
 .overview-facts {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin: 0;
 }
 
 .overview-fact-row {
   min-width: 0;
-  min-height: 58px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  padding: 10px 0 10px 12px;
+  padding: 8px 0 8px 12px;
   border-left: 2px solid rgba(var(--accent-rgb), 0.22);
 }
 
@@ -408,15 +504,14 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 .fact-main {
   display: block;
   color: var(--text-primary);
-  font-size: 21px;
+  font-size: 23px;
   font-weight: 800;
   line-height: 1.25;
 }
 
 .fact-sub,
 .hero-main p,
-.hero-metrics span,
-.finding-item p {
+.hero-metrics span {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
@@ -452,17 +547,17 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 .hero-chip {
   min-width: 0;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 7px 8px;
+  padding: 8px 9px;
   border-radius: 8px;
   background: rgba(var(--accent-rgb), 0.045);
 }
 
 .hero-avatar {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   overflow: hidden;
   display: inline-flex;
   align-items: center;
@@ -484,18 +579,19 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   min-width: 0;
 }
 
-.hero-main h3,
-.finding-item strong {
+.hero-main h3 {
   display: block;
   margin: 0;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 750;
   line-height: 1.35;
 }
 
 .hero-main p {
   margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -506,6 +602,11 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   flex-direction: column;
   align-items: flex-end;
   gap: 3px;
+}
+
+.hero-metrics span {
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 .hero-metrics span:first-child {
@@ -527,7 +628,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 .hero-win-rate-chart {
   flex: 1;
   height: 100%;
-  min-height: 260px;
+  min-height: 240px;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 10px;
@@ -537,7 +638,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 0 0 42px;
+  padding: 0 0 52px;
   color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 750;
@@ -554,7 +655,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 
 .hero-win-rate-grid {
   position: absolute;
-  inset: 0 0 42px;
+  inset: 0 0 52px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -582,7 +683,7 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   min-width: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 36px;
+  grid-template-rows: minmax(0, 1fr) 48px;
   align-items: end;
   justify-items: center;
   gap: 6px;
@@ -618,14 +719,30 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   left: 50%;
   bottom: min(calc(var(--hero-win-rate) + 8px), calc(100% - 22px));
   transform: translateX(-50%);
+  min-width: 58px;
+  display: grid;
+  gap: 3px;
   opacity: 0;
   visibility: hidden;
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1;
+  text-align: center;
   pointer-events: none;
   transition: opacity 0.14s ease, visibility 0.14s ease;
+}
+
+.hero-win-tooltip strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.hero-win-tooltip em {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1;
 }
 
 .hero-win-rate-column:hover .hero-win-tooltip,
@@ -638,8 +755,10 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
 .hero-win-rate-x-axis {
   margin-top: auto;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
 }
 
 .hero-win-rate-avatar {
@@ -663,6 +782,14 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   object-fit: cover;
 }
 
+.hero-win-rate-games {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .chart-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -671,30 +798,24 @@ function heroIcon(hero: CoachSummaryHeroStat): string {
   grid-template-columns: 1fr;
   padding: 0;
   list-style: none;
-  counter-reset: report-item;
 }
 
 .finding-item {
   position: relative;
   min-width: 0;
-  padding: 0 0 13px 40px;
+  padding: 0 0 13px;
   border-bottom: 1px solid var(--border-subtle);
-  counter-increment: report-item;
-}
-
-.finding-item::before {
-  content: counter(report-item, decimal-leading-zero);
-  position: absolute;
-  top: 0;
-  left: 0;
-  color: rgba(var(--accent-rgb), 0.86);
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1.35;
 }
 
 .finding-item p {
-  margin: 6px 0 0;
+  margin: 0;
+}
+
+.finding-copy {
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.65;
 }
 
 .final-summary {

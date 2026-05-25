@@ -5,6 +5,8 @@ import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.server.ai.AiProvider;
 import io.rankpeek.server.ai.AnalysisResult;
+import io.rankpeek.server.ai.DeepSeekAiException;
+import io.rankpeek.server.common.ApiResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -115,6 +117,18 @@ public class AnalysisService {
         });
 
         return emitter;
+    }
+
+    public ApiResponse<CoachSummaryAnalysisResponse> generateCoachSummary(CoachSummaryAnalysisRequest request) {
+        if (!deepSeekAnalysisStreamer.isEnabled()) {
+            return ApiResponse.failure("AI_SERVER_DISABLED", "DeepSeek AI is not enabled");
+        }
+
+        try {
+            return ApiResponse.success(deepSeekAnalysisStreamer.generateCoachSummary(request));
+        } catch (DeepSeekAiException exception) {
+            return ApiResponse.failure("DEEPSEEK_ERROR", exception.getMessage());
+        }
     }
 
     private static List<String> nullToEmpty(List<String> values) {

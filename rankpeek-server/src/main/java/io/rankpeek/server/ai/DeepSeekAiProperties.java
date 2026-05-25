@@ -29,7 +29,7 @@ public record DeepSeekAiProperties(
             readTimeoutMs = 30_000;
         }
         if (maxTokens <= 0) {
-            maxTokens = 1600;
+            maxTokens = 4096;
         }
         if (temperature == null || temperature < 0 || temperature > 2) {
             temperature = 0.4;

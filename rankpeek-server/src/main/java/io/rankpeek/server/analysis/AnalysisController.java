@@ -35,4 +35,9 @@ public class AnalysisController {
     public SseEmitter postgameStream(@RequestBody PostgameAnalysisRequest request) {
         return analysisService.streamPostgameMock(request);
     }
+
+    @PostMapping("/coach-summary")
+    public ApiResponse<CoachSummaryAnalysisResponse> coachSummary(@RequestBody CoachSummaryAnalysisRequest request) {
+        return analysisService.generateCoachSummary(request);
+    }
 }
