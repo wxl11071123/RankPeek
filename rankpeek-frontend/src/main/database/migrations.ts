@@ -138,6 +138,18 @@ const migrations: Migration[] = [
           ON ai_analysis_results(account_puuid, match_id, analysis_type);
       `)
     }
+  },
+  {
+    version: 4,
+    name: '4_remove_rankpeek_server_mock_ai_results',
+    up(connection) {
+      connection.exec(`
+        DELETE FROM ai_analysis_results
+        WHERE output_json LIKE '%rankpeek-server mock%'
+           OR output_json LIKE '%RankPeek postgame mock stream started%'
+           OR output_json LIKE '%RankPeek mock stream started%';
+      `)
+    }
   }
 ]
 
