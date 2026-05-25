@@ -168,7 +168,16 @@ function createEmptyStore(): FallbackStore {
 }
 
 function applyFallbackRetention(records: AiAnalysisResult[]): AiAnalysisResult[] {
-  return records.filter(record => Number.isFinite(Date.parse(record.createdAt)))
+  return records.filter(record => (
+    Number.isFinite(Date.parse(record.createdAt))
+    && !isRankPeekServerMockAnalysisRecord(record)
+  ))
+}
+
+function isRankPeekServerMockAnalysisRecord(record: AiAnalysisResult): boolean {
+  return record.outputJson.includes('rankpeek-server mock')
+    || record.outputJson.includes('RankPeek postgame mock stream started')
+    || record.outputJson.includes('RankPeek mock stream started')
 }
 
 function normalizeStoredRecord(value: unknown): AiAnalysisResult | null {

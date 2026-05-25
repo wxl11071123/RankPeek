@@ -188,6 +188,41 @@ test('loading local AI analysis results uses browser storage when the Electron d
   assert.equal(result.results[0]?.inputHash, 'hash-browser-fallback')
 })
 
+test('loading local AI analysis results drops legacy rankpeek-server mock fallback records', async () => {
+  const storage = createMemoryStorage()
+  saveFallbackAiAnalysisResult({
+    accountPuuid: 'account-puuid',
+    matchId: '998877',
+    analysisType: 'postgame_review',
+    subjectKey: 'postgame:review',
+    gameVersion: null,
+    modelName: 'mock',
+    promptVersion: 'postgame_review_result.v1',
+    inputHash: 'hash-legacy-mock',
+    outputJson: JSON.stringify({
+      schemaVersion: 'postgame_ai_run_output.v2',
+      analysisType: 'postgame',
+      mode: 'review',
+      rawOutputText: 'rankpeek-server mock generated before DeepSeek was enabled.',
+      completedAt: '2026-05-20T12:00:00.000Z',
+      usage: null,
+      costCny: null,
+      streamState: 'completed',
+      match: { matchId: '998877' }
+    })
+  }, storage, new Date('2026-05-20T12:00:00.000Z'))
+
+  const result = await loadLocalAiAnalysisResults('account-puuid', {
+    limit: 20,
+    offset: 0,
+    database: null,
+    storage
+  })
+
+  assert.equal(result.unavailable, false)
+  assert.deepEqual(result.results, [])
+})
+
 test('loading local AI analysis results merges browser fallback records when the Electron database is empty', async () => {
   const storage = createMemoryStorage()
   const input: AiAnalysisResultInput = {
