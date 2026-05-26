@@ -6,12 +6,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.server.ai.AiProvider;
 import io.rankpeek.server.ai.AnalysisResult;
 import io.rankpeek.server.ai.DeepSeekAiException;
+import io.rankpeek.server.ai.DeepSeekAiProperties;
+import io.rankpeek.server.auth.AuthUser;
+import io.rankpeek.server.common.ApiException;
 import io.rankpeek.server.common.ApiResponse;
+import io.rankpeek.server.credits.AiAnalysisRun;
+import io.rankpeek.server.credits.AiCreditReservation;
+import io.rankpeek.server.credits.CreditProperties;
+import io.rankpeek.server.credits.CreditService;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,15 +38,24 @@ public class AnalysisService {
     private final PromptContextService promptContextService;
     private final AiProvider aiProvider;
     private final DeepSeekAnalysisStreamer deepSeekAnalysisStreamer;
+    private final DeepSeekAiProperties deepSeekAiProperties;
+    private final CreditService creditService;
+    private final CreditProperties creditProperties;
 
     public AnalysisService(
             PromptContextService promptContextService,
             AiProvider aiProvider,
-            DeepSeekAnalysisStreamer deepSeekAnalysisStreamer
+            DeepSeekAnalysisStreamer deepSeekAnalysisStreamer,
+            DeepSeekAiProperties deepSeekAiProperties,
+            CreditService creditService,
+            CreditProperties creditProperties
     ) {
         this.promptContextService = promptContextService;
         this.aiProvider = aiProvider;
         this.deepSeekAnalysisStreamer = deepSeekAnalysisStreamer;
+        this.deepSeekAiProperties = deepSeekAiProperties;
+        this.creditService = creditService;
+        this.creditProperties = creditProperties;
     }
 
     public AnalysisResult generatePregameMock(PregameAnalysisRequest request) {
@@ -119,16 +141,153 @@ public class AnalysisService {
         return emitter;
     }
 
-    public ApiResponse<CoachSummaryAnalysisResponse> generateCoachSummary(CoachSummaryAnalysisRequest request) {
+    public ApiResponse<CoachSummaryAnalysisResponse> generateCoachSummary(
+            CoachSummaryAnalysisRequest request,
+            AuthUser user,
+            String idempotencyKey
+    ) {
         if (!deepSeekAnalysisStreamer.isEnabled()) {
             return ApiResponse.failure("AI_SERVER_DISABLED", "DeepSeek AI is not enabled");
         }
 
+        String requestHash = requestHash(request);
+        var existingRun = creditService.findAiRunByIdempotencyKey(user.id(), idempotencyKey);
+        if (existingRun.isPresent()) {
+            return handleExistingCoachSummaryRun(existingRun.get(), requestHash);
+        }
+
+        AiCreditReservation reservation;
         try {
-            return ApiResponse.success(deepSeekAnalysisStreamer.generateCoachSummary(request));
+            reservation = creditService.reserveAiRun(
+                    user,
+                    "coach-summary",
+                    deepSeekAiProperties.provider(),
+                    deepSeekAiProperties.model(),
+                    creditProperties.coachSummaryChargeCredits(),
+                    requestHash,
+                    idempotencyKey
+            );
+        } catch (DuplicateKeyException exception) {
+            return creditService.findAiRunByIdempotencyKey(user.id(), idempotencyKey)
+                    .map(run -> handleExistingCoachSummaryRun(run, requestHash))
+                    .orElseThrow(() -> exception);
+        }
+
+        try {
+            CoachSummaryAnalysisResponse response = deepSeekAnalysisStreamer.generateCoachSummary(request);
+            creditService.completeAiRun(reservation, response.usage(), writeJson(response));
+            return ApiResponse.success(response);
         } catch (DeepSeekAiException exception) {
+            creditService.refundAiRun(reservation, "DEEPSEEK_ERROR", exception.getMessage());
             return ApiResponse.failure("DEEPSEEK_ERROR", exception.getMessage());
         }
+    }
+
+    public AnalysisRunListResponse listUserRuns(AuthUser user, String endpoint, String status, int limit, int offset) {
+        int normalizedLimit = normalizeLimit(limit);
+        int normalizedOffset = normalizeOffset(offset);
+        return new AnalysisRunListResponse(
+                creditService.listAiRuns(user.id(), endpoint, status, normalizedLimit, normalizedOffset).stream()
+                        .map(AnalysisRunSummaryResponse::from)
+                        .toList(),
+                creditService.countAiRuns(user.id(), endpoint, status),
+                normalizedLimit,
+                normalizedOffset
+        );
+    }
+
+    public AnalysisRunDetailResponse getUserRun(AuthUser user, Long runId) {
+        AiAnalysisRun run = creditService.findAiRunById(runId)
+                .filter(candidate -> user.id().equals(candidate.userId()))
+                .orElseThrow(AnalysisService::aiRunNotFound);
+        return AnalysisRunDetailResponse.from(run, responseForUserDetail(run));
+    }
+
+    public AdminAnalysisRunListResponse listAdminRuns(Long userId, String endpoint, String status, int limit, int offset) {
+        int normalizedLimit = normalizeLimit(limit);
+        int normalizedOffset = normalizeOffset(offset);
+        return new AdminAnalysisRunListResponse(
+                creditService.listAiRunsForAdmin(userId, endpoint, status, normalizedLimit, normalizedOffset).stream()
+                        .map(AdminAnalysisRunSummaryResponse::from)
+                        .toList(),
+                creditService.countAiRunsForAdmin(userId, endpoint, status),
+                normalizedLimit,
+                normalizedOffset
+        );
+    }
+
+    public AdminAnalysisRunSummaryResponse getAdminRun(Long runId) {
+        AiAnalysisRun run = creditService.findAiRunById(runId).orElseThrow(AnalysisService::aiRunNotFound);
+        return AdminAnalysisRunSummaryResponse.from(run);
+    }
+
+    private ApiResponse<CoachSummaryAnalysisResponse> handleExistingCoachSummaryRun(AiAnalysisRun run, String requestHash) {
+        if (run.requestHash() == null || !run.requestHash().equals(requestHash)) {
+            throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_CONFLICT", "Idempotency key was already used for a different AI request");
+        }
+
+        return switch (run.status()) {
+            case "RESERVED" -> throw new ApiException(HttpStatus.CONFLICT, "AI_RUN_IN_PROGRESS", "AI analysis run is still in progress");
+            case "SUCCEEDED" -> ApiResponse.success(readCoachSummaryResponse(run.responseJson()));
+            case "FAILED", "REFUNDED" -> ApiResponse.failure(
+                    run.errorCode() == null || run.errorCode().isBlank() ? "AI_RUN_FAILED" : run.errorCode(),
+                    run.errorMessage() == null || run.errorMessage().isBlank() ? "AI analysis run failed" : run.errorMessage()
+            );
+            default -> throw new ApiException(HttpStatus.CONFLICT, "AI_RUN_IN_PROGRESS", "AI analysis run is not replayable yet");
+        };
+    }
+
+    private Object responseForUserDetail(AiAnalysisRun run) {
+        if (!"SUCCEEDED".equals(run.status())) {
+            return null;
+        }
+        return readCoachSummaryResponse(run.responseJson());
+    }
+
+    private static CoachSummaryAnalysisResponse readCoachSummaryResponse(String responseJson) {
+        if (responseJson == null || responseJson.isBlank()) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "AI_RUN_REPLAY_UNAVAILABLE", "Stored AI analysis response is unavailable");
+        }
+        try {
+            return OBJECT_MAPPER.readValue(responseJson, CoachSummaryAnalysisResponse.class);
+        } catch (JsonProcessingException exception) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "AI_RUN_REPLAY_UNAVAILABLE", "Stored AI analysis response is invalid");
+        }
+    }
+
+    private static String requestHash(CoachSummaryAnalysisRequest request) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(writeJson(request).getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
+    }
+
+    private static String writeJson(Object value) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "JSON_SERIALIZATION_FAILED", "Unable to serialize AI analysis payload");
+        }
+    }
+
+    private static int normalizeLimit(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException("Limit must be between 1 and 100");
+        }
+        return limit;
+    }
+
+    private static int normalizeOffset(int offset) {
+        if (offset < 0) {
+            throw new IllegalArgumentException("Offset must be zero or greater");
+        }
+        return offset;
+    }
+
+    private static ApiException aiRunNotFound() {
+        return new ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI analysis run was not found");
     }
 
     private static List<String> nullToEmpty(List<String> values) {

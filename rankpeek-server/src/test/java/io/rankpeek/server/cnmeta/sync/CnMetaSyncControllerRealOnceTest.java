@@ -1,7 +1,10 @@
 package io.rankpeek.server.cnmeta.sync;
 
+import io.rankpeek.server.auth.AuthService;
+import io.rankpeek.server.auth.AuthUser;
 import io.rankpeek.server.common.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -9,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,6 +44,7 @@ class CnMetaSyncControllerRealOnceTest {
         MockMvc mockMvc = mockMvc(properties(true, "mock"), service);
 
         mockMvc.perform(post("/api/cn-meta/sync/real-once")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
                         .param("patchKey", "26.09")
                         .param("tierScope", "PLATINUM")
                         .param("role", "TOP")
@@ -74,6 +79,7 @@ class CnMetaSyncControllerRealOnceTest {
         MockMvc mockMvc = mockMvc(properties(true, "real"), service);
 
         mockMvc.perform(post("/api/cn-meta/sync/configured-matrix")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
                         .param("patchKey", "26.09"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -84,8 +90,20 @@ class CnMetaSyncControllerRealOnceTest {
     }
 
     private static MockMvc mockMvc(CnMetaSyncProperties properties, CnMetaSyncService service) {
+        AuthService authService = mock(AuthService.class);
+        when(authService.requireAdmin(any())).thenReturn(new AuthUser(
+                1L,
+                "admin@example.com",
+                "Admin",
+                "hash",
+                "ACTIVE",
+                "ADMIN",
+                Instant.parse("2026-05-15T00:00:00Z"),
+                Instant.parse("2026-05-15T00:00:00Z"),
+                null
+        ));
         return MockMvcBuilders
-                .standaloneSetup(new CnMetaSyncController(properties, service))
+                .standaloneSetup(new CnMetaSyncController(properties, service, authService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

@@ -49,8 +49,8 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.data.mode").value("test"))
                 .andExpect(jsonPath("$.data.database.status").value("ok"))
                 .andExpect(jsonPath("$.data.flyway.status").value("ok"))
-                .andExpect(jsonPath("$.data.flyway.currentVersion").value("6"))
-                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(6)));
+                .andExpect(jsonPath("$.data.flyway.currentVersion").value("8"))
+                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(8)));
     }
 
     @Test
@@ -58,5 +58,13 @@ class ServerHealthControllerTest {
         mockMvc.perform(get("/api/server/diagnostics").header("Origin", "http://localhost:5173"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+    }
+
+    @Test
+    void unknownApiRouteReturnsNotFoundResponse() throws Exception {
+        mockMvc.perform(get("/api/server/not-a-real-route"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
     }
 }

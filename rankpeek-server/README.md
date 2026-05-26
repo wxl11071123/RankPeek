@@ -10,7 +10,7 @@
 
 ## Current Scope
 
-This phase implements only a server data, auth foundation, CN meta sync foundation, and mock-first AI foundation:
+This phase implements a server data, auth, admin, credits, CN meta sync, and mock-first AI foundation:
 
 - Spring Boot 3.x application on Java 21.
 - Default local-dev port `18080`.
@@ -18,6 +18,8 @@ This phase implements only a server data, auth foundation, CN meta sync foundati
 - Flyway migration `V1__server_foundation.sql`.
 - Flyway migration `V2__auth_foundation.sql` for local account registration/login basics.
 - Flyway migration `V3__cn_meta_sync_foundation.sql` for CN meta sync jobs and source documents.
+- Flyway migration `V7__credits_foundation.sql` for user credit balances, credit ledger entries, and AI analysis run tracking.
+- Flyway migration `V8__ai_analysis_run_results.sql` for AI run request hashes, replayable success results, failure messages, and charge/refund ledger links.
 - `V3__cn_meta_sync_foundation.sql` intentionally remains V3 because V2 is already used by auth; renaming it would break databases that have applied V3.
 - H2-backed local-dev and test profiles.
 - PostgreSQL driver and placeholder config comments for a future production database.
@@ -35,7 +37,7 @@ This module intentionally does not:
 - upload or collect user match history;
 - store LCU tokens, SGP tokens, or user private data;
 - enable real AI by default or call any provider other than the explicitly configured DeepSeek chat-completion provider;
-- integrate real payments or credits charging;
+- integrate real payments;
 - verify email, recover passwords, use CAPTCHA, or provide third-party login;
 - provide Docker, Kubernetes, or production deployment scripts.
 
@@ -48,7 +50,8 @@ Flyway creates the first schema for:
 - patch knowledge and source documents;
 - future CN meta snapshots and champion stats/builds;
 - future LPL matches, games, pick/ban, and player game stats;
-- playstyle cards, sources, and patch relevance rules.
+- playstyle cards, sources, and patch relevance rules;
+- auth users, refresh tokens, credit balances, credit ledger entries, and AI analysis runs.
 
 JSON-like columns are stored as `TEXT` in this phase so H2 tests remain simple and stable. A future PostgreSQL migration can convert selected columns to `jsonb` after real importer requirements are reviewed.
 
@@ -67,7 +70,7 @@ The real `101.qq.com` source now exists only as a disabled-by-default manual sam
 
 - `rankpeek.cn-meta.sync.real-source-enabled=false` by default, including test.
 - `rankpeek.cn-meta.sync.real-endpoint-template` is intentionally empty. RankPeek does not guess or hard-code the `101.qq.com` public endpoint in this repo.
-- `POST /api/cn-meta/sync/real-once` is the only real-source entry point, and it requires `real-source-enabled=true`.
+- `POST /api/cn-meta/sync/real-once` is the only real-source entry point, and it requires `real-source-enabled=true` plus an `ADMIN` bearer token.
 - The scheduler and `configured-matrix` endpoint do not run the real source.
 - The real client sends no cookies, no login state, and no personal player identifiers. It uses a plain RankPeek development user agent, short timeouts, and a response byte limit.
 - HTTP `401`, `403`, `429`, CAPTCHA, or risk-control content stops the job instead of retrying hard.
@@ -90,9 +93,9 @@ rankpeek:
 
 Supported real endpoint placeholders are `{patchKey}`, `{queueId}`, `{tierScope}`, `{role}`, `{championId}`, `{timeType}`, `{tierCode}`, and `{dataDate}`. The confirmed `101` template currently uses `{championId}`, `{timeType}`, `{tierCode}`, and `{dataDate}`. Only `PLATINUM -> 20` has been confirmed; unconfigured tiers fail before any HTTP request with a `CN_META_TIER_CODE_MISSING` source error. The `role` request parameter on `real-once` is accepted only for compatibility and validation; real `101` syncs store and return `role=ALL`.
 
-This sync foundation is limited to public aggregate champion statistics. It does not collect summoner names, PUUIDs, account IDs, personal match history, cookies, tokens, login state, or private game data. It does not implement CAPTCHA bypass, signature cracking, proxy pools, IP rotation, or high-concurrency crawling. Manual sync endpoints are currently unauthenticated foundation endpoints and must be protected with admin authorization before production use.
+This sync foundation is limited to public aggregate champion statistics. It does not collect summoner names, PUUIDs, account IDs, personal match history, cookies, tokens, login state, or private game data. It does not implement CAPTCHA bypass, signature cracking, proxy pools, IP rotation, or high-concurrency crawling. Manual sync and sync job endpoints require an `ADMIN` bearer token.
 
-Before using the real sample client outside local development, the endpoint template, query parameters, and response fields must be manually confirmed from publicly accessible browser DevTools output. Production use also needs admin authorization, source attribution, frequency limits, and compliance review.
+Before using the real sample client outside local development, the endpoint template, query parameters, and response fields must be manually confirmed from publicly accessible browser DevTools output. Production use also needs source attribution, frequency limits, and compliance review.
 
 ## Auth Foundation
 
@@ -104,7 +107,7 @@ Before using the real sample client outside local development, the endpoint temp
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 
-Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, credits, third-party login, or AI billing/authorization. It does not store LCU tokens, SGP tokens, match history, or private game data.
+Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, or password recovery. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
 Production deployments can create or reset a first administrator at startup by setting:
 
@@ -115,12 +118,46 @@ Production deployments can create or reset a first administrator at startup by s
 
 This is disabled by default. When enabled, startup creates the configured email as an `ADMIN`, or updates an existing account to `ADMIN`, `ACTIVE`, and the configured password.
 
+Admin user operations require an `ADMIN` bearer token:
+
+- `GET /api/admin/users`
+- `PATCH /api/admin/users/{userId}`
+- `POST /api/admin/users/{userId}/sessions/revoke`
+- `POST /api/admin/credits/grants`
+
+Admins can list users, promote/demote other accounts, disable users, and revoke refresh-token sessions. Disabling a user revokes that user's active refresh tokens. The server prevents an admin from disabling or demoting their own account through the admin user endpoint.
+
+## Credits Foundation
+
+The server now tracks user credit balances and immutable ledger entries:
+
+- `GET /api/credits/balance`
+- `GET /api/credits/ledger`
+- `POST /api/admin/credits/grants`
+
+Admin credit grants require `X-RankPeek-Idempotency-Key` to avoid duplicate adjustments. `POST /api/analysis/coach-summary` requires a user bearer token when DeepSeek is enabled, reserves the configured credit charge, records token usage on success, refunds on upstream failure, and supports `X-RankPeek-Idempotency-Key`.
+
+For `coach-summary`, the idempotency key is scoped to the user. A succeeded run with the same request hash replays the stored AI response without another DeepSeek call or credit charge. A refunded failure with the same request hash replays the stored failure. A different request body with the same key returns `IDEMPOTENCY_KEY_CONFLICT`, and an in-progress reservation returns `AI_RUN_IN_PROGRESS`.
+
+Users can query their own AI runs:
+
+- `GET /api/analysis/runs?endpoint=&status=&limit=&offset=`
+- `GET /api/analysis/runs/{runId}`
+
+Admins can query all AI run metadata without returned report bodies:
+
+- `GET /api/admin/analysis/runs?userId=&endpoint=&status=&limit=&offset=`
+- `GET /api/admin/analysis/runs/{runId}`
+
+The server stores `request_hash` and successful `response_json` for replay, but it does not persist raw `systemPrompt`, `userPrompt`, or request JSON.
+
 ## AI Provider
 
 Analysis streams stay on the existing endpoints:
 
 - `POST /api/analysis/pregame/stream`
 - `POST /api/analysis/postgame/stream`
+- `POST /api/analysis/coach-summary`
 
 By default, these endpoints use deterministic mock output and do not call external AI services. To enable DeepSeek in a deployed environment, set:
 
@@ -166,15 +203,26 @@ Useful endpoints:
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `POST /api/cn-meta/sync/mock-once`
-- `POST /api/cn-meta/sync/real-once`
-- `POST /api/cn-meta/sync/configured-matrix`
-- `GET /api/cn-meta/sync/jobs`
+- `GET /api/auth/me` (bearer token)
+- `GET /api/admin/users` (ADMIN bearer token)
+- `PATCH /api/admin/users/{userId}` (ADMIN bearer token)
+- `POST /api/admin/users/{userId}/sessions/revoke` (ADMIN bearer token)
+- `GET /api/credits/balance` (bearer token)
+- `GET /api/credits/ledger` (bearer token)
+- `POST /api/admin/credits/grants` (ADMIN bearer token)
+- `GET /api/analysis/runs` (bearer token)
+- `GET /api/analysis/runs/{runId}` (bearer token)
+- `GET /api/admin/analysis/runs` (ADMIN bearer token)
+- `GET /api/admin/analysis/runs/{runId}` (ADMIN bearer token)
+- `POST /api/cn-meta/sync/mock-once` (ADMIN bearer token)
+- `POST /api/cn-meta/sync/real-once` (ADMIN bearer token)
+- `POST /api/cn-meta/sync/configured-matrix` (ADMIN bearer token)
+- `GET /api/cn-meta/sync/jobs` (ADMIN bearer token)
 - `GET /api/patch/current`
 - `POST /api/analysis/pregame/mock`
 - `POST /api/analysis/pregame/stream`
 - `POST /api/analysis/postgame/stream`
+- `POST /api/analysis/coach-summary` (bearer token)
 
 ## Why Safe by Default
 

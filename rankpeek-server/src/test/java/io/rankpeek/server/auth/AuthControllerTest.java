@@ -108,16 +108,39 @@ class AuthControllerTest {
     }
 
     @Test
-    void refreshReturnsNewAccessToken() throws Exception {
+    void refreshRotatesRefreshTokenAndRejectsReuse() throws Exception {
         AuthPayload auth = register(uniqueEmail(), "Secret123!", "RankPeek");
 
-        mockMvc.perform(post("/api/auth/refresh")
+        MvcResult result = mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshJson(auth.refreshToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.accessToken", not(blankOrNullString())))
-                .andExpect(jsonPath("$.data.expiresInSeconds").value(3600));
+                .andExpect(jsonPath("$.data.refreshToken", not(blankOrNullString())))
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(3600))
+                .andReturn();
+
+        String rotatedRefreshToken = objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("data")
+                .get("refreshToken")
+                .asText();
+        assertThat(rotatedRefreshToken).isNotEqualTo(auth.refreshToken());
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshJson(auth.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("REFRESH_TOKEN_INVALID"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshJson(rotatedRefreshToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.accessToken", not(blankOrNullString())))
+                .andExpect(jsonPath("$.data.refreshToken", not(blankOrNullString())));
     }
 
     @Test

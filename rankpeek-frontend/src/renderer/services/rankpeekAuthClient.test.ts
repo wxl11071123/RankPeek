@@ -7,8 +7,10 @@ import {
   logoutRankPeekAccount,
   RANKPEEK_AUTH_LOGIN_ENDPOINT,
   RANKPEEK_AUTH_LOGOUT_ENDPOINT,
+  RANKPEEK_AUTH_REFRESH_ENDPOINT,
   RANKPEEK_AUTH_REGISTER_ENDPOINT,
   registerRankPeekAccount,
+  refreshStoredRankPeekAuthSession,
   storeRankPeekAuthSession
 } from './rankpeekAuthClient.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
@@ -167,6 +169,51 @@ test('stores, reads, clears, and logs out rankpeek auth sessions locally', async
 
     clearStoredRankPeekAuthSession()
     assert.equal(getStoredRankPeekAuthSession(), null)
+  } finally {
+    globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
+test('refreshes a stored rankpeek auth session with rotated refresh tokens', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession(authPayload.data)
+
+  const originalFetch = globalThis.fetch
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        accessToken: 'rotated-access-token',
+        refreshToken: 'rotated-refresh-token',
+        expiresInSeconds: 3600
+      },
+      error: null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await refreshStoredRankPeekAuthSession()
+
+    assert.equal(result.ok, true)
+    assert.equal(result.ok ? result.session.accessToken : '', 'rotated-access-token')
+    assert.equal(result.ok ? result.session.refreshToken : '', 'rotated-refresh-token')
+    assert.equal(getStoredRankPeekAuthSession()?.accessToken, 'rotated-access-token')
+    assert.equal(getStoredRankPeekAuthSession()?.refreshToken, 'rotated-refresh-token')
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REFRESH_ENDPOINT}`)
+    assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), { refreshToken: 'refresh-token' })
   } finally {
     globalThis.fetch = originalFetch
     Object.defineProperty(globalThis, 'localStorage', {

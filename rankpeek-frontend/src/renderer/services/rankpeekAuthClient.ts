@@ -2,11 +2,13 @@ import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
 export const RANKPEEK_AUTH_LOGIN_ENDPOINT = '/api/auth/login'
 export const RANKPEEK_AUTH_REGISTER_ENDPOINT = '/api/auth/register'
+export const RANKPEEK_AUTH_REFRESH_ENDPOINT = '/api/auth/refresh'
 export const RANKPEEK_AUTH_LOGOUT_ENDPOINT = '/api/auth/logout'
 export const RANKPEEK_AUTH_ME_ENDPOINT = '/api/auth/me'
 
 const RANKPEEK_AUTH_STORAGE_KEY = 'rankpeek.auth.session'
 const AUTH_UNAVAILABLE_MESSAGE = 'rankpeek-server auth is unavailable'
+const AUTH_LOGIN_REQUIRED_MESSAGE = 'RankPeek account login is required'
 const INVALID_CREDENTIALS_MESSAGE = '邮箱或密码不正确'
 
 export interface RankPeekAuthUser {
@@ -31,6 +33,12 @@ interface AuthApiResponse<T> {
     code?: string
     message?: string
   } | null
+}
+
+interface RefreshTokenApiResponseData {
+  accessToken: string
+  refreshToken: string
+  expiresInSeconds: number
 }
 
 type AuthResult =
@@ -94,6 +102,46 @@ export async function logoutRankPeekAccount(refreshToken: string | null | undefi
   }
 }
 
+export async function refreshStoredRankPeekAuthSession(): Promise<AuthResult> {
+  const currentSession = getStoredRankPeekAuthSession()
+  if (!currentSession?.refreshToken) {
+    return { ok: false, message: AUTH_LOGIN_REQUIRED_MESSAGE }
+  }
+
+  try {
+    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REFRESH_ENDPOINT}`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ refreshToken: currentSession.refreshToken })
+    })
+    const payload = await parseAuthResponse<RefreshTokenApiResponseData>(response)
+
+    if (!response.ok || payload.success === false) {
+      if (payload.error?.code === 'REFRESH_TOKEN_INVALID') {
+        clearStoredRankPeekAuthSession()
+      }
+      return {
+        ok: false,
+        message: payload.error?.message || payload.error?.code || AUTH_UNAVAILABLE_MESSAGE
+      }
+    }
+    if (payload.success !== true || !isRefreshTokenResponse(payload.data)) {
+      return { ok: false, message: AUTH_UNAVAILABLE_MESSAGE }
+    }
+
+    const session: RankPeekAuthSession = {
+      ...currentSession,
+      accessToken: payload.data.accessToken,
+      refreshToken: payload.data.refreshToken,
+      expiresInSeconds: payload.data.expiresInSeconds
+    }
+    storeRankPeekAuthSession(session)
+    return { ok: true, session }
+  } catch {
+    return { ok: false, message: AUTH_UNAVAILABLE_MESSAGE }
+  }
+}
+
 export function getStoredRankPeekAuthSession(): RankPeekAuthSession | null {
   if (typeof localStorage === 'undefined') {
     return null
@@ -138,7 +186,7 @@ async function submitAuthRequest(
       headers: jsonHeaders(),
       body: JSON.stringify(body)
     })
-    const payload = await parseAuthResponse(response)
+    const payload = await parseAuthResponse<RankPeekAuthSession>(response)
 
     if (!response.ok || payload.success === false) {
       return {
@@ -156,9 +204,9 @@ async function submitAuthRequest(
   }
 }
 
-async function parseAuthResponse(response: Response): Promise<AuthApiResponse<RankPeekAuthSession>> {
+async function parseAuthResponse<T>(response: Response): Promise<AuthApiResponse<T>> {
   try {
-    return await response.json() as AuthApiResponse<RankPeekAuthSession>
+    return await response.json() as AuthApiResponse<T>
   } catch {
     return {}
   }
@@ -195,6 +243,16 @@ function isAuthSession(value: unknown): value is RankPeekAuthSession {
     && candidate.user
     && typeof candidate.user.email === 'string'
     && typeof candidate.user.role === 'string'
+    && typeof candidate.accessToken === 'string'
+    && typeof candidate.refreshToken === 'string'
+    && typeof candidate.expiresInSeconds === 'number'
+  )
+}
+
+function isRefreshTokenResponse(value: unknown): value is RefreshTokenApiResponseData {
+  const candidate = value as Partial<RefreshTokenApiResponseData> | null
+  return Boolean(
+    candidate
     && typeof candidate.accessToken === 'string'
     && typeof candidate.refreshToken === 'string'
     && typeof candidate.expiresInSeconds === 'number'

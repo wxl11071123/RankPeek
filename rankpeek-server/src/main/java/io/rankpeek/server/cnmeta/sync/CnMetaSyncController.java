@@ -1,13 +1,16 @@
 package io.rankpeek.server.cnmeta.sync;
 
+import io.rankpeek.server.auth.AuthService;
 import io.rankpeek.server.common.ApiException;
 import io.rankpeek.server.common.ApiResponse;
 import io.rankpeek.server.cnmeta.CnMetaRoles;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -22,22 +25,27 @@ public class CnMetaSyncController {
 
     private final CnMetaSyncProperties properties;
     private final CnMetaSyncService syncService;
+    private final AuthService authService;
 
     public CnMetaSyncController(
             CnMetaSyncProperties properties,
-            CnMetaSyncService syncService
+            CnMetaSyncService syncService,
+            AuthService authService
     ) {
         this.properties = properties;
         this.syncService = syncService;
+        this.authService = authService;
     }
 
     @PostMapping("/mock-once")
     public ApiResponse<CnMetaSyncResult> mockOnce(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
             @RequestParam String patchKey,
             @RequestParam(defaultValue = "420") Integer queueId,
             @RequestParam String tierScope,
             @RequestParam String role
     ) {
+        authService.requireAdmin(authorizationHeader);
         SyncRequest request = validateSyncRequest(patchKey, queueId, tierScope, role);
         return ApiResponse.success(syncService.syncOnceWithSource(
                 "mock",
@@ -50,11 +58,13 @@ public class CnMetaSyncController {
 
     @PostMapping("/real-once")
     public ApiResponse<CnMetaSyncResult> realOnce(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
             @RequestParam String patchKey,
             @RequestParam(defaultValue = "420") Integer queueId,
             @RequestParam String tierScope,
             @RequestParam String role
     ) {
+        authService.requireAdmin(authorizationHeader);
         if (!properties.realSourceEnabled()) {
             throw new ApiException(
                     HttpStatus.FORBIDDEN,
@@ -73,7 +83,11 @@ public class CnMetaSyncController {
     }
 
     @PostMapping("/configured-matrix")
-    public ApiResponse<List<CnMetaSyncResult>> configuredMatrix(@RequestParam String patchKey) {
+    public ApiResponse<List<CnMetaSyncResult>> configuredMatrix(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+            @RequestParam String patchKey
+    ) {
+        authService.requireAdmin(authorizationHeader);
         String normalizedPatchKey = validatePatchKey(patchKey);
         if (!properties.enabled() && !properties.allowManual()) {
             throw new ApiException(
@@ -86,7 +100,11 @@ public class CnMetaSyncController {
     }
 
     @GetMapping("/jobs")
-    public ApiResponse<List<CnMetaSyncJob>> jobs(@RequestParam(defaultValue = "20") Integer limit) {
+    public ApiResponse<List<CnMetaSyncJob>> jobs(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+            @RequestParam(defaultValue = "20") Integer limit
+    ) {
+        authService.requireAdmin(authorizationHeader);
         return ApiResponse.success(syncService.findRecentJobs(limit));
     }
 

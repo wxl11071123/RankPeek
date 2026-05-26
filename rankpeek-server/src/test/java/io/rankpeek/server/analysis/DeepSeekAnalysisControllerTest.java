@@ -4,13 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.rankpeek.server.auth.AuthRepository;
+import io.rankpeek.server.auth.AuthUser;
+import io.rankpeek.server.auth.PasswordService;
+import io.rankpeek.server.credits.AdminCreditGrantRequest;
+import io.rankpeek.server.credits.CreditService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -21,8 +28,14 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -40,9 +53,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DirtiesContext
 class DeepSeekAnalysisControllerTest {
 
+    private static final String IDEMPOTENCY_HEADER = "X-RankPeek-Idempotency-Key";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static HttpServer server;
     private static volatile CapturedRequest capturedRequest;
+    private static final AtomicInteger capturedRequestCount = new AtomicInteger();
     private static volatile FakeResponse nextResponse = new FakeResponse(200, """
             data: {"choices":[{"delta":{"content":"deepseek-stream-advice"}}]}
 
@@ -52,6 +67,18 @@ class DeepSeekAnalysisControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AuthRepository authRepository;
+
+    @Autowired
+    private PasswordService passwordService;
+
+    @Autowired
+    private CreditService creditService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
     static void deepSeekProperties(DynamicPropertyRegistry registry) throws IOException {
@@ -75,6 +102,7 @@ class DeepSeekAnalysisControllerTest {
     @BeforeEach
     void resetFakeServer() {
         capturedRequest = null;
+        capturedRequestCount.set(0);
         nextResponse = new FakeResponse(200, """
                 data: {"choices":[{"delta":{"content":"deepseek-stream-advice"}}]}
 
@@ -139,6 +167,7 @@ class DeepSeekAnalysisControllerTest {
         nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
 
         mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userWithCredits(10)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -195,6 +224,7 @@ class DeepSeekAnalysisControllerTest {
         nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
 
         mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userWithCredits(10)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -235,6 +265,7 @@ class DeepSeekAnalysisControllerTest {
         nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
 
         mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userWithCredits(10)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -272,6 +303,7 @@ class DeepSeekAnalysisControllerTest {
         nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
 
         mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userWithCredits(10)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -300,6 +332,7 @@ class DeepSeekAnalysisControllerTest {
         nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
 
         mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userWithCredits(10)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -317,6 +350,279 @@ class DeepSeekAnalysisControllerTest {
                 .andExpect(jsonPath("$.data.report.verdict.label").value("最近20局先控资源前站位"))
                 .andExpect(jsonPath("$.data.report.verdict.confidence").value("low"))
                 .andExpect(jsonPath("$.data.report.verdict.summary").value("优势建立不错，但资源刷新前站位还要收紧。"));
+    }
+
+    @Test
+    void coachSummaryRequiresBearerTokenBeforeCallingDeepSeek() throws Exception {
+        capturedRequest = null;
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(coachSummaryRequest("coach-no-auth")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("ACCESS_TOKEN_INVALID"));
+
+        assertThat(capturedRequest).isNull();
+    }
+
+    @Test
+    void coachSummaryRejectsWhenCreditBalanceIsInsufficient() throws Exception {
+        AuthPayload user = userWithCredits(0);
+        capturedRequest = null;
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, "coach-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(coachSummaryRequest("coach-insufficient")))
+                .andExpect(status().is(402))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_CREDITS"));
+
+        assertThat(capturedRequest).isNull();
+    }
+
+    @Test
+    void coachSummaryChargesOneCreditAndStoresTokenUsageForSuccessfulDeepSeekCall() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        String aiJson = """
+                {
+                  "title": "Objective setup is improving",
+                  "summary": "The latest block has enough signal for a coach summary.",
+                  "verdict": {
+                    "label": "Stable sample",
+                    "score": 71,
+                    "confidence": "medium",
+                    "summary": "The sample is stable enough to produce a short report."
+                  }
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, "coach-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(coachSummaryRequest("coach-charge-success")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.usage.totalTokens").value(117));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/balance")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(2));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/ledger")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries[0].type").value("AI_CHARGE"))
+                .andExpect(jsonPath("$.data.entries[0].amount").value(-1))
+                .andExpect(jsonPath("$.data.entries[0].balanceAfter").value(2));
+
+        AiRunProbe run = readOnlyAiRun(user.userId());
+        assertThat(run.status()).isEqualTo("SUCCEEDED");
+        assertThat(run.chargedCredits()).isEqualTo(1);
+        assertThat(run.refundedCredits()).isZero();
+        assertThat(run.totalTokens()).isEqualTo(117);
+        assertThat(run.requestHash()).hasSize(64);
+        assertThat(run.responseJson()).contains("Objective setup is improving");
+        assertThat(run.errorMessage()).isNull();
+        assertThat(run.chargeLedgerEntryId()).isNotNull();
+        assertThat(run.refundLedgerEntryId()).isNull();
+    }
+
+    @Test
+    void coachSummaryIdempotencyKeyReplaysSuccessfulResultWithoutCallingDeepSeekOrChargingAgain() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        String idempotencyKey = "coach-" + UUID.randomUUID();
+        String firstAiJson = """
+                {
+                  "title": "Replay source summary",
+                  "summary": "The stored response is returned on the second request.",
+                  "verdict": {
+                    "label": "Stable",
+                    "score": 70,
+                    "confidence": "medium",
+                    "summary": "The same idempotency key should not call DeepSeek again."
+                  }
+                }
+                """;
+
+        nextResponse = new FakeResponse(200, deepSeekContentStream(firstAiJson));
+        String request = coachSummaryRequest("coach-idempotent-1");
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.title").value("Replay source summary"));
+        assertThat(capturedRequestCount.get()).isEqualTo(1);
+
+        String unusedAiJson = """
+                {
+                  "title": "Should not be used",
+                  "summary": "A replay must not call the mock server.",
+                  "verdict": {
+                    "label": "Unused",
+                    "score": 10,
+                    "confidence": "low",
+                    "summary": "This response would prove replay is broken."
+                  }
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(unusedAiJson));
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.report.title").value("Replay source summary"));
+        assertThat(capturedRequestCount.get()).isEqualTo(1);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/balance")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(2));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/ledger")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries[0].type").value("AI_CHARGE"))
+                .andExpect(jsonPath("$.data.entries[1].type").value("ADMIN_ADJUSTMENT"))
+                .andExpect(jsonPath("$.data.entries[2]").doesNotExist());
+    }
+
+    @Test
+    void coachSummaryIdempotencyKeyConflictReturns409WithoutCallingDeepSeekOrChargingAgain() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        String idempotencyKey = "coach-" + UUID.randomUUID();
+        String aiJson = """
+                {
+                  "title": "Conflict base summary",
+                  "summary": "The first request owns the idempotency key.",
+                  "verdict": {
+                    "label": "Stable",
+                    "score": 70,
+                    "confidence": "medium",
+                    "summary": "A different request body must conflict."
+                  }
+                }
+                """;
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(coachSummaryRequest("coach-conflict-a")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+        assertThat(capturedRequestCount.get()).isEqualTo(1);
+
+        nextResponse = new FakeResponse(200, deepSeekContentStream(aiJson));
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(coachSummaryRequest("coach-conflict-b")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_CONFLICT"));
+        assertThat(capturedRequestCount.get()).isEqualTo(1);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/ledger")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries[0].type").value("AI_CHARGE"))
+                .andExpect(jsonPath("$.data.entries[1].type").value("ADMIN_ADJUSTMENT"))
+                .andExpect(jsonPath("$.data.entries[2]").doesNotExist());
+    }
+
+    @Test
+    void coachSummaryReservedIdempotencyKeyReturnsInProgressWithoutCallingDeepSeek() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        String idempotencyKey = "coach-" + UUID.randomUUID();
+        String request = coachSummaryRequest("coach-in-progress");
+        insertReservedAiRun(user.userId(), idempotencyKey, request);
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("AI_RUN_IN_PROGRESS"));
+        assertThat(capturedRequestCount.get()).isZero();
+    }
+
+    @Test
+    void coachSummaryRefundedRunReplaysFailureWithoutCallingDeepSeekOrChargingAgain() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        String idempotencyKey = "coach-" + UUID.randomUUID();
+        nextResponse = new FakeResponse(500, "{\"error\":{\"message\":\"bad upstream secret text\"}}");
+        String request = coachSummaryRequest("coach-refund");
+
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("DEEPSEEK_ERROR"));
+        assertThat(capturedRequestCount.get()).isEqualTo(1);
+
+        nextResponse = new FakeResponse(200, deepSeekContentStream("""
+                {
+                  "title": "Should not recover under same key",
+                  "summary": "Refunded runs are replayed as failures.",
+                  "verdict": {
+                    "label": "Unused",
+                    "score": 10,
+                    "confidence": "low",
+                    "summary": "This response should not be requested."
+                  }
+                }
+                """));
+        mockMvc.perform(post("/api/analysis/coach-summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .header(IDEMPOTENCY_HEADER, idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("DEEPSEEK_ERROR"));
+        assertThat(capturedRequestCount.get()).isEqualTo(1);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/balance")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(3));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/ledger")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries[0].type").value("AI_REFUND"))
+                .andExpect(jsonPath("$.data.entries[0].amount").value(1))
+                .andExpect(jsonPath("$.data.entries[1].type").value("AI_CHARGE"))
+                .andExpect(jsonPath("$.data.entries[1].amount").value(-1));
+
+        AiRunProbe run = readOnlyAiRun(user.userId());
+        assertThat(run.status()).isEqualTo("REFUNDED");
+        assertThat(run.chargedCredits()).isEqualTo(1);
+        assertThat(run.refundedCredits()).isEqualTo(1);
+        assertThat(run.requestHash()).hasSize(64);
+        assertThat(run.responseJson()).isNull();
+        assertThat(run.errorMessage()).contains("DeepSeek request failed");
+        assertThat(run.chargeLedgerEntryId()).isNotNull();
+        assertThat(run.refundLedgerEntryId()).isNotNull();
     }
 
     @Test
@@ -710,6 +1016,7 @@ class DeepSeekAnalysisControllerTest {
     }
 
     private static void handleChatCompletions(HttpExchange exchange) throws IOException {
+        capturedRequestCount.incrementAndGet();
         capturedRequest = new CapturedRequest(
                 exchange.getRequestURI().getPath(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
@@ -743,9 +1050,140 @@ class DeepSeekAnalysisControllerTest {
                 + "data: [DONE]\n\n";
     }
 
+    private AuthPayload userWithCredits(int credits) throws Exception {
+        AuthPayload user = registerUser();
+        if (credits > 0) {
+            AuthUser admin = createAdminUser();
+            creditService.adjustByAdmin(
+                    admin,
+                    new AdminCreditGrantRequest(user.userId(), credits, "test credits"),
+                    "grant-" + UUID.randomUUID()
+            );
+        }
+        return user;
+    }
+
+    private AuthPayload registerUser() throws Exception {
+        String email = "user-" + UUID.randomUUID() + "@example.com";
+        MvcResult result = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s",
+                                  "password": "Secret123!",
+                                  "displayName": "RankPeek User"
+                                }
+                                """.formatted(email)))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode data = OBJECT_MAPPER.readTree(result.getResponse().getContentAsString()).get("data");
+        return new AuthPayload(data.get("user").get("id").asLong(), data.get("accessToken").asText());
+    }
+
+    private AuthUser createAdminUser() {
+        return authRepository.upsertInitialAdmin(
+                "admin-" + UUID.randomUUID() + "@example.com",
+                "RankPeek Admin",
+                passwordService.hash("Admin123!"),
+                Instant.now()
+        );
+    }
+
+    private AiRunProbe readOnlyAiRun(long userId) {
+        return jdbcTemplate.queryForObject(
+                """
+                        select status, charged_credits, refunded_credits, total_tokens,
+                            request_hash, response_json, error_message,
+                            charge_ledger_entry_id, refund_ledger_entry_id
+                        from ai_analysis_runs
+                        where user_id = ?
+                        order by id desc
+                        limit 1
+                        """,
+                (rs, rowNum) -> new AiRunProbe(
+                        rs.getString("status"),
+                        rs.getInt("charged_credits"),
+                        rs.getInt("refunded_credits"),
+                        rs.getLong("total_tokens"),
+                        rs.getString("request_hash"),
+                        rs.getString("response_json"),
+                        rs.getString("error_message"),
+                        nullableLong(rs.getObject("charge_ledger_entry_id"), rs.getLong("charge_ledger_entry_id")),
+                        nullableLong(rs.getObject("refund_ledger_entry_id"), rs.getLong("refund_ledger_entry_id"))
+                ),
+                userId
+        );
+    }
+
+    private void insertReservedAiRun(long userId, String idempotencyKey, String request) {
+        jdbcTemplate.update(
+                """
+                        insert into ai_analysis_runs (
+                            user_id, endpoint, provider, model, status, idempotency_key,
+                            charged_credits, request_hash, created_at, updated_at
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)
+                        """,
+                userId,
+                "coach-summary",
+                "deepseek",
+                "deepseek-v4-flash",
+                "RESERVED",
+                idempotencyKey,
+                1,
+                requestHash(request)
+        );
+    }
+
+    private static String bearer(AuthPayload user) {
+        return "Bearer " + user.accessToken();
+    }
+
+    private static String coachSummaryRequest(String inputHash) {
+        return """
+                {
+                  "inputHash": "%s",
+                  "snapshotSchemaVersion": "coach_summary_input_snapshot.v2",
+                  "promptVersion": "coach_summary.prompt.v2",
+                  "dataQualityConfidence": "medium",
+                  "systemPrompt": "system coach prompt",
+                  "userPrompt": "{\\"currentSnapshotText\\":\\"ranked sample facts\\"}"
+                }
+                """.formatted(inputHash);
+    }
+
+    private static String requestHash(String request) {
+        try {
+            String canonical = OBJECT_MAPPER.writeValueAsString(OBJECT_MAPPER.readTree(request));
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Unable to hash request", exception);
+        }
+    }
+
+    private static Long nullableLong(Object marker, long value) {
+        return marker == null ? null : value;
+    }
+
     private record CapturedRequest(String path, String authorization, String body) {
     }
 
     private record FakeResponse(int status, String body) {
+    }
+
+    private record AuthPayload(long userId, String accessToken) {
+    }
+
+    private record AiRunProbe(
+            String status,
+            int chargedCredits,
+            int refundedCredits,
+            long totalTokens,
+            String requestHash,
+            String responseJson,
+            String errorMessage,
+            Long chargeLedgerEntryId,
+            Long refundLedgerEntryId
+    ) {
     }
 }

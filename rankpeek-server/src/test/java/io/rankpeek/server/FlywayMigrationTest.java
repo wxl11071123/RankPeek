@@ -37,7 +37,10 @@ class FlywayMigrationTest {
                 "users",
                 "auth_refresh_tokens",
                 "cn_meta_sync_jobs",
-                "cn_meta_source_documents"
+                "cn_meta_source_documents",
+                "user_credit_balances",
+                "credit_ledger_entries",
+                "ai_analysis_runs"
         );
 
         for (String table : tables) {
@@ -46,5 +49,17 @@ class FlywayMigrationTest {
                 assertThat(count).as(table).isNotNull();
             }).as(table).doesNotThrowAnyException();
         }
+    }
+
+    @Test
+    void migrationAddsAiAnalysisRunReplayColumns() {
+        assertThatCode(() -> jdbcTemplate.queryForList(
+                """
+                        select request_hash, response_json, error_message,
+                            charge_ledger_entry_id, refund_ledger_entry_id
+                        from ai_analysis_runs
+                        where 1 = 0
+                        """
+        )).doesNotThrowAnyException();
     }
 }

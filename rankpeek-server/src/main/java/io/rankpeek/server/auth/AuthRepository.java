@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,6 +61,36 @@ public class AuthRepository {
                 id
         );
         return rows.stream().findFirst();
+    }
+
+    public List<AuthUser> findUsers(String query, String status, String role, int limit, int offset) {
+        QueryParts queryParts = usersFilter(query, status, role);
+        List<Object> args = new ArrayList<>(queryParts.args());
+        args.add(limit);
+        args.add(offset);
+
+        return jdbcTemplate.query(
+                """
+                        select *
+                        from users
+                        """ + queryParts.whereClause() + """
+
+                        order by created_at desc, id desc
+                        limit ? offset ?
+                        """,
+                userMapper,
+                args.toArray()
+        );
+    }
+
+    public long countUsers(String query, String status, String role) {
+        QueryParts queryParts = usersFilter(query, status, role);
+        Long count = jdbcTemplate.queryForObject(
+                "select count(*) from users " + queryParts.whereClause(),
+                Long.class,
+                queryParts.args().toArray()
+        );
+        return count == null ? 0 : count;
     }
 
     public AuthUser insertUser(String email, String displayName, String passwordHash, Instant now) {
@@ -127,6 +158,21 @@ public class AuthRepository {
         );
     }
 
+    public AuthUser updateUserStatusAndRole(Long userId, String status, String role, Instant now) {
+        jdbcTemplate.update(
+                """
+                        update users
+                        set status = ?, role = ?, updated_at = ?
+                        where id = ?
+                        """,
+                status,
+                role,
+                Timestamp.from(now),
+                userId
+        );
+        return findUserById(userId).orElseThrow();
+    }
+
     private void updateInitialAdmin(Long userId, String displayName, String passwordHash, Instant now) {
         jdbcTemplate.update(
                 """
@@ -190,7 +236,48 @@ public class AuthRepository {
         return updated > 0;
     }
 
+    public int revokeRefreshTokensForUser(Long userId, Instant now) {
+        return jdbcTemplate.update(
+                """
+                        update auth_refresh_tokens
+                        set revoked_at = ?
+                        where user_id = ?
+                          and revoked_at is null
+                        """,
+                Timestamp.from(now),
+                userId
+        );
+    }
+
+    private static QueryParts usersFilter(String query, String status, String role) {
+        List<String> clauses = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+
+        if (query != null && !query.isBlank()) {
+            clauses.add("(lower(email) like ? or lower(coalesce(display_name, '')) like ?)");
+            String pattern = "%" + query.trim().toLowerCase(java.util.Locale.ROOT) + "%";
+            args.add(pattern);
+            args.add(pattern);
+        }
+        if (status != null) {
+            clauses.add("status = ?");
+            args.add(status);
+        }
+        if (role != null) {
+            clauses.add("role = ?");
+            args.add(role);
+        }
+
+        if (clauses.isEmpty()) {
+            return new QueryParts("", args);
+        }
+        return new QueryParts(" where " + String.join(" and ", clauses), args);
+    }
+
     private static Instant instantOrNull(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
+    }
+
+    private record QueryParts(String whereClause, List<Object> args) {
     }
 }

@@ -24,6 +24,8 @@ rankpeek:
     access-token-secret: rankpeek-test-access-token-secret-change-me
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
+  credits:
+    coach-summary-charge-credits: 1
   ai:
     enabled: false
     provider: mock

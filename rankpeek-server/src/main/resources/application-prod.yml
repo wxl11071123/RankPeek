@@ -33,6 +33,8 @@ rankpeek:
       email: ${RANKPEEK_INITIAL_ADMIN_EMAIL:}
       password: ${RANKPEEK_INITIAL_ADMIN_PASSWORD:}
       display-name: ${RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME:RankPeek Admin}
+  credits:
+    coach-summary-charge-credits: ${RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS:1}
   ai:
     enabled: ${RANKPEEK_AI_ENABLED:false}
     provider: ${RANKPEEK_AI_PROVIDER:mock}

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -72,13 +73,24 @@ public class AuthService {
 
     @Transactional
     public RefreshResponse refresh(RefreshTokenRequest request) {
-        StoredRefreshToken refreshToken = requireValidRefreshToken(request.refreshToken(), Instant.now());
+        Instant now = Instant.now();
+        StoredRefreshToken refreshToken = requireValidRefreshToken(request.refreshToken(), now);
         AuthUser user = authRepository.findUserById(refreshToken.userId()).orElseThrow(AuthService::invalidRefreshToken);
         ensureActive(user);
 
-        authRepository.markRefreshTokenUsed(refreshToken.id(), Instant.now());
+        authRepository.markRefreshTokenUsed(refreshToken.id(), now);
+        authRepository.revokeRefreshToken(refreshToken.id(), now);
+        String rotatedRefreshToken = tokenService.createRefreshToken();
+        authRepository.insertRefreshToken(
+                user.id(),
+                tokenService.hashRefreshToken(rotatedRefreshToken),
+                now.plusSeconds(tokenService.refreshTokenTtlSeconds()),
+                now,
+                refreshToken.userAgent()
+        );
         return new RefreshResponse(
                 tokenService.createAccessToken(UserResponse.from(user)),
+                rotatedRefreshToken,
                 tokenService.accessTokenTtlSeconds()
         );
     }
@@ -91,11 +103,90 @@ public class AuthService {
     }
 
     public UserResponse currentUser(String authorizationHeader) {
+        return UserResponse.from(requireCurrentUser(authorizationHeader));
+    }
+
+    public AuthUser requireCurrentUser(String authorizationHeader) {
         String accessToken = requireBearerToken(authorizationHeader);
         AccessTokenClaims claims = tokenService.verifyAccessToken(accessToken);
         AuthUser user = authRepository.findUserById(claims.userId()).orElseThrow(AuthService::invalidAccessToken);
         ensureActive(user);
-        return UserResponse.from(user);
+        return user;
+    }
+
+    public AuthUser requireAdmin(String authorizationHeader) {
+        AuthUser user = requireCurrentUser(authorizationHeader);
+        if (!"ADMIN".equals(user.role())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "Admin role is required");
+        }
+        return user;
+    }
+
+    public AdminUserListResponse listUsers(
+            AuthUser admin,
+            String query,
+            String status,
+            String role,
+            int limit,
+            int offset
+    ) {
+        ensureAdmin(admin);
+        int normalizedLimit = normalizeLimit(limit);
+        int normalizedOffset = normalizeOffset(offset);
+        String normalizedStatus = normalizeOptionalStatus(status);
+        String normalizedRole = normalizeOptionalRole(role);
+        String normalizedQuery = normalizeOptionalQuery(query);
+
+        List<AdminUserResponse> users = authRepository.findUsers(
+                        normalizedQuery,
+                        normalizedStatus,
+                        normalizedRole,
+                        normalizedLimit,
+                        normalizedOffset
+                ).stream()
+                .map(AdminUserResponse::from)
+                .toList();
+        long total = authRepository.countUsers(normalizedQuery, normalizedStatus, normalizedRole);
+        return new AdminUserListResponse(users, total, normalizedLimit, normalizedOffset);
+    }
+
+    @Transactional
+    public AdminUserResponse updateUserByAdmin(AuthUser admin, Long userId, AdminUserUpdateRequest request) {
+        ensureAdmin(admin);
+        if (userId == null) {
+            throw new IllegalArgumentException("User id is required");
+        }
+        AuthUser target = authRepository.findUserById(userId).orElseThrow(AuthService::userNotFound);
+        String status = request == null ? null : request.status();
+        String role = request == null ? null : request.role();
+        String normalizedStatus = status == null ? target.status() : normalizeRequiredStatus(status);
+        String normalizedRole = role == null ? target.role() : normalizeRequiredRole(role);
+
+        if (admin.id().equals(userId) && (!"ACTIVE".equals(normalizedStatus) || !"ADMIN".equals(normalizedRole))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CANNOT_MODIFY_SELF", "Admin cannot disable or demote self");
+        }
+
+        AuthUser updated = authRepository.updateUserStatusAndRole(
+                target.id(),
+                normalizedStatus,
+                normalizedRole,
+                Instant.now()
+        );
+        if ("DISABLED".equals(updated.status())) {
+            authRepository.revokeRefreshTokensForUser(updated.id(), Instant.now());
+        }
+        return AdminUserResponse.from(updated);
+    }
+
+    @Transactional
+    public AdminUserSessionRevokeResponse revokeUserSessionsByAdmin(AuthUser admin, Long userId) {
+        ensureAdmin(admin);
+        if (userId == null) {
+            throw new IllegalArgumentException("User id is required");
+        }
+        AuthUser target = authRepository.findUserById(userId).orElseThrow(AuthService::userNotFound);
+        int revokedCount = authRepository.revokeRefreshTokensForUser(target.id(), Instant.now());
+        return new AdminUserSessionRevokeResponse(target.id(), revokedCount);
     }
 
     private AuthResponse issueAuthResponse(AuthUser user, String userAgent) {
@@ -167,6 +258,61 @@ public class AuthService {
         return normalized.substring(0, MAX_USER_AGENT_LENGTH);
     }
 
+    private static String normalizeOptionalQuery(String query) {
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        String normalized = query.trim();
+        if (normalized.length() > 320) {
+            throw new IllegalArgumentException("Query must be 320 characters or fewer");
+        }
+        return normalized;
+    }
+
+    private static String normalizeOptionalStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        return normalizeRequiredStatus(status);
+    }
+
+    private static String normalizeRequiredStatus(String status) {
+        String normalized = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+        if (!"ACTIVE".equals(normalized) && !"DISABLED".equals(normalized)) {
+            throw new IllegalArgumentException("Status must be ACTIVE or DISABLED");
+        }
+        return normalized;
+    }
+
+    private static String normalizeOptionalRole(String role) {
+        if (role == null || role.isBlank()) {
+            return null;
+        }
+        return normalizeRequiredRole(role);
+    }
+
+    private static String normalizeRequiredRole(String role) {
+        String normalized = role == null ? "" : role.trim().toUpperCase(Locale.ROOT);
+        if (!"USER".equals(normalized) && !"ADMIN".equals(normalized)) {
+            throw new IllegalArgumentException("Role must be USER or ADMIN");
+        }
+        return normalized;
+    }
+
+    private static int normalizeLimit(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException("Limit must be between 1 and 100");
+        }
+        return limit;
+    }
+
+    private static int normalizeOffset(int offset) {
+        if (offset < 0) {
+            throw new IllegalArgumentException("Offset must be zero or greater");
+        }
+        return offset;
+    }
+
     private static String requireBearerToken(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
             throw invalidAccessToken();
@@ -181,6 +327,12 @@ public class AuthService {
     private static void ensureActive(AuthUser user) {
         if (!"ACTIVE".equals(user.status())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_UNAVAILABLE", "Account is not active");
+        }
+    }
+
+    private static void ensureAdmin(AuthUser user) {
+        if (!"ADMIN".equals(user.role())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "Admin role is required");
         }
     }
 
@@ -202,5 +354,9 @@ public class AuthService {
 
     private static ApiException invalidAccessToken() {
         return new ApiException(HttpStatus.UNAUTHORIZED, "ACCESS_TOKEN_INVALID", "Invalid or expired access token");
+    }
+
+    private static ApiException userNotFound() {
+        return new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User was not found");
     }
 }

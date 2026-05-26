@@ -99,6 +99,11 @@ RANKPEEK_SERVER_DB_URL=jdbc:postgresql://127.0.0.1:5432/rankpeek_server
 RANKPEEK_SERVER_DB_USERNAME=rankpeek
 RANKPEEK_SERVER_DB_PASSWORD=CHANGE_ME_DATABASE_PASSWORD
 RANKPEEK_AUTH_ACCESS_TOKEN_SECRET=CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_HEX_32
+RANKPEEK_INITIAL_ADMIN_ENABLED=true
+RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
+RANKPEEK_INITIAL_ADMIN_PASSWORD=CHANGE_ME_INITIAL_ADMIN_PASSWORD
+RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME=RankPeek Admin
+RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS=1
 ```
 
 Generate the JWT secret with:
@@ -160,6 +165,12 @@ Confirm Flyway created tables:
 
 ```bash
 sudo -u postgres psql -d rankpeek_server -c "\dt"
+```
+
+The migration history should be at version `8`, including `user_credit_balances`, `credit_ledger_entries`, and `ai_analysis_runs`:
+
+```bash
+sudo -u postgres psql -d rankpeek_server -c "select version, description, success from flyway_schema_history order by installed_rank desc limit 1;"
 ```
 
 ## Operational Notes

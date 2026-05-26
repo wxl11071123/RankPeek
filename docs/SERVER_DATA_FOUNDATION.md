@@ -14,7 +14,7 @@ Current privacy and integration boundaries:
 - no user match-history upload;
 - no LCU token or SGP token storage;
 - no user private data storage;
-- no real AI provider;
+- no real AI provider by default;
 - no real payment provider;
 - no scheduled or matrix real `101.qq.com` crawler;
 - no real `lpl.qq.com` crawler.
@@ -27,7 +27,7 @@ This is the preferred source for structured patch identity, champion/item/rune m
 
 B. `101.qq.com` CN meta data
 
-CN meta data is modeled as snapshots. The current server includes deterministic mock sync plus a disabled-by-default manual sample boundary for public aggregate `101.qq.com` hero statistics. The real sample client is not scheduled, is not used by configured matrix sync, and only runs when `rankpeek.cn-meta.sync.real-source-enabled=true` and `/api/cn-meta/sync/real-once` is called.
+CN meta data is modeled as snapshots. The current server includes deterministic mock sync plus a disabled-by-default manual sample boundary for public aggregate `101.qq.com` hero statistics. The real sample client is not scheduled, is not used by configured matrix sync, and only runs when `rankpeek.cn-meta.sync.real-source-enabled=true` and `/api/cn-meta/sync/real-once` is called with an `ADMIN` bearer token.
 
 The confirmed `101` `getRankFieldAverage` response is rank/tier-level champion aggregate data. Its `data.result` value is a JSON string containing a compressed `championdetails` field. Although browser page URLs can include a lane value, the core average-stat endpoint has no lane/role parameter. Real `101` rows must therefore be stored as `role=ALL` and must not be presented as `TOP`, `JUNGLE`, `MID`, `ADC`, or `SUPPORT` meta.
 
@@ -109,6 +109,18 @@ Playstyle cards are curated recommendations for a patch, champion, and role. Eac
 
 The first implementation supports deterministic mock checks through `patch_relevance_rules` and `patch_changes`.
 
+## Credits and AI Run Audit Trail
+
+Core tables:
+
+- `user_credit_balances`
+- `credit_ledger_entries`
+- `ai_analysis_runs`
+
+`ai_analysis_runs` stores AI run metadata, request hashes, token usage, error codes/messages, and charge/refund ledger references. Successful `coach-summary` runs store the normalized response JSON so the same user and same `X-RankPeek-Idempotency-Key` can be replayed without another DeepSeek call or credit charge. Refunded failures are also replayed as failures for the same request hash.
+
+The server does not persist raw `systemPrompt`, `userPrompt`, or request JSON. Admin run APIs return metadata only and do not return stored AI report bodies.
+
 ## API Foundation
 
 All responses use the same JSON envelope:
@@ -128,10 +140,18 @@ Current server endpoints:
 - `GET /api/patch/current`
 - `GET /api/patch/{patchKey}/changes`
 - `GET /api/cn-meta/champions/{championId}?patchKey=&role=&tierScope=`
-- `POST /api/cn-meta/sync/mock-once`
-- `POST /api/cn-meta/sync/real-once`
-- `POST /api/cn-meta/sync/configured-matrix`
-- `GET /api/cn-meta/sync/jobs`
+- `POST /api/cn-meta/sync/mock-once` (ADMIN bearer token)
+- `POST /api/cn-meta/sync/real-once` (ADMIN bearer token)
+- `POST /api/cn-meta/sync/configured-matrix` (ADMIN bearer token)
+- `GET /api/cn-meta/sync/jobs` (ADMIN bearer token)
+- `GET /api/credits/balance` (bearer token)
+- `GET /api/credits/ledger` (bearer token)
+- `POST /api/admin/credits/grants` (ADMIN bearer token)
+- `POST /api/analysis/coach-summary` (bearer token)
+- `GET /api/analysis/runs?endpoint=&status=&limit=&offset=` (bearer token)
+- `GET /api/analysis/runs/{runId}` (bearer token)
+- `GET /api/admin/analysis/runs?userId=&endpoint=&status=&limit=&offset=` (ADMIN bearer token)
+- `GET /api/admin/analysis/runs/{runId}` (ADMIN bearer token)
 - `GET /api/esports/lpl/champions/{championId}?patchKey=&role=`
 - `GET /api/playstyles/cards?patchKey=&championId=&role=`
 - `POST /api/playstyles/cards/mock-seed`
@@ -153,8 +173,8 @@ It does not require an API key and does not perform network requests.
 2. Confirm additional public `101.qq.com` tier codes and fields for the manual sample client.
 3. `lpl.qq.com` importer research and compliance review.
 4. Human review admin workflow for playstyle cards.
-5. Real AI provider.
-6. Account system.
-7. Credits system.
+5. Broader admin workflow for importer review and source operations.
+6. Payments system.
+7. Client-side admin console.
 8. Payment system.
 9. Client integration.
