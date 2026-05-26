@@ -20,6 +20,7 @@ for each gate without storing real secrets.
 - [ ] Real `RANKPEEK_AUTH_ACCESS_TOKEN_SECRET` is generated with `openssl rand -hex 32`.
 - [ ] Initial admin email and temporary password are available outside the repo.
 - [ ] Initial admin bootstrap is enabled, or `RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true` is recorded after an existing `ADMIN` login is verified.
+- [ ] At least one internal user or smoke user email and temporary password are available for `POST /api/admin/users`.
 - [ ] Product decision is recorded for `RANKPEEK_AI_ENABLED=true|false`.
 - [ ] Product decision is recorded for `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true|false`.
 - [ ] Product decision is recorded for `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`.
@@ -135,6 +136,8 @@ Required evidence:
 - [ ] `/api/server/diagnostics` reports Flyway version `9`.
 - [ ] `/api/server/diagnostics` reports the expected `initialAdminEnabled` value for this phase.
 - [ ] Diagnostics config flags match the launch decisions.
+- [ ] `POST /api/admin/users` creates the first internal user or dedicated smoke user while public registration is disabled.
+- [ ] Admin-created internal user login succeeds with the temporary password.
 
 ## Gate 5: Public HTTPS Smoke
 
@@ -180,6 +183,7 @@ RANKPEEK_AI_SMOKE_USER_PASSWORD='<smoke-user-password>' \
 Required evidence:
 
 - [ ] Admin grant succeeds with an idempotency key.
+- [ ] AI smoke user was created through `POST /api/admin/users` or was already verified before the run.
 - [ ] `POST /api/analysis/coach-summary` succeeds.
 - [ ] Repeating the same idempotency key replays the stored result.
 - [ ] Balance changes by exactly the configured charge once.

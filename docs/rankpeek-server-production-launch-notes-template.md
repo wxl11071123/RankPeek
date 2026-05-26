@@ -74,6 +74,8 @@ Local health result:
 Admin diagnostics result:
 Flyway version:
 Config flag verification:
+Internal user create result:
+Admin-created internal user login result:
 
 ## Gate 5: Public HTTPS Smoke
 

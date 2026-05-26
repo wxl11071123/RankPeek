@@ -219,6 +219,8 @@ class BuildConfigurationTest {
                 .contains("rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
                 .contains("`/etc/rankpeek/rankpeek-server.env` is owned by `root:rankpeek` and mode `640`")
                 .contains("RANKPEEK_SMOKE_BASE_URL=https://api.rankpeek.example.com")
+                .contains("POST /api/admin/users")
+                .contains("Admin-created internal user login")
                 .contains("rankpeek-postgres-restore-drill.sh")
                 .contains("rankpeek-server-monitor.timer")
                 .contains("Do not open port `18080`")
@@ -238,16 +240,20 @@ class BuildConfigurationTest {
                 .contains("Jar SHA-256")
                 .contains("Preflight result")
                 .contains("Public smoke result")
+                .contains("Internal user create result")
+                .contains("Admin-created internal user login result")
                 .contains("Restore drill result")
                 .contains("Named rollback operator")
                 .contains("Existing admin confirmed")
                 .contains("Launch decision");
         assertThat(deploymentGuide)
                 .contains("rankpeek-server-production-launch-checklist.md")
-                .contains("rankpeek-server-production-launch-notes-template.md");
+                .contains("rankpeek-server-production-launch-notes-template.md")
+                .contains("POST /api/admin/users");
         assertThat(readme)
                 .contains("rankpeek-server-production-launch-checklist.md")
-                .contains("rankpeek-server-production-launch-notes-template.md");
+                .contains("rankpeek-server-production-launch-notes-template.md")
+                .contains("POST /api/admin/users");
     }
 
     @Test
