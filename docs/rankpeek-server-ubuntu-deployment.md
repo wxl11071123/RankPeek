@@ -104,12 +104,12 @@ RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS=900
 RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=false
 RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com
 RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset
-RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset
+RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT="RankPeek password reset"
 RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false
 RANKPEEK_INITIAL_ADMIN_ENABLED=true
 RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
 RANKPEEK_INITIAL_ADMIN_PASSWORD=CHANGE_ME_INITIAL_ADMIN_PASSWORD
-RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME=RankPeek Admin
+RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME="RankPeek Admin"
 RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS=1
 RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1
 RANKPEEK_RATE_LIMIT_ENABLED=true
@@ -134,7 +134,7 @@ Password reset tokens are stored only as SHA-256 hashes and expire after `RANKPE
 RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true
 RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com
 RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset
-RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset
+RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT="RankPeek password reset"
 SPRING_MAIL_HOST=smtp.example.com
 SPRING_MAIL_PORT=587
 SPRING_MAIL_USERNAME=no-reply@example.com
@@ -159,6 +159,23 @@ RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1
 When DeepSeek is enabled, `POST /api/analysis/pregame/stream`, `POST /api/analysis/postgame/stream`, and `POST /api/analysis/coach-summary` all require a user bearer token and enough credits before the provider is contacted. Stream calls write AI run metadata and token usage, and refund the stream charge if the upstream request fails.
 
 Do not commit `/etc/rankpeek/rankpeek-server.env` or any real secret.
+
+Run the production preflight before the first service start. Copy the script to the Ubuntu host:
+
+```bash
+scp rankpeek-server/deploy/ubuntu/rankpeek-server-preflight.sh ubuntu-host:/tmp/rankpeek-server-preflight.sh
+```
+
+Install and run it against `/etc/rankpeek/rankpeek-server.env`:
+
+```bash
+sudo cp /tmp/rankpeek-server-preflight.sh /opt/rankpeek/server/rankpeek-server-preflight.sh
+sudo chown root:rankpeek /opt/rankpeek/server/rankpeek-server-preflight.sh
+sudo chmod 750 /opt/rankpeek/server/rankpeek-server-preflight.sh
+sudo /opt/rankpeek/server/rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env
+```
+
+The preflight rejects placeholder secrets, missing required production values, wildcard CORS, disabled rate limiting, and open public registration for the internal MVP deployment shape. When password reset email, DeepSeek, or initial-admin bootstrap are enabled, it also verifies the dependent variables before systemd starts the service.
 
 ## 6. Install and Start the systemd Service
 

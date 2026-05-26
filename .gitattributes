@@ -1,2 +1,3 @@
 rankpeek-server/deploy/**/*.sh text eol=lf
 rankpeek-server/deploy/**/*.sh.example text eol=lf
+rankpeek-server/deploy/**/*.env.example text eol=lf

@@ -113,6 +113,44 @@ class BuildConfigurationTest {
     }
 
     @Test
+    void ubuntuProductionEnvPreflightRejectsUnsafeDeploymentConfig() throws Exception {
+        Path preflightScriptPath = Path.of("deploy/ubuntu/rankpeek-server-preflight.sh");
+        assertThat(preflightScriptPath).exists();
+
+        String preflightScript = Files.readString(preflightScriptPath);
+        String gitAttributes = Files.readString(Path.of("../.gitattributes"));
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+        String readme = Files.readString(Path.of("README.md"));
+
+        assertThat(preflightScript)
+                .contains("RANKPEEK_PREFLIGHT_ENV_FILE")
+                .contains("require_equals SPRING_PROFILES_ACTIVE prod")
+                .contains("require_present RANKPEEK_SERVER_DB_PASSWORD")
+                .contains("reject_placeholder RANKPEEK_SERVER_DB_PASSWORD")
+                .contains("require_secret RANKPEEK_AUTH_ACCESS_TOKEN_SECRET")
+                .contains("require_bool RANKPEEK_PUBLIC_REGISTRATION_ENABLED false")
+                .contains("require_bool RANKPEEK_RATE_LIMIT_ENABLED true")
+                .contains("RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED")
+                .contains("SPRING_MAIL_PASSWORD")
+                .contains("RANKPEEK_AI_ENABLED")
+                .contains("RANKPEEK_AI_API_KEY")
+                .contains("RANKPEEK_INITIAL_ADMIN_ENABLED")
+                .contains("CHANGE_ME_INITIAL_ADMIN_PASSWORD")
+                .contains("RANKPEEK_CORS_ALLOWED_ORIGINS")
+                .contains("Preflight checks passed");
+        assertThat(deploymentGuide)
+                .contains("rankpeek-server-preflight.sh")
+                .contains("sudo /opt/rankpeek/server/rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
+                .contains("Run the production preflight before the first service start");
+        assertThat(gitAttributes)
+                .contains("rankpeek-server/deploy/**/*.env.example text eol=lf");
+        assertThat(readme)
+                .contains("rankpeek-server-preflight.sh")
+                .contains("rejects placeholder secrets")
+                .contains("before starting the production service");
+    }
+
+    @Test
     void ubuntuAiSmokeScriptExercisesCreditsCoachSummaryAndIdempotency() throws Exception {
         String aiSmokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-ai-smoke.sh"));
         String envExample = Files.readString(Path.of("deploy/ubuntu/rankpeek-server.env.example"));
@@ -156,6 +194,8 @@ class BuildConfigurationTest {
                 .contains("RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=false")
                 .contains("RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com")
                 .contains("RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset")
+                .contains("RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=\"RankPeek password reset\"")
+                .contains("RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME=\"RankPeek Admin\"")
                 .contains("# SPRING_MAIL_HOST=smtp.example.com")
                 .contains("# SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true");
         assertThat(deploymentGuide)
