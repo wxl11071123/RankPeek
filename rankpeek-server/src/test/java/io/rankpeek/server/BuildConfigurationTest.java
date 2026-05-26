@@ -253,6 +253,7 @@ class BuildConfigurationTest {
         String gitAttributes = Files.readString(Path.of("../.gitattributes"));
 
         assertThat(workflow)
+                .contains("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true")
                 .contains("actions/checkout@v5")
                 .contains("actions/setup-java@v5")
                 .contains("mvn -B test")
