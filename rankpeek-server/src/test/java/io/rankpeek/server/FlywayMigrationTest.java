@@ -36,6 +36,7 @@ class FlywayMigrationTest {
                 "patch_relevance_rules",
                 "users",
                 "auth_refresh_tokens",
+                "auth_password_reset_tokens",
                 "cn_meta_sync_jobs",
                 "cn_meta_source_documents",
                 "user_credit_balances",
@@ -58,6 +59,17 @@ class FlywayMigrationTest {
                         select request_hash, response_json, error_message,
                             charge_ledger_entry_id, refund_ledger_entry_id
                         from ai_analysis_runs
+                        where 1 = 0
+                """
+        )).doesNotThrowAnyException();
+    }
+
+    @Test
+    void migrationAddsPasswordResetTokenTable() {
+        assertThatCode(() -> jdbcTemplate.queryForList(
+                """
+                        select user_id, token_hash, expires_at, used_at, created_at
+                        from auth_password_reset_tokens
                         where 1 = 0
                         """
         )).doesNotThrowAnyException();

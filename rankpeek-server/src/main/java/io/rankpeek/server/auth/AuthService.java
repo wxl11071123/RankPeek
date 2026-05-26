@@ -1,6 +1,8 @@
 package io.rankpeek.server.auth;
 
 import io.rankpeek.server.common.ApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import java.util.regex.Pattern;
 @Service
 public class AuthService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthService.class);
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$",
             Pattern.CASE_INSENSITIVE
@@ -26,17 +29,20 @@ public class AuthService {
     private final PasswordService passwordService;
     private final TokenService tokenService;
     private final AuthProperties authProperties;
+    private final PasswordResetEmailSender passwordResetEmailSender;
 
     public AuthService(
             AuthRepository authRepository,
             PasswordService passwordService,
             TokenService tokenService,
-            AuthProperties authProperties
+            AuthProperties authProperties,
+            PasswordResetEmailSender passwordResetEmailSender
     ) {
         this.authRepository = authRepository;
         this.passwordService = passwordService;
         this.tokenService = tokenService;
         this.authProperties = authProperties;
+        this.passwordResetEmailSender = passwordResetEmailSender;
     }
 
     @Transactional
@@ -114,6 +120,34 @@ public class AuthService {
         StoredRefreshToken refreshToken = requireValidRefreshToken(request.refreshToken(), Instant.now());
         boolean revoked = authRepository.revokeRefreshToken(refreshToken.id(), Instant.now());
         return new LogoutResponse(revoked);
+    }
+
+    @Transactional
+    public PasswordResetRequestResponse requestPasswordReset(PasswordResetRequest request) {
+        String email = normalizeEmail(request.email());
+        Instant now = Instant.now();
+        authRepository.findUserByEmail(email)
+                .filter(user -> "ACTIVE".equals(user.status()))
+                .ifPresent(user -> createAndSendPasswordReset(user, now));
+        return new PasswordResetRequestResponse(true);
+    }
+
+    @Transactional
+    public PasswordResetConfirmResponse confirmPasswordReset(PasswordResetConfirmRequest request) {
+        validatePassword(request.newPassword());
+        StoredPasswordResetToken resetToken = requireValidPasswordResetToken(request.token(), Instant.now());
+        AuthUser user = authRepository.findUserById(resetToken.userId())
+                .filter(candidate -> "ACTIVE".equals(candidate.status()))
+                .orElseThrow(AuthService::invalidPasswordResetToken);
+
+        Instant now = Instant.now();
+        int consumed = authRepository.markPasswordResetTokenUsed(resetToken.id(), now);
+        if (consumed == 0) {
+            throw invalidPasswordResetToken();
+        }
+        authRepository.updatePasswordHash(user.id(), passwordService.hash(request.newPassword()), now);
+        authRepository.revokeRefreshTokensForUser(user.id(), now);
+        return new PasswordResetConfirmResponse(true);
     }
 
     public UserResponse currentUser(String authorizationHeader) {
@@ -218,6 +252,23 @@ public class AuthService {
         return new AuthResponse(responseUser, accessToken, refreshToken, tokenService.accessTokenTtlSeconds());
     }
 
+    private void createAndSendPasswordReset(AuthUser user, Instant now) {
+        authRepository.revokeUnusedPasswordResetTokensForUser(user.id(), now);
+        String resetToken = tokenService.createRefreshToken();
+        Instant expiresAt = now.plusSeconds(authProperties.passwordResetTokenTtlSeconds());
+        authRepository.insertPasswordResetToken(
+                user.id(),
+                tokenService.hashRefreshToken(resetToken),
+                expiresAt,
+                now
+        );
+        try {
+            passwordResetEmailSender.sendPasswordResetEmail(user, resetToken, expiresAt);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Password reset email delivery failed for user_id={}", user.id(), exception);
+        }
+    }
+
     private StoredRefreshToken requireValidRefreshToken(String refreshToken, Instant now) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw invalidRefreshToken();
@@ -226,6 +277,18 @@ public class AuthService {
                 .orElseThrow(AuthService::invalidRefreshToken);
         if (stored.revokedAt() != null || !stored.expiresAt().isAfter(now)) {
             throw invalidRefreshToken();
+        }
+        return stored;
+    }
+
+    private StoredPasswordResetToken requireValidPasswordResetToken(String resetToken, Instant now) {
+        if (resetToken == null || resetToken.isBlank()) {
+            throw invalidPasswordResetToken();
+        }
+        StoredPasswordResetToken stored = authRepository.findPasswordResetTokenByHash(tokenService.hashRefreshToken(resetToken))
+                .orElseThrow(AuthService::invalidPasswordResetToken);
+        if (stored.usedAt() != null || !stored.expiresAt().isAfter(now)) {
+            throw invalidPasswordResetToken();
         }
         return stored;
     }
@@ -363,6 +426,14 @@ public class AuthService {
                 HttpStatus.UNAUTHORIZED,
                 "REFRESH_TOKEN_INVALID",
                 "Refresh token is invalid, expired, or revoked"
+        );
+    }
+
+    private static ApiException invalidPasswordResetToken() {
+        return new ApiException(
+                HttpStatus.UNAUTHORIZED,
+                "PASSWORD_RESET_TOKEN_INVALID",
+                "Password reset token is invalid, expired, or already used"
         );
     }
 

@@ -43,7 +43,7 @@ server {
     add_header Referrer-Policy no-referrer always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-    location ~ ^/api/auth/(register|login|refresh)$ {
+    location ~ ^/api/auth/(register|login|refresh|password-reset/(request|confirm))$ {
         limit_req zone=rankpeek_auth burst=10 nodelay;
         proxy_pass http://rankpeek_server_upstream;
         include /etc/nginx/snippets/rankpeek-proxy-headers.conf;

@@ -100,6 +100,7 @@ RANKPEEK_SERVER_DB_USERNAME=rankpeek
 RANKPEEK_SERVER_DB_PASSWORD=CHANGE_ME_DATABASE_PASSWORD
 RANKPEEK_CORS_ALLOWED_ORIGINS=http://localhost:5173
 RANKPEEK_AUTH_ACCESS_TOKEN_SECRET=CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_HEX_32
+RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS=900
 RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false
 RANKPEEK_INITIAL_ADMIN_ENABLED=true
 RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
@@ -120,7 +121,9 @@ openssl rand -hex 32
 
 Keep public registration disabled for internal MVP deployments unless you intentionally want open signup. If the production renderer or reverse proxy is not `http://localhost:5173`, set `RANKPEEK_CORS_ALLOWED_ORIGINS` to the exact trusted origin list.
 
-Application-level rate limiting is enabled by default. It applies a fixed window to registration, login, refresh-token, and AI analysis endpoints. Keep it enabled for MVP deployments; tune the auth and AI request counts only after looking at real traffic and support needs. This does not replace reverse-proxy or firewall rate limits.
+Application-level rate limiting is enabled by default. It applies a fixed window to registration, login, refresh-token, password reset, and AI analysis endpoints. Keep it enabled for MVP deployments; tune the auth and AI request counts only after looking at real traffic and support needs. This does not replace reverse-proxy or firewall rate limits.
+
+Password reset tokens are stored only as SHA-256 hashes and expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`. The default server build includes only a no-op password reset email sender, so configure a real email sender implementation before exposing password reset to real users.
 
 DeepSeek AI is disabled by default. To test the real provider, set these values in `/etc/rankpeek/rankpeek-server.env`:
 
@@ -228,7 +231,7 @@ Confirm Flyway created tables:
 sudo -u postgres psql -d rankpeek_server -c "\dt"
 ```
 
-The migration history should be at version `8`, including `user_credit_balances`, `credit_ledger_entries`, and `ai_analysis_runs`:
+The migration history should be at version `9`, including `user_credit_balances`, `credit_ledger_entries`, `ai_analysis_runs`, and `auth_password_reset_tokens`:
 
 ```bash
 sudo -u postgres psql -d rankpeek_server -c "select version, description, success from flyway_schema_history order by installed_rank desc limit 1;"
@@ -249,7 +252,7 @@ sudo chmod 750 /opt/rankpeek/server/rankpeek-server-smoke.sh
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
-That public smoke run checks `/api/server/health`, `/api/server/version`, and the `X-Request-Id` response header. To also verify admin diagnostics and Flyway version `8`, pass the initial admin credentials through environment variables:
+That public smoke run checks `/api/server/health`, `/api/server/version`, and the `X-Request-Id` response header. To also verify admin diagnostics and Flyway version `9`, pass the initial admin credentials through environment variables:
 
 ```bash
 RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \
@@ -399,7 +402,7 @@ Useful values:
 
 ```bash
 RANKPEEK_MONITOR_BASE_URL=http://127.0.0.1:18080
-RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=8
+RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=9
 RANKPEEK_MONITOR_SERVICES="rankpeek-server postgresql nginx"
 RANKPEEK_MONITOR_BACKUP_DIR=/var/backups/rankpeek/postgres
 RANKPEEK_MONITOR_REQUIRE_BACKUP=true

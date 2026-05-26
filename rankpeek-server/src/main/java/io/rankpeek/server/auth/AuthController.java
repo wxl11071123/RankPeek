@@ -45,6 +45,16 @@ public class AuthController {
         return ApiResponse.success(authService.logout(request));
     }
 
+    @PostMapping("/password-reset/request")
+    public ApiResponse<PasswordResetRequestResponse> requestPasswordReset(@RequestBody PasswordResetRequest request) {
+        return ApiResponse.success(authService.requestPasswordReset(request));
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ApiResponse<PasswordResetConfirmResponse> confirmPasswordReset(@RequestBody PasswordResetConfirmRequest request) {
+        return ApiResponse.success(authService.confirmPasswordReset(request));
+    }
+
     @GetMapping("/me")
     public ApiResponse<UserResponse> me(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader

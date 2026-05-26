@@ -7,6 +7,7 @@ public record AuthProperties(
         String accessTokenSecret,
         long accessTokenTtlSeconds,
         long refreshTokenTtlSeconds,
+        long passwordResetTokenTtlSeconds,
         Boolean publicRegistrationEnabled,
         InitialAdmin initialAdmin
 ) {
@@ -21,6 +22,9 @@ public record AuthProperties(
         }
         if (refreshTokenTtlSeconds <= 0) {
             refreshTokenTtlSeconds = 2_592_000;
+        }
+        if (passwordResetTokenTtlSeconds <= 0) {
+            passwordResetTokenTtlSeconds = 900;
         }
         if (publicRegistrationEnabled == null) {
             publicRegistrationEnabled = true;

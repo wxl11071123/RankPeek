@@ -31,7 +31,7 @@ class BuildConfigurationTest {
         assertThat(siteConfig)
                 .contains("limit_req_zone $binary_remote_addr zone=rankpeek_auth")
                 .contains("limit_req_zone $binary_remote_addr zone=rankpeek_ai")
-                .contains("location ~ ^/api/auth/(register|login|refresh)$")
+                .contains("location ~ ^/api/auth/(register|login|refresh|password-reset/(request|confirm))$")
                 .contains("location = /api/analysis/coach-summary")
                 .contains("location = /api/analysis/pregame/stream")
                 .contains("location = /api/analysis/postgame/stream")
@@ -73,11 +73,14 @@ class BuildConfigurationTest {
 
     @Test
     void ubuntuMonitoringTemplatesCheckHealthBackupsAndEmitAlerts() throws Exception {
+        String smokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-smoke.sh"));
         String monitorScript = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.sh.example"));
         String monitorEnv = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.env.example"));
         String service = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.service.example"));
         String timer = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.timer.example"));
 
+        assertThat(smokeScript)
+                .contains("RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION:-9");
         assertThat(monitorScript)
                 .contains("/api/server/health")
                 .contains("/api/server/diagnostics")
@@ -90,7 +93,7 @@ class BuildConfigurationTest {
                 .contains("X-Request-Id: rankpeek-monitor-health");
         assertThat(monitorEnv)
                 .contains("RANKPEEK_MONITOR_BASE_URL=http://127.0.0.1:18080")
-                .contains("RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=8")
+                .contains("RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=9")
                 .contains("RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS=30")
                 .contains("RANKPEEK_MONITOR_WEBHOOK_URL=");
         assertThat(service)
