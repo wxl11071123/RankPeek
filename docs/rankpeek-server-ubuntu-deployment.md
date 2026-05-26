@@ -6,11 +6,11 @@ This guide deploys `rankpeek-server` as a Spring Boot jar on one Ubuntu host wit
 
 ```bash
 sudo apt update
-sudo apt install -y openjdk-21-jdk postgresql postgresql-contrib
+sudo apt install -y openjdk-21-jdk postgresql postgresql-contrib jq
 java -version
 ```
 
-The service expects Java 21. PostgreSQL runs on the same Ubuntu host.
+The service expects Java 21. PostgreSQL runs on the same Ubuntu host. `jq` is used by the deployment smoke test script.
 
 ## 2. Create the Database
 
@@ -177,6 +177,29 @@ The migration history should be at version `8`, including `user_credit_balances`
 
 ```bash
 sudo -u postgres psql -d rankpeek_server -c "select version, description, success from flyway_schema_history order by installed_rank desc limit 1;"
+```
+
+Copy the smoke test script to the Ubuntu host. From the repository root on your build machine:
+
+```bash
+scp rankpeek-server/deploy/ubuntu/rankpeek-server-smoke.sh ubuntu-host:/tmp/rankpeek-server-smoke.sh
+```
+
+On the Ubuntu host, install and run it:
+
+```bash
+sudo cp /tmp/rankpeek-server-smoke.sh /opt/rankpeek/server/rankpeek-server-smoke.sh
+sudo chown root:rankpeek /opt/rankpeek/server/rankpeek-server-smoke.sh
+sudo chmod 750 /opt/rankpeek/server/rankpeek-server-smoke.sh
+/opt/rankpeek/server/rankpeek-server-smoke.sh
+```
+
+That public smoke run checks `/api/server/health`, `/api/server/version`, and the `X-Request-Id` response header. To also verify admin diagnostics and Flyway version `8`, pass the initial admin credentials through environment variables:
+
+```bash
+RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
+/opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
 ## Operational Notes
