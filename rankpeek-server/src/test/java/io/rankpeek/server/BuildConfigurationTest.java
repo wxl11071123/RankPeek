@@ -79,6 +79,7 @@ class BuildConfigurationTest {
         String smokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-smoke.sh"));
         String monitorScript = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.sh.example"));
         String monitorEnv = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.env.example"));
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
         String service = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.service.example"));
         String timer = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.timer.example"));
 
@@ -99,11 +100,19 @@ class BuildConfigurationTest {
                 .contains(".data.refreshToken")
                 .contains("/api/auth/logout")
                 .contains("X-Request-Id: rankpeek-monitor-health");
+        assertThat(monitorScript)
+                .contains("validate_admin_credentials_config")
+                .contains("monitor admin credentials must set both RANKPEEK_MONITOR_ADMIN_EMAIL and RANKPEEK_MONITOR_ADMIN_PASSWORD, or leave both blank")
+                .contains("[[ -z \"$ADMIN_EMAIL\" && -z \"$ADMIN_PASSWORD\" ]]")
+                .contains("[[ -z \"$ADMIN_EMAIL\" || -z \"$ADMIN_PASSWORD\" ]]");
         assertThat(monitorEnv)
                 .contains("RANKPEEK_MONITOR_BASE_URL=http://127.0.0.1:18080")
                 .contains("RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=9")
                 .contains("RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS=30")
                 .contains("RANKPEEK_MONITOR_WEBHOOK_URL=");
+        assertThat(deploymentGuide)
+                .contains("Set both `RANKPEEK_MONITOR_ADMIN_EMAIL` and `RANKPEEK_MONITOR_ADMIN_PASSWORD` to enable diagnostics monitoring")
+                .contains("leave both blank to skip diagnostics");
         assertThat(service)
                 .contains("EnvironmentFile=/etc/rankpeek/rankpeek-server-monitor.env")
                 .contains("ExecStart=/usr/local/sbin/rankpeek-server-monitor.sh");
