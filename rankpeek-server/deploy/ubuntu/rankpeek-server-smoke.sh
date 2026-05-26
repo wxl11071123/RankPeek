@@ -24,6 +24,28 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
+admin_diagnostics_expectations_configured() {
+  [[ -n "${RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION+x}" \
+    || -n "${RANKPEEK_SMOKE_EXPECT_MODE+x}" \
+    || -n "${RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED+x}" \
+    || -n "${RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED+x}" \
+    || -n "${RANKPEEK_SMOKE_EXPECT_AI_ENABLED+x}" \
+    || -n "${RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED+x}" ]]
+}
+
+validate_admin_diagnostics_config() {
+  if [[ -z "$ADMIN_EMAIL" && -z "$ADMIN_PASSWORD" ]]; then
+    if admin_diagnostics_expectations_configured; then
+      fail "admin diagnostics expectations require RANKPEEK_SMOKE_ADMIN_EMAIL and RANKPEEK_SMOKE_ADMIN_PASSWORD"
+    fi
+    return
+  fi
+
+  if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
+    fail "smoke admin credentials must set both RANKPEEK_SMOKE_ADMIN_EMAIL and RANKPEEK_SMOKE_ADMIN_PASSWORD, or leave both blank"
+  fi
+}
+
 assert_optional_string() {
   local label="$1" expected="$2" actual="$3"
   if [[ -z "$expected" ]]; then
@@ -43,6 +65,7 @@ assert_optional_bool() {
   [[ "$actual" == "$expected" ]] || fail "Expected ${label}=${expected}, got ${actual}"
 }
 
+validate_admin_diagnostics_config
 require_command curl
 require_command jq
 
@@ -75,7 +98,7 @@ printf '%s' "$VERSION_BODY" | jq -e '.success == true and (.data.version | lengt
   || fail "Version endpoint did not return a version"
 log "Version check passed: $(printf '%s' "$VERSION_BODY" | jq -r '.data.version')"
 
-if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
+if [[ -z "$ADMIN_EMAIL" && -z "$ADMIN_PASSWORD" ]]; then
   log "Skipping admin diagnostics; set RANKPEEK_SMOKE_ADMIN_EMAIL and RANKPEEK_SMOKE_ADMIN_PASSWORD to enable it"
   log "Smoke checks passed"
   exit 0
