@@ -26,6 +26,8 @@ Production renderer origin:
 AI enabled:
 Password reset email enabled:
 Public registration enabled:
+Initial admin bootstrap:
+Existing admin confirmed:
 DeepSeek key available if AI enabled:
 SMTP settings available if email enabled:
 Decision owner:
