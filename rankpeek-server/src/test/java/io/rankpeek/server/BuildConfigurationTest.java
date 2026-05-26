@@ -141,6 +141,7 @@ class BuildConfigurationTest {
                 .contains("RANKPEEK_AI_ENABLED")
                 .contains("RANKPEEK_AI_API_KEY")
                 .contains("RANKPEEK_INITIAL_ADMIN_ENABLED")
+                .contains("reject_placeholder RANKPEEK_INITIAL_ADMIN_EMAIL")
                 .contains("CHANGE_ME_INITIAL_ADMIN_PASSWORD")
                 .contains("RANKPEEK_CORS_ALLOWED_ORIGINS")
                 .contains("Preflight checks passed");
@@ -148,13 +149,15 @@ class BuildConfigurationTest {
                 .contains("rankpeek-server-preflight.sh")
                 .contains("sudo /opt/rankpeek/server/rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
                 .contains("verifies `/etc/rankpeek/rankpeek-server.env` ownership and mode")
-                .contains("Run the production preflight before the first service start");
+                .contains("Run the production preflight before the first service start")
+                .contains("placeholder initial admin email values");
         assertThat(gitAttributes)
                 .contains("rankpeek-server/deploy/**/*.env.example text eol=lf");
         assertThat(readme)
                 .contains("rankpeek-server-preflight.sh")
                 .contains("rejects placeholder secrets")
                 .contains("env file ownership and mode")
+                .contains("placeholder initial admin email")
                 .contains("before starting the production service");
     }
 
