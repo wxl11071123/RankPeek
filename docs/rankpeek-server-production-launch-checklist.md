@@ -128,6 +128,16 @@ RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED=true \
 
 Adjust the initial-admin expectation after disabling bootstrap, and adjust the password reset and AI expectations only when those features are intentionally enabled.
 
+Then create and verify the first internal user or dedicated smoke user:
+
+```bash
+RANKPEEK_ADMIN_USER_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_ADMIN_USER_SMOKE_ADMIN_PASSWORD='<initial-admin-password>' \
+RANKPEEK_ADMIN_USER_SMOKE_USER_EMAIL=smoke-user@example.com \
+RANKPEEK_ADMIN_USER_SMOKE_USER_PASSWORD='<smoke-user-password>' \
+/opt/rankpeek/server/rankpeek-server-admin-user-smoke.sh
+```
+
 Required evidence:
 
 - [ ] `rankpeek-server` is active.
@@ -136,7 +146,7 @@ Required evidence:
 - [ ] `/api/server/diagnostics` reports Flyway version `9`.
 - [ ] `/api/server/diagnostics` reports the expected `initialAdminEnabled` value for this phase.
 - [ ] Diagnostics config flags match the launch decisions.
-- [ ] `POST /api/admin/users` creates the first internal user or dedicated smoke user while public registration is disabled.
+- [ ] `rankpeek-server-admin-user-smoke.sh` creates the first internal user or dedicated smoke user while public registration is disabled.
 - [ ] Admin-created internal user login succeeds with the temporary password.
 
 ## Gate 5: Public HTTPS Smoke

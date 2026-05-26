@@ -39,6 +39,7 @@ jobs:
         run: |
           bash -n deploy/ubuntu/rankpeek-server-preflight.sh
           bash -n deploy/ubuntu/rankpeek-server-smoke.sh
+          bash -n deploy/ubuntu/rankpeek-server-admin-user-smoke.sh
           bash -n deploy/ubuntu/rankpeek-server-ai-smoke.sh
           bash -n deploy/ubuntu/postgres/rankpeek-postgres-backup.sh.example
           bash -n deploy/ubuntu/postgres/rankpeek-postgres-restore-drill.sh.example

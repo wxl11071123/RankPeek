@@ -307,14 +307,18 @@ Copy the smoke test script to the Ubuntu host. From the repository root on your 
 
 ```bash
 scp rankpeek-server/deploy/ubuntu/rankpeek-server-smoke.sh ubuntu-host:/tmp/rankpeek-server-smoke.sh
+scp rankpeek-server/deploy/ubuntu/rankpeek-server-admin-user-smoke.sh ubuntu-host:/tmp/rankpeek-server-admin-user-smoke.sh
 ```
 
 On the Ubuntu host, install and run it:
 
 ```bash
 sudo cp /tmp/rankpeek-server-smoke.sh /opt/rankpeek/server/rankpeek-server-smoke.sh
+sudo cp /tmp/rankpeek-server-admin-user-smoke.sh /opt/rankpeek/server/rankpeek-server-admin-user-smoke.sh
 sudo chown root:rankpeek /opt/rankpeek/server/rankpeek-server-smoke.sh
+sudo chown root:rankpeek /opt/rankpeek/server/rankpeek-server-admin-user-smoke.sh
 sudo chmod 750 /opt/rankpeek/server/rankpeek-server-smoke.sh
+sudo chmod 750 /opt/rankpeek/server/rankpeek-server-admin-user-smoke.sh
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
@@ -343,6 +347,19 @@ RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED=true \
 ```
 
 Set `RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED=false` after you disable initial-admin bootstrap, and set `RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED=false` or `RANKPEEK_SMOKE_EXPECT_AI_ENABLED=false` when those capabilities are intentionally disabled for an internal MVP. Leave an expectation unset only when you deliberately do not want the smoke script to gate on that switch.
+
+With public registration disabled, verify the admin-created internal user path before using a smoke user for AI checks:
+
+```bash
+RANKPEEK_ADMIN_USER_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_ADMIN_USER_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
+RANKPEEK_ADMIN_USER_SMOKE_USER_EMAIL=smoke-user@example.com \
+RANKPEEK_ADMIN_USER_SMOKE_USER_PASSWORD='CHANGE_ME_SMOKE_USER_PASSWORD' \
+RANKPEEK_ADMIN_USER_SMOKE_DISPLAY_NAME='RankPeek Smoke User' \
+/opt/rankpeek/server/rankpeek-server-admin-user-smoke.sh
+```
+
+This script logs in as the admin, calls `POST /api/admin/users`, accepts `EMAIL_ALREADY_REGISTERED` for repeat runs, and then logs in as the internal user to verify the supplied temporary password. Use the same smoke user for the AI smoke only after this script verifies login.
 
 After Nginx and HTTPS are enabled, run the same smoke script through the public API URL:
 

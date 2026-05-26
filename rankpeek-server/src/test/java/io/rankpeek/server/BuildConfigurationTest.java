@@ -295,12 +295,46 @@ class BuildConfigurationTest {
                 .contains("Validate Ubuntu deploy shell scripts")
                 .contains("bash -n deploy/ubuntu/rankpeek-server-preflight.sh")
                 .contains("bash -n deploy/ubuntu/rankpeek-server-smoke.sh")
+                .contains("bash -n deploy/ubuntu/rankpeek-server-admin-user-smoke.sh")
                 .contains("bash -n deploy/ubuntu/rankpeek-server-ai-smoke.sh")
                 .contains("bash -n deploy/ubuntu/postgres/rankpeek-postgres-backup.sh.example")
                 .contains("bash -n deploy/ubuntu/postgres/rankpeek-postgres-restore-drill.sh.example")
                 .contains("bash -n deploy/ubuntu/monitoring/rankpeek-server-monitor.sh.example");
         assertThat(gitAttributes)
                 .contains(".github/workflows/*.yml text eol=lf");
+    }
+
+    @Test
+    void ubuntuAdminUserSmokeScriptCreatesInternalUserAndVerifiesLogin() throws Exception {
+        String adminUserSmokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-admin-user-smoke.sh"));
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+        String launchChecklist = Files.readString(Path.of("../docs/rankpeek-server-production-launch-checklist.md"));
+        String readme = Files.readString(Path.of("README.md"));
+
+        assertThat(adminUserSmokeScript)
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_ADMIN_EMAIL")
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_ADMIN_PASSWORD")
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_USER_EMAIL")
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_USER_PASSWORD")
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_DISPLAY_NAME")
+                .contains("/api/admin/users")
+                .contains("/api/auth/login")
+                .contains("/api/auth/logout")
+                .contains("EMAIL_ALREADY_REGISTERED")
+                .contains(".data.email == $email")
+                .contains(".data.user.email == $email")
+                .contains(".data.user.role == \"USER\"");
+        assertThat(deploymentGuide)
+                .contains("rankpeek-server-admin-user-smoke.sh")
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_ADMIN_EMAIL")
+                .contains("RANKPEEK_ADMIN_USER_SMOKE_USER_EMAIL")
+                .contains("Use the same smoke user for the AI smoke only after this script verifies login");
+        assertThat(launchChecklist)
+                .contains("rankpeek-server-admin-user-smoke.sh")
+                .contains("Admin-created internal user login succeeds");
+        assertThat(readme)
+                .contains("rankpeek-server-admin-user-smoke.sh")
+                .contains("admin-created internal user login");
     }
 
     @Test
