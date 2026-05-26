@@ -22,7 +22,7 @@ This phase implements a server data, auth, admin, credits, CN meta sync, and moc
 - Flyway migration `V8__ai_analysis_run_results.sql` for AI run request hashes, replayable success results, failure messages, and charge/refund ledger links.
 - `V3__cn_meta_sync_foundation.sql` intentionally remains V3 because V2 is already used by auth; renaming it would break databases that have applied V3.
 - H2-backed local-dev and test profiles.
-- PostgreSQL production profile, Ubuntu systemd templates, and a deployment smoke test script.
+- PostgreSQL production profile, Ubuntu systemd and Nginx reverse-proxy templates, and a deployment smoke test script.
 - Deterministic mock services for patch, CN meta, LPL usage, playstyle cards, prompt context, and pregame/postgame analysis.
 - Disabled-by-default DeepSeek chat-completion provider for analysis streams.
 - Disabled-by-default manual sample client boundary for public aggregate `101.qq.com` CN meta data.
@@ -40,7 +40,7 @@ This module intentionally does not:
 - enable real AI by default or call any provider other than the explicitly configured DeepSeek chat-completion provider;
 - integrate real payments;
 - verify email, recover passwords, use CAPTCHA, or provide third-party login;
-- provide Docker, Kubernetes, HTTPS reverse proxy, or public production ingress.
+- provide Docker, Kubernetes, managed load balancers, or multi-host production ingress.
 
 Mock source URLs use the `mock://` scheme and exist only as deterministic test fixtures.
 
@@ -198,7 +198,7 @@ The default local-dev server listens on `http://localhost:18080`.
 
 ## Ubuntu Production Deployment
 
-The first supported Ubuntu deployment shape is a Spring Boot jar running under systemd with local PostgreSQL. Production config lives in `src/main/resources/application-prod.yml` and reads secrets from environment variables.
+The first supported Ubuntu deployment shape is a Spring Boot jar running under systemd with local PostgreSQL and an Nginx HTTPS reverse proxy. Production config lives in `src/main/resources/application-prod.yml` and reads secrets from environment variables.
 
 See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubuntu-deployment.md) for the deploy steps and the systemd/env templates under `deploy/ubuntu/`.
 

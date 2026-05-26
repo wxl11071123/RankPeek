@@ -1,16 +1,16 @@
 # rankpeek-server Ubuntu Deployment
 
-This guide deploys `rankpeek-server` as a Spring Boot jar on one Ubuntu host with local PostgreSQL and systemd. It does not expose the service directly to the public internet and does not cover Nginx, HTTPS, Docker, or Kubernetes.
+This guide deploys `rankpeek-server` as a Spring Boot jar on one Ubuntu host with local PostgreSQL, systemd, and an Nginx HTTPS reverse proxy. It does not cover Docker, Kubernetes, managed load balancers, or multi-host deployments.
 
 ## 1. Install Runtime Dependencies
 
 ```bash
 sudo apt update
-sudo apt install -y openjdk-21-jdk postgresql postgresql-contrib jq
+sudo apt install -y openjdk-21-jdk postgresql postgresql-contrib nginx certbot python3-certbot-nginx jq ufw
 java -version
 ```
 
-The service expects Java 21. PostgreSQL runs on the same Ubuntu host. `jq` is used by the deployment smoke test script.
+The service expects Java 21. PostgreSQL runs on the same Ubuntu host. Nginx terminates public HTTP/HTTPS traffic and forwards to the local-only Spring Boot port. `jq` is used by the deployment smoke test script.
 
 ## 2. Create the Database
 
@@ -159,7 +159,56 @@ journalctl -u rankpeek-server -n 100 --no-pager
 
 Every `/api/**` response includes `X-Request-Id`. Include this value when checking logs; the service writes `api_request` lines with method, path, status, duration, and request id.
 
-## 7. Verify the Server
+## 7. Configure Nginx and HTTPS
+
+Keep the Spring Boot service bound to `127.0.0.1:18080`. Nginx is the public entry point.
+
+Copy the Nginx templates to the Ubuntu host. From the repository root on your build machine:
+
+```bash
+scp rankpeek-server/deploy/ubuntu/nginx/rankpeek-server.conf.example ubuntu-host:/tmp/rankpeek-server.conf
+scp rankpeek-server/deploy/ubuntu/nginx/rankpeek-proxy-headers.conf.example ubuntu-host:/tmp/rankpeek-proxy-headers.conf
+```
+
+On the Ubuntu host, install the shared proxy header snippet:
+
+```bash
+sudo cp /tmp/rankpeek-proxy-headers.conf /etc/nginx/snippets/rankpeek-proxy-headers.conf
+sudo chown root:root /etc/nginx/snippets/rankpeek-proxy-headers.conf
+sudo chmod 644 /etc/nginx/snippets/rankpeek-proxy-headers.conf
+```
+
+Install the site config and replace `api.rankpeek.example.com` with the real API host:
+
+```bash
+sudo cp /tmp/rankpeek-server.conf /etc/nginx/sites-available/rankpeek-server.conf
+sudo nano /etc/nginx/sites-available/rankpeek-server.conf
+sudo ln -s /etc/nginx/sites-available/rankpeek-server.conf /etc/nginx/sites-enabled/rankpeek-server.conf
+sudo nginx -t
+```
+
+Before requesting a certificate, make sure the DNS `A` record points to this host and port `80` is reachable. Then request and install the certificate:
+
+```bash
+sudo certbot --nginx -d api.rankpeek.example.com
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The provided Nginx snippet sends `X-Forwarded-For` as `$remote_addr`, not `$proxy_add_x_forwarded_for`. This is intentional: the application rate limiter reads `X-Forwarded-For`, so Nginx must strip any client-supplied forwarded chain before proxying. If a trusted outer load balancer or CDN sits in front of Nginx, configure Nginx `real_ip` settings for that trusted proxy first, then still pass only the normalized client address to the app.
+
+Enable a minimal firewall after confirming SSH access:
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+sudo ufw status verbose
+```
+
+Do not open port `18080`; it should remain reachable only from localhost.
+
+## 8. Verify the Server
 
 The service binds to localhost by default:
 
@@ -208,9 +257,18 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
+After Nginx and HTTPS are enabled, run the same smoke script through the public API URL:
+
+```bash
+RANKPEEK_SMOKE_BASE_URL=https://api.rankpeek.example.com \
+RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
+/opt/rankpeek/server/rankpeek-server-smoke.sh
+```
+
 ## Operational Notes
 
-- Keep `RANKPEEK_SERVER_ADDRESS=127.0.0.1` until Nginx and HTTPS are added.
+- Keep `RANKPEEK_SERVER_ADDRESS=127.0.0.1`; public traffic should enter through Nginx.
 - Do not expose port `18080` directly to the public internet.
 - Keep `RANKPEEK_RATE_LIMIT_ENABLED=true`; add Nginx or firewall rate limits before any public exposure.
 - `rankpeek.cn-meta.sync.real-source-enabled` remains `false` in production config.

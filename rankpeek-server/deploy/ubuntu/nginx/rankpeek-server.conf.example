@@ -1,0 +1,82 @@
+# Install as /etc/nginx/sites-available/rankpeek-server.conf and symlink to
+# /etc/nginx/sites-enabled/rankpeek-server.conf.
+#
+# Replace api.rankpeek.example.com with the real API host before enabling.
+
+limit_req_zone $binary_remote_addr zone=rankpeek_auth:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=rankpeek_ai:10m rate=10r/m;
+
+upstream rankpeek_server_upstream {
+    server 127.0.0.1:18080;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.rankpeek.example.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name api.rankpeek.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/api.rankpeek.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.rankpeek.example.com/privkey.pem;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:rankpeek_ssl:10m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    client_max_body_size 2m;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    location ~ ^/api/auth/(register|login|refresh)$ {
+        limit_req zone=rankpeek_auth burst=10 nodelay;
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location = /api/analysis/coach-summary {
+        limit_req zone=rankpeek_ai burst=5 nodelay;
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location = /api/analysis/pregame/stream {
+        limit_req zone=rankpeek_ai burst=5 nodelay;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location = /api/analysis/postgame/stream {
+        limit_req zone=rankpeek_ai burst=5 nodelay;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location /api/ {
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location / {
+        return 404;
+    }
+}

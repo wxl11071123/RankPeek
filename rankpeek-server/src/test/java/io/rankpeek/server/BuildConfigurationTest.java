@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 
 import javax.xml.parsers.DocumentBuilderFactory;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +21,25 @@ class BuildConfigurationTest {
 
         assertThat(dependencyCoordinates(document))
                 .contains("org.flywaydb:flyway-database-postgresql");
+    }
+
+    @Test
+    void ubuntuNginxTemplateNormalizesForwardedForAndProtectsCostlyEndpoints() throws Exception {
+        String siteConfig = Files.readString(Path.of("deploy/ubuntu/nginx/rankpeek-server.conf.example"));
+        String proxyHeaders = Files.readString(Path.of("deploy/ubuntu/nginx/rankpeek-proxy-headers.conf.example"));
+
+        assertThat(siteConfig)
+                .contains("limit_req_zone $binary_remote_addr zone=rankpeek_auth")
+                .contains("limit_req_zone $binary_remote_addr zone=rankpeek_ai")
+                .contains("location ~ ^/api/auth/(register|login|refresh)$")
+                .contains("location = /api/analysis/coach-summary")
+                .contains("location = /api/analysis/pregame/stream")
+                .contains("location = /api/analysis/postgame/stream")
+                .contains("proxy_buffering off")
+                .contains("include /etc/nginx/snippets/rankpeek-proxy-headers.conf;");
+        assertThat(proxyHeaders)
+                .contains("proxy_set_header X-Forwarded-For $remote_addr;")
+                .doesNotContain("$proxy_add_x_forwarded_for");
     }
 
     private static List<String> dependencyCoordinates(Document document) {
