@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+BASE_URL="${RANKPEEK_MONITOR_BASE_URL:-http://127.0.0.1:18080}"
+EXPECTED_FLYWAY_VERSION="${RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION:-8}"
+SERVICES="${RANKPEEK_MONITOR_SERVICES:-rankpeek-server postgresql nginx}"
+BACKUP_DIR="${RANKPEEK_MONITOR_BACKUP_DIR:-/var/backups/rankpeek/postgres}"
+BACKUP_GLOB="${RANKPEEK_MONITOR_BACKUP_GLOB:-rankpeek_server-*.dump}"
+REQUIRE_BACKUP="${RANKPEEK_MONITOR_REQUIRE_BACKUP:-true}"
+MAX_BACKUP_AGE_HOURS="${RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS:-30}"
+ADMIN_EMAIL="${RANKPEEK_MONITOR_ADMIN_EMAIL:-}"
+ADMIN_PASSWORD="${RANKPEEK_MONITOR_ADMIN_PASSWORD:-}"
+WEBHOOK_URL="${RANKPEEK_MONITOR_WEBHOOK_URL:-}"
+HOSTNAME_VALUE="$(hostname -f 2>/dev/null || hostname)"
+
+FAILURES=()
+
+log() {
+  printf '[rankpeek-monitor] %s\n' "$1"
+}
+
+add_failure() {
+  FAILURES+=("$1")
+  printf '[rankpeek-monitor] ERROR: %s\n' "$1" >&2
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || add_failure "Missing required command: $1"
+}
+
+json_escape() {
+  jq -Rsa .
+}
+
+send_alert() {
+  local message="$1"
+  if [[ -z "$WEBHOOK_URL" ]]; then
+    return 0
+  fi
+
+  local escaped_message escaped_host
+  escaped_message="$(printf '%s' "$message" | json_escape)"
+  escaped_host="$(printf '%s' "$HOSTNAME_VALUE" | json_escape)"
+  curl -fsS \
+    -H "Content-Type: application/json" \
+    --data "{\"service\":\"rankpeek-server\",\"status\":\"fail\",\"host\":${escaped_host},\"message\":${escaped_message}}" \
+    "$WEBHOOK_URL" >/dev/null || true
+}
+
+check_service() {
+  local service="$1"
+  if ! systemctl is-active --quiet "$service"; then
+    add_failure "systemd service is not active: ${service}"
+  fi
+}
+
+check_health() {
+  local body
+  if ! body="$(curl -fsS \
+      -H "Accept: application/json" \
+      -H "X-Request-Id: rankpeek-monitor-health" \
+      "${BASE_URL}/api/server/health")"; then
+    add_failure "health endpoint request failed"
+    return
+  fi
+
+  if ! printf '%s' "$body" | jq -e '.success == true and .data.status == "ok"' >/dev/null; then
+    add_failure "health endpoint did not report ok"
+  fi
+}
+
+logout_monitor_session() {
+  local refresh_token="$1" logout_payload
+  if [[ -z "$refresh_token" ]]; then
+    return
+  fi
+
+  logout_payload="$(jq -nc --arg refreshToken "$refresh_token" '{refreshToken: $refreshToken}')"
+  curl -fsS \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    --data "$logout_payload" \
+    "${BASE_URL}/api/auth/logout" >/dev/null || add_failure "monitor admin logout failed"
+}
+
+check_diagnostics() {
+  if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
+    log "Skipping admin diagnostics; monitor admin credentials are not configured"
+    return
+  fi
+
+  local login_payload login_body access_token refresh_token diagnostics_body
+  login_payload="$(jq -nc --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" '{email: $email, password: $password}')"
+  if ! login_body="$(curl -fsS \
+      -H "Accept: application/json" \
+      -H "Content-Type: application/json" \
+      --data "$login_payload" \
+      "${BASE_URL}/api/auth/login")"; then
+    add_failure "monitor admin login failed"
+    return
+  fi
+
+  access_token="$(printf '%s' "$login_body" | jq -r '.data.accessToken // empty')"
+  refresh_token="$(printf '%s' "$login_body" | jq -r '.data.refreshToken // empty')"
+  if [[ -z "$access_token" ]]; then
+    add_failure "monitor admin login did not return an access token"
+    logout_monitor_session "$refresh_token"
+    return
+  fi
+  if [[ -z "$refresh_token" ]]; then
+    add_failure "monitor admin login did not return a refresh token"
+    return
+  fi
+
+  if ! diagnostics_body="$(curl -fsS \
+      -H "Accept: application/json" \
+      -H "Authorization: Bearer ${access_token}" \
+      "${BASE_URL}/api/server/diagnostics")"; then
+    add_failure "admin diagnostics request failed"
+    logout_monitor_session "$refresh_token"
+    return
+  fi
+
+  if ! printf '%s' "$diagnostics_body" | jq -e --arg expected "$EXPECTED_FLYWAY_VERSION" '
+      .success == true
+      and .data.status == "ok"
+      and .data.database.status == "ok"
+      and .data.flyway.status == "ok"
+      and (.data.flyway.currentVersion | tostring) == $expected
+    ' >/dev/null; then
+    add_failure "admin diagnostics did not report ok at Flyway version ${EXPECTED_FLYWAY_VERSION}"
+  fi
+
+  logout_monitor_session "$refresh_token"
+}
+
+check_backup_freshness() {
+  if [[ "$REQUIRE_BACKUP" != "true" ]]; then
+    log "Skipping backup freshness; RANKPEEK_MONITOR_REQUIRE_BACKUP is not true"
+    return
+  fi
+
+  local latest_backup latest_checksum now backup_mtime max_age_seconds age_seconds
+  latest_backup="$(find "$BACKUP_DIR" -type f -name "$BACKUP_GLOB" -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR == 1 { sub(/^[^ ]+ /, ""); print }')"
+  if [[ -z "$latest_backup" ]]; then
+    add_failure "no PostgreSQL backup found in ${BACKUP_DIR}"
+    return
+  fi
+
+  latest_checksum="${latest_backup}.sha256"
+  if [[ ! -f "$latest_checksum" ]]; then
+    add_failure "missing backup checksum: ${latest_checksum}"
+    return
+  fi
+  if ! (cd "$(dirname "$latest_backup")" && sha256sum -c "$(basename "$latest_checksum")" >/dev/null); then
+    add_failure "backup checksum verification failed: ${latest_checksum}"
+    return
+  fi
+
+  now="$(date +%s)"
+  backup_mtime="$(stat -c '%Y' "$latest_backup")"
+  max_age_seconds=$((MAX_BACKUP_AGE_HOURS * 3600))
+  age_seconds=$((now - backup_mtime))
+  if (( age_seconds > max_age_seconds )); then
+    add_failure "latest PostgreSQL backup is older than ${MAX_BACKUP_AGE_HOURS} hours: ${latest_backup}"
+  fi
+}
+
+main() {
+  require_command curl
+  require_command jq
+  require_command systemctl
+  require_command find
+  require_command stat
+  require_command sha256sum
+  if (( ${#FAILURES[@]} > 0 )); then
+    send_alert "${FAILURES[*]}"
+    exit 1
+  fi
+
+  for service in $SERVICES; do
+    check_service "$service"
+  done
+  check_health
+  check_diagnostics
+  check_backup_freshness
+
+  if (( ${#FAILURES[@]} > 0 )); then
+    send_alert "${FAILURES[*]}"
+    exit 1
+  fi
+
+  log "All monitor checks passed"
+}
+
+main "$@"

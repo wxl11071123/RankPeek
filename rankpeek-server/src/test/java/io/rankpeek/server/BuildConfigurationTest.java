@@ -71,6 +71,36 @@ class BuildConfigurationTest {
                 .contains("Persistent=true");
     }
 
+    @Test
+    void ubuntuMonitoringTemplatesCheckHealthBackupsAndEmitAlerts() throws Exception {
+        String monitorScript = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.sh.example"));
+        String monitorEnv = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.env.example"));
+        String service = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.service.example"));
+        String timer = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.timer.example"));
+
+        assertThat(monitorScript)
+                .contains("/api/server/health")
+                .contains("/api/server/diagnostics")
+                .contains("systemctl is-active --quiet")
+                .contains("RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS")
+                .contains("RANKPEEK_MONITOR_WEBHOOK_URL")
+                .contains("send_alert")
+                .contains(".data.refreshToken")
+                .contains("/api/auth/logout")
+                .contains("X-Request-Id: rankpeek-monitor-health");
+        assertThat(monitorEnv)
+                .contains("RANKPEEK_MONITOR_BASE_URL=http://127.0.0.1:18080")
+                .contains("RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=8")
+                .contains("RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS=30")
+                .contains("RANKPEEK_MONITOR_WEBHOOK_URL=");
+        assertThat(service)
+                .contains("EnvironmentFile=/etc/rankpeek/rankpeek-server-monitor.env")
+                .contains("ExecStart=/usr/local/sbin/rankpeek-server-monitor.sh");
+        assertThat(timer)
+                .contains("OnUnitActiveSec=5m")
+                .contains("Persistent=true");
+    }
+
     private static List<String> dependencyCoordinates(Document document) {
         var dependencyNodes = document.getElementsByTagName("dependency");
         List<String> coordinates = new ArrayList<>();

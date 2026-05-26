@@ -316,12 +316,84 @@ sudo -u postgres /usr/local/sbin/rankpeek-postgres-restore-drill.sh "$LATEST_BAC
 
 Only treat backups as working after the restore drill succeeds. To inspect the restored database manually, run the drill with `RANKPEEK_RESTORE_KEEP_DRILL_DB=true` and drop `rankpeek_restore_drill` yourself afterward.
 
+## 10. Configure Monitoring Checks
+
+The minimal production monitor runs every five minutes from systemd. It checks:
+
+- `rankpeek-server`, `postgresql`, and `nginx` are active;
+- `/api/server/health` returns `success=true` and `status=ok`;
+- optional admin diagnostics report database and Flyway status `ok`;
+- the newest PostgreSQL backup exists, has a matching checksum, and is no older than the configured threshold;
+- an optional webhook receives a JSON failure alert when any check fails.
+
+Copy the monitoring templates to the Ubuntu host. From the repository root on your build machine:
+
+```bash
+scp rankpeek-server/deploy/ubuntu/monitoring/rankpeek-server-monitor.sh.example ubuntu-host:/tmp/rankpeek-server-monitor.sh
+scp rankpeek-server/deploy/ubuntu/monitoring/rankpeek-server-monitor.env.example ubuntu-host:/tmp/rankpeek-server-monitor.env
+scp rankpeek-server/deploy/ubuntu/monitoring/rankpeek-server-monitor.service.example ubuntu-host:/tmp/rankpeek-server-monitor.service
+scp rankpeek-server/deploy/ubuntu/monitoring/rankpeek-server-monitor.timer.example ubuntu-host:/tmp/rankpeek-server-monitor.timer
+```
+
+Install the script and environment file:
+
+```bash
+sudo cp /tmp/rankpeek-server-monitor.sh /usr/local/sbin/rankpeek-server-monitor.sh
+sudo chown root:root /usr/local/sbin/rankpeek-server-monitor.sh
+sudo chmod 750 /usr/local/sbin/rankpeek-server-monitor.sh
+sudo cp /tmp/rankpeek-server-monitor.env /etc/rankpeek/rankpeek-server-monitor.env
+sudo chown root:rankpeek /etc/rankpeek/rankpeek-server-monitor.env
+sudo chmod 640 /etc/rankpeek/rankpeek-server-monitor.env
+```
+
+Edit `/etc/rankpeek/rankpeek-server-monitor.env`:
+
+```bash
+sudo nano /etc/rankpeek/rankpeek-server-monitor.env
+```
+
+Useful values:
+
+```bash
+RANKPEEK_MONITOR_BASE_URL=http://127.0.0.1:18080
+RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=8
+RANKPEEK_MONITOR_SERVICES="rankpeek-server postgresql nginx"
+RANKPEEK_MONITOR_BACKUP_DIR=/var/backups/rankpeek/postgres
+RANKPEEK_MONITOR_REQUIRE_BACKUP=true
+RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS=30
+RANKPEEK_MONITOR_ADMIN_EMAIL=admin@example.com
+RANKPEEK_MONITOR_ADMIN_PASSWORD=CHANGE_ME_INITIAL_ADMIN_PASSWORD
+RANKPEEK_MONITOR_WEBHOOK_URL=
+```
+
+`RANKPEEK_MONITOR_WEBHOOK_URL` is optional. If set, failed checks POST a small JSON payload containing service, status, host, and message. Keep this URL secret.
+
+Install and enable the timer:
+
+```bash
+sudo cp /tmp/rankpeek-server-monitor.service /etc/systemd/system/rankpeek-server-monitor.service
+sudo cp /tmp/rankpeek-server-monitor.timer /etc/systemd/system/rankpeek-server-monitor.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now rankpeek-server-monitor.timer
+systemctl list-timers rankpeek-server-monitor.timer
+```
+
+Run one manual monitor check:
+
+```bash
+sudo systemctl start rankpeek-server-monitor.service
+journalctl -u rankpeek-server-monitor.service -n 100 --no-pager
+```
+
+If the monitor fails before the first scheduled backup exists, either run `rankpeek-postgres-backup.service` once or temporarily set `RANKPEEK_MONITOR_REQUIRE_BACKUP=false` until backups are installed and verified.
+
 ## Operational Notes
 
 - Keep `RANKPEEK_SERVER_ADDRESS=127.0.0.1`; public traffic should enter through Nginx.
 - Do not expose port `18080` directly to the public internet.
 - Keep `RANKPEEK_RATE_LIMIT_ENABLED=true`; add Nginx or firewall rate limits before any public exposure.
 - Keep PostgreSQL backup retention at `14` days or longer until real storage costs are known; verify restore drills after schema migrations.
+- Keep `rankpeek-server-monitor.timer` enabled after backups are installed; treat repeated monitor failures as production incidents.
 - `rankpeek.cn-meta.sync.real-source-enabled` remains `false` in production config.
 - `rankpeek.ai.enabled` remains `false` unless DeepSeek is intentionally configured for a real integration test.
 - Rotate secrets by editing `/etc/rankpeek/rankpeek-server.env` and running `sudo systemctl restart rankpeek-server`.
