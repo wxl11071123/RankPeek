@@ -182,6 +182,19 @@ class BuildConfigurationTest {
     }
 
     @Test
+    void serverCiBuildsAndUploadsDeployableJar() throws Exception {
+        String workflow = Files.readString(Path.of("../.github/workflows/rankpeek-server-ci.yml"));
+
+        assertThat(workflow)
+                .contains("mvn -B test")
+                .contains("mvn -B -DskipTests package")
+                .contains("actions/upload-artifact@v4")
+                .contains("name: rankpeek-server-jar")
+                .contains("rankpeek-server/target/rankpeek-server-0.1.0.jar")
+                .contains("if-no-files-found: error");
+    }
+
+    @Test
     void ubuntuAiSmokeScriptExercisesCreditsCoachSummaryAndIdempotency() throws Exception {
         String aiSmokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-ai-smoke.sh"));
         String envExample = Files.readString(Path.of("deploy/ubuntu/rankpeek-server.env.example"));
