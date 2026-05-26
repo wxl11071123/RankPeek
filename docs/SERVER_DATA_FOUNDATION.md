@@ -149,6 +149,8 @@ Current server endpoints:
 - `GET /api/credits/ledger` (bearer token)
 - `POST /api/admin/credits/grants` (ADMIN bearer token)
 - `POST /api/analysis/coach-summary` (bearer token)
+- `POST /api/analysis/pregame/stream` (bearer token and credits when DeepSeek is enabled)
+- `POST /api/analysis/postgame/stream` (bearer token and credits when DeepSeek is enabled)
 - `GET /api/analysis/runs?endpoint=&status=&limit=&offset=` (bearer token)
 - `GET /api/analysis/runs/{runId}` (bearer token)
 - `GET /api/admin/analysis/runs?userId=&endpoint=&status=&limit=&offset=` (ADMIN bearer token)

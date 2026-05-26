@@ -48,14 +48,22 @@ public class DeepSeekAnalysisStreamer {
     }
 
     public SseEmitter streamPregame(PregameAnalysisRequest request) {
+        return streamPregame(request, DeepSeekStreamCallbacks.NOOP);
+    }
+
+    public SseEmitter streamPregame(PregameAnalysisRequest request, DeepSeekStreamCallbacks callbacks) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        Thread.ofVirtual().start(() -> streamPregameStructured(emitter, request));
+        Thread.ofVirtual().start(() -> streamPregameStructured(emitter, request, callbacks));
         return emitter;
     }
 
     public SseEmitter streamPostgame(PostgameAnalysisRequest request) {
+        return streamPostgame(request, DeepSeekStreamCallbacks.NOOP);
+    }
+
+    public SseEmitter streamPostgame(PostgameAnalysisRequest request, DeepSeekStreamCallbacks callbacks) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        Thread.ofVirtual().start(() -> stream(emitter, buildPostgameMessages(request)));
+        Thread.ofVirtual().start(() -> stream(emitter, buildPostgameMessages(request), callbacks));
         return emitter;
     }
 
@@ -82,7 +90,8 @@ public class DeepSeekAnalysisStreamer {
         );
     }
 
-    private void stream(SseEmitter emitter, List<DeepSeekChatMessage> messages) {
+    private void stream(SseEmitter emitter, List<DeepSeekChatMessage> messages, DeepSeekStreamCallbacks callbacks) {
+        AtomicReference<DeepSeekTokenUsage> usageReference = new AtomicReference<>();
         try {
             sendEvent(emitter, "start", "RankPeek DeepSeek stream started");
             sendEvent(emitter, "section", "DeepSeek 分析");
@@ -90,34 +99,51 @@ public class DeepSeekAnalysisStreamer {
                     properties,
                     messages,
                     delta -> sendDelta(emitter, delta),
-                    usage -> sendUsage(emitter, usage)
+                    usage -> {
+                        usageReference.set(usage);
+                        sendUsage(emitter, usage);
+                    }
             );
             sendEvent(emitter, "done", "done");
+            callbacks.onSucceeded(usageReference.get());
             emitter.complete();
         } catch (DeepSeekAiException exception) {
+            callbacks.onFailed("DEEPSEEK_ERROR", exception.getMessage());
             sendError(emitter, exception.getMessage());
         } catch (Exception exception) {
+            callbacks.onFailed("DEEPSEEK_ERROR", "DeepSeek stream failed");
             sendError(emitter, "DeepSeek stream failed");
         }
     }
 
-    private void streamPregameStructured(SseEmitter emitter, PregameAnalysisRequest request) {
+    private void streamPregameStructured(
+            SseEmitter emitter,
+            PregameAnalysisRequest request,
+            DeepSeekStreamCallbacks callbacks
+    ) {
         StringBuilder buffer = new StringBuilder();
         Set<String> allowedPlayerKeys = readSelectedPlayerKeys(request);
+        AtomicReference<DeepSeekTokenUsage> usageReference = new AtomicReference<>();
         try {
             sendEvent(emitter, "start", "RankPeek DeepSeek stream started");
             chatClient.streamChat(
                     properties,
                     buildPregameMessages(request),
                     delta -> consumePregameDelta(emitter, buffer, allowedPlayerKeys, delta),
-                    usage -> sendUsage(emitter, usage)
+                    usage -> {
+                        usageReference.set(usage);
+                        sendUsage(emitter, usage);
+                    }
             );
             flushPregameBuffer(emitter, buffer, allowedPlayerKeys);
             sendEvent(emitter, "done", "done");
+            callbacks.onSucceeded(usageReference.get());
             emitter.complete();
         } catch (DeepSeekAiException exception) {
+            callbacks.onFailed("DEEPSEEK_ERROR", exception.getMessage());
             sendError(emitter, exception.getMessage());
         } catch (Exception exception) {
+            callbacks.onFailed("DEEPSEEK_ERROR", "DeepSeek stream failed");
             sendError(emitter, "DeepSeek stream failed");
         }
     }

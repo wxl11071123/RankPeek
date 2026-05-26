@@ -1,6 +1,7 @@
 package io.rankpeek.server.common;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -14,6 +15,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException exception) {
         return ResponseEntity
                 .status(exception.status())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.failure(exception.code(), exception.getMessage()));
     }
 
@@ -21,6 +23,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleNoResourceFound() {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.failure("NOT_FOUND", "Resource was not found"));
     }
 

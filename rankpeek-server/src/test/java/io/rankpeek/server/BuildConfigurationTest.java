@@ -107,6 +107,7 @@ class BuildConfigurationTest {
     @Test
     void ubuntuAiSmokeScriptExercisesCreditsCoachSummaryAndIdempotency() throws Exception {
         String aiSmokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-ai-smoke.sh"));
+        String envExample = Files.readString(Path.of("deploy/ubuntu/rankpeek-server.env.example"));
         String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
         String readme = Files.readString(Path.of("README.md"));
 
@@ -122,13 +123,19 @@ class BuildConfigurationTest {
                 .contains("X-RankPeek-Idempotency-Key")
                 .contains("jq -S '.data.report'")
                 .contains("/api/auth/logout");
+        assertThat(envExample)
+                .contains("RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1");
         assertThat(deploymentGuide)
                 .contains("rankpeek-server-ai-smoke.sh")
                 .contains("RANKPEEK_AI_SMOKE_ADMIN_EMAIL")
-                .contains("RANKPEEK_AI_SMOKE_USER_EMAIL");
+                .contains("RANKPEEK_AI_SMOKE_USER_EMAIL")
+                .contains("RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1")
+                .contains("pregame/stream")
+                .contains("postgame/stream");
         assertThat(readme)
                 .contains("rankpeek-server-ai-smoke.sh")
-                .contains("credits, DeepSeek, and coach-summary idempotency");
+                .contains("credits, DeepSeek, and coach-summary idempotency")
+                .contains("RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS");
     }
 
     private static List<String> dependencyCoordinates(Document document) {

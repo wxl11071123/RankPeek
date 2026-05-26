@@ -39,6 +39,7 @@ rankpeek:
       display-name: ${RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME:RankPeek Admin}
   credits:
     coach-summary-charge-credits: ${RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS:1}
+    ai-stream-charge-credits: ${RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS:1}
   rate-limit:
     enabled: ${RANKPEEK_RATE_LIMIT_ENABLED:true}
     window-seconds: ${RANKPEEK_RATE_LIMIT_WINDOW_SECONDS:60}

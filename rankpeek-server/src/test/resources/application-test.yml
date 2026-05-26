@@ -30,6 +30,7 @@ rankpeek:
     public-registration-enabled: true
   credits:
     coach-summary-charge-credits: 1
+    ai-stream-charge-credits: 1
   rate-limit:
     enabled: false
     window-seconds: 60

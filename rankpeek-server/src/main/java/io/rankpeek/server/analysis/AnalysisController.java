@@ -36,13 +36,21 @@ public class AnalysisController {
     }
 
     @PostMapping(value = "/pregame/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter pregameStream(@RequestBody PregameAnalysisRequest request) {
-        return analysisService.streamPregameMock(request);
+    public SseEmitter pregameStream(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+            @RequestBody PregameAnalysisRequest request
+    ) {
+        AuthUser user = analysisService.deepSeekEnabled() ? authService.requireCurrentUser(authorizationHeader) : null;
+        return analysisService.streamPregame(request, user);
     }
 
     @PostMapping(value = "/postgame/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter postgameStream(@RequestBody PostgameAnalysisRequest request) {
-        return analysisService.streamPostgameMock(request);
+    public SseEmitter postgameStream(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+            @RequestBody PostgameAnalysisRequest request
+    ) {
+        AuthUser user = analysisService.deepSeekEnabled() ? authService.requireCurrentUser(authorizationHeader) : null;
+        return analysisService.streamPostgame(request, user);
     }
 
     @PostMapping("/coach-summary")

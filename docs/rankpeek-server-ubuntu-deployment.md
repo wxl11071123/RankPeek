@@ -107,6 +107,7 @@ RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
 RANKPEEK_INITIAL_ADMIN_PASSWORD=CHANGE_ME_INITIAL_ADMIN_PASSWORD
 RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME=RankPeek Admin
 RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS=1
+RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1
 RANKPEEK_RATE_LIMIT_ENABLED=true
 RANKPEEK_RATE_LIMIT_WINDOW_SECONDS=60
 RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS=20
@@ -133,7 +134,10 @@ RANKPEEK_AI_PROVIDER=deepseek
 RANKPEEK_AI_BASE_URL=https://api.deepseek.com
 RANKPEEK_AI_MODEL=deepseek-v4-flash
 RANKPEEK_AI_API_KEY=CHANGE_ME_DEEPSEEK_KEY
+RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1
 ```
+
+When DeepSeek is enabled, `POST /api/analysis/pregame/stream`, `POST /api/analysis/postgame/stream`, and `POST /api/analysis/coach-summary` all require a user bearer token and enough credits before the provider is contacted. Stream calls write AI run metadata and token usage, and refund the stream charge if the upstream request fails.
 
 Do not commit `/etc/rankpeek/rankpeek-server.env` or any real secret.
 

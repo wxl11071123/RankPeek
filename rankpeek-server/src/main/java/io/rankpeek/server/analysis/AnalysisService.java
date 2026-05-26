@@ -7,6 +7,7 @@ import io.rankpeek.server.ai.AiProvider;
 import io.rankpeek.server.ai.AnalysisResult;
 import io.rankpeek.server.ai.DeepSeekAiException;
 import io.rankpeek.server.ai.DeepSeekAiProperties;
+import io.rankpeek.server.ai.DeepSeekTokenUsage;
 import io.rankpeek.server.auth.AuthUser;
 import io.rankpeek.server.common.ApiException;
 import io.rankpeek.server.common.ApiResponse;
@@ -28,6 +29,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 @Service
 public class AnalysisService {
@@ -73,11 +75,35 @@ public class AnalysisService {
         return aiProvider.generateAnalysis(prompt);
     }
 
-    public SseEmitter streamPregameMock(PregameAnalysisRequest request) {
-        if (deepSeekAnalysisStreamer.isEnabled()) {
-            return deepSeekAnalysisStreamer.streamPregame(request);
-        }
+    public boolean deepSeekEnabled() {
+        return deepSeekAnalysisStreamer.isEnabled();
+    }
 
+    public SseEmitter streamPregame(PregameAnalysisRequest request, AuthUser user) {
+        if (deepSeekAnalysisStreamer.isEnabled()) {
+            return streamBillableAiRun(
+                    user,
+                    "pregame-stream",
+                    requestHash(request),
+                    callbacks -> deepSeekAnalysisStreamer.streamPregame(request, callbacks)
+            );
+        }
+        return streamPregameMock(request);
+    }
+
+    public SseEmitter streamPostgame(PostgameAnalysisRequest request, AuthUser user) {
+        if (deepSeekAnalysisStreamer.isEnabled()) {
+            return streamBillableAiRun(
+                    user,
+                    "postgame-stream",
+                    requestHash(request),
+                    callbacks -> deepSeekAnalysisStreamer.streamPostgame(request, callbacks)
+            );
+        }
+        return streamPostgameMock(request);
+    }
+
+    public SseEmitter streamPregameMock(PregameAnalysisRequest request) {
         SseEmitter emitter = new SseEmitter(30_000L);
 
         Thread.ofVirtual().start(() -> {
@@ -114,10 +140,6 @@ public class AnalysisService {
     }
 
     public SseEmitter streamPostgameMock(PostgameAnalysisRequest request) {
-        if (deepSeekAnalysisStreamer.isEnabled()) {
-            return deepSeekAnalysisStreamer.streamPostgame(request);
-        }
-
         SseEmitter emitter = new SseEmitter(30_000L);
 
         Thread.ofVirtual().start(() -> {
@@ -139,6 +161,38 @@ public class AnalysisService {
         });
 
         return emitter;
+    }
+
+    private SseEmitter streamBillableAiRun(
+            AuthUser user,
+            String endpoint,
+            String requestHash,
+            Function<DeepSeekStreamCallbacks, SseEmitter> streamFactory
+    ) {
+        if (user == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "ACCESS_TOKEN_INVALID", "Invalid or expired access token");
+        }
+
+        AiCreditReservation reservation = creditService.reserveAiRun(
+                user,
+                endpoint,
+                deepSeekAiProperties.provider(),
+                deepSeekAiProperties.model(),
+                creditProperties.aiStreamChargeCredits(),
+                requestHash,
+                null
+        );
+        return streamFactory.apply(new DeepSeekStreamCallbacks() {
+            @Override
+            public void onSucceeded(DeepSeekTokenUsage usage) {
+                creditService.completeAiRun(reservation, usage, null);
+            }
+
+            @Override
+            public void onFailed(String errorCode, String errorMessage) {
+                creditService.refundAiRun(reservation, errorCode, errorMessage);
+            }
+        });
     }
 
     public ApiResponse<CoachSummaryAnalysisResponse> generateCoachSummary(
@@ -255,7 +309,7 @@ public class AnalysisService {
         }
     }
 
-    private static String requestHash(CoachSummaryAnalysisRequest request) {
+    private static String requestHash(Object request) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(writeJson(request).getBytes(StandardCharsets.UTF_8)));

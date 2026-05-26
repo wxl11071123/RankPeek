@@ -626,7 +626,128 @@ class DeepSeekAnalysisControllerTest {
     }
 
     @Test
+    void pregameStreamRequiresBearerTokenBeforeCallingDeepSeek() throws Exception {
+        capturedRequest = null;
+
+        mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(pregameStreamRequest()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("ACCESS_TOKEN_INVALID"));
+
+        assertThat(capturedRequest).isNull();
+    }
+
+    @Test
+    void postgameStreamRejectsWhenCreditBalanceIsInsufficient() throws Exception {
+        AuthPayload user = userWithCredits(0);
+        capturedRequest = null;
+
+        mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(postgameStreamRequest("review")))
+                .andExpect(status().is(402))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_CREDITS"));
+
+        assertThat(capturedRequest).isNull();
+    }
+
+    @Test
+    void postgameStreamChargesOneCreditAndStoresTokenUsageForSuccessfulDeepSeekCall() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        nextResponse = new FakeResponse(200, """
+                data: {"choices":[{"delta":{"content":"structured-json"}}],"model":"deepseek-v4-flash","usage":null}
+
+                data: {"choices":[],"model":"deepseek-v4-flash","usage":{"prompt_tokens":2100,"completion_tokens":140,"total_tokens":2240,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":2100}}
+
+                data: [DONE]
+
+                """);
+
+        MvcResult result = mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(postgameStreamRequest("review")))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("event:usage")))
+                .andExpect(content().string(containsString("\"totalTokens\":2240")))
+                .andExpect(content().string(containsString("event:done")));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/balance")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(2));
+
+        AiRunProbe run = readOnlyAiRun(user.userId());
+        assertThat(run.endpoint()).isEqualTo("postgame-stream");
+        assertThat(run.status()).isEqualTo("SUCCEEDED");
+        assertThat(run.chargedCredits()).isEqualTo(1);
+        assertThat(run.refundedCredits()).isZero();
+        assertThat(run.totalTokens()).isEqualTo(2240);
+        assertThat(run.requestHash()).hasSize(64);
+        assertThat(run.responseJson()).isNull();
+        assertThat(run.errorMessage()).isNull();
+        assertThat(run.chargeLedgerEntryId()).isNotNull();
+        assertThat(run.refundLedgerEntryId()).isNull();
+    }
+
+    @Test
+    void postgameStreamRefundsCreditWhenDeepSeekFails() throws Exception {
+        AuthPayload user = userWithCredits(3);
+        nextResponse = new FakeResponse(500, "{\"error\":{\"message\":\"bad upstream secret text\"}}");
+
+        MvcResult result = mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content(postgameStreamRequest("review")))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("event:error")))
+                .andExpect(content().string(containsString("HTTP 500")))
+                .andExpect(content().string(not(containsString("bad upstream secret text"))));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/balance")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(3));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/credits/ledger")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries[0].type").value("AI_REFUND"))
+                .andExpect(jsonPath("$.data.entries[0].amount").value(1))
+                .andExpect(jsonPath("$.data.entries[1].type").value("AI_CHARGE"))
+                .andExpect(jsonPath("$.data.entries[1].amount").value(-1));
+
+        AiRunProbe run = readOnlyAiRun(user.userId());
+        assertThat(run.endpoint()).isEqualTo("postgame-stream");
+        assertThat(run.status()).isEqualTo("REFUNDED");
+        assertThat(run.chargedCredits()).isEqualTo(1);
+        assertThat(run.refundedCredits()).isEqualTo(1);
+        assertThat(run.requestHash()).hasSize(64);
+        assertThat(run.responseJson()).isNull();
+        assertThat(run.errorMessage()).contains("DeepSeek request failed");
+        assertThat(run.chargeLedgerEntryId()).isNotNull();
+        assertThat(run.refundLedgerEntryId()).isNotNull();
+    }
+
+    @Test
     void pregameStreamUsesDeepSeekWhenEnabled() throws Exception {
+        AuthPayload user = userWithCredits(3);
         nextResponse = new FakeResponse(200, """
                 data: {"choices":[{"delta":{"content":"{\\"playerKey\\":\\"puuid:ally-puuid\\",\\"label\\":\\"self\\","}}]}
 
@@ -658,6 +779,7 @@ class DeepSeekAnalysisControllerTest {
                 """;
 
         MvcResult result = mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content(request))
@@ -710,6 +832,7 @@ class DeepSeekAnalysisControllerTest {
 
     @Test
     void pregameOpponentPromptUsesOpponentOnlyRules() throws Exception {
+        AuthPayload user = userWithCredits(3);
         nextResponse = new FakeResponse(200, """
                 data: {"choices":[{"delta":{"content":"{\\"playerKey\\":\\"puuid:enemy-puuid\\",\\"label\\":\\"threat\\","}}]}
 
@@ -741,6 +864,7 @@ class DeepSeekAnalysisControllerTest {
                 """;
 
         MvcResult result = mockMvc.perform(post("/api/analysis/pregame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content(request))
@@ -781,6 +905,7 @@ class DeepSeekAnalysisControllerTest {
 
     @Test
     void postgameStreamUsesDeepSeekWhenEnabled() throws Exception {
+        AuthPayload user = userWithCredits(3);
         String request = """
                 {
                   "mode": "review",
@@ -813,6 +938,7 @@ class DeepSeekAnalysisControllerTest {
                 """;
 
         MvcResult result = mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content(request))
@@ -835,6 +961,7 @@ class DeepSeekAnalysisControllerTest {
 
     @Test
     void postgamePraisePromptProtectsCurrentPlayerWithoutBlindPraise() throws Exception {
+        AuthPayload user = userWithCredits(3);
         String request = """
                 {
                   "mode": "praise",
@@ -867,6 +994,7 @@ class DeepSeekAnalysisControllerTest {
                 """;
 
         MvcResult result = mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content(request))
@@ -934,6 +1062,7 @@ class DeepSeekAnalysisControllerTest {
 
     @Test
     void postgameStreamEmitsTokenUsageWhenDeepSeekIncludesUsageChunk() throws Exception {
+        AuthPayload user = userWithCredits(3);
         nextResponse = new FakeResponse(200, """
                 data: {"choices":[{"delta":{"content":"structured-json"}}],"model":"deepseek-v4-flash","usage":null}
 
@@ -944,6 +1073,7 @@ class DeepSeekAnalysisControllerTest {
                 """);
 
         MvcResult result = mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content("""
@@ -982,9 +1112,11 @@ class DeepSeekAnalysisControllerTest {
 
     @Test
     void deepSeekHttpErrorReturnsErrorSseWithoutProviderBody() throws Exception {
+        AuthPayload user = userWithCredits(3);
         nextResponse = new FakeResponse(500, "{\"error\":{\"message\":\"bad upstream secret text\"}}");
 
         MvcResult result = mockMvc.perform(post("/api/analysis/postgame/stream")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content("""
@@ -1092,7 +1224,7 @@ class DeepSeekAnalysisControllerTest {
     private AiRunProbe readOnlyAiRun(long userId) {
         return jdbcTemplate.queryForObject(
                 """
-                        select status, charged_credits, refunded_credits, total_tokens,
+                        select endpoint, status, charged_credits, refunded_credits, total_tokens,
                             request_hash, response_json, error_message,
                             charge_ledger_entry_id, refund_ledger_entry_id
                         from ai_analysis_runs
@@ -1101,6 +1233,7 @@ class DeepSeekAnalysisControllerTest {
                         limit 1
                         """,
                 (rs, rowNum) -> new AiRunProbe(
+                        rs.getString("endpoint"),
                         rs.getString("status"),
                         rs.getInt("charged_credits"),
                         rs.getInt("refunded_credits"),
@@ -1151,6 +1284,52 @@ class DeepSeekAnalysisControllerTest {
                 """.formatted(inputHash);
     }
 
+    private static String pregameStreamRequest() {
+        return """
+                {
+                  "mode": "teammate",
+                  "queueId": 420,
+                  "allyTeamTags": ["ally test facts"],
+                  "enemyTeamTags": [],
+                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v2",
+                  "snapshot": {
+                    "schemaVersion": "gaming_ai_input_snapshot.v2",
+                    "mode": "teammate",
+                    "teammateSnapshot": {
+                      "side": "ally",
+                      "players": [{"key": "puuid:ally-puuid", "isSelf": true}]
+                    },
+                    "opponentSnapshot": {
+                      "side": "enemy",
+                      "players": []
+                    }
+                  }
+                }
+                """;
+    }
+
+    private static String postgameStreamRequest(String mode) {
+        return """
+                {
+                  "mode": "%s",
+                  "snapshotSchemaVersion": "postgame_ai_input_snapshot.v3",
+                  "snapshot": {
+                    "schemaVersion": "postgame_ai_input_snapshot.v3",
+                    "analysisType": "postgame",
+                    "analysisBrief": {
+                      "schemaVersion": "postgame_analysis_brief.v1",
+                      "language": "zh-CN",
+                      "matchFacts": ["ranked postgame"],
+                      "teamFacts": [],
+                      "playerFacts": [],
+                      "timelineFacts": [],
+                      "dataQualityFacts": []
+                    }
+                  }
+                }
+                """.formatted(mode);
+    }
+
     private static String requestHash(String request) {
         try {
             String canonical = OBJECT_MAPPER.writeValueAsString(OBJECT_MAPPER.readTree(request));
@@ -1175,6 +1354,7 @@ class DeepSeekAnalysisControllerTest {
     }
 
     private record AiRunProbe(
+            String endpoint,
             String status,
             int chargedCredits,
             int refundedCredits,

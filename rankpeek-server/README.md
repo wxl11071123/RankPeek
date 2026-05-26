@@ -145,7 +145,7 @@ The server now tracks user credit balances and immutable ledger entries:
 - `GET /api/credits/ledger`
 - `POST /api/admin/credits/grants`
 
-Admin credit grants require `X-RankPeek-Idempotency-Key` to avoid duplicate adjustments. `POST /api/analysis/coach-summary` requires a user bearer token when DeepSeek is enabled, reserves the configured credit charge, records token usage on success, refunds on upstream failure, and supports `X-RankPeek-Idempotency-Key`.
+Admin credit grants require `X-RankPeek-Idempotency-Key` to avoid duplicate adjustments. `POST /api/analysis/coach-summary` requires a user bearer token when DeepSeek is enabled, reserves the configured credit charge, records token usage on success, refunds on upstream failure, and supports `X-RankPeek-Idempotency-Key`. DeepSeek-backed `pregame/stream` and `postgame/stream` also require a user bearer token, reserve `RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS`, store AI run metadata and token usage, and refund the charge on upstream failure.
 
 For `coach-summary`, the idempotency key is scoped to the user. A succeeded run with the same request hash replays the stored AI response without another DeepSeek call or credit charge. A refunded failure with the same request hash replays the stored failure. A different request body with the same key returns `IDEMPOTENCY_KEY_CONFLICT`, and an in-progress reservation returns `AI_RUN_IN_PROGRESS`.
 
@@ -169,15 +169,16 @@ Analysis streams stay on the existing endpoints:
 - `POST /api/analysis/postgame/stream`
 - `POST /api/analysis/coach-summary`
 
-By default, these endpoints use deterministic mock output and do not call external AI services. To enable DeepSeek in a deployed environment, set:
+By default, these endpoints use deterministic mock output and do not call external AI services. When DeepSeek is enabled, stream endpoints become authenticated, billable AI requests; unauthenticated or insufficient-credit calls fail before the provider is contacted. To enable DeepSeek in a deployed environment, set:
 
 - `RANKPEEK_AI_ENABLED=true`
 - `RANKPEEK_AI_PROVIDER=deepseek`
 - `RANKPEEK_AI_BASE_URL=https://api.deepseek.com`
 - `RANKPEEK_AI_MODEL=deepseek-v4-flash` or another configured DeepSeek model
 - `RANKPEEK_AI_API_KEY`
+- `RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS=1` or another intentional stream charge
 
-The DeepSeek client uses OpenAI-compatible streaming chat completions at `/chat/completions`. Errors such as missing keys, non-2xx upstream responses, timeouts, or malformed streams are returned to the frontend as `error` SSE events without logging or returning the API key.
+The DeepSeek client uses OpenAI-compatible streaming chat completions at `/chat/completions`. Errors such as missing keys, non-2xx upstream responses, timeouts, or malformed streams are returned to the frontend as `error` SSE events without logging or returning the API key, and billable stream reservations are refunded.
 
 ## Run Tests
 
