@@ -8,6 +8,8 @@ This is not a replacement for `docs/rankpeek-server-ubuntu-deployment.md`; it is
 operator checklist for proving the deployment is ready. Do not mark launch complete until
 every required gate has a recorded pass or a written product decision that accepts the
 remaining limitation.
+Use `docs/rankpeek-server-production-launch-notes-template.md` to record the evidence
+for each gate without storing real secrets.
 
 ## Gate 0: External Inputs
 
