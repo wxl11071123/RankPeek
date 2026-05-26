@@ -43,26 +43,50 @@ sudo chown -R rankpeek:rankpeek /opt/rankpeek
 sudo chmod 750 /opt/rankpeek /opt/rankpeek/server
 ```
 
-## 4. Build and Install the Jar
+## 4. Install the Verified Jar
 
-From the repository root on your build machine:
+For a main-branch launch, prefer the GitHub Actions artifact named
+`rankpeek-server-jar` from the green `RankPeek Server CI` run for the commit you
+are deploying. Download and extract the artifact on your build machine; it should
+contain both `rankpeek-server-0.1.0.jar` and `rankpeek-server-0.1.0.jar.sha256`.
+Verify the downloaded artifact before copying anything to the Ubuntu host:
+
+```bash
+sha256sum -c rankpeek-server-0.1.0.jar.sha256
+```
+
+If you must build locally instead of using CI, run from the repository root on
+your build machine:
 
 ```bash
 cd rankpeek-server
 mvn test
 mvn -DskipTests package
+(cd target && sha256sum rankpeek-server-0.1.0.jar > rankpeek-server-0.1.0.jar.sha256)
+(cd target && sha256sum -c rankpeek-server-0.1.0.jar.sha256)
 ```
 
-Copy the built jar to the Ubuntu host. Replace `ubuntu-host` with the server address:
+Copy the verified jar and checksum to the Ubuntu host. Replace `ubuntu-host` with
+the server address. If you built locally, copy these files from
+`rankpeek-server/target/`; if you downloaded the CI artifact, copy them from the
+artifact extraction directory. Run the following commands from whichever directory
+contains the two files.
 
 ```bash
-scp target/rankpeek-server-0.1.0.jar ubuntu-host:/tmp/rankpeek-server.jar
+scp rankpeek-server-0.1.0.jar ubuntu-host:/tmp/rankpeek-server-0.1.0.jar
+scp rankpeek-server-0.1.0.jar.sha256 ubuntu-host:/tmp/rankpeek-server-0.1.0.jar.sha256
 ```
 
-On the Ubuntu host, install the jar:
+On the Ubuntu host, verify the checksum again before installing the jar:
 
 ```bash
-sudo cp /tmp/rankpeek-server.jar /opt/rankpeek/server/rankpeek-server.jar
+(cd /tmp && sha256sum -c rankpeek-server-0.1.0.jar.sha256)
+```
+
+Then install it:
+
+```bash
+sudo cp /tmp/rankpeek-server-0.1.0.jar /opt/rankpeek/server/rankpeek-server.jar
 sudo chown rankpeek:rankpeek /opt/rankpeek/server/rankpeek-server.jar
 sudo chmod 640 /opt/rankpeek/server/rankpeek-server.jar
 ```
