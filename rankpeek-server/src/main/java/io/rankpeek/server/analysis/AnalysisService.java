@@ -108,6 +108,7 @@ public class AnalysisService {
 
         Thread.ofVirtual().start(() -> {
             try {
+                pauseBeforeFirstSend();
                 sendEvent(emitter, "start", "RankPeek mock stream started");
                 pauseBriefly();
                 sendEvent(emitter, "section", "概览");
@@ -144,6 +145,7 @@ public class AnalysisService {
 
         Thread.ofVirtual().start(() -> {
             try {
+                pauseBeforeFirstSend();
                 sendEvent(emitter, "start", "RankPeek postgame mock stream started");
                 pauseBriefly();
                 sendEvent(emitter, "delta", buildStructuredPostgameMockDelta(request));
@@ -717,6 +719,11 @@ public class AnalysisService {
 
     private static String summarizeTags(List<String> tags) {
         return String.join("；", tags.stream().limit(3).toList());
+    }
+
+    private static void pauseBeforeFirstSend() throws InterruptedException {
+        // Let Spring initialize SseEmitter's handler before the writer thread sends.
+        pauseBriefly();
     }
 
     private static void pauseBriefly() throws InterruptedException {
