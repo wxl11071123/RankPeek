@@ -107,6 +107,7 @@ source "$ENV_FILE"
 set +a
 
 require_equals SPRING_PROFILES_ACTIVE prod
+require_equals RANKPEEK_SERVER_ADDRESS 127.0.0.1
 require_present RANKPEEK_SERVER_DB_URL
 require_present RANKPEEK_SERVER_DB_USERNAME
 require_present RANKPEEK_SERVER_DB_PASSWORD

@@ -125,6 +125,7 @@ class BuildConfigurationTest {
         assertThat(preflightScript)
                 .contains("RANKPEEK_PREFLIGHT_ENV_FILE")
                 .contains("require_equals SPRING_PROFILES_ACTIVE prod")
+                .contains("require_equals RANKPEEK_SERVER_ADDRESS 127.0.0.1")
                 .contains("require_present RANKPEEK_SERVER_DB_PASSWORD")
                 .contains("reject_placeholder RANKPEEK_SERVER_DB_PASSWORD")
                 .contains("require_secret RANKPEEK_AUTH_ACCESS_TOKEN_SECRET")
