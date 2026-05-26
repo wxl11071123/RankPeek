@@ -201,6 +201,35 @@ public class AuthService {
     }
 
     @Transactional
+    public AdminUserResponse createUserByAdmin(AuthUser admin, AdminUserCreateRequest request) {
+        ensureAdmin(admin);
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required");
+        }
+        String email = normalizeEmail(request.email());
+        String displayName = normalizeDisplayName(request.displayName());
+        validatePassword(request.password());
+
+        if (authRepository.findUserByEmail(email).isPresent()) {
+            throw emailAlreadyRegistered();
+        }
+
+        AuthUser user;
+        try {
+            user = authRepository.insertUser(
+                    email,
+                    displayName,
+                    passwordService.hash(request.password()),
+                    Instant.now(),
+                    null
+            );
+        } catch (DuplicateKeyException exception) {
+            throw emailAlreadyRegistered();
+        }
+        return AdminUserResponse.from(user);
+    }
+
+    @Transactional
     public AdminUserResponse updateUserByAdmin(AuthUser admin, Long userId, AdminUserUpdateRequest request) {
         ensureAdmin(admin);
         if (userId == null) {

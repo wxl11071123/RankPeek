@@ -148,7 +148,7 @@ Generate the JWT secret with:
 openssl rand -hex 32
 ```
 
-Keep public registration disabled for internal MVP deployments unless you intentionally want open signup. If the production renderer or reverse proxy is not `http://localhost:5173`, set `RANKPEEK_CORS_ALLOWED_ORIGINS` to the exact trusted origin list.
+Keep public registration disabled for internal MVP deployments unless you intentionally want open signup. After the initial `ADMIN` account can log in, create ordinary internal users through `POST /api/admin/users` with an admin bearer token and an initial password. If the production renderer or reverse proxy is not `http://localhost:5173`, set `RANKPEEK_CORS_ALLOWED_ORIGINS` to the exact trusted origin list.
 For the first production bootstrap, keep `RANKPEEK_INITIAL_ADMIN_ENABLED=true` until the initial `ADMIN` account has logged in successfully. After that verified login, you can set `RANKPEEK_INITIAL_ADMIN_ENABLED=false`. When `RANKPEEK_INITIAL_ADMIN_ENABLED=false`, set `RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true` only after a verified `ADMIN` account can log in.
 
 Application-level rate limiting is enabled by default. It applies a fixed window to registration, login, refresh-token, password reset, and AI analysis endpoints. Keep it enabled for MVP deployments; tune the auth and AI request counts only after looking at real traffic and support needs. This does not replace reverse-proxy or firewall rate limits.
@@ -355,7 +355,7 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 
 ### Verify Real AI, Credits, and Idempotency
 
-Run this smoke only after DeepSeek is intentionally enabled in `/etc/rankpeek/rankpeek-server.env`, the service has been restarted, and a dedicated smoke user already exists. This check makes a real `coach-summary` request and consumes provider quota plus the configured AI credit charge.
+Run this smoke only after DeepSeek is intentionally enabled in `/etc/rankpeek/rankpeek-server.env`, the service has been restarted, and a dedicated smoke user already exists. With public registration disabled, create that smoke user through `POST /api/admin/users` before running the AI smoke. This check makes a real `coach-summary` request and consumes provider quota plus the configured AI credit charge.
 
 Copy the AI smoke script to the Ubuntu host. From the repository root on your build machine:
 

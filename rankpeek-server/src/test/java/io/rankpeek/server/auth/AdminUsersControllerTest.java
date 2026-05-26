@@ -19,13 +19,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.blankOrNullString;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = "rankpeek.auth.public-registration-enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AdminUsersControllerTest {
@@ -41,6 +42,85 @@ class AdminUsersControllerTest {
 
     @Autowired
     private PasswordService passwordService;
+
+    @Test
+    void adminCanCreateUserForClosedRegistrationMvp() throws Exception {
+        AuthPayload admin = createAdmin();
+        String email = "created-" + UUID.randomUUID() + "@example.com";
+
+        MvcResult createResult = mockMvc.perform(post("/api/admin/users")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s",
+                                  "password": "Created123!",
+                                  "displayName": "Created User"
+                                }
+                                """.formatted(email.toUpperCase())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.email").value(email))
+                .andExpect(jsonPath("$.data.displayName").value("Created User"))
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.lastLoginAt").value(nullValue()))
+                .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.data.refreshToken").doesNotExist())
+                .andReturn();
+
+        JsonNode created = objectMapper.readTree(createResult.getResponse().getContentAsString()).get("data");
+        assertThat(created.get("id").asLong()).isPositive();
+
+        auth(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "email": "%s",
+                          "password": "Created123!"
+                        }
+                        """.formatted(email)));
+    }
+
+    @Test
+    void nonAdminCannotCreateUser() throws Exception {
+        AuthPayload user = registerUser();
+        String email = "blocked-" + UUID.randomUUID() + "@example.com";
+
+        mockMvc.perform(post("/api/admin/users")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s",
+                                  "password": "Created123!",
+                                  "displayName": "Blocked User"
+                                }
+                                """.formatted(email)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("ADMIN_REQUIRED"));
+    }
+
+    @Test
+    void adminCreateUserRejectsDuplicateEmail() throws Exception {
+        AuthPayload admin = createAdmin();
+        AuthPayload existing = registerUser();
+
+        mockMvc.perform(post("/api/admin/users")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s",
+                                  "password": "Created123!",
+                                  "displayName": "Duplicate User"
+                                }
+                                """.formatted(existing.email().toUpperCase())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("EMAIL_ALREADY_REGISTERED"));
+    }
 
     @Test
     void adminCanListAndDisableUserRevokingRefreshTokens() throws Exception {
@@ -152,15 +232,21 @@ class AdminUsersControllerTest {
 
     private AuthPayload registerUser() throws Exception {
         String email = "user-" + UUID.randomUUID() + "@example.com";
-        return auth(post("/api/auth/register")
+        String password = "Secret123!";
+        authRepository.insertUser(
+                email,
+                "RankPeek User",
+                passwordService.hash(password),
+                Instant.now()
+        );
+        return auth(post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
                           "email": "%s",
-                          "password": "Secret123!",
-                          "displayName": "RankPeek User"
+                          "password": "%s"
                         }
-                        """.formatted(email)));
+                        """.formatted(email, password)));
     }
 
     private AuthPayload createAdmin() throws Exception {

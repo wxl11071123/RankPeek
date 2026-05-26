@@ -103,6 +103,16 @@ public class AuthRepository {
     }
 
     public AuthUser insertUser(String email, String displayName, String passwordHash, Instant now) {
+        return insertUser(email, displayName, passwordHash, now, now);
+    }
+
+    public AuthUser insertUser(
+            String email,
+            String displayName,
+            String passwordHash,
+            Instant now,
+            Instant lastLoginAt
+    ) {
         KeyHolder keyHolder = JdbcSupport.newKeyHolder();
         jdbcTemplate.update(connection -> JdbcSupport.prepareInsert(
                 connection,
@@ -119,7 +129,7 @@ public class AuthRepository {
                 "USER",
                 Timestamp.from(now),
                 Timestamp.from(now),
-                Timestamp.from(now)
+                timestampOrNull(lastLoginAt)
         ), keyHolder);
         return findUserById(JdbcSupport.requireGeneratedId(keyHolder)).orElseThrow();
     }
@@ -343,6 +353,10 @@ public class AuthRepository {
 
     private static Instant instantOrNull(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
+    }
+
+    private static Timestamp timestampOrNull(Instant instant) {
+        return instant == null ? null : Timestamp.from(instant);
     }
 
     private record QueryParts(String whereClause, List<Object> args) {

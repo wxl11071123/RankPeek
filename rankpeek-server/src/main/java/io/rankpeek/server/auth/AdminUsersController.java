@@ -35,6 +35,15 @@ public class AdminUsersController {
         return ApiResponse.success(authService.listUsers(admin, query, status, role, limit, offset));
     }
 
+    @PostMapping
+    public ApiResponse<AdminUserResponse> createUser(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+            @RequestBody AdminUserCreateRequest request
+    ) {
+        AuthUser admin = authService.requireAdmin(authorizationHeader);
+        return ApiResponse.success(authService.createUserByAdmin(admin, request));
+    }
+
     @PatchMapping("/{userId}")
     public ApiResponse<AdminUserResponse> updateUser(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,

@@ -121,7 +121,7 @@ To enable password reset email in a deployed environment, set:
 - `RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset` or another subject
 - `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`, and SMTP auth/TLS properties for the chosen mail provider
 
-Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap and grant access intentionally instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
+Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap, then use `POST /api/admin/users` to create ordinary internal users instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
 
 Application-level rate limiting is enabled by default outside tests. It applies fixed-window limits to registration, login, refresh-token, password reset, `coach-summary`, and DeepSeek-backed analysis stream endpoints. Defaults are controlled by `RANKPEEK_RATE_LIMIT_WINDOW_SECONDS`, `RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS`, and `RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS`; exceeded requests return HTTP `429` with error code `RATE_LIMIT_EXCEEDED` and `Retry-After`.
 
@@ -138,12 +138,13 @@ Admin user operations require an `ADMIN` bearer token:
 
 - `GET /api/server/diagnostics`
 - `GET /api/admin/users`
+- `POST /api/admin/users`
 - `PATCH /api/admin/users/{userId}`
 - `POST /api/admin/users/{userId}/sessions/revoke`
 - `POST /api/admin/credits/grants`
 - `POST /api/playstyles/cards/mock-seed`
 
-Admins can list users, promote/demote other accounts, disable users, and revoke refresh-token sessions. Disabling a user revokes that user's active refresh tokens. The server prevents an admin from disabling or demoting their own account through the admin user endpoint.
+Admins can create users with an initial password, list users, promote/demote other accounts, disable users, and revoke refresh-token sessions. The create-user response returns user metadata only; it does not issue access or refresh tokens for the new user. Disabling a user revokes that user's active refresh tokens. The server prevents an admin from disabling or demoting their own account through the admin user endpoint.
 
 ## Credits Foundation
 
@@ -231,6 +232,7 @@ Useful endpoints:
 - `POST /api/auth/password-reset/confirm`
 - `GET /api/auth/me` (bearer token)
 - `GET /api/admin/users` (ADMIN bearer token)
+- `POST /api/admin/users` (ADMIN bearer token)
 - `PATCH /api/admin/users/{userId}` (ADMIN bearer token)
 - `POST /api/admin/users/{userId}/sessions/revoke` (ADMIN bearer token)
 - `GET /api/credits/balance` (bearer token)
