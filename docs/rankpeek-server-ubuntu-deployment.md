@@ -266,6 +266,49 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
+### Verify Real AI, Credits, and Idempotency
+
+Run this smoke only after DeepSeek is intentionally enabled in `/etc/rankpeek/rankpeek-server.env`, the service has been restarted, and a dedicated smoke user already exists. This check makes a real `coach-summary` request and consumes provider quota plus the configured AI credit charge.
+
+Copy the AI smoke script to the Ubuntu host. From the repository root on your build machine:
+
+```bash
+scp rankpeek-server/deploy/ubuntu/rankpeek-server-ai-smoke.sh ubuntu-host:/tmp/rankpeek-server-ai-smoke.sh
+```
+
+On the Ubuntu host, install it:
+
+```bash
+sudo cp /tmp/rankpeek-server-ai-smoke.sh /opt/rankpeek/server/rankpeek-server-ai-smoke.sh
+sudo chown root:rankpeek /opt/rankpeek/server/rankpeek-server-ai-smoke.sh
+sudo chmod 750 /opt/rankpeek/server/rankpeek-server-ai-smoke.sh
+```
+
+Run it against the local service first:
+
+```bash
+RANKPEEK_AI_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_AI_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
+RANKPEEK_AI_SMOKE_USER_EMAIL=smoke-user@example.com \
+RANKPEEK_AI_SMOKE_USER_PASSWORD='CHANGE_ME_SMOKE_USER_PASSWORD' \
+/opt/rankpeek/server/rankpeek-server-ai-smoke.sh
+```
+
+The script logs in as the admin and smoke user, grants smoke credits with `X-RankPeek-Idempotency-Key`, calls `POST /api/analysis/coach-summary`, verifies one credit was charged, repeats the same request with the same idempotency key, verifies the balance did not change, and checks that the AI run can be queried through `GET /api/analysis/runs`.
+
+After Nginx and HTTPS are enabled, run the same check through the public API URL:
+
+```bash
+RANKPEEK_AI_SMOKE_BASE_URL=https://api.rankpeek.example.com \
+RANKPEEK_AI_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_AI_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
+RANKPEEK_AI_SMOKE_USER_EMAIL=smoke-user@example.com \
+RANKPEEK_AI_SMOKE_USER_PASSWORD='CHANGE_ME_SMOKE_USER_PASSWORD' \
+/opt/rankpeek/server/rankpeek-server-ai-smoke.sh
+```
+
+If the smoke user already has enough credits and you do not want the script to create an admin grant, add `RANKPEEK_AI_SMOKE_SKIP_GRANT=true`. Keep this smoke user separate from real users because the script intentionally writes credit ledger entries and AI run records.
+
 ## 9. Configure PostgreSQL Backups
 
 Backups are required before any real user data or credit ledger data is trusted to this host. The provided templates create daily custom-format PostgreSQL dumps, checksum each dump, delete old dumps by retention, and include a restore drill script that restores into a separate disposable database.

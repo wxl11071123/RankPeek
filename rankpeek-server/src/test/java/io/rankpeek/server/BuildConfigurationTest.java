@@ -101,6 +101,33 @@ class BuildConfigurationTest {
                 .contains("Persistent=true");
     }
 
+    @Test
+    void ubuntuAiSmokeScriptExercisesCreditsCoachSummaryAndIdempotency() throws Exception {
+        String aiSmokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-ai-smoke.sh"));
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+        String readme = Files.readString(Path.of("README.md"));
+
+        assertThat(aiSmokeScript)
+                .contains("RANKPEEK_AI_SMOKE_ADMIN_EMAIL")
+                .contains("RANKPEEK_AI_SMOKE_USER_EMAIL")
+                .contains("RANKPEEK_AI_SMOKE_EXPECTED_CHARGE")
+                .contains("/api/admin/credits/grants")
+                .contains("/api/credits/balance")
+                .contains("/api/credits/ledger")
+                .contains("/api/analysis/coach-summary")
+                .contains("/api/analysis/runs")
+                .contains("X-RankPeek-Idempotency-Key")
+                .contains("jq -S '.data.report'")
+                .contains("/api/auth/logout");
+        assertThat(deploymentGuide)
+                .contains("rankpeek-server-ai-smoke.sh")
+                .contains("RANKPEEK_AI_SMOKE_ADMIN_EMAIL")
+                .contains("RANKPEEK_AI_SMOKE_USER_EMAIL");
+        assertThat(readme)
+                .contains("rankpeek-server-ai-smoke.sh")
+                .contains("credits, DeepSeek, and coach-summary idempotency");
+    }
+
     private static List<String> dependencyCoordinates(Document document) {
         var dependencyNodes = document.getElementsByTagName("dependency");
         List<String> coordinates = new ArrayList<>();
