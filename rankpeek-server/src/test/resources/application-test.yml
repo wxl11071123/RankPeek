@@ -26,6 +26,7 @@ rankpeek:
     access-token-secret: rankpeek-test-access-token-secret-change-me
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
+    password-reset-token-ttl-seconds: 900
     public-registration-enabled: true
   credits:
     coach-summary-charge-credits: 1

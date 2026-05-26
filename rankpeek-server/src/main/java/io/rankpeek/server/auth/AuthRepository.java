@@ -41,6 +41,15 @@ public class AuthRepository {
             rs.getString("user_agent")
     );
 
+    private final RowMapper<StoredPasswordResetToken> passwordResetTokenMapper = (rs, rowNum) -> new StoredPasswordResetToken(
+            rs.getLong("id"),
+            rs.getLong("user_id"),
+            rs.getString("token_hash"),
+            instantOrNull(rs.getTimestamp("expires_at")),
+            instantOrNull(rs.getTimestamp("used_at")),
+            instantOrNull(rs.getTimestamp("created_at"))
+    );
+
     public AuthRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -158,6 +167,15 @@ public class AuthRepository {
         );
     }
 
+    public void updatePasswordHash(Long userId, String passwordHash, Instant now) {
+        jdbcTemplate.update(
+                "update users set password_hash = ?, updated_at = ? where id = ?",
+                passwordHash,
+                Timestamp.from(now),
+                userId
+        );
+    }
+
     public AuthUser updateUserStatusAndRole(Long userId, String status, String role, Instant now) {
         jdbcTemplate.update(
                 """
@@ -243,6 +261,55 @@ public class AuthRepository {
                         set revoked_at = ?
                         where user_id = ?
                           and revoked_at is null
+                        """,
+                Timestamp.from(now),
+                userId
+        );
+    }
+
+    public void insertPasswordResetToken(Long userId, String tokenHash, Instant expiresAt, Instant createdAt) {
+        jdbcTemplate.update(
+                """
+                        insert into auth_password_reset_tokens (
+                            user_id, token_hash, expires_at, created_at
+                        ) values (?, ?, ?, ?)
+                        """,
+                userId,
+                tokenHash,
+                Timestamp.from(expiresAt),
+                Timestamp.from(createdAt)
+        );
+    }
+
+    public Optional<StoredPasswordResetToken> findPasswordResetTokenByHash(String tokenHash) {
+        List<StoredPasswordResetToken> rows = jdbcTemplate.query(
+                "select * from auth_password_reset_tokens where token_hash = ?",
+                passwordResetTokenMapper,
+                tokenHash
+        );
+        return rows.stream().findFirst();
+    }
+
+    public int markPasswordResetTokenUsed(Long tokenId, Instant now) {
+        return jdbcTemplate.update(
+                """
+                        update auth_password_reset_tokens
+                        set used_at = ?
+                        where id = ?
+                          and used_at is null
+                        """,
+                Timestamp.from(now),
+                tokenId
+        );
+    }
+
+    public int revokeUnusedPasswordResetTokensForUser(Long userId, Instant now) {
+        return jdbcTemplate.update(
+                """
+                        update auth_password_reset_tokens
+                        set used_at = ?
+                        where user_id = ?
+                          and used_at is null
                         """,
                 Timestamp.from(now),
                 userId

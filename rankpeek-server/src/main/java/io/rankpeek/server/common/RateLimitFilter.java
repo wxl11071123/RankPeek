@@ -77,7 +77,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         if (path.equals("/api/auth/register")
                 || path.equals("/api/auth/login")
-                || path.equals("/api/auth/refresh")) {
+                || path.equals("/api/auth/refresh")
+                || path.equals("/api/auth/password-reset/request")
+                || path.equals("/api/auth/password-reset/confirm")) {
             return new RateLimitRule("auth", properties.auth().maxRequests(), false);
         }
         if (path.equals("/api/analysis/coach-summary")

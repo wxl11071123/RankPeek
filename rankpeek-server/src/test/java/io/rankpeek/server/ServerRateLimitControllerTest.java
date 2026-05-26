@@ -77,6 +77,35 @@ class ServerRateLimitControllerTest {
     }
 
     @Test
+    void passwordResetRequestsAreRateLimitedByClientAddress() throws Exception {
+        String clientIp = "203.0.113.12";
+        String email = createUser();
+
+        passwordResetRequestAttempt(clientIp, email).andExpect(status().isOk());
+        passwordResetRequestAttempt(clientIp, email).andExpect(status().isOk());
+
+        passwordResetRequestAttempt(clientIp, email)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "60"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("RATE_LIMIT_EXCEEDED"));
+    }
+
+    @Test
+    void passwordResetConfirmationsAreRateLimitedByClientAddress() throws Exception {
+        String clientIp = "203.0.113.13";
+
+        passwordResetConfirmAttempt(clientIp, "invalid-token").andExpect(status().isUnauthorized());
+        passwordResetConfirmAttempt(clientIp, "invalid-token").andExpect(status().isUnauthorized());
+
+        passwordResetConfirmAttempt(clientIp, "invalid-token")
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "60"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("RATE_LIMIT_EXCEEDED"));
+    }
+
+    @Test
     void coachSummaryIsRateLimitedBeforeAiWork() throws Exception {
         String accessToken = accessTokenFor(createUser());
 
@@ -115,6 +144,29 @@ class ServerRateLimitControllerTest {
                           "password": "%s"
                         }
                         """.formatted(email, password)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions passwordResetRequestAttempt(String clientIp, String email) throws Exception {
+        return mockMvc.perform(post("/api/auth/password-reset/request")
+                .header(X_FORWARDED_FOR, clientIp)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "email": "%s"
+                        }
+                        """.formatted(email)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions passwordResetConfirmAttempt(String clientIp, String token) throws Exception {
+        return mockMvc.perform(post("/api/auth/password-reset/confirm")
+                .header(X_FORWARDED_FOR, clientIp)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "token": "%s",
+                          "newPassword": "Secret456!"
+                        }
+                        """.formatted(token)));
     }
 
     private org.springframework.test.web.servlet.ResultActions coachSummaryAttempt(String accessToken) throws Exception {

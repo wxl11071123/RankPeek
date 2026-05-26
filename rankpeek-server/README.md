@@ -20,6 +20,7 @@ This phase implements a server data, auth, admin, credits, CN meta sync, and moc
 - Flyway migration `V3__cn_meta_sync_foundation.sql` for CN meta sync jobs and source documents.
 - Flyway migration `V7__credits_foundation.sql` for user credit balances, credit ledger entries, and AI analysis run tracking.
 - Flyway migration `V8__ai_analysis_run_results.sql` for AI run request hashes, replayable success results, failure messages, and charge/refund ledger links.
+- Flyway migration `V9__password_reset_tokens.sql` for hashed password reset tokens.
 - `V3__cn_meta_sync_foundation.sql` intentionally remains V3 because V2 is already used by auth; renaming it would break databases that have applied V3.
 - H2-backed local-dev and test profiles.
 - PostgreSQL production profile, Ubuntu systemd, Nginx reverse-proxy, PostgreSQL backup, and monitoring templates, plus deployment smoke scripts.
@@ -39,7 +40,7 @@ This module intentionally does not:
 - store LCU tokens, SGP tokens, or user private data;
 - enable real AI by default or call any provider other than the explicitly configured DeepSeek chat-completion provider;
 - integrate real payments;
-- verify email, recover passwords, use CAPTCHA, or provide third-party login;
+- verify email, send real password reset email by default, use CAPTCHA, or provide third-party login;
 - provide Docker, Kubernetes, managed load balancers, or multi-host production ingress.
 
 Mock source URLs use the `mock://` scheme and exist only as deterministic test fixtures.
@@ -52,7 +53,7 @@ Flyway creates the first schema for:
 - future CN meta snapshots and champion stats/builds;
 - future LPL matches, games, pick/ban, and player game stats;
 - playstyle cards, sources, and patch relevance rules;
-- auth users, refresh tokens, credit balances, credit ledger entries, and AI analysis runs.
+- auth users, refresh tokens, password reset tokens, credit balances, credit ledger entries, and AI analysis runs.
 
 JSON-like columns are stored as `TEXT` in this phase so H2 tests remain simple and stable. A future PostgreSQL migration can convert selected columns to `jsonb` after real importer requirements are reviewed.
 
@@ -106,13 +107,15 @@ Before using the real sample client outside local development, the endpoint temp
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`
+- `POST /api/auth/password-reset/request`
+- `POST /api/auth/password-reset/confirm`
 - `GET /api/auth/me`
 
-Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, or password recovery. It does not store LCU tokens, SGP tokens, match history, or private game data.
+Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Password reset tokens are generated as opaque random values, stored only as SHA-256 hashes in `auth_password_reset_tokens`, expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`, and revoke active refresh-token sessions after a successful reset. The default password reset email sender is a no-op logger so production deployments must provide a real sender before exposing password reset to users. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, or real password reset email delivery by default. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
 Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap and grant access intentionally instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
 
-Application-level rate limiting is enabled by default outside tests. It applies fixed-window limits to registration, login, refresh-token, `coach-summary`, and DeepSeek-backed analysis stream endpoints. Defaults are controlled by `RANKPEEK_RATE_LIMIT_WINDOW_SECONDS`, `RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS`, and `RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS`; exceeded requests return HTTP `429` with error code `RATE_LIMIT_EXCEEDED` and `Retry-After`.
+Application-level rate limiting is enabled by default outside tests. It applies fixed-window limits to registration, login, refresh-token, password reset, `coach-summary`, and DeepSeek-backed analysis stream endpoints. Defaults are controlled by `RANKPEEK_RATE_LIMIT_WINDOW_SECONDS`, `RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS`, and `RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS`; exceeded requests return HTTP `429` with error code `RATE_LIMIT_EXCEEDED` and `Retry-After`.
 
 Production deployments can create or reset a first administrator at startup by setting:
 
@@ -204,7 +207,7 @@ See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubu
 
 Every `/api/**` response includes `X-Request-Id`. Clients may provide one for support flows; otherwise the server generates one and writes an `api_request` access log line with method, path, status, duration, and request id.
 
-After deploying the jar and systemd service, run `deploy/ubuntu/rankpeek-server-smoke.sh` on the Ubuntu host. It verifies public health/version endpoints and `X-Request-Id`; with `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD`, it also checks admin diagnostics and Flyway version `8`. When real AI is intentionally enabled, run `deploy/ubuntu/rankpeek-server-ai-smoke.sh` to verify credits, DeepSeek, and coach-summary idempotency. The Ubuntu templates also include PostgreSQL backup and restore-drill scripts under `deploy/ubuntu/postgres/`, plus a five-minute production monitor under `deploy/ubuntu/monitoring/`.
+After deploying the jar and systemd service, run `deploy/ubuntu/rankpeek-server-smoke.sh` on the Ubuntu host. It verifies public health/version endpoints and `X-Request-Id`; with `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD`, it also checks admin diagnostics and Flyway version `9`. When real AI is intentionally enabled, run `deploy/ubuntu/rankpeek-server-ai-smoke.sh` to verify credits, DeepSeek, and coach-summary idempotency. The Ubuntu templates also include PostgreSQL backup and restore-drill scripts under `deploy/ubuntu/postgres/`, plus a five-minute production monitor under `deploy/ubuntu/monitoring/`.
 
 Useful endpoints:
 
@@ -215,6 +218,8 @@ Useful endpoints:
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`
+- `POST /api/auth/password-reset/request`
+- `POST /api/auth/password-reset/confirm`
 - `GET /api/auth/me` (bearer token)
 - `GET /api/admin/users` (ADMIN bearer token)
 - `PATCH /api/admin/users/{userId}` (ADMIN bearer token)
