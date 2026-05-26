@@ -266,11 +266,62 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
+## 9. Configure PostgreSQL Backups
+
+Backups are required before any real user data or credit ledger data is trusted to this host. The provided templates create daily custom-format PostgreSQL dumps, checksum each dump, delete old dumps by retention, and include a restore drill script that restores into a separate disposable database.
+
+Copy the backup templates to the Ubuntu host. From the repository root on your build machine:
+
+```bash
+scp rankpeek-server/deploy/ubuntu/postgres/rankpeek-postgres-backup.sh.example ubuntu-host:/tmp/rankpeek-postgres-backup.sh
+scp rankpeek-server/deploy/ubuntu/postgres/rankpeek-postgres-restore-drill.sh.example ubuntu-host:/tmp/rankpeek-postgres-restore-drill.sh
+scp rankpeek-server/deploy/ubuntu/postgres/rankpeek-postgres-backup.service.example ubuntu-host:/tmp/rankpeek-postgres-backup.service
+scp rankpeek-server/deploy/ubuntu/postgres/rankpeek-postgres-backup.timer.example ubuntu-host:/tmp/rankpeek-postgres-backup.timer
+```
+
+Install the scripts and backup directory:
+
+```bash
+sudo install -o postgres -g postgres -m 750 -d /var/backups/rankpeek/postgres
+sudo cp /tmp/rankpeek-postgres-backup.sh /usr/local/sbin/rankpeek-postgres-backup.sh
+sudo cp /tmp/rankpeek-postgres-restore-drill.sh /usr/local/sbin/rankpeek-postgres-restore-drill.sh
+sudo chown root:postgres /usr/local/sbin/rankpeek-postgres-backup.sh /usr/local/sbin/rankpeek-postgres-restore-drill.sh
+sudo chmod 750 /usr/local/sbin/rankpeek-postgres-backup.sh /usr/local/sbin/rankpeek-postgres-restore-drill.sh
+```
+
+Install and enable the systemd timer:
+
+```bash
+sudo cp /tmp/rankpeek-postgres-backup.service /etc/systemd/system/rankpeek-postgres-backup.service
+sudo cp /tmp/rankpeek-postgres-backup.timer /etc/systemd/system/rankpeek-postgres-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now rankpeek-postgres-backup.timer
+systemctl list-timers rankpeek-postgres-backup.timer
+```
+
+Run one manual backup and inspect the output:
+
+```bash
+sudo systemctl start rankpeek-postgres-backup.service
+journalctl -u rankpeek-postgres-backup.service -n 100 --no-pager
+sudo -u postgres ls -lh /var/backups/rankpeek/postgres
+```
+
+Run a restore drill against the newest dump. This restores into `rankpeek_restore_drill`, checks that Flyway history exists, and drops the drill database when it exits:
+
+```bash
+LATEST_BACKUP="$(sudo -u postgres find /var/backups/rankpeek/postgres -type f -name 'rankpeek_server-*.dump' | sort | tail -n 1)"
+sudo -u postgres /usr/local/sbin/rankpeek-postgres-restore-drill.sh "$LATEST_BACKUP"
+```
+
+Only treat backups as working after the restore drill succeeds. To inspect the restored database manually, run the drill with `RANKPEEK_RESTORE_KEEP_DRILL_DB=true` and drop `rankpeek_restore_drill` yourself afterward.
+
 ## Operational Notes
 
 - Keep `RANKPEEK_SERVER_ADDRESS=127.0.0.1`; public traffic should enter through Nginx.
 - Do not expose port `18080` directly to the public internet.
 - Keep `RANKPEEK_RATE_LIMIT_ENABLED=true`; add Nginx or firewall rate limits before any public exposure.
+- Keep PostgreSQL backup retention at `14` days or longer until real storage costs are known; verify restore drills after schema migrations.
 - `rankpeek.cn-meta.sync.real-source-enabled` remains `false` in production config.
 - `rankpeek.ai.enabled` remains `false` unless DeepSeek is intentionally configured for a real integration test.
 - Rotate secrets by editing `/etc/rankpeek/rankpeek-server.env` and running `sudo systemctl restart rankpeek-server`.

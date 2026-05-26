@@ -42,6 +42,35 @@ class BuildConfigurationTest {
                 .doesNotContain("$proxy_add_x_forwarded_for");
     }
 
+    @Test
+    void ubuntuPostgresBackupTemplatesIncludeRetentionAndRestoreDrill() throws Exception {
+        String backupScript = Files.readString(Path.of("deploy/ubuntu/postgres/rankpeek-postgres-backup.sh.example"));
+        String restoreScript = Files.readString(Path.of("deploy/ubuntu/postgres/rankpeek-postgres-restore-drill.sh.example"));
+        String service = Files.readString(Path.of("deploy/ubuntu/postgres/rankpeek-postgres-backup.service.example"));
+        String timer = Files.readString(Path.of("deploy/ubuntu/postgres/rankpeek-postgres-backup.timer.example"));
+
+        assertThat(backupScript)
+                .contains("pg_dump")
+                .contains("--format=custom")
+                .contains("sha256sum")
+                .contains("RETENTION_DAYS")
+                .contains("find \"$BACKUP_DIR\"");
+        assertThat(restoreScript)
+                .contains("createdb \"$DRILL_DB\"")
+                .contains("pg_restore")
+                .contains("--clean")
+                .contains("--if-exists")
+                .contains("flyway_schema_history")
+                .contains("dropdb --if-exists \"$DRILL_DB\"");
+        assertThat(service)
+                .contains("User=postgres")
+                .contains("ExecStart=/usr/local/sbin/rankpeek-postgres-backup.sh")
+                .contains("ReadWritePaths=/var/backups/rankpeek/postgres");
+        assertThat(timer)
+                .contains("OnCalendar=*-*-* 03:15:00")
+                .contains("Persistent=true");
+    }
+
     private static List<String> dependencyCoordinates(Document document) {
         var dependencyNodes = document.getElementsByTagName("dependency");
         List<String> coordinates = new ArrayList<>();

@@ -1,0 +1,18 @@
+[Unit]
+Description=RankPeek PostgreSQL backup
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+Environment=RANKPEEK_BACKUP_DATABASE_NAME=rankpeek_server
+Environment=RANKPEEK_BACKUP_DIR=/var/backups/rankpeek/postgres
+Environment=RANKPEEK_BACKUP_RETENTION_DAYS=14
+ExecStart=/usr/local/sbin/rankpeek-postgres-backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/backups/rankpeek/postgres
