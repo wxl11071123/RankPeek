@@ -83,7 +83,12 @@ class BuildConfigurationTest {
         String timer = Files.readString(Path.of("deploy/ubuntu/monitoring/rankpeek-server-monitor.timer.example"));
 
         assertThat(smokeScript)
-                .contains("RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION:-9");
+                .contains("RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION:-9")
+                .contains("RANKPEEK_SMOKE_EXPECT_MODE")
+                .contains("RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED")
+                .contains("RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED")
+                .contains("RANKPEEK_SMOKE_EXPECT_AI_ENABLED")
+                .contains("RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED");
         assertThat(monitorScript)
                 .contains("/api/server/health")
                 .contains("/api/server/diagnostics")

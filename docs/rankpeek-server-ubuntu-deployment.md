@@ -283,6 +283,21 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
+For a stricter production preflight, also assert the deployment-facing configuration reported by admin diagnostics:
+
+```bash
+RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \
+RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
+RANKPEEK_SMOKE_EXPECT_MODE=prod \
+RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED=false \
+RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED=true \
+RANKPEEK_SMOKE_EXPECT_AI_ENABLED=true \
+RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED=true \
+/opt/rankpeek/server/rankpeek-server-smoke.sh
+```
+
+Set `RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED=false` or `RANKPEEK_SMOKE_EXPECT_AI_ENABLED=false` when those capabilities are intentionally disabled for an internal MVP. Leave an expectation unset only when you deliberately do not want the smoke script to gate on that switch.
+
 After Nginx and HTTPS are enabled, run the same smoke script through the public API URL:
 
 ```bash
