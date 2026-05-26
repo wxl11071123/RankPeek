@@ -91,6 +91,7 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(9)))
                 .andExpect(jsonPath("$.data.configuration.status").value("ok"))
                 .andExpect(jsonPath("$.data.configuration.publicRegistrationEnabled").value(true))
+                .andExpect(jsonPath("$.data.configuration.initialAdminEnabled").value(false))
                 .andExpect(jsonPath("$.data.configuration.passwordResetEmailEnabled").value(false))
                 .andExpect(jsonPath("$.data.configuration.aiEnabled").value(false))
                 .andExpect(jsonPath("$.data.configuration.aiProvider").value("mock"))

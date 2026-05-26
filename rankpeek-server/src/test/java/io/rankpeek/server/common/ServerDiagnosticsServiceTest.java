@@ -42,6 +42,7 @@ class ServerDiagnosticsServiceTest {
         assertThat(diagnostics.database().status()).isEqualTo("error");
         assertThat(diagnostics.database().error()).isEqualTo("database_unavailable");
         assertThat(diagnostics.configuration().status()).isEqualTo("ok");
+        assertThat(diagnostics.configuration().initialAdminEnabled()).isFalse();
     }
 
     @Test
@@ -51,7 +52,8 @@ class ServerDiagnosticsServiceTest {
 
         ServerDiagnosticsService service = new ServerDiagnosticsService(
                 new ServerProperties("rankpeek-server", "prod", "0.1.0", new ServerProperties.Cors(List.of("*"))),
-                new AuthProperties("prod-secret", 3600, 2592000, 900, true, null),
+                new AuthProperties("prod-secret", 3600, 2592000, 900, true,
+                        new AuthProperties.InitialAdmin(true, "admin@example.com", "password", "Admin")),
                 new PasswordResetEmailProperties(false, null, null, null),
                 new DeepSeekAiProperties(false, "mock", "https://api.deepseek.com", "deepseek-v4-flash", "", 5000, 30000, 4096, 0.4),
                 new RateLimitProperties(false, 60L, new RateLimitProperties.Limit(20), new RateLimitProperties.Limit(10)),
@@ -64,6 +66,7 @@ class ServerDiagnosticsServiceTest {
         assertThat(diagnostics.flyway().status()).isEqualTo("ok");
         assertThat(diagnostics.configuration().status()).isEqualTo("degraded");
         assertThat(diagnostics.configuration().publicRegistrationEnabled()).isTrue();
+        assertThat(diagnostics.configuration().initialAdminEnabled()).isTrue();
         assertThat(diagnostics.configuration().rateLimitEnabled()).isFalse();
         assertThat(diagnostics.configuration().corsAllowedOrigins()).containsExactly("*");
     }
