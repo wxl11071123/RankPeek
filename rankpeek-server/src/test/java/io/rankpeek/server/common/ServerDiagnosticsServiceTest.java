@@ -20,7 +20,7 @@ class ServerDiagnosticsServiceTest {
                 .thenThrow(new DataAccessResourceFailureException("connection failed"));
 
         ServerDiagnosticsService service = new ServerDiagnosticsService(
-                new ServerProperties("rankpeek-server", "test", "0.1.0"),
+                new ServerProperties("rankpeek-server", "test", "0.1.0", null),
                 jdbcTemplate);
 
         ServerDiagnostics diagnostics = service.diagnostics();

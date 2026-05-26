@@ -22,8 +22,12 @@ class ProdConfigurationTest {
         assertThat(properties.getProperty("spring.datasource.driver-class-name"))
                 .isEqualTo("org.postgresql.Driver");
         assertThat(properties.getProperty("rankpeek.server.mode")).isEqualTo("prod");
+        assertThat(properties.getProperty("rankpeek.server.cors.allowed-origins"))
+                .isEqualTo("${RANKPEEK_CORS_ALLOWED_ORIGINS:http://localhost:5173}");
         assertThat(properties.getProperty("rankpeek.auth.access-token-secret"))
                 .isEqualTo("${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}");
+        assertThat(properties.getProperty("rankpeek.auth.public-registration-enabled"))
+                .isEqualTo("${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:false}");
         assertThat(properties.getProperty("rankpeek.cn-meta.sync.enabled"))
                 .isEqualTo("${RANKPEEK_CN_META_SYNC_ENABLED:false}");
         assertThat(properties.getProperty("rankpeek.cn-meta.sync.source"))

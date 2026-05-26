@@ -1,21 +1,28 @@
 package io.rankpeek.server.common;
 
-import org.springframework.web.bind.annotation.CrossOrigin;
+import io.rankpeek.server.auth.AuthService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/server")
-@CrossOrigin(origins = "*")
 public class ServerController {
 
     private final ServerProperties properties;
     private final ServerDiagnosticsService diagnosticsService;
+    private final AuthService authService;
 
-    public ServerController(ServerProperties properties, ServerDiagnosticsService diagnosticsService) {
+    public ServerController(
+            ServerProperties properties,
+            ServerDiagnosticsService diagnosticsService,
+            AuthService authService
+    ) {
         this.properties = properties;
         this.diagnosticsService = diagnosticsService;
+        this.authService = authService;
     }
 
     @GetMapping("/health")
@@ -29,7 +36,10 @@ public class ServerController {
     }
 
     @GetMapping("/diagnostics")
-    public ApiResponse<ServerDiagnostics> diagnostics() {
+    public ApiResponse<ServerDiagnostics> diagnostics(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader
+    ) {
+        authService.requireAdmin(authorizationHeader);
         return ApiResponse.success(diagnosticsService.diagnostics());
     }
 

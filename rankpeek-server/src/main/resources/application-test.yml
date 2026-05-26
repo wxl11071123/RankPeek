@@ -20,10 +20,13 @@ rankpeek:
     service: rankpeek-server
     mode: test
     version: 0.1.0
+    cors:
+      allowed-origins: "*"
   auth:
     access-token-secret: rankpeek-test-access-token-secret-change-me
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
+    public-registration-enabled: true
   credits:
     coach-summary-charge-credits: 1
   ai:

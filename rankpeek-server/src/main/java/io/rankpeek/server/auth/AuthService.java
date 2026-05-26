@@ -25,15 +25,29 @@ public class AuthService {
     private final AuthRepository authRepository;
     private final PasswordService passwordService;
     private final TokenService tokenService;
+    private final AuthProperties authProperties;
 
-    public AuthService(AuthRepository authRepository, PasswordService passwordService, TokenService tokenService) {
+    public AuthService(
+            AuthRepository authRepository,
+            PasswordService passwordService,
+            TokenService tokenService,
+            AuthProperties authProperties
+    ) {
         this.authRepository = authRepository;
         this.passwordService = passwordService;
         this.tokenService = tokenService;
+        this.authProperties = authProperties;
     }
 
     @Transactional
     public AuthResponse register(RegisterRequest request, String userAgent) {
+        if (!Boolean.TRUE.equals(authProperties.publicRegistrationEnabled())) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "PUBLIC_REGISTRATION_DISABLED",
+                    "Public registration is disabled"
+            );
+        }
         String email = normalizeEmail(request.email());
         String displayName = normalizeDisplayName(request.displayName());
         validatePassword(request.password());

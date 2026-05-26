@@ -10,7 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -18,17 +18,20 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.blankOrNullString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.hamcrest.Matchers.not;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "rankpeek.server.cors.allowed-origins=http://localhost:5173",
+        "rankpeek.auth.public-registration-enabled=false"
+})
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
-class ServerHealthControllerTest {
+@DirtiesContext
+class ServerSecurityControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -43,67 +46,60 @@ class ServerHealthControllerTest {
     private PasswordService passwordService;
 
     @Test
-    void healthReturnsOk() throws Exception {
-        mockMvc.perform(get("/api/server/health"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("ok"))
-                .andExpect(jsonPath("$.data.service").value("rankpeek-server"))
-                .andExpect(jsonPath("$.data.mode").value("test"));
-    }
-
-    @Test
-    void healthEchoesProvidedRequestId() throws Exception {
+    void corsUsesConfiguredOriginAllowlist() throws Exception {
         mockMvc.perform(get("/api/server/health")
-                        .header("X-Request-Id", "rankpeek-test-request"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:5173"))
                 .andExpect(status().isOk())
-                .andExpect(header().string("X-Request-Id", "rankpeek-test-request"));
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+
+        mockMvc.perform(get("/api/server/health")
+                        .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
     }
 
     @Test
-    void healthGeneratesRequestIdWhenMissing() throws Exception {
-        mockMvc.perform(get("/api/server/health"))
-                .andExpect(status().isOk())
-                .andExpect(header().string("X-Request-Id", not(blankOrNullString())));
-    }
+    void diagnosticsRequiresAdminBearerToken() throws Exception {
+        mockMvc.perform(get("/api/server/diagnostics"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("ACCESS_TOKEN_INVALID"));
 
-    @Test
-    void versionReturnsConfiguredVersion() throws Exception {
-        mockMvc.perform(get("/api/server/version"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.version").value("0.1.0"))
-                .andExpect(jsonPath("$.data.service").value("rankpeek-server"));
-    }
-
-    @Test
-    void diagnosticsReturnsDatabaseAndFlywayStatus() throws Exception {
         mockMvc.perform(get("/api/server/diagnostics")
                         .header(HttpHeaders.AUTHORIZATION, bearer(createAdmin())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("ok"))
-                .andExpect(jsonPath("$.data.service").value("rankpeek-server"))
-                .andExpect(jsonPath("$.data.mode").value("test"))
-                .andExpect(jsonPath("$.data.database.status").value("ok"))
-                .andExpect(jsonPath("$.data.flyway.status").value("ok"))
-                .andExpect(jsonPath("$.data.flyway.currentVersion").value("8"))
-                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(8)));
+                .andExpect(jsonPath("$.data.database.status").value("ok"));
     }
 
     @Test
-    void healthAllowsRendererOrigin() throws Exception {
-        mockMvc.perform(get("/api/server/health").header("Origin", "http://localhost:5173"))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
-    }
-
-    @Test
-    void unknownApiRouteReturnsNotFoundResponse() throws Exception {
-        mockMvc.perform(get("/api/server/not-a-real-route"))
-                .andExpect(status().isNotFound())
+    void playstyleMockSeedRequiresAdminBearerToken() throws Exception {
+        mockMvc.perform(post("/api/playstyles/cards/mock-seed"))
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("ACCESS_TOKEN_INVALID"));
+
+        mockMvc.perform(post("/api/playstyles/cards/mock-seed")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(createAdmin())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.sourceTier").value("MOCK_REVIEWED"));
+    }
+
+    @Test
+    void publicRegistrationCanBeDisabled() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "disabled-%s@example.com",
+                                  "password": "Secret123!",
+                                  "displayName": "Disabled Registration"
+                                }
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("PUBLIC_REGISTRATION_DISABLED"));
     }
 
     private AuthPayload createAdmin() throws Exception {

@@ -137,6 +137,7 @@ Current server endpoints:
 
 - `GET /api/server/health`
 - `GET /api/server/version`
+- `GET /api/server/diagnostics` (ADMIN bearer token)
 - `GET /api/patch/current`
 - `GET /api/patch/{patchKey}/changes`
 - `GET /api/cn-meta/champions/{championId}?patchKey=&role=&tierScope=`
@@ -154,7 +155,7 @@ Current server endpoints:
 - `GET /api/admin/analysis/runs/{runId}` (ADMIN bearer token)
 - `GET /api/esports/lpl/champions/{championId}?patchKey=&role=`
 - `GET /api/playstyles/cards?patchKey=&championId=&role=`
-- `POST /api/playstyles/cards/mock-seed`
+- `POST /api/playstyles/cards/mock-seed` (ADMIN bearer token)
 - `POST /api/analysis/pregame/mock`
 
 ## Mock AI Boundary

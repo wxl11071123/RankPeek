@@ -20,10 +20,13 @@ rankpeek:
     service: rankpeek-server
     mode: local-dev
     version: 0.1.0
+    cors:
+      allowed-origins: ${RANKPEEK_CORS_ALLOWED_ORIGINS:*}
   auth:
     access-token-secret: ${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET:rankpeek-local-dev-access-token-secret-change-me}
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
+    public-registration-enabled: ${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:true}
   credits:
     coach-summary-charge-credits: ${RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS:1}
   ai:

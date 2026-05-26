@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -137,25 +136,6 @@ class OpggChampionControllerTest {
                         .param("tier", "all"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
-    }
-
-    @Test
-    void opggEndpointsAllowRendererOrigin() throws Exception {
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(new OpggChampionController(
-                        query -> detail(query.tier(), query.position()),
-                        query -> championList(query.tier())
-                ))
-                .setControllerAdvice(new GlobalExceptionHandler())
-                .build();
-
-        mockMvc.perform(get("/api/opgg/champions")
-                        .param("mode", "ranked")
-                        .param("region", "kr")
-                        .param("tier", "all")
-                        .header("Origin", "http://localhost:5173"))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
     }
 
     private static OpggChampionDetail detail(String tier, String position) {

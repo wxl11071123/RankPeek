@@ -4,7 +4,6 @@ import io.rankpeek.server.auth.AuthService;
 import io.rankpeek.server.auth.AuthUser;
 import io.rankpeek.server.common.ApiResponse;
 import org.springframework.http.HttpHeaders;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -13,7 +12,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin/credits")
-@CrossOrigin(origins = "*")
 public class AdminCreditsController {
 
     private static final String IDEMPOTENCY_HEADER = "X-RankPeek-Idempotency-Key";

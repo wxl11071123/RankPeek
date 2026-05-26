@@ -3,7 +3,6 @@ package io.rankpeek.server.analysis;
 import io.rankpeek.server.auth.AuthService;
 import io.rankpeek.server.common.ApiResponse;
 import org.springframework.http.HttpHeaders;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -13,7 +12,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin/analysis/runs")
-@CrossOrigin(origins = "*")
 public class AdminAnalysisRunsController {
 
     private final AnalysisService analysisService;

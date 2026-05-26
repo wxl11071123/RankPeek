@@ -4,7 +4,6 @@ import io.rankpeek.server.common.ApiException;
 import io.rankpeek.server.common.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,7 +14,6 @@ import java.util.Locale;
 import java.util.Set;
 
 @RestController
-@CrossOrigin(origins = "*")
 @RequestMapping("/api/opgg")
 public class OpggChampionController {
     private static final String REGION_KR = "kr";

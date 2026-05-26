@@ -6,7 +6,6 @@ import io.rankpeek.server.auth.AuthUser;
 import io.rankpeek.server.common.ApiResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +18,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/analysis")
-@CrossOrigin(origins = "*")
 public class AnalysisController {
 
     private static final String IDEMPOTENCY_HEADER = "X-RankPeek-Idempotency-Key";

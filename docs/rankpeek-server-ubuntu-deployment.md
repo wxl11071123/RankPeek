@@ -98,7 +98,9 @@ RANKPEEK_SERVER_PORT=18080
 RANKPEEK_SERVER_DB_URL=jdbc:postgresql://127.0.0.1:5432/rankpeek_server
 RANKPEEK_SERVER_DB_USERNAME=rankpeek
 RANKPEEK_SERVER_DB_PASSWORD=CHANGE_ME_DATABASE_PASSWORD
+RANKPEEK_CORS_ALLOWED_ORIGINS=http://localhost:5173
 RANKPEEK_AUTH_ACCESS_TOKEN_SECRET=CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_HEX_32
+RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false
 RANKPEEK_INITIAL_ADMIN_ENABLED=true
 RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
 RANKPEEK_INITIAL_ADMIN_PASSWORD=CHANGE_ME_INITIAL_ADMIN_PASSWORD
@@ -111,6 +113,8 @@ Generate the JWT secret with:
 ```bash
 openssl rand -hex 32
 ```
+
+Keep public registration disabled for internal MVP deployments unless you intentionally want open signup. If the production renderer or reverse proxy is not `http://localhost:5173`, set `RANKPEEK_CORS_ALLOWED_ORIGINS` to the exact trusted origin list.
 
 DeepSeek AI is disabled by default. To test the real provider, set these values in `/etc/rankpeek/rankpeek-server.env`:
 
@@ -146,6 +150,8 @@ Check service status and logs:
 sudo systemctl status rankpeek-server
 journalctl -u rankpeek-server -n 100 --no-pager
 ```
+
+Every `/api/**` response includes `X-Request-Id`. Include this value when checking logs; the service writes `api_request` lines with method, path, status, duration, and request id.
 
 ## 7. Verify the Server
 

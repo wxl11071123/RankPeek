@@ -109,6 +109,8 @@ Before using the real sample client outside local development, the endpoint temp
 
 Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, or password recovery. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
+Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap and grant access intentionally instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
+
 Production deployments can create or reset a first administrator at startup by setting:
 
 - `RANKPEEK_INITIAL_ADMIN_ENABLED=true`
@@ -120,10 +122,12 @@ This is disabled by default. When enabled, startup creates the configured email 
 
 Admin user operations require an `ADMIN` bearer token:
 
+- `GET /api/server/diagnostics`
 - `GET /api/admin/users`
 - `PATCH /api/admin/users/{userId}`
 - `POST /api/admin/users/{userId}/sessions/revoke`
 - `POST /api/admin/credits/grants`
+- `POST /api/playstyles/cards/mock-seed`
 
 Admins can list users, promote/demote other accounts, disable users, and revoke refresh-token sessions. Disabling a user revokes that user's active refresh tokens. The server prevents an admin from disabling or demoting their own account through the admin user endpoint.
 
@@ -195,10 +199,13 @@ The first supported Ubuntu deployment shape is a Spring Boot jar running under s
 
 See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubuntu-deployment.md) for the deploy steps and the systemd/env templates under `deploy/ubuntu/`.
 
+Every `/api/**` response includes `X-Request-Id`. Clients may provide one for support flows; otherwise the server generates one and writes an `api_request` access log line with method, path, status, duration, and request id.
+
 Useful endpoints:
 
 - `GET /api/server/health`
 - `GET /api/server/version`
+- `GET /api/server/diagnostics` (ADMIN bearer token)
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
@@ -219,6 +226,7 @@ Useful endpoints:
 - `POST /api/cn-meta/sync/configured-matrix` (ADMIN bearer token)
 - `GET /api/cn-meta/sync/jobs` (ADMIN bearer token)
 - `GET /api/patch/current`
+- `POST /api/playstyles/cards/mock-seed` (ADMIN bearer token)
 - `POST /api/analysis/pregame/mock`
 - `POST /api/analysis/pregame/stream`
 - `POST /api/analysis/postgame/stream`
