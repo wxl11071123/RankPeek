@@ -493,6 +493,7 @@ RANKPEEK_MONITOR_WEBHOOK_URL=
 ```
 
 `RANKPEEK_MONITOR_WEBHOOK_URL` is optional. If set, failed checks POST a small JSON payload containing service, status, host, and message. Keep this URL secret.
+Set both `RANKPEEK_MONITOR_ADMIN_EMAIL` and `RANKPEEK_MONITOR_ADMIN_PASSWORD` to enable diagnostics monitoring, or leave both blank to skip diagnostics. A half-configured monitor admin login is treated as a monitor configuration failure.
 
 Install and enable the timer:
 

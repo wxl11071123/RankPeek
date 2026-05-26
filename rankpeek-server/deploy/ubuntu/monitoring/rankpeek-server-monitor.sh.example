@@ -28,6 +28,16 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || add_failure "Missing required command: $1"
 }
 
+validate_admin_credentials_config() {
+  if [[ -z "$ADMIN_EMAIL" && -z "$ADMIN_PASSWORD" ]]; then
+    return
+  fi
+
+  if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
+    add_failure "monitor admin credentials must set both RANKPEEK_MONITOR_ADMIN_EMAIL and RANKPEEK_MONITOR_ADMIN_PASSWORD, or leave both blank"
+  fi
+}
+
 json_escape() {
   jq -Rsa .
 }
@@ -84,7 +94,7 @@ logout_monitor_session() {
 }
 
 check_diagnostics() {
-  if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
+  if [[ -z "$ADMIN_EMAIL" && -z "$ADMIN_PASSWORD" ]]; then
     log "Skipping admin diagnostics; monitor admin credentials are not configured"
     return
   fi
@@ -167,6 +177,7 @@ check_backup_freshness() {
 }
 
 main() {
+  validate_admin_credentials_config
   require_command curl
   require_command jq
   require_command systemctl
