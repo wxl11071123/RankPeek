@@ -184,6 +184,20 @@ class BuildConfigurationTest {
     }
 
     @Test
+    void ubuntuDeploymentGuideInstallsVerifiedCiArtifact() throws Exception {
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+
+        assertThat(deploymentGuide)
+                .contains("rankpeek-server-jar")
+                .contains("rankpeek-server-0.1.0.jar.sha256")
+                .contains("sha256sum -c rankpeek-server-0.1.0.jar.sha256")
+                .contains("scp rankpeek-server-0.1.0.jar ubuntu-host:/tmp/rankpeek-server-0.1.0.jar")
+                .contains("scp rankpeek-server-0.1.0.jar.sha256 ubuntu-host:/tmp/rankpeek-server-0.1.0.jar.sha256")
+                .contains("(cd /tmp && sha256sum -c rankpeek-server-0.1.0.jar.sha256)")
+                .contains("sudo cp /tmp/rankpeek-server-0.1.0.jar /opt/rankpeek/server/rankpeek-server.jar");
+    }
+
+    @Test
     void serverCiBuildsAndUploadsDeployableJar() throws Exception {
         String workflow = Files.readString(Path.of("../.github/workflows/rankpeek-server-ci.yml"));
 
