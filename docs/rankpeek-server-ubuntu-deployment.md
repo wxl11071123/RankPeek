@@ -106,6 +106,10 @@ RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
 RANKPEEK_INITIAL_ADMIN_PASSWORD=CHANGE_ME_INITIAL_ADMIN_PASSWORD
 RANKPEEK_INITIAL_ADMIN_DISPLAY_NAME=RankPeek Admin
 RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS=1
+RANKPEEK_RATE_LIMIT_ENABLED=true
+RANKPEEK_RATE_LIMIT_WINDOW_SECONDS=60
+RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS=20
+RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS=10
 ```
 
 Generate the JWT secret with:
@@ -115,6 +119,8 @@ openssl rand -hex 32
 ```
 
 Keep public registration disabled for internal MVP deployments unless you intentionally want open signup. If the production renderer or reverse proxy is not `http://localhost:5173`, set `RANKPEEK_CORS_ALLOWED_ORIGINS` to the exact trusted origin list.
+
+Application-level rate limiting is enabled by default. It applies a fixed window to registration, login, refresh-token, and AI analysis endpoints. Keep it enabled for MVP deployments; tune the auth and AI request counts only after looking at real traffic and support needs. This does not replace reverse-proxy or firewall rate limits.
 
 DeepSeek AI is disabled by default. To test the real provider, set these values in `/etc/rankpeek/rankpeek-server.env`:
 
@@ -206,6 +212,7 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 
 - Keep `RANKPEEK_SERVER_ADDRESS=127.0.0.1` until Nginx and HTTPS are added.
 - Do not expose port `18080` directly to the public internet.
+- Keep `RANKPEEK_RATE_LIMIT_ENABLED=true`; add Nginx or firewall rate limits before any public exposure.
 - `rankpeek.cn-meta.sync.real-source-enabled` remains `false` in production config.
 - `rankpeek.ai.enabled` remains `false` unless DeepSeek is intentionally configured for a real integration test.
 - Rotate secrets by editing `/etc/rankpeek/rankpeek-server.env` and running `sudo systemctl restart rankpeek-server`.

@@ -28,6 +28,12 @@ class ProdConfigurationTest {
                 .isEqualTo("${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}");
         assertThat(properties.getProperty("rankpeek.auth.public-registration-enabled"))
                 .isEqualTo("${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:false}");
+        assertThat(properties.getProperty("rankpeek.rate-limit.enabled"))
+                .isEqualTo("${RANKPEEK_RATE_LIMIT_ENABLED:true}");
+        assertThat(properties.getProperty("rankpeek.rate-limit.auth.max-requests"))
+                .isEqualTo("${RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS:20}");
+        assertThat(properties.getProperty("rankpeek.rate-limit.ai.max-requests"))
+                .isEqualTo("${RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS:10}");
         assertThat(properties.getProperty("rankpeek.cn-meta.sync.enabled"))
                 .isEqualTo("${RANKPEEK_CN_META_SYNC_ENABLED:false}");
         assertThat(properties.getProperty("rankpeek.cn-meta.sync.source"))

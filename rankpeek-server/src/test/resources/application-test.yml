@@ -29,6 +29,13 @@ rankpeek:
     public-registration-enabled: true
   credits:
     coach-summary-charge-credits: 1
+  rate-limit:
+    enabled: false
+    window-seconds: 60
+    auth:
+      max-requests: 20
+    ai:
+      max-requests: 10
   ai:
     enabled: false
     provider: mock

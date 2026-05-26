@@ -29,6 +29,13 @@ rankpeek:
     public-registration-enabled: ${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:true}
   credits:
     coach-summary-charge-credits: ${RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS:1}
+  rate-limit:
+    enabled: ${RANKPEEK_RATE_LIMIT_ENABLED:true}
+    window-seconds: ${RANKPEEK_RATE_LIMIT_WINDOW_SECONDS:60}
+    auth:
+      max-requests: ${RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS:20}
+    ai:
+      max-requests: ${RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS:10}
   ai:
     enabled: ${RANKPEEK_AI_ENABLED:false}
     provider: ${RANKPEEK_AI_PROVIDER:mock}

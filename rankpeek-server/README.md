@@ -26,6 +26,7 @@ This phase implements a server data, auth, admin, credits, CN meta sync, and moc
 - Deterministic mock services for patch, CN meta, LPL usage, playstyle cards, prompt context, and pregame/postgame analysis.
 - Disabled-by-default DeepSeek chat-completion provider for analysis streams.
 - Disabled-by-default manual sample client boundary for public aggregate `101.qq.com` CN meta data.
+- Enabled-by-default application rate limiting for auth and AI-cost endpoints.
 
 ## Boundaries
 
@@ -110,6 +111,8 @@ Before using the real sample client outside local development, the endpoint temp
 Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, or password recovery. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
 Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap and grant access intentionally instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
+
+Application-level rate limiting is enabled by default outside tests. It applies fixed-window limits to registration, login, refresh-token, `coach-summary`, and DeepSeek-backed analysis stream endpoints. Defaults are controlled by `RANKPEEK_RATE_LIMIT_WINDOW_SECONDS`, `RANKPEEK_RATE_LIMIT_AUTH_MAX_REQUESTS`, and `RANKPEEK_RATE_LIMIT_AI_MAX_REQUESTS`; exceeded requests return HTTP `429` with error code `RATE_LIMIT_EXCEEDED` and `Retry-After`.
 
 Production deployments can create or reset a first administrator at startup by setting:
 
