@@ -90,6 +90,14 @@ class BuildConfigurationTest {
                 .contains("RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED")
                 .contains("RANKPEEK_SMOKE_EXPECT_AI_ENABLED")
                 .contains("RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED");
+        assertThat(smokeScript)
+                .contains("validate_admin_diagnostics_config")
+                .contains("smoke admin credentials must set both RANKPEEK_SMOKE_ADMIN_EMAIL and RANKPEEK_SMOKE_ADMIN_PASSWORD, or leave both blank")
+                .contains("admin diagnostics expectations require RANKPEEK_SMOKE_ADMIN_EMAIL and RANKPEEK_SMOKE_ADMIN_PASSWORD")
+                .contains("${RANKPEEK_SMOKE_EXPECT_MODE+x}")
+                .contains("${RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION+x}")
+                .contains("[[ -z \"$ADMIN_EMAIL\" && -z \"$ADMIN_PASSWORD\" ]]")
+                .contains("[[ -z \"$ADMIN_EMAIL\" || -z \"$ADMIN_PASSWORD\" ]]");
         assertThat(monitorScript)
                 .contains("/api/server/health")
                 .contains("/api/server/diagnostics")
@@ -112,7 +120,8 @@ class BuildConfigurationTest {
                 .contains("RANKPEEK_MONITOR_WEBHOOK_URL=");
         assertThat(deploymentGuide)
                 .contains("Set both `RANKPEEK_MONITOR_ADMIN_EMAIL` and `RANKPEEK_MONITOR_ADMIN_PASSWORD` to enable diagnostics monitoring")
-                .contains("leave both blank to skip diagnostics");
+                .contains("leave both blank to skip diagnostics")
+                .contains("Set both `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD` before using any `RANKPEEK_SMOKE_EXPECT_*` diagnostics expectation");
         assertThat(service)
                 .contains("EnvironmentFile=/etc/rankpeek/rankpeek-server-monitor.env")
                 .contains("ExecStart=/usr/local/sbin/rankpeek-server-monitor.sh");

@@ -325,6 +325,8 @@ RANKPEEK_SMOKE_ADMIN_PASSWORD='CHANGE_ME_INITIAL_ADMIN_PASSWORD' \
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
+Set both `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD` before using any `RANKPEEK_SMOKE_EXPECT_*` diagnostics expectation. Leave both blank only for a public health/version smoke without admin diagnostics.
+
 For a stricter production preflight, also assert the deployment-facing configuration reported by admin diagnostics:
 
 ```bash
