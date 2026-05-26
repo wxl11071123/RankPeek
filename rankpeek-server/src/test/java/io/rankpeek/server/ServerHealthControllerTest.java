@@ -115,6 +115,51 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
     }
 
+    @Test
+    void unsupportedHttpMethodReturnsMethodNotAllowedResponse() throws Exception {
+        mockMvc.perform(post("/api/server/health"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
+    }
+
+    @Test
+    void unsupportedContentTypeReturnsUnsupportedMediaTypeResponse() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("email=user@example.com&password=Secret123!"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("UNSUPPORTED_MEDIA_TYPE"));
+    }
+
+    @Test
+    void malformedJsonReturnsBadRequestResponse() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
+    void missingRequiredQueryParamReturnsBadRequestResponse() throws Exception {
+        mockMvc.perform(get("/api/cn-meta/champions/266/latest"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+
+    @Test
+    void invalidPathVariableTypeReturnsBadRequestResponse() throws Exception {
+        mockMvc.perform(get("/api/cn-meta/champions/not-a-number/latest")
+                        .param("tierScope", "PLATINUM_PLUS"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+
     private AuthPayload createAdmin() throws Exception {
         String email = "admin-" + UUID.randomUUID() + "@example.com";
         String password = "Admin123!";
