@@ -20,7 +20,10 @@ class BuildConfigurationTest {
                 .parse(Path.of("pom.xml").toFile());
 
         assertThat(dependencyCoordinates(document))
-                .contains("org.flywaydb:flyway-database-postgresql");
+                .contains(
+                        "org.flywaydb:flyway-database-postgresql",
+                        "org.springframework.boot:spring-boot-starter-mail"
+                );
     }
 
     @Test
@@ -136,6 +139,29 @@ class BuildConfigurationTest {
                 .contains("rankpeek-server-ai-smoke.sh")
                 .contains("credits, DeepSeek, and coach-summary idempotency")
                 .contains("RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS");
+    }
+
+    @Test
+    void passwordResetEmailDeploymentConfigIsDocumentedAndDisabledByDefault() throws Exception {
+        String envExample = Files.readString(Path.of("deploy/ubuntu/rankpeek-server.env.example"));
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+        String readme = Files.readString(Path.of("README.md"));
+
+        assertThat(envExample)
+                .contains("RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=false")
+                .contains("RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com")
+                .contains("RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset")
+                .contains("# SPRING_MAIL_HOST=smtp.example.com")
+                .contains("# SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true");
+        assertThat(deploymentGuide)
+                .contains("RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true")
+                .contains("SPRING_MAIL_HOST=smtp.example.com")
+                .contains("startup fails if `RANKPEEK_PASSWORD_RESET_EMAIL_FROM`")
+                .contains("is not logged or returned by the API");
+        assertThat(readme)
+                .contains("Password reset email delivery is disabled by default")
+                .contains("SPRING_MAIL_HOST")
+                .contains("fails startup if the sender address or reset URL base is missing");
     }
 
     private static List<String> dependencyCoordinates(Document document) {

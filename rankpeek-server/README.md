@@ -111,7 +111,15 @@ Before using the real sample client outside local development, the endpoint temp
 - `POST /api/auth/password-reset/confirm`
 - `GET /api/auth/me`
 
-Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Password reset tokens are generated as opaque random values, stored only as SHA-256 hashes in `auth_password_reset_tokens`, expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`, and revoke active refresh-token sessions after a successful reset. The default password reset email sender is a no-op logger so production deployments must provide a real sender before exposing password reset to users. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, or real password reset email delivery by default. It does not store LCU tokens, SGP tokens, match history, or private game data.
+Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Password reset tokens are generated as opaque random values, stored only as SHA-256 hashes in `auth_password_reset_tokens`, expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`, and revoke active refresh-token sessions after a successful reset. Password reset email delivery is disabled by default; when `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true`, the server sends reset links through Spring Mail using configured SMTP settings and fails startup if the sender address or reset URL base is missing. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, CAPTCHA, or real password reset email delivery by default. It does not store LCU tokens, SGP tokens, match history, or private game data.
+
+To enable password reset email in a deployed environment, set:
+
+- `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true`
+- `RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com`
+- `RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset`
+- `RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset` or another subject
+- `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`, and SMTP auth/TLS properties for the chosen mail provider
 
 Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap and grant access intentionally instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
 
