@@ -250,16 +250,33 @@ class BuildConfigurationTest {
     @Test
     void serverCiBuildsAndUploadsDeployableJar() throws Exception {
         String workflow = Files.readString(Path.of("../.github/workflows/rankpeek-server-ci.yml"));
+        String gitAttributes = Files.readString(Path.of("../.gitattributes"));
 
         assertThat(workflow)
+                .contains("actions/checkout@v5")
+                .contains("actions/setup-java@v5")
                 .contains("mvn -B test")
                 .contains("mvn -B -DskipTests package")
                 .contains("(cd target && sha256sum rankpeek-server-0.1.0.jar > rankpeek-server-0.1.0.jar.sha256)")
-                .contains("actions/upload-artifact@v4")
+                .contains("actions/upload-artifact@v5")
                 .contains("name: rankpeek-server-jar")
                 .contains("rankpeek-server/target/rankpeek-server-0.1.0.jar")
                 .contains("rankpeek-server/target/rankpeek-server-0.1.0.jar.sha256")
                 .contains("if-no-files-found: error");
+        assertThat(workflow)
+                .doesNotContain("actions/checkout@v4")
+                .doesNotContain("actions/setup-java@v4")
+                .doesNotContain("actions/upload-artifact@v4");
+        assertThat(workflow)
+                .contains("Validate Ubuntu deploy shell scripts")
+                .contains("bash -n deploy/ubuntu/rankpeek-server-preflight.sh")
+                .contains("bash -n deploy/ubuntu/rankpeek-server-smoke.sh")
+                .contains("bash -n deploy/ubuntu/rankpeek-server-ai-smoke.sh")
+                .contains("bash -n deploy/ubuntu/postgres/rankpeek-postgres-backup.sh.example")
+                .contains("bash -n deploy/ubuntu/postgres/rankpeek-postgres-restore-drill.sh.example")
+                .contains("bash -n deploy/ubuntu/monitoring/rankpeek-server-monitor.sh.example");
+        assertThat(gitAttributes)
+                .contains(".github/workflows/*.yml text eol=lf");
     }
 
     @Test
