@@ -28,6 +28,14 @@ class ProdConfigurationTest {
                 .isEqualTo("${RANKPEEK_AUTH_ACCESS_TOKEN_SECRET}");
         assertThat(properties.getProperty("rankpeek.auth.public-registration-enabled"))
                 .isEqualTo("${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:false}");
+        assertThat(properties.getProperty("rankpeek.auth.password-reset-email.enabled"))
+                .isEqualTo("${RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED:false}");
+        assertThat(properties.getProperty("rankpeek.auth.password-reset-email.from"))
+                .isEqualTo("${RANKPEEK_PASSWORD_RESET_EMAIL_FROM:}");
+        assertThat(properties.getProperty("rankpeek.auth.password-reset-email.reset-url-base"))
+                .isEqualTo("${RANKPEEK_PASSWORD_RESET_URL_BASE:}");
+        assertThat(properties.getProperty("rankpeek.auth.password-reset-email.subject"))
+                .isEqualTo("${RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT:RankPeek password reset}");
         assertThat(properties.getProperty("rankpeek.rate-limit.enabled"))
                 .isEqualTo("${RANKPEEK_RATE_LIMIT_ENABLED:true}");
         assertThat(properties.getProperty("rankpeek.rate-limit.auth.max-requests"))

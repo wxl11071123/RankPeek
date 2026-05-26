@@ -31,6 +31,11 @@ rankpeek:
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
     password-reset-token-ttl-seconds: ${RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS:900}
+    password-reset-email:
+      enabled: ${RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED:false}
+      from: ${RANKPEEK_PASSWORD_RESET_EMAIL_FROM:}
+      reset-url-base: ${RANKPEEK_PASSWORD_RESET_URL_BASE:}
+      subject: ${RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT:RankPeek password reset}
     public-registration-enabled: ${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:false}
     initial-admin:
       enabled: ${RANKPEEK_INITIAL_ADMIN_ENABLED:false}

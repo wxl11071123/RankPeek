@@ -7,6 +7,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.List;
@@ -262,6 +264,23 @@ public class AuthService {
                 expiresAt,
                 now
         );
+        sendPasswordResetEmailAfterCommit(user, resetToken, expiresAt);
+    }
+
+    private void sendPasswordResetEmailAfterCommit(AuthUser user, String resetToken, Instant expiresAt) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sendPasswordResetEmail(user, resetToken, expiresAt);
+                }
+            });
+            return;
+        }
+        sendPasswordResetEmail(user, resetToken, expiresAt);
+    }
+
+    private void sendPasswordResetEmail(AuthUser user, String resetToken, Instant expiresAt) {
         try {
             passwordResetEmailSender.sendPasswordResetEmail(user, resetToken, expiresAt);
         } catch (RuntimeException exception) {

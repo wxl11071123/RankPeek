@@ -16,6 +16,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,6 +82,7 @@ class AuthPasswordResetControllerTest {
         assertThat(message.email()).isEqualTo(existingEmail);
         assertThat(message.resetToken()).isNotBlank();
         assertThat(message.expiresAt()).isAfter(Instant.now());
+        assertThat(message.tokenVisibleWhenEmailWasSent()).isTrue();
 
         String storedTokenHash = jdbcTemplate.queryForObject(
                 """
@@ -229,17 +234,32 @@ class AuthPasswordResetControllerTest {
     static class PasswordResetMailTestConfiguration {
         @Bean
         @Primary
-        CapturingPasswordResetEmailSender capturingPasswordResetEmailSender() {
-            return new CapturingPasswordResetEmailSender();
+        CapturingPasswordResetEmailSender capturingPasswordResetEmailSender(
+                DataSource dataSource,
+                TokenService tokenService
+        ) {
+            return new CapturingPasswordResetEmailSender(dataSource, tokenService);
         }
     }
 
     static class CapturingPasswordResetEmailSender implements PasswordResetEmailSender {
+        private final DataSource dataSource;
+        private final TokenService tokenService;
         private final List<CapturedPasswordResetEmail> messages = new ArrayList<>();
+
+        CapturingPasswordResetEmailSender(DataSource dataSource, TokenService tokenService) {
+            this.dataSource = dataSource;
+            this.tokenService = tokenService;
+        }
 
         @Override
         public void sendPasswordResetEmail(AuthUser user, String resetToken, Instant expiresAt) {
-            messages.add(new CapturedPasswordResetEmail(user.email(), resetToken, expiresAt));
+            messages.add(new CapturedPasswordResetEmail(
+                    user.email(),
+                    resetToken,
+                    expiresAt,
+                    tokenVisibleFromSeparateConnection(resetToken)
+            ));
         }
 
         void clear() {
@@ -249,9 +269,29 @@ class AuthPasswordResetControllerTest {
         List<CapturedPasswordResetEmail> messages() {
             return messages;
         }
+
+        private boolean tokenVisibleFromSeparateConnection(String resetToken) {
+            try (Connection connection = dataSource.getConnection();
+                 PreparedStatement statement = connection.prepareStatement(
+                         "select count(*) from auth_password_reset_tokens where token_hash = ?"
+                 )) {
+                statement.setString(1, tokenService.hashRefreshToken(resetToken));
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    resultSet.next();
+                    return resultSet.getInt(1) == 1;
+                }
+            } catch (Exception exception) {
+                throw new IllegalStateException("Unable to verify password reset token visibility", exception);
+            }
+        }
     }
 
-    private record CapturedPasswordResetEmail(String email, String resetToken, Instant expiresAt) {
+    private record CapturedPasswordResetEmail(
+            String email,
+            String resetToken,
+            Instant expiresAt,
+            boolean tokenVisibleWhenEmailWasSent
+    ) {
     }
 
     private record AuthPayload(String refreshToken) {

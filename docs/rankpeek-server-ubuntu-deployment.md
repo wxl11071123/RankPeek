@@ -101,6 +101,10 @@ RANKPEEK_SERVER_DB_PASSWORD=CHANGE_ME_DATABASE_PASSWORD
 RANKPEEK_CORS_ALLOWED_ORIGINS=http://localhost:5173
 RANKPEEK_AUTH_ACCESS_TOKEN_SECRET=CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_HEX_32
 RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS=900
+RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=false
+RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com
+RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset
+RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset
 RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false
 RANKPEEK_INITIAL_ADMIN_ENABLED=true
 RANKPEEK_INITIAL_ADMIN_EMAIL=admin@example.com
@@ -124,7 +128,22 @@ Keep public registration disabled for internal MVP deployments unless you intent
 
 Application-level rate limiting is enabled by default. It applies a fixed window to registration, login, refresh-token, password reset, and AI analysis endpoints. Keep it enabled for MVP deployments; tune the auth and AI request counts only after looking at real traffic and support needs. This does not replace reverse-proxy or firewall rate limits.
 
-Password reset tokens are stored only as SHA-256 hashes and expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`. The default server build includes only a no-op password reset email sender, so configure a real email sender implementation before exposing password reset to real users.
+Password reset tokens are stored only as SHA-256 hashes and expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`. Email delivery is disabled by default. To expose password reset to real users, set `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true`, configure the sender address and reset URL base, and provide SMTP settings through Spring Mail environment variables:
+
+```bash
+RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true
+RANKPEEK_PASSWORD_RESET_EMAIL_FROM=no-reply@example.com
+RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset
+RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset
+SPRING_MAIL_HOST=smtp.example.com
+SPRING_MAIL_PORT=587
+SPRING_MAIL_USERNAME=no-reply@example.com
+SPRING_MAIL_PASSWORD=CHANGE_ME_SMTP_PASSWORD
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true
+```
+
+When password reset email is enabled, startup fails if `RANKPEEK_PASSWORD_RESET_EMAIL_FROM` or `RANKPEEK_PASSWORD_RESET_URL_BASE` is blank. The reset token itself is only sent by email and is not logged or returned by the API.
 
 DeepSeek AI is disabled by default. To test the real provider, set these values in `/etc/rankpeek/rankpeek-server.env`:
 
