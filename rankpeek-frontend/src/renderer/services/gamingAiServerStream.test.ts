@@ -7,6 +7,7 @@ import {
   RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT,
   streamGamingAiAnalysis
 } from './gamingAiServerStream.ts'
+import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
 function createSnapshot(): GamingAiInputSnapshot {
   const base = {
@@ -92,7 +93,7 @@ test('streams gaming AI analysis delta and player verdict events from an SSE res
   const originalFetch = globalThis.fetch
 
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    assert.equal(String(url), `http://127.0.0.1:18080${RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT}`)
+    assert.equal(String(url), `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT}`)
     assert.equal(init?.method, 'POST')
     assert.deepEqual(init?.headers, { 'Content-Type': 'application/json' })
     assert.equal(JSON.parse(String(init?.body)).snapshotSchemaVersion, 'gaming_ai_input_snapshot.v2')

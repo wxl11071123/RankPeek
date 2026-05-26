@@ -1,7 +1,18 @@
-export const RANKPEEK_SERVER_BASE_URL = 'http://127.0.0.1:18080'
+export const DEFAULT_RANKPEEK_SERVER_BASE_URL = 'https://api.rankpeek.cn'
+export const RANKPEEK_SERVER_BASE_URL = normalizeRankPeekServerBaseUrl(
+  import.meta.env?.VITE_RANKPEEK_SERVER_BASE_URL
+)
 export const RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT = '/api/server/diagnostics'
 
 const RANKPEEK_SERVER_UNAVAILABLE_MESSAGE = 'rankpeek-server 暂不可用，请确认 Ubuntu/WSL 服务已启动'
+
+export function normalizeRankPeekServerBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return DEFAULT_RANKPEEK_SERVER_BASE_URL
+  }
+  return trimmed.replace(/\/+$/, '')
+}
 
 interface RankPeekServerDiagnosticsResponse {
   success?: boolean

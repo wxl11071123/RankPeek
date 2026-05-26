@@ -6,11 +6,22 @@ import {
   getLatestChampionMeta,
   getOpggChampionDetail,
   getOpggChampionList,
+  normalizeRankPeekServerBaseUrl,
   RANKPEEK_SERVER_BASE_URL,
   RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
 } from './rankpeekServerClient.ts'
 
-test('checks rankpeek-server diagnostics through the local server endpoint', async () => {
+test('uses the production HTTPS rankpeek-server endpoint by default', () => {
+  assert.equal(RANKPEEK_SERVER_BASE_URL, 'https://api.rankpeek.cn')
+})
+
+test('normalizes configured rankpeek-server base URLs', () => {
+  assert.equal(normalizeRankPeekServerBaseUrl(' http://127.0.0.1:18080/ '), 'http://127.0.0.1:18080')
+  assert.equal(normalizeRankPeekServerBaseUrl('https://api.rankpeek.cn///'), 'https://api.rankpeek.cn')
+  assert.equal(normalizeRankPeekServerBaseUrl(''), 'https://api.rankpeek.cn')
+})
+
+test('checks rankpeek-server diagnostics through the configured server endpoint', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {

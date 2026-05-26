@@ -7,6 +7,7 @@ import {
   RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT,
   submitGamingAiInputSnapshotToServer
 } from './gamingAiServerSync.ts'
+import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
 function createSnapshot(): GamingAiInputSnapshot {
   const base = {
@@ -90,7 +91,7 @@ test('creates a pregame mock request that carries both flattened tags and compac
   assert.equal(request.snapshot?.opponentSnapshot.side, 'enemy')
 })
 
-test('submits the snapshot to the local rankpeek-server mock endpoint', async () => {
+test('submits the snapshot to the configured rankpeek-server mock endpoint', async () => {
   const snapshot = createSnapshot()
   const calls: Array<{ url: string; init: RequestInit }> = []
   const originalFetch = globalThis.fetch
@@ -112,7 +113,7 @@ test('submits the snapshot to the local rankpeek-server mock endpoint', async ()
 
     assert.deepEqual(result, { ok: true, summary: 'mock analysis accepted' })
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `http://127.0.0.1:18080${RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT}`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT}`)
     assert.equal(calls[0]?.init.method, 'POST')
     assert.deepEqual(calls[0]?.init.headers, { 'Content-Type': 'application/json' })
     assert.equal(JSON.parse(String(calls[0]?.init.body)).snapshotSchemaVersion, 'gaming_ai_input_snapshot.v2')
