@@ -36,20 +36,32 @@ Public registration enabled:
 
 ## Gate 1: Build Artifact
 
-Run from the repository root on the build machine:
+For a main-branch launch, prefer the GitHub Actions artifact named `rankpeek-server-jar`.
+Download it from the green `RankPeek Server CI` run and verify the checksum before copying
+the jar to the Ubuntu host:
+
+```bash
+sha256sum -c rankpeek-server-0.1.0.jar.sha256
+```
+
+If building locally, run from the repository root on the build machine:
 
 ```bash
 cd rankpeek-server
 mvn test
 mvn -DskipTests package
-sha256sum target/rankpeek-server-0.1.0.jar
+(cd target && sha256sum rankpeek-server-0.1.0.jar > rankpeek-server-0.1.0.jar.sha256)
+(cd target && sha256sum -c rankpeek-server-0.1.0.jar.sha256)
 ```
 
 Required evidence:
 
 - [ ] `mvn test` passes.
+- [ ] CI artifact `rankpeek-server-jar` exists for the commit being deployed.
 - [ ] Jar exists at `rankpeek-server/target/rankpeek-server-0.1.0.jar`.
-- [ ] Jar SHA-256 is recorded.
+- [ ] `rankpeek-server-0.1.0.jar.sha256` exists.
+- [ ] `sha256sum -c rankpeek-server-0.1.0.jar.sha256` passes.
+- [ ] Jar SHA-256 is recorded in the launch notes.
 
 ## Gate 2: Server Bootstrap
 

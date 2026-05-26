@@ -169,6 +169,8 @@ class BuildConfigurationTest {
                 .contains("Gate 8: Monitoring Timer")
                 .contains("Gate 9: Rollback Readiness")
                 .contains("mvn test")
+                .contains("rankpeek-server-jar")
+                .contains("sha256sum -c rankpeek-server-0.1.0.jar.sha256")
                 .contains("rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
                 .contains("RANKPEEK_SMOKE_BASE_URL=https://api.rankpeek.example.com")
                 .contains("rankpeek-postgres-restore-drill.sh")
@@ -188,9 +190,11 @@ class BuildConfigurationTest {
         assertThat(workflow)
                 .contains("mvn -B test")
                 .contains("mvn -B -DskipTests package")
+                .contains("(cd target && sha256sum rankpeek-server-0.1.0.jar > rankpeek-server-0.1.0.jar.sha256)")
                 .contains("actions/upload-artifact@v4")
                 .contains("name: rankpeek-server-jar")
                 .contains("rankpeek-server/target/rankpeek-server-0.1.0.jar")
+                .contains("rankpeek-server/target/rankpeek-server-0.1.0.jar.sha256")
                 .contains("if-no-files-found: error");
     }
 
