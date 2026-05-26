@@ -22,7 +22,7 @@ This phase implements a server data, auth, admin, credits, CN meta sync, and moc
 - Flyway migration `V8__ai_analysis_run_results.sql` for AI run request hashes, replayable success results, failure messages, and charge/refund ledger links.
 - `V3__cn_meta_sync_foundation.sql` intentionally remains V3 because V2 is already used by auth; renaming it would break databases that have applied V3.
 - H2-backed local-dev and test profiles.
-- PostgreSQL production profile, Ubuntu systemd, Nginx reverse-proxy, and PostgreSQL backup templates, plus deployment smoke scripts.
+- PostgreSQL production profile, Ubuntu systemd, Nginx reverse-proxy, PostgreSQL backup, and monitoring templates, plus deployment smoke scripts.
 - Deterministic mock services for patch, CN meta, LPL usage, playstyle cards, prompt context, and pregame/postgame analysis.
 - Disabled-by-default DeepSeek chat-completion provider for analysis streams.
 - Disabled-by-default manual sample client boundary for public aggregate `101.qq.com` CN meta data.
@@ -204,7 +204,7 @@ See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubu
 
 Every `/api/**` response includes `X-Request-Id`. Clients may provide one for support flows; otherwise the server generates one and writes an `api_request` access log line with method, path, status, duration, and request id.
 
-After deploying the jar and systemd service, run `deploy/ubuntu/rankpeek-server-smoke.sh` on the Ubuntu host. It verifies public health/version endpoints and `X-Request-Id`; with `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD`, it also checks admin diagnostics and Flyway version `8`. The Ubuntu templates also include PostgreSQL backup and restore-drill scripts under `deploy/ubuntu/postgres/`.
+After deploying the jar and systemd service, run `deploy/ubuntu/rankpeek-server-smoke.sh` on the Ubuntu host. It verifies public health/version endpoints and `X-Request-Id`; with `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD`, it also checks admin diagnostics and Flyway version `8`. The Ubuntu templates also include PostgreSQL backup and restore-drill scripts under `deploy/ubuntu/postgres/`, plus a five-minute production monitor under `deploy/ubuntu/monitoring/`.
 
 Useful endpoints:
 

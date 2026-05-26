@@ -1,0 +1,14 @@
+[Unit]
+Description=RankPeek server production monitor
+After=network-online.target postgresql.service nginx.service rankpeek-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/rankpeek/rankpeek-server-monitor.env
+ExecStart=/usr/local/sbin/rankpeek-server-monitor.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadOnlyPaths=/var/backups/rankpeek/postgres
