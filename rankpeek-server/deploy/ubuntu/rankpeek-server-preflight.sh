@@ -26,6 +26,17 @@ require_file() {
   [[ -f "$path" ]] || fail "Env file not found: $path"
 }
 
+require_env_file_permissions() {
+  local path="$1"
+  local expected_owner="${RANKPEEK_PREFLIGHT_EXPECT_ENV_OWNER:-root}"
+  local expected_group="${RANKPEEK_PREFLIGHT_EXPECT_ENV_GROUP:-rankpeek}"
+  local expected_mode="${RANKPEEK_PREFLIGHT_EXPECT_ENV_MODE:-640}"
+  local expected actual
+  expected="${expected_owner}:${expected_group}:${expected_mode}"
+  actual="$(stat -c '%U:%G:%a' "$path")" || fail "Could not inspect env file permissions: $path"
+  [[ "$actual" == "$expected" ]] || fail "Expected ${path} permissions ${expected}, got ${actual}"
+}
+
 require_present() {
   local name="$1"
   local value
@@ -100,6 +111,7 @@ require_non_wildcard_cors() {
 }
 
 require_file "$ENV_FILE"
+require_env_file_permissions "$ENV_FILE"
 log "Loading ${ENV_FILE}"
 set -a
 # shellcheck disable=SC1090

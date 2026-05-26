@@ -124,6 +124,11 @@ class BuildConfigurationTest {
 
         assertThat(preflightScript)
                 .contains("RANKPEEK_PREFLIGHT_ENV_FILE")
+                .contains("require_env_file_permissions")
+                .contains("RANKPEEK_PREFLIGHT_EXPECT_ENV_OWNER")
+                .contains("RANKPEEK_PREFLIGHT_EXPECT_ENV_GROUP")
+                .contains("RANKPEEK_PREFLIGHT_EXPECT_ENV_MODE")
+                .contains("stat -c '%U:%G:%a'")
                 .contains("require_equals SPRING_PROFILES_ACTIVE prod")
                 .contains("require_equals RANKPEEK_SERVER_ADDRESS 127.0.0.1")
                 .contains("require_present RANKPEEK_SERVER_DB_PASSWORD")
@@ -142,12 +147,14 @@ class BuildConfigurationTest {
         assertThat(deploymentGuide)
                 .contains("rankpeek-server-preflight.sh")
                 .contains("sudo /opt/rankpeek/server/rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
+                .contains("verifies `/etc/rankpeek/rankpeek-server.env` ownership and mode")
                 .contains("Run the production preflight before the first service start");
         assertThat(gitAttributes)
                 .contains("rankpeek-server/deploy/**/*.env.example text eol=lf");
         assertThat(readme)
                 .contains("rankpeek-server-preflight.sh")
                 .contains("rejects placeholder secrets")
+                .contains("env file ownership and mode")
                 .contains("before starting the production service");
     }
 
@@ -172,6 +179,7 @@ class BuildConfigurationTest {
                 .contains("rankpeek-server-jar")
                 .contains("sha256sum -c rankpeek-server-0.1.0.jar.sha256")
                 .contains("rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
+                .contains("`/etc/rankpeek/rankpeek-server.env` is owned by `root:rankpeek` and mode `640`")
                 .contains("RANKPEEK_SMOKE_BASE_URL=https://api.rankpeek.example.com")
                 .contains("rankpeek-postgres-restore-drill.sh")
                 .contains("rankpeek-server-monitor.timer")
