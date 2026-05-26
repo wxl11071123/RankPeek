@@ -38,10 +38,15 @@ jobs:
       - name: Build deployable server jar
         run: mvn -B -DskipTests package
 
+      - name: Generate server jar checksum
+        run: (cd target && sha256sum rankpeek-server-0.1.0.jar > rankpeek-server-0.1.0.jar.sha256)
+
       - name: Upload server jar artifact
         uses: actions/upload-artifact@v4
         with:
           name: rankpeek-server-jar
-          path: rankpeek-server/target/rankpeek-server-0.1.0.jar
+          path: |
+            rankpeek-server/target/rankpeek-server-0.1.0.jar
+            rankpeek-server/target/rankpeek-server-0.1.0.jar.sha256
           if-no-files-found: error
           retention-days: 7
