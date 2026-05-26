@@ -83,6 +83,15 @@ require_bool() {
   [[ "$value" == "$expected" ]] || fail "Expected ${name}=${expected}, got ${value}"
 }
 
+require_boolean() {
+  local name="$1"
+  local value
+  value="$(value_of "$name")"
+  if [[ "$value" != "true" && "$value" != "false" ]]; then
+    fail "${name} must be true or false"
+  fi
+}
+
 enabled() {
   [[ "$(value_of "$1")" == "true" ]]
 }
@@ -110,6 +119,26 @@ require_non_wildcard_cors() {
   done
 }
 
+require_admin_access_path() {
+  require_boolean RANKPEEK_INITIAL_ADMIN_ENABLED
+  if enabled RANKPEEK_INITIAL_ADMIN_ENABLED; then
+    require_present RANKPEEK_INITIAL_ADMIN_EMAIL
+    reject_placeholder RANKPEEK_INITIAL_ADMIN_EMAIL
+    require_present RANKPEEK_INITIAL_ADMIN_PASSWORD
+    reject_placeholder RANKPEEK_INITIAL_ADMIN_PASSWORD
+    if [[ "$(value_of RANKPEEK_INITIAL_ADMIN_PASSWORD)" == "CHANGE_ME_INITIAL_ADMIN_PASSWORD" ]]; then
+      fail "RANKPEEK_INITIAL_ADMIN_PASSWORD still contains CHANGE_ME_INITIAL_ADMIN_PASSWORD"
+    fi
+    warn "Initial admin bootstrap is enabled; disable it after the first successful production login"
+    return
+  fi
+
+  if [[ "$(value_of RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED)" != "true" ]]; then
+    fail "RANKPEEK_INITIAL_ADMIN_ENABLED=false requires RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true after verifying an existing ADMIN account can log in"
+  fi
+  warn "Initial admin bootstrap is disabled; relying on a previously verified ADMIN account"
+}
+
 require_file "$ENV_FILE"
 require_env_file_permissions "$ENV_FILE"
 log "Loading ${ENV_FILE}"
@@ -128,6 +157,7 @@ require_secret RANKPEEK_AUTH_ACCESS_TOKEN_SECRET 32
 require_non_wildcard_cors
 require_bool RANKPEEK_PUBLIC_REGISTRATION_ENABLED false
 require_bool RANKPEEK_RATE_LIMIT_ENABLED true
+require_admin_access_path
 
 if enabled RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED; then
   require_present RANKPEEK_PASSWORD_RESET_EMAIL_FROM
@@ -152,17 +182,6 @@ if enabled RANKPEEK_AI_ENABLED; then
   reject_placeholder RANKPEEK_AI_API_KEY
 else
   warn "DeepSeek AI is disabled; AI-backed analysis endpoints will stay on mock/disabled behavior"
-fi
-
-if enabled RANKPEEK_INITIAL_ADMIN_ENABLED; then
-  require_present RANKPEEK_INITIAL_ADMIN_EMAIL
-  reject_placeholder RANKPEEK_INITIAL_ADMIN_EMAIL
-  require_present RANKPEEK_INITIAL_ADMIN_PASSWORD
-  reject_placeholder RANKPEEK_INITIAL_ADMIN_PASSWORD
-  if [[ "$(value_of RANKPEEK_INITIAL_ADMIN_PASSWORD)" == "CHANGE_ME_INITIAL_ADMIN_PASSWORD" ]]; then
-    fail "RANKPEEK_INITIAL_ADMIN_PASSWORD still contains CHANGE_ME_INITIAL_ADMIN_PASSWORD"
-  fi
-  warn "Initial admin bootstrap is enabled; disable it after the first successful production login"
 fi
 
 log "Preflight checks passed"

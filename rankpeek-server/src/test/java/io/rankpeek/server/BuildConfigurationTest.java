@@ -136,8 +136,10 @@ class BuildConfigurationTest {
         assertThat(preflightScriptPath).exists();
 
         String preflightScript = Files.readString(preflightScriptPath);
+        String envExample = Files.readString(Path.of("deploy/ubuntu/rankpeek-server.env.example"));
         String gitAttributes = Files.readString(Path.of("../.gitattributes"));
         String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+        String launchChecklist = Files.readString(Path.of("../docs/rankpeek-server-production-launch-checklist.md"));
         String readme = Files.readString(Path.of("README.md"));
 
         assertThat(preflightScript)
@@ -159,16 +161,24 @@ class BuildConfigurationTest {
                 .contains("RANKPEEK_AI_ENABLED")
                 .contains("RANKPEEK_AI_API_KEY")
                 .contains("RANKPEEK_INITIAL_ADMIN_ENABLED")
+                .contains("require_admin_access_path")
+                .contains("RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED")
                 .contains("reject_placeholder RANKPEEK_INITIAL_ADMIN_EMAIL")
                 .contains("CHANGE_ME_INITIAL_ADMIN_PASSWORD")
                 .contains("RANKPEEK_CORS_ALLOWED_ORIGINS")
                 .contains("Preflight checks passed");
+        assertThat(envExample)
+                .contains("RANKPEEK_INITIAL_ADMIN_ENABLED=true")
+                .contains("# Set RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true only after a verified ADMIN account already exists.");
         assertThat(deploymentGuide)
                 .contains("rankpeek-server-preflight.sh")
                 .contains("sudo /opt/rankpeek/server/rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
                 .contains("verifies `/etc/rankpeek/rankpeek-server.env` ownership and mode")
                 .contains("Run the production preflight before the first service start")
-                .contains("placeholder initial admin email values");
+                .contains("placeholder initial admin email values")
+                .contains("When `RANKPEEK_INITIAL_ADMIN_ENABLED=false`, set `RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true` only after a verified `ADMIN` account can log in.");
+        assertThat(launchChecklist)
+                .contains("Initial admin bootstrap is enabled, or `RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true` is recorded after an existing `ADMIN` login is verified.");
         assertThat(gitAttributes)
                 .contains("rankpeek-server/deploy/**/*.env.example text eol=lf");
         assertThat(readme)
@@ -176,6 +186,7 @@ class BuildConfigurationTest {
                 .contains("rejects placeholder secrets")
                 .contains("env file ownership and mode")
                 .contains("placeholder initial admin email")
+                .contains("RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED")
                 .contains("before starting the production service");
     }
 
@@ -224,6 +235,7 @@ class BuildConfigurationTest {
                 .contains("Public smoke result")
                 .contains("Restore drill result")
                 .contains("Named rollback operator")
+                .contains("Existing admin confirmed")
                 .contains("Launch decision");
         assertThat(deploymentGuide)
                 .contains("rankpeek-server-production-launch-checklist.md")

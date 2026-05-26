@@ -19,6 +19,7 @@ for each gate without storing real secrets.
 - [ ] Real PostgreSQL password is generated with `openssl rand -hex 24`.
 - [ ] Real `RANKPEEK_AUTH_ACCESS_TOKEN_SECRET` is generated with `openssl rand -hex 32`.
 - [ ] Initial admin email and temporary password are available outside the repo.
+- [ ] Initial admin bootstrap is enabled, or `RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true` is recorded after an existing `ADMIN` login is verified.
 - [ ] Product decision is recorded for `RANKPEEK_AI_ENABLED=true|false`.
 - [ ] Product decision is recorded for `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true|false`.
 - [ ] Product decision is recorded for `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`.
@@ -93,6 +94,7 @@ Required evidence:
 - [ ] `SPRING_PROFILES_ACTIVE=prod`.
 - [ ] `RANKPEEK_SERVER_ADDRESS=127.0.0.1`.
 - [ ] `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`.
+- [ ] `RANKPEEK_INITIAL_ADMIN_ENABLED=true`, unless an existing `ADMIN` login was verified and `RANKPEEK_PREFLIGHT_EXISTING_ADMIN_CONFIRMED=true` is set for preflight.
 - [ ] `RANKPEEK_RATE_LIMIT_ENABLED=true`.
 - [ ] `RANKPEEK_CORS_ALLOWED_ORIGINS` contains only trusted origins and no wildcard.
 - [ ] `/etc/rankpeek/rankpeek-server.env` is owned by `root:rankpeek` and mode `640`.
