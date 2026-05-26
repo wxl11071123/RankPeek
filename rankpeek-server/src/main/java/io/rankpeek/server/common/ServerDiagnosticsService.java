@@ -1,5 +1,8 @@
 package io.rankpeek.server.common;
 
+import io.rankpeek.server.ai.DeepSeekAiProperties;
+import io.rankpeek.server.auth.AuthProperties;
+import io.rankpeek.server.auth.PasswordResetEmailProperties;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.ConnectionCallback;
@@ -13,19 +16,47 @@ import java.util.List;
 public class ServerDiagnosticsService {
 
     private final ServerProperties properties;
+    private final AuthProperties authProperties;
+    private final PasswordResetEmailProperties passwordResetEmailProperties;
+    private final DeepSeekAiProperties aiProperties;
+    private final RateLimitProperties rateLimitProperties;
     private final JdbcTemplate jdbcTemplate;
 
-    public ServerDiagnosticsService(ServerProperties properties, JdbcTemplate jdbcTemplate) {
+    public ServerDiagnosticsService(
+            ServerProperties properties,
+            AuthProperties authProperties,
+            PasswordResetEmailProperties passwordResetEmailProperties,
+            DeepSeekAiProperties aiProperties,
+            RateLimitProperties rateLimitProperties,
+            JdbcTemplate jdbcTemplate
+    ) {
         this.properties = properties;
+        this.authProperties = authProperties;
+        this.passwordResetEmailProperties = passwordResetEmailProperties;
+        this.aiProperties = aiProperties;
+        this.rateLimitProperties = rateLimitProperties;
         this.jdbcTemplate = jdbcTemplate;
     }
 
     public ServerDiagnostics diagnostics() {
         DatabaseDiagnostics database = databaseDiagnostics();
         FlywayDiagnostics flyway = flywayDiagnostics();
+        ConfigurationDiagnostics configuration = configurationDiagnostics();
 
-        String status = "ok".equals(database.status()) && "ok".equals(flyway.status()) ? "ok" : "degraded";
-        return new ServerDiagnostics(status, properties.service(), properties.mode(), properties.version(), database, flyway);
+        String status = "ok".equals(database.status())
+                && "ok".equals(flyway.status())
+                && "ok".equals(configuration.status())
+                ? "ok"
+                : "degraded";
+        return new ServerDiagnostics(
+                status,
+                properties.service(),
+                properties.mode(),
+                properties.version(),
+                database,
+                flyway,
+                configuration
+        );
     }
 
     private DatabaseDiagnostics databaseDiagnostics() {
@@ -68,6 +99,27 @@ public class ServerDiagnosticsService {
         } catch (DataAccessException exception) {
             return new FlywayDiagnostics("error", null, 0, null, "flyway_query_failed");
         }
+    }
+
+    private ConfigurationDiagnostics configurationDiagnostics() {
+        boolean publicRegistrationEnabled = Boolean.TRUE.equals(authProperties.publicRegistrationEnabled());
+        boolean rateLimitEnabled = Boolean.TRUE.equals(rateLimitProperties.enabled());
+        boolean prodMode = "prod".equalsIgnoreCase(properties.mode());
+        boolean wildcardCors = properties.cors().allowedOrigins().stream().anyMatch("*"::equals);
+        String status = prodMode && (publicRegistrationEnabled || !rateLimitEnabled || wildcardCors)
+                ? "degraded"
+                : "ok";
+
+        return new ConfigurationDiagnostics(
+                status,
+                publicRegistrationEnabled,
+                passwordResetEmailProperties.enabled(),
+                aiProperties.deepSeekEnabled(),
+                aiProperties.provider(),
+                aiProperties.model(),
+                rateLimitEnabled,
+                properties.cors().allowedOrigins()
+        );
     }
 
     private record FlywayMigration(String version, String description) {

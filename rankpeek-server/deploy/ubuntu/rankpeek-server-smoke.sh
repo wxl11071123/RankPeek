@@ -5,6 +5,11 @@ BASE_URL="${RANKPEEK_SMOKE_BASE_URL:-${1:-http://127.0.0.1:18080}}"
 ADMIN_EMAIL="${RANKPEEK_SMOKE_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${RANKPEEK_SMOKE_ADMIN_PASSWORD:-}"
 EXPECTED_FLYWAY_VERSION="${RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION:-9}"
+EXPECTED_MODE="${RANKPEEK_SMOKE_EXPECT_MODE:-}"
+EXPECTED_PUBLIC_REGISTRATION_ENABLED="${RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED:-}"
+EXPECTED_PASSWORD_RESET_EMAIL_ENABLED="${RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED:-}"
+EXPECTED_AI_ENABLED="${RANKPEEK_SMOKE_EXPECT_AI_ENABLED:-}"
+EXPECTED_RATE_LIMIT_ENABLED="${RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED:-}"
 
 log() {
   printf '[rankpeek-smoke] %s\n' "$1"
@@ -17,6 +22,25 @@ fail() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+assert_optional_string() {
+  local label="$1" expected="$2" actual="$3"
+  if [[ -z "$expected" ]]; then
+    return
+  fi
+  [[ "$actual" == "$expected" ]] || fail "Expected ${label}=${expected}, got ${actual}"
+}
+
+assert_optional_bool() {
+  local label="$1" expected="$2" actual="$3"
+  if [[ -z "$expected" ]]; then
+    return
+  fi
+  if [[ "$expected" != "true" && "$expected" != "false" ]]; then
+    fail "${label} expectation must be true or false"
+  fi
+  [[ "$actual" == "$expected" ]] || fail "Expected ${label}=${expected}, got ${actual}"
 }
 
 require_command curl
@@ -86,6 +110,18 @@ printf '%s' "$DIAGNOSTICS_BODY" | jq -e --arg expected "$EXPECTED_FLYWAY_VERSION
   and .data.flyway.status == "ok"
   and (.data.flyway.currentVersion | tostring) == $expected
 ' >/dev/null || fail "Diagnostics did not report ok database/flyway status at Flyway version ${EXPECTED_FLYWAY_VERSION}"
+
+MODE="$(printf '%s' "$DIAGNOSTICS_BODY" | jq -r '.data.mode')"
+PUBLIC_REGISTRATION_ENABLED="$(printf '%s' "$DIAGNOSTICS_BODY" | jq -r '.data.configuration.publicRegistrationEnabled')"
+PASSWORD_RESET_EMAIL_ENABLED="$(printf '%s' "$DIAGNOSTICS_BODY" | jq -r '.data.configuration.passwordResetEmailEnabled')"
+AI_ENABLED="$(printf '%s' "$DIAGNOSTICS_BODY" | jq -r '.data.configuration.aiEnabled')"
+RATE_LIMIT_ENABLED="$(printf '%s' "$DIAGNOSTICS_BODY" | jq -r '.data.configuration.rateLimitEnabled')"
+
+assert_optional_string "mode" "$EXPECTED_MODE" "$MODE"
+assert_optional_bool "publicRegistrationEnabled" "$EXPECTED_PUBLIC_REGISTRATION_ENABLED" "$PUBLIC_REGISTRATION_ENABLED"
+assert_optional_bool "passwordResetEmailEnabled" "$EXPECTED_PASSWORD_RESET_EMAIL_ENABLED" "$PASSWORD_RESET_EMAIL_ENABLED"
+assert_optional_bool "aiEnabled" "$EXPECTED_AI_ENABLED" "$AI_ENABLED"
+assert_optional_bool "rateLimitEnabled" "$EXPECTED_RATE_LIMIT_ENABLED" "$RATE_LIMIT_ENABLED"
 
 log "Diagnostics check passed at Flyway version ${EXPECTED_FLYWAY_VERSION}"
 log "Smoke checks passed"

@@ -88,7 +88,15 @@ class ServerHealthControllerTest {
                 .andExpect(jsonPath("$.data.database.status").value("ok"))
                 .andExpect(jsonPath("$.data.flyway.status").value("ok"))
                 .andExpect(jsonPath("$.data.flyway.currentVersion").value("9"))
-                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(9)));
+                .andExpect(jsonPath("$.data.flyway.appliedCount").value(org.hamcrest.Matchers.greaterThanOrEqualTo(9)))
+                .andExpect(jsonPath("$.data.configuration.status").value("ok"))
+                .andExpect(jsonPath("$.data.configuration.publicRegistrationEnabled").value(true))
+                .andExpect(jsonPath("$.data.configuration.passwordResetEmailEnabled").value(false))
+                .andExpect(jsonPath("$.data.configuration.aiEnabled").value(false))
+                .andExpect(jsonPath("$.data.configuration.aiProvider").value("mock"))
+                .andExpect(jsonPath("$.data.configuration.aiModel").value("deepseek-v4-flash"))
+                .andExpect(jsonPath("$.data.configuration.rateLimitEnabled").value(false))
+                .andExpect(jsonPath("$.data.configuration.corsAllowedOrigins[0]").value("*"));
     }
 
     @Test
