@@ -93,6 +93,7 @@ public class DeepSeekAnalysisStreamer {
     private void stream(SseEmitter emitter, List<DeepSeekChatMessage> messages, DeepSeekStreamCallbacks callbacks) {
         AtomicReference<DeepSeekTokenUsage> usageReference = new AtomicReference<>();
         try {
+            pauseBeforeFirstSend();
             sendEvent(emitter, "start", "RankPeek DeepSeek stream started");
             sendEvent(emitter, "section", "DeepSeek 分析");
             chatClient.streamChat(
@@ -125,6 +126,7 @@ public class DeepSeekAnalysisStreamer {
         Set<String> allowedPlayerKeys = readSelectedPlayerKeys(request);
         AtomicReference<DeepSeekTokenUsage> usageReference = new AtomicReference<>();
         try {
+            pauseBeforeFirstSend();
             sendEvent(emitter, "start", "RankPeek DeepSeek stream started");
             chatClient.streamChat(
                     properties,
@@ -170,6 +172,11 @@ public class DeepSeekAnalysisStreamer {
         }
         sendPregameInsightLine(emitter, allowedPlayerKeys, buffer.toString());
         buffer.setLength(0);
+    }
+
+    private static void pauseBeforeFirstSend() throws InterruptedException {
+        // Let Spring initialize SseEmitter's handler before the writer thread sends.
+        Thread.sleep(10L);
     }
 
     private void sendPregameInsightLine(SseEmitter emitter, Set<String> allowedPlayerKeys, String line) {
