@@ -152,6 +152,36 @@ class BuildConfigurationTest {
     }
 
     @Test
+    void productionLaunchChecklistCoversRequiredGoLiveGates() throws Exception {
+        String launchChecklist = Files.readString(Path.of("../docs/rankpeek-server-production-launch-checklist.md"));
+        String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
+        String readme = Files.readString(Path.of("README.md"));
+
+        assertThat(launchChecklist)
+                .contains("Gate 0: External Inputs")
+                .contains("Gate 1: Build Artifact")
+                .contains("Gate 2: Server Bootstrap")
+                .contains("Gate 3: Production Env Preflight")
+                .contains("Gate 4: Local Service Smoke")
+                .contains("Gate 5: Public HTTPS Smoke")
+                .contains("Gate 6: AI Smoke")
+                .contains("Gate 7: Backup And Restore Drill")
+                .contains("Gate 8: Monitoring Timer")
+                .contains("Gate 9: Rollback Readiness")
+                .contains("mvn test")
+                .contains("rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-server.env")
+                .contains("RANKPEEK_SMOKE_BASE_URL=https://api.rankpeek.example.com")
+                .contains("rankpeek-postgres-restore-drill.sh")
+                .contains("rankpeek-server-monitor.timer")
+                .contains("Do not open port `18080`")
+                .contains("Do not mark launch complete until");
+        assertThat(deploymentGuide)
+                .contains("rankpeek-server-production-launch-checklist.md");
+        assertThat(readme)
+                .contains("rankpeek-server-production-launch-checklist.md");
+    }
+
+    @Test
     void ubuntuAiSmokeScriptExercisesCreditsCoachSummaryAndIdempotency() throws Exception {
         String aiSmokeScript = Files.readString(Path.of("deploy/ubuntu/rankpeek-server-ai-smoke.sh"));
         String envExample = Files.readString(Path.of("deploy/ubuntu/rankpeek-server.env.example"));

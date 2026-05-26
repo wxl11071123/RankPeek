@@ -212,7 +212,7 @@ The default local-dev server listens on `http://localhost:18080`.
 
 The first supported Ubuntu deployment shape is a Spring Boot jar running under systemd with local PostgreSQL and an Nginx HTTPS reverse proxy. Production config lives in `src/main/resources/application-prod.yml` and reads secrets from environment variables.
 
-See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubuntu-deployment.md) for the deploy steps and the systemd/env templates under `deploy/ubuntu/`.
+See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubuntu-deployment.md) for the deploy steps and the systemd/env templates under `deploy/ubuntu/`. Use [`../docs/rankpeek-server-production-launch-checklist.md`](../docs/rankpeek-server-production-launch-checklist.md) as the final go-live checklist for the first Ubuntu deployment.
 
 Every `/api/**` response includes `X-Request-Id`. Clients may provide one for support flows; otherwise the server generates one and writes an `api_request` access log line with method, path, status, duration, and request id.
 
