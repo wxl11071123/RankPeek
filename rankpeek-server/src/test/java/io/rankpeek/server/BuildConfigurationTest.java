@@ -161,6 +161,7 @@ class BuildConfigurationTest {
     @Test
     void productionLaunchChecklistCoversRequiredGoLiveGates() throws Exception {
         String launchChecklist = Files.readString(Path.of("../docs/rankpeek-server-production-launch-checklist.md"));
+        String launchNotesTemplate = Files.readString(Path.of("../docs/rankpeek-server-production-launch-notes-template.md"));
         String deploymentGuide = Files.readString(Path.of("../docs/rankpeek-server-ubuntu-deployment.md"));
         String readme = Files.readString(Path.of("README.md"));
 
@@ -185,10 +186,30 @@ class BuildConfigurationTest {
                 .contains("rankpeek-server-monitor.timer")
                 .contains("Do not open port `18080`")
                 .contains("Do not mark launch complete until");
+        assertThat(launchNotesTemplate)
+                .contains("rankpeek-server Production Launch Notes")
+                .contains("Gate 0: External Inputs")
+                .contains("Gate 1: Build Artifact")
+                .contains("Gate 2: Server Bootstrap")
+                .contains("Gate 3: Production Env Preflight")
+                .contains("Gate 4: Local Service Smoke")
+                .contains("Gate 5: Public HTTPS Smoke")
+                .contains("Gate 6: AI Smoke")
+                .contains("Gate 7: Backup And Restore Drill")
+                .contains("Gate 8: Monitoring Timer")
+                .contains("Gate 9: Rollback Readiness")
+                .contains("Jar SHA-256")
+                .contains("Preflight result")
+                .contains("Public smoke result")
+                .contains("Restore drill result")
+                .contains("Named rollback operator")
+                .contains("Launch decision");
         assertThat(deploymentGuide)
-                .contains("rankpeek-server-production-launch-checklist.md");
+                .contains("rankpeek-server-production-launch-checklist.md")
+                .contains("rankpeek-server-production-launch-notes-template.md");
         assertThat(readme)
-                .contains("rankpeek-server-production-launch-checklist.md");
+                .contains("rankpeek-server-production-launch-checklist.md")
+                .contains("rankpeek-server-production-launch-notes-template.md");
     }
 
     @Test

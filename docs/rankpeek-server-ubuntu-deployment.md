@@ -1,6 +1,6 @@
 # rankpeek-server Ubuntu Deployment
 
-This guide deploys `rankpeek-server` as a Spring Boot jar on one Ubuntu host with local PostgreSQL, systemd, and an Nginx HTTPS reverse proxy. It does not cover Docker, Kubernetes, managed load balancers, or multi-host deployments. Use `docs/rankpeek-server-production-launch-checklist.md` as the final go-live gate while executing this guide.
+This guide deploys `rankpeek-server` as a Spring Boot jar on one Ubuntu host with local PostgreSQL, systemd, and an Nginx HTTPS reverse proxy. It does not cover Docker, Kubernetes, managed load balancers, or multi-host deployments. Use `docs/rankpeek-server-production-launch-checklist.md` as the final go-live gate while executing this guide, and record the result with `docs/rankpeek-server-production-launch-notes-template.md`.
 
 ## 1. Install Runtime Dependencies
 
