@@ -87,6 +87,7 @@ class BuildConfigurationTest {
                 .contains("RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION:-9")
                 .contains("RANKPEEK_SMOKE_EXPECT_MODE")
                 .contains("RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED")
+                .contains("RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED")
                 .contains("RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED")
                 .contains("RANKPEEK_SMOKE_EXPECT_AI_ENABLED")
                 .contains("RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED");
@@ -96,6 +97,7 @@ class BuildConfigurationTest {
                 .contains("admin diagnostics expectations require RANKPEEK_SMOKE_ADMIN_EMAIL and RANKPEEK_SMOKE_ADMIN_PASSWORD")
                 .contains("${RANKPEEK_SMOKE_EXPECT_MODE+x}")
                 .contains("${RANKPEEK_SMOKE_EXPECTED_FLYWAY_VERSION+x}")
+                .contains("${RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED+x}")
                 .contains("[[ -z \"$ADMIN_EMAIL\" && -z \"$ADMIN_PASSWORD\" ]]")
                 .contains("[[ -z \"$ADMIN_EMAIL\" || -z \"$ADMIN_PASSWORD\" ]]");
         assertThat(monitorScript)
@@ -103,6 +105,7 @@ class BuildConfigurationTest {
                 .contains("/api/server/diagnostics")
                 .contains("systemctl is-active --quiet")
                 .contains("RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS")
+                .contains("RANKPEEK_MONITOR_EXPECT_INITIAL_ADMIN_ENABLED")
                 .contains("RANKPEEK_MONITOR_WEBHOOK_URL")
                 .contains("send_alert")
                 .contains(".data.refreshToken")
@@ -116,11 +119,13 @@ class BuildConfigurationTest {
         assertThat(monitorEnv)
                 .contains("RANKPEEK_MONITOR_BASE_URL=http://127.0.0.1:18080")
                 .contains("RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION=9")
+                .contains("RANKPEEK_MONITOR_EXPECT_INITIAL_ADMIN_ENABLED=false")
                 .contains("RANKPEEK_MONITOR_MAX_BACKUP_AGE_HOURS=30")
                 .contains("RANKPEEK_MONITOR_WEBHOOK_URL=");
         assertThat(deploymentGuide)
                 .contains("Set both `RANKPEEK_MONITOR_ADMIN_EMAIL` and `RANKPEEK_MONITOR_ADMIN_PASSWORD` to enable diagnostics monitoring")
                 .contains("leave both blank to skip diagnostics")
+                .contains("RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED")
                 .contains("Set both `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD` before using any `RANKPEEK_SMOKE_EXPECT_*` diagnostics expectation");
         assertThat(service)
                 .contains("EnvironmentFile=/etc/rankpeek/rankpeek-server-monitor.env")

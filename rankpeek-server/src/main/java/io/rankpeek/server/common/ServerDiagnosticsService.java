@@ -103,6 +103,7 @@ public class ServerDiagnosticsService {
 
     private ConfigurationDiagnostics configurationDiagnostics() {
         boolean publicRegistrationEnabled = Boolean.TRUE.equals(authProperties.publicRegistrationEnabled());
+        boolean initialAdminEnabled = authProperties.initialAdmin() != null && authProperties.initialAdmin().enabled();
         boolean rateLimitEnabled = Boolean.TRUE.equals(rateLimitProperties.enabled());
         boolean prodMode = "prod".equalsIgnoreCase(properties.mode());
         boolean wildcardCors = properties.cors().allowedOrigins().stream().anyMatch("*"::equals);
@@ -113,6 +114,7 @@ public class ServerDiagnosticsService {
         return new ConfigurationDiagnostics(
                 status,
                 publicRegistrationEnabled,
+                initialAdminEnabled,
                 passwordResetEmailProperties.enabled(),
                 aiProperties.deepSeekEnabled(),
                 aiProperties.provider(),

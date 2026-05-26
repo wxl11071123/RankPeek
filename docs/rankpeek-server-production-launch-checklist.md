@@ -118,13 +118,14 @@ RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \
 RANKPEEK_SMOKE_ADMIN_PASSWORD='<initial-admin-password>' \
 RANKPEEK_SMOKE_EXPECT_MODE=prod \
 RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED=false \
+RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED=true \
 RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED=false \
 RANKPEEK_SMOKE_EXPECT_AI_ENABLED=false \
 RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED=true \
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
-Adjust the password reset and AI expectations only when those features are intentionally enabled.
+Adjust the initial-admin expectation after disabling bootstrap, and adjust the password reset and AI expectations only when those features are intentionally enabled.
 
 Required evidence:
 
@@ -132,6 +133,7 @@ Required evidence:
 - [ ] `/api/server/health` returns `status=ok`.
 - [ ] `/api/server/diagnostics` reports database `ok`.
 - [ ] `/api/server/diagnostics` reports Flyway version `9`.
+- [ ] `/api/server/diagnostics` reports the expected `initialAdminEnabled` value for this phase.
 - [ ] Diagnostics config flags match the launch decisions.
 
 ## Gate 5: Public HTTPS Smoke
@@ -146,6 +148,7 @@ RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \
 RANKPEEK_SMOKE_ADMIN_PASSWORD='<initial-admin-password>' \
 RANKPEEK_SMOKE_EXPECT_MODE=prod \
 RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED=false \
+RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED=false \
 RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED=false \
 RANKPEEK_SMOKE_EXPECT_AI_ENABLED=false \
 RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED=true \
@@ -217,6 +220,7 @@ Required evidence:
 - [ ] `rankpeek-server-monitor.service` exits successfully.
 - [ ] `rankpeek-server-monitor.timer` is enabled and scheduled.
 - [ ] Monitor checks service health, diagnostics, and backup freshness.
+- [ ] Monitor asserts `RANKPEEK_MONITOR_EXPECT_INITIAL_ADMIN_ENABLED=false` after initial-admin bootstrap is disabled.
 - [ ] Alert webhook is configured or the temporary no-webhook decision is recorded.
 
 ## Gate 9: Rollback Readiness

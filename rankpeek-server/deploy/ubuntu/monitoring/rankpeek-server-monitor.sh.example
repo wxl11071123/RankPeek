@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 BASE_URL="${RANKPEEK_MONITOR_BASE_URL:-http://127.0.0.1:18080}"
 EXPECTED_FLYWAY_VERSION="${RANKPEEK_MONITOR_EXPECTED_FLYWAY_VERSION:-9}"
+EXPECTED_INITIAL_ADMIN_ENABLED="${RANKPEEK_MONITOR_EXPECT_INITIAL_ADMIN_ENABLED:-}"
 SERVICES="${RANKPEEK_MONITOR_SERVICES:-rankpeek-server postgresql nginx}"
 BACKUP_DIR="${RANKPEEK_MONITOR_BACKUP_DIR:-/var/backups/rankpeek/postgres}"
 BACKUP_GLOB="${RANKPEEK_MONITOR_BACKUP_GLOB:-rankpeek_server-*.dump}"
@@ -35,6 +36,13 @@ validate_admin_credentials_config() {
 
   if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
     add_failure "monitor admin credentials must set both RANKPEEK_MONITOR_ADMIN_EMAIL and RANKPEEK_MONITOR_ADMIN_PASSWORD, or leave both blank"
+  fi
+}
+
+validate_optional_bool() {
+  local name="$1" value="$2"
+  if [[ -n "$value" && "$value" != "true" && "$value" != "false" ]]; then
+    add_failure "${name} must be true or false when set"
   fi
 }
 
@@ -141,6 +149,13 @@ check_diagnostics() {
     add_failure "admin diagnostics did not report ok at Flyway version ${EXPECTED_FLYWAY_VERSION}"
   fi
 
+  if [[ -n "$EXPECTED_INITIAL_ADMIN_ENABLED" ]] \
+      && ! printf '%s' "$diagnostics_body" | jq -e --arg expected "$EXPECTED_INITIAL_ADMIN_ENABLED" '
+        (.data.configuration.initialAdminEnabled | tostring) == $expected
+      ' >/dev/null; then
+    add_failure "admin diagnostics initialAdminEnabled did not match ${EXPECTED_INITIAL_ADMIN_ENABLED}"
+  fi
+
   logout_monitor_session "$refresh_token"
 }
 
@@ -178,6 +193,7 @@ check_backup_freshness() {
 
 main() {
   validate_admin_credentials_config
+  validate_optional_bool RANKPEEK_MONITOR_EXPECT_INITIAL_ADMIN_ENABLED "$EXPECTED_INITIAL_ADMIN_ENABLED"
   require_command curl
   require_command jq
   require_command systemctl
