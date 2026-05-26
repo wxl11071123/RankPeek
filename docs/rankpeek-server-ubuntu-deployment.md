@@ -200,6 +200,7 @@ sudo /opt/rankpeek/server/rankpeek-server-preflight.sh /etc/rankpeek/rankpeek-se
 ```
 
 The preflight rejects placeholder secrets, missing required production values, wildcard CORS, disabled rate limiting, and open public registration for the internal MVP deployment shape. When password reset email, DeepSeek, or initial-admin bootstrap are enabled, it also verifies the dependent variables before systemd starts the service.
+It also verifies `/etc/rankpeek/rankpeek-server.env` ownership and mode before loading secrets; by default the file must be `root:rankpeek` with mode `640`.
 
 ## 6. Install and Start the systemd Service
 

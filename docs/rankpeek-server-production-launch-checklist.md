@@ -93,6 +93,7 @@ Required evidence:
 - [ ] `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`.
 - [ ] `RANKPEEK_RATE_LIMIT_ENABLED=true`.
 - [ ] `RANKPEEK_CORS_ALLOWED_ORIGINS` contains only trusted origins and no wildcard.
+- [ ] `/etc/rankpeek/rankpeek-server.env` is owned by `root:rankpeek` and mode `640`.
 - [ ] No value in `/etc/rankpeek/rankpeek-server.env` contains `CHANGE_ME`.
 
 ## Gate 4: Local Service Smoke
