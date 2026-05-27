@@ -1263,10 +1263,10 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
 <style scoped>
 .home-view {
   --module-edge-color: rgba(232, 221, 186, 0.46);
-  --module-edge-soft: rgba(212, 175, 55, 0.14);
-  --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
-  --module-edge-glow-strong: 0 0 0 1px rgba(212, 175, 55, 0.16), 0 12px 28px rgba(212, 175, 55, 0.11);
-  --home-module-hover-rgb: 212, 175, 55;
+  --module-edge-soft: rgba(96, 176, 255, 0.14);
+  --module-edge-glow: 0 0 0 1px rgba(96, 176, 255, 0.14), 0 10px 24px rgba(41, 151, 255, 0.1);
+  --module-edge-glow-strong: 0 0 0 1px rgba(96, 176, 255, 0.16), 0 12px 28px rgba(41, 151, 255, 0.11);
+  --home-module-hover-rgb: 96, 176, 255;
   --home-module-hover-border: rgba(var(--home-module-hover-rgb), 0.48);
   --home-module-hover-shadow:
     0 0 0 1px rgba(var(--home-module-hover-rgb), 0.16),
@@ -1279,9 +1279,9 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --edge-glow-size: 82px;
   --home-control-local-glow: transparent;
   --home-control-local-glow-fade: transparent;
-  --home-control-border-local-glow: rgba(148, 211, 255, 0.98);
-  --home-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
-  --home-control-edge-rgb: 148, 211, 255;
+  --home-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --home-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --home-control-edge-rgb: 78, 215, 255;
   --home-control-edge-shadow:
     inset 0 1px 0 rgba(var(--home-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
     inset -1px 0 0 rgba(var(--home-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
@@ -1660,16 +1660,16 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
 }
 
 .fortune-card {
-  --home-control-border-local-glow: rgba(255, 218, 76, 0.92);
-  --home-control-border-local-glow-fade: rgba(244, 183, 24, 0.42);
-  --home-control-edge-rgb: 255, 210, 62;
+  --home-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --home-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --home-control-edge-rgb: 78, 215, 255;
   --home-ai-hover-border: var(--home-module-hover-border);
   --home-ai-hover-shadow: var(--home-module-hover-shadow);
   --slot-window-border: rgba(232, 221, 186, 0.16);
   --slot-window-active-border: rgba(232, 221, 186, 0.3);
-  --slot-edge-rgb: 255, 210, 62;
-  --slot-edge-core: rgba(255, 218, 76, 0.96);
-  --slot-edge-fade: rgba(244, 183, 24, 0.5);
+  --slot-edge-rgb: 78, 215, 255;
+  --slot-edge-core: rgba(78, 215, 255, 0.98);
+  --slot-edge-fade: rgba(41, 151, 255, 0.48);
   min-height: var(--coach-report-height);
   height: var(--coach-report-height);
   box-sizing: border-box;
@@ -2005,11 +2005,11 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
 
 :global([data-theme="light"] .home-view) {
   --rp-light-gold-border: var(--border-color);
-  --rp-light-gold-border-hover: var(--border-color);
-  --rp-light-gold-edge-core: rgba(255, 218, 76, 0.94);
-  --rp-light-gold-edge-fade: rgba(244, 183, 24, 0.52);
-  --rp-light-gold-glow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
-  --rp-light-gold-glow-active: inset 0 1px 2px rgba(90, 70, 20, 0.18), 0 0 0 2px rgba(170, 126, 12, 0.08), 0 0 4px rgba(170, 126, 12, 0.12);
+  --rp-light-gold-border-hover: rgba(86, 109, 134, 0.42);
+  --rp-light-gold-edge-core: rgba(78, 215, 255, 0.98);
+  --rp-light-gold-edge-fade: rgba(41, 151, 255, 0.48);
+  --rp-light-gold-glow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 12px rgba(41, 151, 255, 0.2);
+  --rp-light-gold-glow-active: inset 0 1px 2px rgba(17, 77, 116, 0.14), 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 8px rgba(41, 151, 255, 0.18);
   --rp-light-global-glow: var(--rp-light-gold-glow);
   --rp-fortune-blue-border: rgba(41, 151, 255, 0.2);
   --rp-fortune-blue-border-strong: rgba(33, 196, 255, 0.42);
@@ -2023,10 +2023,10 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --rp-gold-glow-hover: var(--rp-light-gold-glow);
   --rp-gold-glow-active: var(--rp-light-gold-glow-active);
   --rp-blue-glow-hover: 0 0 0 2px rgba(41, 151, 255, 0.12), 0 0 6px rgba(41, 151, 255, 0.22);
-  --module-edge-color: rgba(226, 179, 34, 0.36);
-  --module-edge-soft: rgba(226, 179, 34, 0.1);
-  --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
-  --module-edge-glow-strong: 0 0 0 1px rgba(226, 179, 34, 0.13), 0 12px 26px rgba(226, 179, 34, 0.1);
+  --module-edge-color: rgba(86, 109, 134, 0.36);
+  --module-edge-soft: rgba(86, 109, 134, 0.1);
+  --module-edge-glow: 0 0 0 1px rgba(86, 109, 134, 0.1), 0 10px 22px rgba(86, 109, 134, 0.08);
+  --module-edge-glow-strong: 0 0 0 1px rgba(86, 109, 134, 0.13), 0 12px 26px rgba(86, 109, 134, 0.1);
   --home-module-hover-rgb: 86, 109, 134;
   --home-module-hover-border: rgba(var(--home-module-hover-rgb), 0.42);
   --home-module-hover-shadow:
@@ -2034,18 +2034,18 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
     0 0 18px rgba(var(--home-module-hover-rgb), 0.14),
     0 12px 28px rgba(var(--home-module-hover-rgb), 0.07);
   --home-control-bg: var(--bg-secondary);
-  --home-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --home-control-bg-hover: rgba(244, 249, 255, 0.98);
   --home-control-local-glow: transparent;
   --home-control-local-glow-fade: transparent;
   --control-edge-width: 2px;
   --control-edge-offset: -2px;
   --home-control-border-local-glow: var(--rp-light-gold-edge-core);
   --home-control-border-local-glow-fade: var(--rp-light-gold-edge-fade);
-  --home-control-edge-rgb: 255, 210, 62;
-  --home-control-bg-active: rgba(232, 216, 174, 0.98);
+  --home-control-edge-rgb: 78, 215, 255;
+  --home-control-bg-active: rgba(232, 241, 252, 0.98);
   --home-control-border: var(--rp-gold-border);
   --home-control-border-hover: var(--rp-gold-border-hover);
-  --home-control-text: #4f421e;
+  --home-control-text: #24384d;
   --home-control-shadow: var(--rp-gold-glow-soft);
   --home-control-hover-shadow: var(--rp-gold-glow-hover);
   --home-control-active-shadow: var(--rp-gold-glow-active);
@@ -2065,9 +2065,9 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --slot-window-top-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent);
   --slot-window-bottom-fade: linear-gradient(0deg, rgba(220, 229, 245, 0.34), transparent);
   --slot-window-active-border: rgba(41, 151, 255, 0.22);
-  --slot-edge-rgb: 255, 210, 62;
-  --slot-edge-core: rgba(255, 218, 76, 1);
-  --slot-edge-fade: rgba(244, 183, 24, 0.58);
+  --slot-edge-rgb: 78, 215, 255;
+  --slot-edge-core: rgba(78, 215, 255, 0.98);
+  --slot-edge-fade: rgba(41, 151, 255, 0.48);
   --slot-edge-size: 124px;
   --slot-edge-width: 4px;
   --slot-edge-inset-width: 3px;
@@ -2075,7 +2075,7 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --slot-edge-outer-alpha: 0.26;
   --rank-text: #2c2c2c;
   --switch-track-off: rgba(245, 245, 247, 0.98);
-  --switch-track-on: rgba(226, 179, 34, 0.46);
+  --switch-track-on: rgba(41, 151, 255, 0.46);
   --switch-track-border: var(--border-color);
   --switch-thumb-color: #fffaf0;
   --switch-thumb-active: #ffffff;
@@ -2109,11 +2109,11 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --home-control-bg-active: rgba(229, 231, 235, 0.94);
   --home-control-border: rgba(86, 109, 134, 0.22);
   --home-control-border-hover: rgba(86, 109, 134, 0.3);
-  --home-control-border-local-glow: rgba(86, 109, 134, 0.72);
-  --home-control-border-local-glow-fade: rgba(86, 109, 134, 0.28);
-  --home-control-edge-rgb: 86, 109, 134;
-  --home-control-hover-shadow: 0 0 0 1px rgba(86, 109, 134, 0.1), 0 0 10px rgba(86, 109, 134, 0.1);
-  --home-control-active-shadow: inset 0 1px 2px rgba(31, 41, 55, 0.1), 0 0 0 1px rgba(86, 109, 134, 0.08);
+  --home-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --home-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --home-control-edge-rgb: 78, 215, 255;
+  --home-control-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.1), 0 0 10px rgba(41, 151, 255, 0.16);
+  --home-control-active-shadow: inset 0 1px 2px rgba(31, 41, 55, 0.1), 0 0 0 1px rgba(41, 151, 255, 0.12);
   --control-hover-shadow: var(--home-control-hover-shadow);
   --home-ai-hover-bg: var(--bg-secondary);
   --home-ai-hover-border: var(--home-module-hover-border);
@@ -2127,9 +2127,9 @@ function formatRankDivisionPart(rank: QueueInfo | null, status: RankLoadStatus =
   --slot-window-top-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.64), transparent);
   --slot-window-bottom-fade: linear-gradient(0deg, rgba(229, 231, 235, 0.34), transparent);
   --slot-window-active-border: rgba(86, 109, 134, 0.32);
-  --slot-edge-rgb: 86, 109, 134;
-  --slot-edge-core: rgba(86, 109, 134, 0.72);
-  --slot-edge-fade: rgba(86, 109, 134, 0.28);
+  --slot-edge-rgb: 78, 215, 255;
+  --slot-edge-core: rgba(78, 215, 255, 0.98);
+  --slot-edge-fade: rgba(41, 151, 255, 0.48);
   --slot-edge-inset-alpha: 0.56;
   --slot-edge-outer-alpha: 0.22;
   --slot-reel-shadow: none;

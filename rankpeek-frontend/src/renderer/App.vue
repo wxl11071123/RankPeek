@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
-  .main-content {
+  .main-content:not(.main-content-standalone) {
     padding: 14px;
   }
 }

@@ -344,15 +344,15 @@ function openActiveReport() {
   --coach-glow-strength: 0.82;
   --record-panel-bg: var(--bg-secondary, #1d1d1f);
   --record-panel-border: var(--border-color, rgba(255, 255, 255, 0.1));
-  --record-panel-glow-rgb: var(--home-module-hover-rgb, 212, 175, 55);
-  --record-panel-border-hover: var(--home-module-hover-border, rgba(212, 175, 55, 0.48));
+  --record-panel-glow-rgb: var(--home-module-hover-rgb, 96, 176, 255);
+  --record-panel-border-hover: var(--home-module-hover-border, rgba(96, 176, 255, 0.48));
   --record-panel-glow: rgba(var(--record-panel-glow-rgb), 0.18);
   --record-panel-glow-soft: rgba(var(--record-panel-glow-rgb), 0.08);
   --record-panel-hover-shadow: var(
     --home-module-hover-shadow,
-    0 0 0 1px rgba(212, 175, 55, 0.16),
-    0 0 18px rgba(212, 175, 55, 0.18),
-    0 12px 28px rgba(212, 175, 55, 0.08)
+    0 0 0 1px rgba(96, 176, 255, 0.16),
+    0 0 18px rgba(41, 151, 255, 0.18),
+    0 12px 28px rgba(41, 151, 255, 0.08)
   );
   --record-heading-color: var(--text-primary, rgba(230, 238, 246, 0.96));
   --record-count-color: rgba(190, 212, 232, 0.76);

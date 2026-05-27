@@ -79,6 +79,7 @@ import {
   getChampionIconUrl,
   markAssetLoadFailed
 } from '@/utils/gameAssetUrls'
+import { championOptionMatchesSearch } from '@/utils/championSearchAliases'
 
 const props = defineProps<{
   list: OpggChampionList | null
@@ -101,6 +102,14 @@ const championNameMap = computed(() => {
   return map
 })
 
+const championOptionMap = computed(() => {
+  const map = new Map<number, ChampionOption>()
+  for (const option of props.championOptions) {
+    map.set(option.value, option)
+  }
+  return map
+})
+
 const tableItems = computed(() => {
   const keyword = props.searchText.trim().toLowerCase()
   const selectedPosition = props.selectedPosition
@@ -108,6 +117,10 @@ const tableItems = computed(() => {
     .filter(item => selectedPosition === 'none' || Boolean(selectedPositionStats(item)))
     .filter(item => {
       if (!keyword) return true
+      const option = championOptionMap.value.get(item.championId)
+      if (option) {
+        return championOptionMatchesSearch(option, keyword)
+      }
       const name = championName(item.championId).toLowerCase()
       return name.includes(keyword) || String(item.championId).includes(keyword)
     })

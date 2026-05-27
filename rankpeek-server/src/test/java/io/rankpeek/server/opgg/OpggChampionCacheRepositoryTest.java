@@ -120,7 +120,9 @@ class OpggChampionCacheRepositoryTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(new OpggBuildOption("core", List.of(3118, 3152, 4645), List.of(), 70L, 0.54, 0.19))
+                List.of(new OpggBuildOption("core", List.of(3118, 3152, 4645), List.of(), 70L, 0.54, 0.19)),
+                List.of(new OpggBuildOption("last", List.of(3089), List.of(), 30L, 0.63, 0.12)),
+                List.of()
         );
     }
 

@@ -688,9 +688,9 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
   width: 100%;
   min-height: 26px;
   padding: 0 9px;
-  border: 1px solid rgba(212, 175, 55, 0.32);
+  border: 1px solid rgba(96, 176, 255, 0.32);
   border-radius: 7px;
-  background: rgba(212, 175, 55, 0.1);
+  background: rgba(41, 151, 255, 0.1);
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 850;
@@ -702,8 +702,8 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 
 .saved-ai-action:hover,
 .saved-ai-action:focus-visible {
-  border-color: rgba(212, 175, 55, 0.58);
-  background: rgba(212, 175, 55, 0.18);
+  border-color: rgba(96, 176, 255, 0.58);
+  background: rgba(41, 151, 255, 0.18);
   outline: none;
   transform: translateY(-1px);
 }

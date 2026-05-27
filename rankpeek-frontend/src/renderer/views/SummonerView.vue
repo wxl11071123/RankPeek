@@ -8,8 +8,11 @@
       :lookup-query="searchName"
       :lookup-loading="loading"
       :lookup-error="error"
+      :recent-lookup-summoners="recentLookupSummoners"
+      :active-lookup-name="activeLookupName"
       @update:lookup-query="searchName = $event"
       @lookup="searchSummoner()"
+      @select-recent-lookup="searchSummoner($event)"
     />
   </div>
 </template>
@@ -26,13 +29,24 @@ const gameStore = useGameStore()
 const route = useRoute()
 const { t } = useI18n()
 
+const RECENT_LOOKUP_STORAGE_KEY = 'rankpeek:summoner:recent-lookups'
+const RECENT_LOOKUP_LIMIT = 7
+
+interface PersistedRecentLookupState {
+  lastLookupName: string
+  summoners: Summoner[]
+}
+
 const searchName = ref('')
 const searchResult = ref<Summoner | null>(null)
 const loading = ref(false)
 const error = ref('')
+const recentLookupSummoners = ref<Summoner[]>([])
+const lastLookupName = ref('')
 let searchRequestId = 0
 
 const resolvedSearchResult = computed(() => searchResult.value)
+const activeLookupName = computed(() => searchResult.value ? formatSummonerName(searchResult.value) : searchName.value)
 const lookupUsesLocalCache = computed(() =>
   Boolean(
     gameStore.currentSummoner?.puuid &&
@@ -41,12 +55,108 @@ const lookupUsesLocalCache = computed(() =>
   )
 )
 
-function formatSummonerName(summoner: Summoner): string {
+function formatSummonerName(summoner: Summoner | null | undefined): string {
+  if (!summoner) {
+    return ''
+  }
   return summoner.tagLine ? `${summoner.gameName}#${summoner.tagLine}` : summoner.gameName
 }
 
 function normalizeLookupName(value: string | null | undefined): string {
   return (value ?? '').trim().toLocaleLowerCase()
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function readNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function toPersistedSummonerIdentity(summoner: Summoner): Summoner {
+  return {
+    gameName: summoner.gameName,
+    tagLine: summoner.tagLine,
+    puuid: summoner.puuid,
+    profileIconId: summoner.profileIconId,
+    summonerLevel: summoner.summonerLevel,
+    summonerId: summoner.summonerId
+  }
+}
+
+function readPersistedSummonerIdentity(value: unknown): Summoner | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const gameName = readString(value.gameName).trim()
+  if (!gameName) {
+    return null
+  }
+
+  return {
+    gameName,
+    tagLine: readString(value.tagLine).trim(),
+    puuid: readString(value.puuid).trim(),
+    profileIconId: readNumber(value.profileIconId),
+    summonerLevel: readNumber(value.summonerLevel),
+    summonerId: readNumber(value.summonerId)
+  }
+}
+
+function getSummonerLookupKey(summoner: Summoner): string {
+  return summoner.puuid
+    ? `puuid:${summoner.puuid}`
+    : `name:${normalizeLookupName(formatSummonerName(summoner))}`
+}
+
+function persistRecentLookupState() {
+  try {
+    localStorage.setItem(RECENT_LOOKUP_STORAGE_KEY, JSON.stringify({
+      lastLookupName: lastLookupName.value,
+      summoners: recentLookupSummoners.value.map(toPersistedSummonerIdentity)
+    }))
+  } catch {
+    // Lookup history is a convenience cache; storage failures should not block search.
+  }
+}
+
+function loadRecentLookupState() {
+  let parsed: unknown
+  try {
+    const raw = localStorage.getItem(RECENT_LOOKUP_STORAGE_KEY)
+    parsed = raw ? JSON.parse(raw) : null
+  } catch {
+    return
+  }
+
+  if (!isRecord(parsed)) {
+    return
+  }
+
+  const nextSummoners = Array.isArray(parsed.summoners)
+    ? parsed.summoners
+      .map(readPersistedSummonerIdentity)
+      .filter((summoner): summoner is Summoner => summoner !== null)
+      .slice(0, RECENT_LOOKUP_LIMIT)
+    : []
+
+  recentLookupSummoners.value = nextSummoners
+  lastLookupName.value = readString(parsed.lastLookupName).trim() || formatSummonerName(nextSummoners[0] || null)
+}
+
+function rememberLookupSummoner(summoner: Summoner) {
+  const key = getSummonerLookupKey(summoner)
+  const next = recentLookupSummoners.value.filter(item => getSummonerLookupKey(item) !== key)
+
+  lastLookupName.value = formatSummonerName(summoner)
+  recentLookupSummoners.value = [summoner, ...next].slice(0, RECENT_LOOKUP_LIMIT)
+  persistRecentLookupState()
 }
 
 function summonerMatchesLookup(summoner: Summoner, keyword: string): boolean {
@@ -81,6 +191,7 @@ async function searchSummoner(nameOverride?: string) {
   const currentSummoner = resolveCurrentSummonerLookup(keyword)
   if (currentSummoner) {
     searchResult.value = currentSummoner
+    rememberLookupSummoner(currentSummoner)
     loading.value = false
     return
   }
@@ -99,6 +210,7 @@ async function searchSummoner(nameOverride?: string) {
     }
 
     searchResult.value = summoner
+    rememberLookupSummoner(summoner)
   } catch (err) {
     if (requestId !== searchRequestId) {
       return
@@ -124,13 +236,33 @@ async function applyRouteQueryName(value: unknown) {
   await searchSummoner(value)
 }
 
+async function restoreLastLookupIfNeeded() {
+  if (typeof route.query.name === 'string' && route.query.name.trim()) {
+    return
+  }
+  if (!lastLookupName.value) {
+    return
+  }
+
+  await searchSummoner(lastLookupName.value)
+}
+
 onMounted(async () => {
-  await applyRouteQueryName(route.query.name)
+  loadRecentLookupState()
+  if (typeof route.query.name === 'string' && route.query.name.trim()) {
+    await applyRouteQueryName(route.query.name)
+    return
+  }
+  await restoreLastLookupIfNeeded()
 })
 
 watch(
   () => route.query.name,
   async value => {
+    if (typeof value !== 'string' || !value.trim()) {
+      await restoreLastLookupIfNeeded()
+      return
+    }
     await applyRouteQueryName(value)
   }
 )
@@ -143,6 +275,7 @@ watch(
     }
     searchRequestId += 1
     searchResult.value = currentSummoner
+    rememberLookupSummoner(currentSummoner)
     error.value = ''
     loading.value = false
   }

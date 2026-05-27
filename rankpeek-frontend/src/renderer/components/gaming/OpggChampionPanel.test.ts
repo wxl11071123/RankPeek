@@ -22,12 +22,25 @@ test('OP.GG champion panel keeps the existing core stats and build sections', ()
   assert.match(source, /formatPercent\(detail\.stats\.banRate\)/)
   assert.match(source, /formatNumber\(detail\.stats\.kda\)/)
   assert.match(source, /summonerSpells/)
+  assert.match(source, /augments/)
   assert.match(source, /runes/)
   assert.match(source, /skillOrders/)
   assert.match(source, /starterItems/)
   assert.match(source, /boots/)
   assert.match(source, /coreItems/)
+  assert.match(source, /lastItems/)
+  assert.match(source, /第四\/五\/六件装备/)
   assert.match(source, /getIconUrl\(section\.iconType, id\)/)
+  assert.match(source, /getAugmentIconUrl/)
+  assert.match(source, /if \(iconType === 'augment'\) return getAugmentIconUrl\(id\)/)
+})
+
+test('OP.GG champion panel only shows augment sections for arena mode', () => {
+  const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
+  const buildSections = source.match(/const buildSections = computed<BuildSection\[\]>\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
+
+  assert.match(buildSections, /if \(detail\.mode === 'arena'\)/)
+  assert.match(buildSections, /sections\.push\(\{ key: 'augments'/)
 })
 
 test('OP.GG champion panel shows counter champion icons in the detail header', () => {
@@ -107,12 +120,13 @@ test('OP.GG champion panel renders skill orders as QWER chips with detailed sequ
   assert.match(source, /opgg-skill-index/)
 })
 
-test('OP.GG champion panel uses larger blue labels, white centered rates, and sample size at bottom right', () => {
+test('OP.GG champion panel keeps build row labels above their own values', () => {
   const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
 
   assert.match(source, /opgg-build-meta-column/)
   assert.match(source, /opgg-build-pick/)
   assert.match(source, /opgg-build-win/)
+  assert.match(source, /opgg-build-sample/)
   assert.match(source, /选择率/)
   assert.match(source, /胜率/)
   assert.match(source, /样本/)
@@ -120,11 +134,35 @@ test('OP.GG champion panel uses larger blue labels, white centered rates, and sa
   assert.match(source, /formatPercent\(option\.winRate\)/)
   assert.match(source, /formatGameCount\(option\.games\)/)
   assert.match(source, /align-self: center/)
-  assert.match(source, /position: relative/)
-  assert.match(source, /grid-template-columns: repeat\(2, minmax\(62px, 1fr\)\)/)
+  assert.match(source, /\.opgg-build-meta \{[\s\S]*white-space: nowrap/)
+  assert.match(source, /\.opgg-build-meta \{[\s\S]*grid-template-columns:\s*repeat\(3,\s*max-content\)/)
+  assert.match(source, /\.opgg-build-meta-column \{[\s\S]*display: grid/)
+  assert.match(source, /\.opgg-build-meta-column \{[\s\S]*grid-template-rows: auto auto/)
   assert.match(source, /\.opgg-build-meta span \{[\s\S]*color: #38bdf8[\s\S]*font-size: 13px/)
   assert.match(source, /\.opgg-build-meta strong \{[\s\S]*color: var\(--text-primary\)[\s\S]*font-size: 17px/)
-  assert.match(source, /\.opgg-build-meta-column \{/)
-  assert.match(source, /grid-template-rows: 18px 24px/)
-  assert.match(source, /\.opgg-build-win em \{[\s\S]*position: absolute[\s\S]*right: 0[\s\S]*bottom: 0/)
+  assert.match(source, /\.opgg-build-sample em \{[\s\S]*position: static/)
+  assert.doesNotMatch(source, /\.opgg-build-meta-column \{[\s\S]*align-items: baseline/)
+})
+
+test('OP.GG champion panel keeps detail cards and build rows compact at minimum width', () => {
+  const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.opgg-panel \{[\s\S]*min-width:\s*0/)
+  assert.match(source, /\.opgg-content \{[\s\S]*padding:\s*14px 16px 16px/)
+  assert.match(source, /\.opgg-summary \{[\s\S]*grid-template-columns:\s*repeat\(4, minmax\(112px,\s*1fr\)\)/)
+  assert.match(source, /\.opgg-build-row \{[\s\S]*gap:\s*8px[\s\S]*padding:\s*8px/)
+  assert.match(source, /\.opgg-build-meta \{[\s\S]*min-width:\s*240px/)
+  assert.match(source, /\.opgg-icon-slot \{[\s\S]*width:\s*28px[\s\S]*height:\s*28px/)
+})
+
+test('OP.GG champion panel keeps header stats and build rows on one line at narrow width', () => {
+  const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.opgg-panel-header \{[\s\S]*flex-wrap:\s*nowrap/)
+  assert.match(source, /\.opgg-summary \{[\s\S]*grid-template-columns:\s*repeat\(4, minmax\(112px,\s*1fr\)\)/)
+  assert.match(source, /\.opgg-build-row \{[\s\S]*flex-wrap:\s*nowrap/)
+  assert.match(source, /\.opgg-icon-chain \{[\s\S]*flex-wrap:\s*nowrap/)
+  assert.match(source, /\.opgg-build-meta \{[\s\S]*display:\s*grid/)
+  assert.doesNotMatch(source, /@media \(max-width: 720px\)[\s\S]*flex-direction:\s*column/)
+  assert.doesNotMatch(source, /@media \(max-width: 720px\)[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0,\s*1fr\)\)/)
 })

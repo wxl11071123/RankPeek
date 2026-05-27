@@ -137,6 +137,7 @@ import {
   type OpggChampionPositionStats
 } from '@/services/rankpeekServerClient.ts'
 import type { ChampionOption, SessionData, Summoner } from '@/types/api'
+import { championOptionMatchesSearch } from '@/utils/championSearchAliases'
 
 type OpggMode = 'ranked' | 'aram' | 'arena' | 'urf' | 'nexus_blitz'
 type OpggRegion = 'kr'
@@ -226,12 +227,7 @@ const filteredChampionOptions = computed(() => {
     return championOptions.value
   }
 
-  return championOptions.value.filter(champion => (
-    String(champion.label || '').toLowerCase().includes(keyword) ||
-    String(champion.realName || '').toLowerCase().includes(keyword) ||
-    String(champion.nickname || '').toLowerCase().includes(keyword) ||
-    String(champion.value).includes(keyword)
-  ))
+  return championOptions.value.filter(champion => championOptionMatchesSearch(champion, keyword))
 })
 
 const activeChampionTitle = computed(() => {
@@ -716,8 +712,10 @@ function normalizeMode(value: unknown): OpggMode {
 
 <style scoped>
 .opgg-window-view {
+  box-sizing: border-box;
   height: 100%;
   min-height: 0;
+  min-width: 720px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
@@ -729,10 +727,10 @@ function normalizeMode(value: unknown): OpggMode {
 .opgg-toolbar {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(396px, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
+  gap: 6px;
+  padding: 6px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-secondary);
@@ -742,20 +740,20 @@ function normalizeMode(value: unknown): OpggMode {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .opgg-heading h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
 }
 
 .opgg-filter-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(118px, 0.88fr) minmax(118px, 0.88fr) repeat(3, minmax(88px, 0.62fr));
-  gap: 6px;
+  grid-template-columns: 96px 64px 86px 82px 68px;
+  gap: 4px;
   align-items: center;
 }
 
@@ -764,7 +762,7 @@ function normalizeMode(value: unknown): OpggMode {
   width: 100%;
   min-width: 0;
   height: 30px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   background: var(--bg-tertiary);
@@ -782,14 +780,15 @@ function normalizeMode(value: unknown): OpggMode {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 
 .opgg-follow-btn,
 .opgg-refresh-btn,
 .opgg-toolbar-back-btn {
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   background: var(--bg-tertiary);
@@ -801,7 +800,7 @@ function normalizeMode(value: unknown): OpggMode {
 }
 
 .opgg-toolbar-back-btn {
-  min-height: 28px;
+  min-height: 30px;
   border-color: rgba(var(--accent-rgb), 0.32);
 }
 
@@ -828,20 +827,5 @@ function normalizeMode(value: unknown): OpggMode {
 :global([data-theme="light"] .opgg-window-view .opgg-toolbar),
 :global([data-theme="light"] .opgg-window-view .opgg-window-panel) {
   box-shadow: 0 16px 36px rgba(50, 60, 72, 0.08);
-}
-
-@media (max-width: 920px) {
-  .opgg-toolbar {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
-
-  .opgg-filter-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .opgg-toolbar-actions {
-    justify-content: flex-start;
-  }
 }
 </style>

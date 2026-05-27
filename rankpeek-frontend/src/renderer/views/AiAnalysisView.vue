@@ -834,13 +834,13 @@ async function refreshLocalAnalysisResults() {
 
 <style scoped>
 .ai-analysis-view {
-  --ai-analysis-module-hover-rgb: 212, 175, 55;
+  --ai-analysis-module-hover-rgb: 96, 176, 255;
   --ai-analysis-module-hover-border: rgba(var(--ai-analysis-module-hover-rgb), 0.48);
   --ai-analysis-module-hover-shadow:
     0 0 0 1px rgba(var(--ai-analysis-module-hover-rgb), 0.16),
     0 0 18px rgba(var(--ai-analysis-module-hover-rgb), 0.18),
     0 12px 28px rgba(var(--ai-analysis-module-hover-rgb), 0.08);
-  --ai-analysis-control-hover-rgb: 212, 175, 55;
+  --ai-analysis-control-hover-rgb: 78, 215, 255;
   --ai-analysis-control-hover-border: rgba(var(--ai-analysis-control-hover-rgb), 0.46);
   --ai-analysis-control-hover-bg: rgba(var(--ai-analysis-control-hover-rgb), 0.08);
   --ai-analysis-control-hover-shadow:
@@ -854,9 +854,9 @@ async function refreshLocalAnalysisResults() {
   --ai-record-divider: rgba(255, 255, 255, 0.07);
   --ai-record-pill-bg: rgba(255, 255, 255, 0.045);
   --ai-record-pill-border: rgba(255, 255, 255, 0.09);
-  --ai-record-hover-border: rgba(212, 175, 55, 0.42);
+  --ai-record-hover-border: rgba(96, 176, 255, 0.42);
   --ai-record-hover-shadow:
-    0 0 0 1px rgba(212, 175, 55, 0.08),
+    0 0 0 1px rgba(41, 151, 255, 0.08),
     0 14px 28px rgba(0, 0, 0, 0.24);
   --ai-record-review-font: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", "PMingLiU", "Times New Roman", serif;
   --ai-record-praise-font: YouYuan, "You Yuan", "Microsoft YaHei UI", "Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif;
@@ -878,7 +878,7 @@ async function refreshLocalAnalysisResults() {
     0 0 0 1px rgba(var(--ai-analysis-module-hover-rgb), 0.14),
     0 0 18px rgba(var(--ai-analysis-module-hover-rgb), 0.14),
     0 12px 28px rgba(var(--ai-analysis-module-hover-rgb), 0.07);
-  --ai-analysis-control-hover-rgb: 226, 179, 34;
+  --ai-analysis-control-hover-rgb: 78, 215, 255;
   --ai-analysis-control-hover-border: rgba(var(--ai-analysis-control-hover-rgb), 0.42);
   --ai-analysis-control-hover-bg: rgba(var(--ai-analysis-control-hover-rgb), 0.1);
   --ai-analysis-control-hover-shadow:
@@ -892,9 +892,9 @@ async function refreshLocalAnalysisResults() {
   --ai-record-divider: rgba(29, 29, 31, 0.08);
   --ai-record-pill-bg: rgba(29, 29, 31, 0.035);
   --ai-record-pill-border: rgba(29, 29, 31, 0.09);
-  --ai-record-hover-border: rgba(166, 133, 32, 0.36);
+  --ai-record-hover-border: rgba(86, 109, 134, 0.36);
   --ai-record-hover-shadow:
-    0 0 0 1px rgba(166, 133, 32, 0.08),
+    0 0 0 1px rgba(41, 151, 255, 0.08),
     0 14px 26px rgba(21, 27, 35, 0.08);
   --ai-record-review-bg: linear-gradient(135deg, rgba(255, 252, 244, 0.98), rgba(247, 249, 252, 0.98));
   --ai-record-review-border: rgba(166, 133, 32, 0.28);

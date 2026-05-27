@@ -141,6 +141,23 @@ test('non-ranked OP.GG query enables by mode and leaves champion detail empty wh
   assert.equal(query.position, 'none')
 })
 
+test('OP.GG query disables aram mayhem instead of requesting OP.GG data', () => {
+  const query = buildOpggChampionQuery(session({
+    queueId: 450,
+    queueType: 'ARAM_MAYHEM',
+    typeCn: '海克斯大乱斗 大乱斗：混战'
+  }))
+
+  assert.equal(query.enabled, false)
+  assert.equal(query.championId, null)
+  assert.equal(query.mode, '')
+  assert.equal(query.region, 'kr')
+  assert.equal(query.tier, '')
+  assert.equal(query.position, '')
+  assert.equal(query.filterLabel, '')
+  assert.match(query.reason, /暂不支持 OP\.GG/)
+})
+
 test('OP.GG query maps low and common ranked tiers to OP.GG plus buckets', () => {
   assert.equal(buildOpggChampionQuery(session({}, player({
     rank: { queueMap: { RANKED_SOLO_5x5: queueInfo('SILVER'), RANKED_FLEX_SR: queueInfo('GOLD') } }

@@ -20,3 +20,10 @@ test('OP.GG champion tier table renders Akari-style list columns and emits selec
   assert.match(source, /selectedPositionStats\(item\)/)
   assert.match(source, /counter\.championId/)
 })
+
+test('OP.GG champion tier table uses shared champion nickname search aliases', () => {
+  const source = readFileSync(new URL('./OpggChampionTierTable.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /from '@\/utils\/championSearchAliases'/)
+  assert.match(source, /championOptionMatchesSearch/)
+})
