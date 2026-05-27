@@ -30,7 +30,7 @@ test('summoner lookup delegates the match analysis body to the shared panel', ()
   const source = readFileSync(new URL('./SummonerView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /import SummonerMatchHistoryPanel from '@\/components\/summoner\/SummonerMatchHistoryPanel\.vue'/)
-  assert.match(source, /<SummonerMatchHistoryPanel[\s\S]*:summoner="resolvedSearchResult"[\s\S]*variant="lookup"[\s\S]*:connected="gameStore\.connected"[\s\S]*:local-cache-enabled="lookupUsesLocalCache"[\s\S]*:lookup-query="searchName"[\s\S]*:lookup-loading="loading"[\s\S]*:lookup-error="error"[\s\S]*@update:lookup-query="searchName = \$event"[\s\S]*@lookup="searchSummoner\(\)"[\s\S]*\/>/)
+  assert.match(source, /<SummonerMatchHistoryPanel[\s\S]*:summoner="resolvedSearchResult"[\s\S]*variant="lookup"[\s\S]*:connected="gameStore\.connected"[\s\S]*:local-cache-enabled="lookupUsesLocalCache"[\s\S]*:lookup-query="searchName"[\s\S]*:lookup-loading="loading"[\s\S]*:lookup-error="error"[\s\S]*:recent-lookup-summoners="recentLookupSummoners"[\s\S]*:active-lookup-name="activeLookupName"[\s\S]*@update:lookup-query="searchName = \$event"[\s\S]*@lookup="searchSummoner\(\)"[\s\S]*@select-recent-lookup="searchSummoner\(\$event\)"[\s\S]*\/>/)
   assert.doesNotMatch(source, /class="search-shell"/)
   assert.doesNotMatch(source, /class="search-bar"/)
   assert.doesNotMatch(source, /class="search-input"/)
@@ -42,6 +42,31 @@ test('summoner lookup delegates the match analysis body to the shared panel', ()
   assert.doesNotMatch(source, /class="lookup-filter-bar"/)
   assert.doesNotMatch(source, /class="match-card-main"/)
   assert.doesNotMatch(source, /class="roster-grid"/)
+})
+
+test('summoner lookup persists only recent summoner identities for automatic restore', () => {
+  const source = readFileSync(new URL('./SummonerView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const RECENT_LOOKUP_STORAGE_KEY = 'rankpeek:summoner:recent-lookups'/)
+  assert.match(source, /const RECENT_LOOKUP_LIMIT = 7/)
+  assert.match(source, /interface PersistedRecentLookupState \{[\s\S]*lastLookupName: string[\s\S]*summoners: Summoner\[\][\s\S]*\}/)
+  assert.match(source, /const recentLookupSummoners = ref<Summoner\[\]>\(\[\]\)/)
+  assert.match(source, /const lastLookupName = ref\(''\)/)
+  assert.match(source, /function persistRecentLookupState\(\) \{[\s\S]*localStorage\.setItem\(RECENT_LOOKUP_STORAGE_KEY, JSON\.stringify\(\{[\s\S]*lastLookupName: lastLookupName\.value,[\s\S]*summoners: recentLookupSummoners\.value\.map\(toPersistedSummonerIdentity\)[\s\S]*\}\)\)/)
+  assert.match(source, /function toPersistedSummonerIdentity\(summoner: Summoner\): Summoner \{[\s\S]*gameName: summoner\.gameName,[\s\S]*tagLine: summoner\.tagLine,[\s\S]*puuid: summoner\.puuid,[\s\S]*profileIconId: summoner\.profileIconId,[\s\S]*summonerLevel: summoner\.summonerLevel,[\s\S]*summonerId: summoner\.summonerId/)
+  assert.doesNotMatch(source, /persistRecentLookupState[\s\S]*matchHistory/)
+  assert.doesNotMatch(source, /RECENT_LOOKUP_STORAGE_KEY[\s\S]*rank(?:ed)?WinRates|userTag|filterChampionId|filterQueueId|expandedGameId/)
+})
+
+test('summoner lookup restores the last player only when the route has no explicit name', () => {
+  const source = readFileSync(new URL('./SummonerView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /function loadRecentLookupState\(\) \{[\s\S]*localStorage\.getItem\(RECENT_LOOKUP_STORAGE_KEY\)/)
+  assert.match(source, /async function restoreLastLookupIfNeeded\(\) \{[\s\S]*if \(typeof route\.query\.name === 'string' && route\.query\.name\.trim\(\)\) \{[\s\S]*return[\s\S]*\}[\s\S]*if \(!lastLookupName\.value\) \{[\s\S]*return[\s\S]*\}[\s\S]*await searchSummoner\(lastLookupName\.value\)/)
+  assert.match(source, /onMounted\(async \(\) => \{[\s\S]*loadRecentLookupState\(\)[\s\S]*if \(typeof route\.query\.name === 'string' && route\.query\.name\.trim\(\)\) \{[\s\S]*await applyRouteQueryName\(route\.query\.name\)[\s\S]*return[\s\S]*\}[\s\S]*await restoreLastLookupIfNeeded\(\)[\s\S]*\}\)/)
+  assert.match(source, /function rememberLookupSummoner\(summoner: Summoner\) \{[\s\S]*lastLookupName\.value = formatSummonerName\(summoner\)[\s\S]*recentLookupSummoners\.value = \[summoner, \.\.\.next\]\.slice\(0, RECENT_LOOKUP_LIMIT\)[\s\S]*persistRecentLookupState\(\)/)
+  assert.match(source, /searchResult\.value = summoner[\s\S]*rememberLookupSummoner\(summoner\)/)
+  assert.match(source, /searchResult\.value = currentSummoner[\s\S]*rememberLookupSummoner\(currentSummoner\)/)
 })
 
 test('current-account lookup reuses the connected summoner context instead of refetching by name', () => {
@@ -111,13 +136,13 @@ test('summoner lookup follows the shared module and control glow contract', () =
   const lookupNearRule = extractRule(panel, ".match-history-view[data-variant='lookup'] .page-shell.surface-glow[data-near-glow='true']:not(:hover):not(:focus-within),")
   const lookupAfterRule = extractRule(panel, ".match-history-view[data-variant='lookup'] .page-shell::after")
 
-  assert.match(variablesRule, /--match-module-hover-rgb:\s*212,\s*175,\s*55/)
+  assert.match(variablesRule, /--match-module-hover-rgb:\s*96,\s*176,\s*255/)
   assert.match(variablesRule, /--match-module-hover-border:\s*rgba\(var\(--match-module-hover-rgb\),\s*0\.48\)/)
   assert.match(variablesRule, /--match-module-hover-shadow:/)
   assert.match(lightVariablesRule, /--match-module-hover-rgb:\s*86,\s*109,\s*134/)
   assert.match(lightVariablesRule, /--match-module-hover-border:\s*rgba\(var\(--match-module-hover-rgb\),\s*0\.42\)/)
   assert.match(lightVariablesRule, /--match-control-border-local-glow:\s*var\(--rp-light-gold-edge-core\)/)
-  assert.match(lightVariablesRule, /--match-control-border-hover:\s*rgba\(226,\s*179,\s*34,\s*0\.42\)/)
+  assert.match(lightVariablesRule, /--match-control-border-hover:\s*rgba\(86,\s*109,\s*134,\s*0\.42\)/)
 
   assert.match(lookupShellRule, /border:\s*1px solid var\(--border-color\)/)
   assert.match(lookupShellRule, /background:\s*var\(--bg-secondary\)/)

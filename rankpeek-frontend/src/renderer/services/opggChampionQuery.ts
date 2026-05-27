@@ -99,6 +99,15 @@ function resolveMode(sessionData: SessionData): string {
   if (queueId === 420 || queueId === 440 || text.includes('RANKED_SOLO') || text.includes('RANKED_FLEX')) {
     return 'ranked'
   }
+  if (
+    text.includes('ARAM_MAYHEM') ||
+    text.includes('MAYHEM') ||
+    text.includes('海克斯大乱斗') ||
+    text.includes('大乱斗：混战') ||
+    text.includes('大亂鬥：混戰')
+  ) {
+    return ''
+  }
   if (queueId === 450 || text.includes('ARAM') || text.includes('大乱斗')) {
     return 'aram'
   }

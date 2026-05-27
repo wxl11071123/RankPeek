@@ -52,7 +52,7 @@ test('refresh icon button renders a clockwise icon and spinning animation', () =
 })
 
 test('refresh icon button follows the layered design glow contract', () => {
-  assert.match(source, /\.refresh-icon-btn \{[\s\S]*--refresh-glow-x: 50%[\s\S]*--refresh-glow-opacity: 0[\s\S]*--refresh-border: rgba\(255, 255, 255, 0\.12\)[\s\S]*--refresh-border-hover: rgba\(92, 181, 255, 0\.62\)[\s\S]*--refresh-local-core: rgba\(148, 211, 255, 0\.96\)[\s\S]*--refresh-local-fade: rgba\(96, 176, 255, 0\.38\)[\s\S]*--refresh-edge-shadow:[\s\S]*--refresh-hover-shadow:/)
+  assert.match(source, /\.refresh-icon-btn \{[\s\S]*--refresh-glow-x: 50%[\s\S]*--refresh-glow-opacity: 0[\s\S]*--refresh-border: rgba\(255, 255, 255, 0\.12\)[\s\S]*--refresh-border-hover: rgba\(92, 181, 255, 0\.62\)[\s\S]*--refresh-local-core: rgba\(78, 215, 255, 0\.98\)[\s\S]*--refresh-local-fade: rgba\(41, 151, 255, 0\.48\)[\s\S]*--refresh-edge-shadow:[\s\S]*--refresh-hover-shadow:/)
   assert.match(source, /border: 1px solid var\(--refresh-border\)/)
   assert.match(source, /background: var\(--refresh-bg\)/)
   assert.match(source, /\.refresh-icon-btn::before \{[\s\S]*radial-gradient\([\s\S]*circle var\(--refresh-edge-size\) at calc\(var\(--refresh-glow-x\) \+ 1px\) calc\(var\(--refresh-glow-y\) \+ 1px\)[\s\S]*var\(--refresh-local-core\) 0%[\s\S]*var\(--refresh-local-fade\) 42%[\s\S]*mask-composite: exclude/)
@@ -64,7 +64,7 @@ test('refresh icon button follows the layered design glow contract', () => {
   assert.doesNotMatch(source, /0 0 22px rgba\(92, 163, 234, calc\(var\(--refresh-glow-opacity\) \* 0\.46\)\)/)
   assert.match(source, /\.refresh-icon-btn:focus-visible \{[\s\S]*border-color: var\(--refresh-border-focus\)[\s\S]*box-shadow:[\s\S]*var\(--refresh-focus-shadow\),[\s\S]*var\(--refresh-edge-shadow\)/)
   assert.match(source, /\.refresh-icon \{[\s\S]*stroke: currentColor/)
-  assert.match(source, /:global\(\[data-theme="light"\] \.refresh-icon-btn\) \{[\s\S]*--refresh-local-core: rgba\(226, 179, 34, 0\.86\)[\s\S]*--refresh-local-fade: rgba\(226, 179, 34, 0\.32\)[\s\S]*color: #000 !important/)
+  assert.match(source, /:global\(\[data-theme="light"\] \.refresh-icon-btn\) \{[\s\S]*--refresh-local-core: rgba\(78, 215, 255, 0\.98\)[\s\S]*--refresh-local-fade: rgba\(41, 151, 255, 0\.48\)[\s\S]*color: #000 !important/)
   assert.match(source, /:global\(\[data-theme="light"\] \.refresh-icon-btn:hover\) \{[\s\S]*border-color: var\(--refresh-border-hover\)[\s\S]*box-shadow:[\s\S]*var\(--refresh-hover-shadow\),[\s\S]*var\(--refresh-edge-shadow\)[\s\S]*color: #000 !important/)
   assert.match(source, /:global\(\[data-theme="light"\] \.refresh-icon-btn \.refresh-icon\),[\s\S]*:global\(\[data-theme="light"\] \.refresh-icon-btn \.refresh-icon path\) \{[\s\S]*stroke: #000 !important/)
   assert.match(source, /\.refresh-icon-btn:disabled \{[\s\S]*opacity: 0\.45[\s\S]*cursor: not-allowed/)

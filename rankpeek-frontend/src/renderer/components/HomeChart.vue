@@ -741,14 +741,14 @@ function pointAriaLabel(point: ChartPoint): string {
 <style scoped>
 .home-chart-card {
   --module-edge-color: rgba(232, 221, 186, 0.46);
-  --module-edge-soft: rgba(212, 175, 55, 0.14);
-  --module-edge-glow: 0 0 0 1px rgba(212, 175, 55, 0.14), 0 10px 24px rgba(212, 175, 55, 0.1);
-  --chart-module-hover-border: var(--home-module-hover-border, rgba(212, 175, 55, 0.48));
+  --module-edge-soft: rgba(96, 176, 255, 0.14);
+  --module-edge-glow: 0 0 0 1px rgba(96, 176, 255, 0.14), 0 10px 24px rgba(41, 151, 255, 0.1);
+  --chart-module-hover-border: var(--home-module-hover-border, rgba(96, 176, 255, 0.48));
   --chart-module-hover-shadow: var(
     --home-module-hover-shadow,
-    0 0 0 1px rgba(212, 175, 55, 0.16),
-    0 0 18px rgba(212, 175, 55, 0.18),
-    0 12px 28px rgba(212, 175, 55, 0.08)
+    0 0 0 1px rgba(96, 176, 255, 0.16),
+    0 0 18px rgba(41, 151, 255, 0.18),
+    0 12px 28px rgba(41, 151, 255, 0.08)
   );
   --chart-hover-border: var(--chart-module-hover-border);
   --chart-hover-shadow: var(--chart-module-hover-shadow);
@@ -761,9 +761,9 @@ function pointAriaLabel(point: ChartPoint): string {
   --edge-glow-size: 82px;
   --chart-control-local-glow: transparent;
   --chart-control-local-glow-fade: transparent;
-  --chart-control-border-local-glow: rgba(148, 211, 255, 0.98);
-  --chart-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
-  --chart-control-edge-rgb: 148, 211, 255;
+  --chart-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --chart-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --chart-control-edge-rgb: 78, 215, 255;
   --chart-control-edge-shadow:
     inset 0 1px 0 rgba(var(--chart-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
     inset -1px 0 0 rgba(var(--chart-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
@@ -1206,11 +1206,11 @@ function pointAriaLabel(point: ChartPoint): string {
 
 :global([data-theme="light"] .home-chart-card) {
   --rp-light-gold-border: var(--border-color);
-  --rp-light-gold-border-hover: var(--border-color);
-  --rp-light-gold-edge-core: rgba(255, 218, 76, 0.94);
-  --rp-light-gold-edge-fade: rgba(244, 183, 24, 0.52);
-  --rp-light-gold-glow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
-  --rp-light-gold-glow-active: inset 0 1px 2px rgba(90, 70, 20, 0.18), 0 0 0 2px rgba(170, 126, 12, 0.08), 0 0 4px rgba(170, 126, 12, 0.12);
+  --rp-light-gold-border-hover: rgba(86, 109, 134, 0.42);
+  --rp-light-gold-edge-core: rgba(78, 215, 255, 0.98);
+  --rp-light-gold-edge-fade: rgba(41, 151, 255, 0.48);
+  --rp-light-gold-glow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 12px rgba(41, 151, 255, 0.2);
+  --rp-light-gold-glow-active: inset 0 1px 2px rgba(17, 77, 116, 0.14), 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 8px rgba(41, 151, 255, 0.18);
   --rp-light-global-glow: var(--rp-light-gold-glow);
   --rp-gold-border: var(--rp-light-gold-border);
   --rp-gold-border-hover: var(--rp-light-gold-border-hover);
@@ -1218,9 +1218,9 @@ function pointAriaLabel(point: ChartPoint): string {
   --rp-gold-glow-hover: var(--rp-light-gold-glow);
   --rp-gold-glow-active: var(--rp-light-gold-glow-active);
   --rp-blue-glow-hover: 0 0 0 2px rgba(41, 151, 255, 0.12), 0 0 6px rgba(41, 151, 255, 0.22);
-  --module-edge-color: rgba(226, 179, 34, 0.36);
-  --module-edge-soft: rgba(226, 179, 34, 0.1);
-  --module-edge-glow: 0 0 0 1px rgba(226, 179, 34, 0.1), 0 10px 22px rgba(226, 179, 34, 0.08);
+  --module-edge-color: rgba(86, 109, 134, 0.36);
+  --module-edge-soft: rgba(86, 109, 134, 0.1);
+  --module-edge-glow: 0 0 0 1px rgba(86, 109, 134, 0.1), 0 10px 22px rgba(86, 109, 134, 0.08);
   --chart-module-hover-border: var(--home-module-hover-border, rgba(86, 109, 134, 0.42));
   --chart-module-hover-shadow: var(
     --home-module-hover-shadow,
@@ -1229,24 +1229,24 @@ function pointAriaLabel(point: ChartPoint): string {
     0 12px 28px rgba(86, 109, 134, 0.07)
   );
   --chart-control-bg: var(--bg-secondary);
-  --chart-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --chart-control-bg-hover: rgba(244, 249, 255, 0.98);
   --chart-control-local-glow: transparent;
   --chart-control-local-glow-fade: transparent;
   --control-edge-width: 2px;
   --control-edge-offset: -2px;
   --chart-control-border-local-glow: var(--rp-light-gold-edge-core);
   --chart-control-border-local-glow-fade: var(--rp-light-gold-edge-fade);
-  --chart-control-edge-rgb: 255, 210, 62;
+  --chart-control-edge-rgb: 78, 215, 255;
   --chart-control-active-local-glow: transparent;
   --chart-control-active-local-glow-fade: transparent;
-  --chart-control-bg-active: rgba(232, 216, 174, 0.98);
-  --chart-control-active-bg: rgba(226, 179, 34, 0.22);
-  --chart-control-active-bg-pressed: rgba(190, 145, 22, 0.28);
+  --chart-control-bg-active: rgba(232, 241, 252, 0.98);
+  --chart-control-active-bg: rgba(41, 151, 255, 0.18);
+  --chart-control-active-bg-pressed: rgba(41, 151, 255, 0.26);
   --chart-control-border: var(--rp-gold-border);
   --chart-control-border-hover: var(--rp-gold-border-hover);
-  --chart-control-text: #4f421e;
-  --chart-control-active-text: #4f421e;
-  --chart-control-muted: #6b5e38;
+  --chart-control-text: #24384d;
+  --chart-control-active-text: #24384d;
+  --chart-control-muted: #52697f;
   --chart-control-shadow: var(--rp-gold-glow-soft);
   --chart-control-focus: var(--rp-gold-glow-hover);
   --chart-control-active-shadow: var(--rp-gold-glow-active);

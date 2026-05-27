@@ -15,3 +15,11 @@ test('standalone routes keep title bar but hide sidebar and skip main-window aut
   assert.match(source, /<Sidebar v-if="!isStandaloneRoute" \/>/)
   assert.match(source, /:class="\{ 'main-content-standalone': isStandaloneRoute \}"/)
 })
+
+test('standalone routes keep zero page padding even at narrow widths', () => {
+  const source = readFileSync(new URL('./App.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.main-content-standalone \{[\s\S]*padding:\s*0/)
+  assert.match(source, /@media \(max-width: 760px\) \{[\s\S]*\.main-content:not\(\.main-content-standalone\) \{[\s\S]*padding:\s*14px/)
+  assert.doesNotMatch(source, /@media \(max-width: 760px\) \{[\s\S]*\.main-content \{[\s\S]*padding:\s*14px/)
+})

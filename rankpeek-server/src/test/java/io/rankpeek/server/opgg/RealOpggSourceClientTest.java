@@ -84,6 +84,8 @@ class RealOpggSourceClientTest {
                     });
             assertThat(detail.coreItems()).singleElement()
                     .satisfies(option -> assertThat(option.ids()).containsExactly(3118, 3152, 4645));
+            assertThat(detail.lastItems()).singleElement()
+                    .satisfies(option -> assertThat(option.ids()).containsExactly(3089));
         }
     }
 
@@ -231,6 +233,9 @@ class RealOpggSourceClientTest {
                     ],
                     "core_items": [
                       { "ids": [3118, 3152, 4645], "play": 3016, "win": 1623, "pick_rate": 0.1913 }
+                    ],
+                    "last_items": [
+                      { "ids": [3089], "play": 1322, "win_rate": 0.632, "pick_rate": 0.18 }
                     ]
                   }
                 }

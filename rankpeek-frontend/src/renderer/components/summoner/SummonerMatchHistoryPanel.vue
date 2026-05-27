@@ -47,6 +47,34 @@
         </div>
       </div>
 
+      <div
+        v-if="isLookup && recentLookupSummoners.length"
+        class="recent-lookup-strip"
+        aria-label="recent lookups"
+      >
+        <button
+          v-for="summoner in recentLookupSummoners"
+          :key="getRecentLookupKey(summoner)"
+          type="button"
+          class="recent-lookup-chip control-glow"
+          :class="{ active: normalizeLookupName(formatSummonerName(summoner)) === activeLookupName }"
+          :title="formatSummonerName(summoner)"
+          @pointermove="updateControlGlow"
+          @pointerleave="resetControlGlow"
+          @click="handleRecentLookupSelect(summoner)"
+        >
+          <img
+            v-if="summoner.profileIconId"
+            class="recent-lookup-avatar"
+            :src="getProfileIconUrl(summoner.profileIconId)"
+            alt=""
+            @error="markAssetLoadFailed"
+          />
+          <span v-else class="recent-lookup-avatar recent-lookup-avatar-fallback"></span>
+          <span class="recent-lookup-name">{{ formatSummonerName(summoner) }}</span>
+        </button>
+      </div>
+
       <div v-if="currentSummoner" class="page-controls">
         <div class="filters">
           <div
@@ -322,6 +350,7 @@ import {
   selectRecentMatchLookback,
   selectRecentRankedSample
 } from '@/utils/matchHistorySampling'
+import { getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import {
   appendUniqueMatches,
   buildLoadedChampionOptions,
@@ -360,18 +389,23 @@ const props = withDefaults(defineProps<{
   lookupQuery?: string
   lookupLoading?: boolean
   lookupError?: string
+  recentLookupSummoners?: Summoner[]
+  activeLookupName?: string
 }>(), {
   variant: 'mine',
   localCacheEnabled: false,
   autoOpenLatestMatchToken: '',
   lookupQuery: '',
   lookupLoading: false,
-  lookupError: ''
+  lookupError: '',
+  recentLookupSummoners: () => [],
+  activeLookupName: ''
 })
 
 const emit = defineEmits<{
   (event: 'update:lookupQuery', value: string): void
   (event: 'lookup'): void
+  (event: 'select-recent-lookup', value: string): void
 }>()
 
 interface MatchHistoryLoadOptions {
@@ -697,6 +731,8 @@ const lookupQueryValue = computed(() => props.lookupQuery)
 const lookupLoading = computed(() => props.lookupLoading)
 const lookupError = computed(() => props.lookupError)
 const lookupSearchDisabled = computed(() => lookupLoading.value || !lookupQueryValue.value.trim())
+const recentLookupSummoners = computed(() => props.recentLookupSummoners)
+const activeLookupName = computed(() => normalizeLookupName(props.activeLookupName))
 const lookupInputWidth = computed(() => {
   const length = props.lookupQuery?.length || 8
   return `clamp(180px, ${length + 4}ch, 420px)`
@@ -1135,11 +1171,23 @@ function handleLookupSubmit() {
   emit('lookup')
 }
 
+function normalizeLookupName(value: string | null | undefined): string {
+  return (value ?? '').trim().toLocaleLowerCase()
+}
+
 function formatSummonerName(summoner: Summoner | null): string {
   if (!summoner) {
     return ''
   }
   return summoner.tagLine ? `${summoner.gameName}#${summoner.tagLine}` : summoner.gameName
+}
+
+function getRecentLookupKey(summoner: Summoner): string {
+  return summoner.puuid || normalizeLookupName(formatSummonerName(summoner))
+}
+
+function handleRecentLookupSelect(summoner: Summoner) {
+  emit('select-recent-lookup', formatSummonerName(summoner))
 }
 
 function createEmptyVisibleMatchStats(): RecentPerformanceStats {
@@ -2748,9 +2796,9 @@ watch(
   --edge-glow-size: 82px;
   --match-control-local-glow: transparent;
   --match-control-local-glow-fade: transparent;
-  --match-control-border-local-glow: rgba(148, 211, 255, 0.98);
-  --match-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
-  --match-control-edge-rgb: 148, 211, 255;
+  --match-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --match-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --match-control-edge-rgb: 78, 215, 255;
   --match-control-edge-shadow:
     inset 0 1px 0 rgba(var(--match-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
     inset -1px 0 0 rgba(var(--match-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
@@ -2760,7 +2808,7 @@ watch(
     3px 0 11px -6px rgba(var(--match-control-edge-rgb), calc(var(--edge-right-alpha) * 0.48)),
     0 3px 11px -6px rgba(var(--match-control-edge-rgb), calc(var(--edge-bottom-alpha) * 0.48)),
     -3px 0 11px -6px rgba(var(--match-control-edge-rgb), calc(var(--edge-left-alpha) * 0.48));
-  --match-module-hover-rgb: 212, 175, 55;
+  --match-module-hover-rgb: 96, 176, 255;
   --match-module-hover-border: rgba(var(--match-module-hover-rgb), 0.48);
   --match-module-hover-shadow:
     0 0 0 1px rgba(var(--match-module-hover-rgb), 0.16),
@@ -2808,11 +2856,11 @@ watch(
     0 0 18px rgba(var(--match-module-hover-rgb), 0.14),
     0 12px 28px rgba(var(--match-module-hover-rgb), 0.07);
   --rp-light-gold-border: var(--border-color);
-  --rp-light-gold-border-hover: var(--border-color);
-  --rp-light-gold-edge-core: rgba(255, 218, 76, 0.94);
-  --rp-light-gold-edge-fade: rgba(244, 183, 24, 0.52);
-  --rp-light-gold-glow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
-  --rp-light-gold-glow-active: inset 0 1px 2px rgba(90, 70, 20, 0.18), 0 0 0 2px rgba(170, 126, 12, 0.08), 0 0 4px rgba(170, 126, 12, 0.12);
+  --rp-light-gold-border-hover: rgba(86, 109, 134, 0.42);
+  --rp-light-gold-edge-core: rgba(78, 215, 255, 0.98);
+  --rp-light-gold-edge-fade: rgba(41, 151, 255, 0.48);
+  --rp-light-gold-glow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 12px rgba(41, 151, 255, 0.2);
+  --rp-light-gold-glow-active: inset 0 1px 2px rgba(17, 77, 116, 0.14), 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 8px rgba(41, 151, 255, 0.18);
   --rp-light-global-glow: var(--rp-light-gold-glow);
   --rp-gold-border: var(--rp-light-gold-border);
   --rp-gold-border-hover: var(--rp-light-gold-border-hover);
@@ -2820,20 +2868,20 @@ watch(
   --rp-gold-glow-hover: var(--rp-light-gold-glow);
   --rp-gold-glow-active: var(--rp-light-gold-glow-active);
   --match-control-bg: var(--bg-secondary);
-  --match-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --match-control-bg-hover: rgba(244, 249, 255, 0.98);
   --match-control-local-glow: transparent;
   --match-control-local-glow-fade: transparent;
   --control-edge-width: 2px;
   --control-edge-offset: -2px;
   --match-control-border-local-glow: var(--rp-light-gold-edge-core);
   --match-control-border-local-glow-fade: var(--rp-light-gold-edge-fade);
-  --match-control-edge-rgb: 255, 210, 62;
+  --match-control-edge-rgb: 78, 215, 255;
   --match-control-bg-active: rgba(15, 22, 34, 0.96);
   --match-control-active-text: #f8fbff;
   --match-control-border: var(--rp-gold-border);
-  --match-control-border-hover: rgba(226, 179, 34, 0.42);
-  --match-control-text: #4f421e;
-  --match-control-muted: #6b5e38;
+  --match-control-border-hover: rgba(86, 109, 134, 0.42);
+  --match-control-text: #24384d;
+  --match-control-muted: #52697f;
   --match-control-shadow: var(--rp-gold-glow-soft);
   --match-control-hover-shadow: var(--rp-gold-glow-hover);
   --match-control-active-shadow: var(--rp-gold-glow-active);
@@ -2886,8 +2934,8 @@ watch(
   border-color: rgba(92, 163, 234, 0.36);
   box-shadow:
     0 12px 30px rgba(92, 163, 234, 0.16),
-    0 0 0 1px rgba(226, 179, 34, 0.1),
-    0 0 20px rgba(226, 179, 34, 0.12),
+    0 0 0 1px rgba(41, 151, 255, 0.1),
+    0 0 20px rgba(41, 151, 255, 0.12),
     inset 10px 0 18px var(--match-page-shell-side-shadow),
     inset -10px 0 18px var(--match-page-shell-side-shadow),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -2906,11 +2954,11 @@ watch(
 :global([data-theme="light"] .match-history-view .history-shell.surface-glow[data-near-glow='true']),
 :global([data-theme="light"] .match-history-view .state-card:hover),
 :global([data-theme="light"] .match-history-view .state-card.surface-glow[data-near-glow='true']) {
-  border-color: rgba(226, 179, 34, 0.32);
+  border-color: rgba(86, 109, 134, 0.36);
   box-shadow:
     0 10px 24px rgba(92, 163, 234, 0.12),
-    0 0 0 1px rgba(226, 179, 34, 0.08),
-    0 0 18px rgba(226, 179, 34, 0.12);
+    0 0 0 1px rgba(41, 151, 255, 0.08),
+    0 0 18px rgba(41, 151, 255, 0.12);
 }
 
 .history-shell,
@@ -2981,7 +3029,7 @@ watch(
       transparent 0%,
       rgba(148, 211, 255, 0.1) 18%,
       transparent 36%,
-      rgba(226, 179, 34, 0.055) 58%,
+      rgba(41, 151, 255, 0.055) 58%,
       transparent 78%
     );
   background-size: 220% 100%;
@@ -3046,15 +3094,20 @@ watch(
 }
 
 .match-history-view[data-variant='lookup'] .page-shell {
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title controls"
+    "recent recent";
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  justify-content: stretch;
+  gap: 8px 16px;
 }
 
 .match-history-view[data-variant='lookup'] .page-title-row {
+  grid-area: title;
   justify-content: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .match-history-view[data-variant='lookup'] .page-copy {
@@ -3069,6 +3122,84 @@ watch(
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
+}
+
+.recent-lookup-strip {
+  grid-area: recent;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  flex: 0 1 auto;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: -1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.recent-lookup-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.recent-lookup-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  max-width: 178px;
+  min-height: 30px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid var(--match-control-border);
+  border-radius: 999px;
+  background: var(--match-control-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.24s ease;
+}
+
+.recent-lookup-chip:hover,
+.recent-lookup-chip:focus-visible,
+.recent-lookup-chip.active {
+  border-color: var(--match-control-border-hover);
+  background: var(--match-control-bg-hover-local);
+  color: var(--text-primary);
+  box-shadow:
+    var(--match-control-hover-shadow),
+    var(--match-control-edge-shadow);
+  outline: none;
+}
+
+.recent-lookup-avatar {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.recent-lookup-avatar[data-asset-failed='true'] {
+  display: none;
+}
+
+.recent-lookup-avatar-fallback {
+  display: inline-block;
+}
+
+.recent-lookup-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .lookup-search-input-wrap {
@@ -3250,8 +3381,11 @@ watch(
 }
 
 .match-history-view[data-variant='lookup'] .page-controls {
+  grid-area: controls;
   width: auto;
   flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-self: center;
 }
 
 .filter-control {
@@ -3507,6 +3641,10 @@ watch(
   justify-content: flex-end;
   min-width: 0;
   flex: 0 1 auto;
+}
+
+.match-history-view[data-variant='lookup'] .filters {
+  flex-wrap: nowrap;
 }
 
 .filter-control {

@@ -945,7 +945,7 @@ onUnmounted(() => {
 
 <style scoped>
 .gaming-view {
-  --gaming-module-hover-rgb: 212, 175, 55;
+  --gaming-module-hover-rgb: 96, 176, 255;
   --gaming-module-hover-border: rgba(var(--gaming-module-hover-rgb), 0.48);
   --gaming-module-hover-shadow:
     0 0 0 1px rgba(var(--gaming-module-hover-rgb), 0.16),
@@ -958,9 +958,9 @@ onUnmounted(() => {
   --control-edge-width: 1px;
   --control-edge-offset: -1px;
   --edge-glow-size: 82px;
-  --gaming-control-border-local-glow: rgba(148, 211, 255, 0.98);
-  --gaming-control-border-local-glow-fade: rgba(96, 176, 255, 0.4);
-  --gaming-control-edge-rgb: 148, 211, 255;
+  --gaming-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --gaming-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --gaming-control-edge-rgb: 78, 215, 255;
   --gaming-control-edge-shadow:
     inset 0 1px 0 rgba(var(--gaming-control-edge-rgb), calc(var(--edge-top-alpha) * 0.82)),
     inset -1px 0 0 rgba(var(--gaming-control-edge-rgb), calc(var(--edge-right-alpha) * 0.82)),
@@ -997,13 +997,13 @@ onUnmounted(() => {
     0 12px 28px rgba(var(--gaming-module-hover-rgb), 0.07);
   --module-edge-color: var(--gaming-module-hover-border);
   --module-edge-glow: var(--gaming-module-hover-shadow);
-  --gaming-control-border-local-glow: rgba(255, 218, 76, 0.94);
-  --gaming-control-border-local-glow-fade: rgba(244, 183, 24, 0.52);
-  --gaming-control-edge-rgb: 255, 210, 62;
-  --gaming-control-bg-hover: rgba(252, 238, 198, 0.98);
+  --gaming-control-border-local-glow: rgba(78, 215, 255, 0.98);
+  --gaming-control-border-local-glow-fade: rgba(41, 151, 255, 0.48);
+  --gaming-control-edge-rgb: 78, 215, 255;
+  --gaming-control-bg-hover: rgba(244, 249, 255, 0.98);
   --gaming-control-border: var(--border-color);
-  --gaming-control-border-hover: var(--border-color);
-  --gaming-control-hover-shadow: 0 0 0 3px rgba(226, 179, 34, 0.2), 0 0 12px rgba(226, 179, 34, 0.34);
+  --gaming-control-border-hover: rgba(86, 109, 134, 0.42);
+  --gaming-control-hover-shadow: 0 0 0 1px rgba(41, 151, 255, 0.12), 0 0 12px rgba(41, 151, 255, 0.2);
   --gaming-hover-border: var(--gaming-module-hover-border);
   --gaming-hover-shadow: var(--gaming-module-hover-shadow);
 }
@@ -1133,7 +1133,7 @@ onUnmounted(() => {
 .opgg-action-btn:focus-visible:not(:disabled) {
   border-color: transparent;
   background: var(--gaming-control-bg-hover-local);
-  color: #f7e6ad;
+  color: #e6f5ff;
   box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
   outline: none;
 }
@@ -1328,7 +1328,7 @@ onUnmounted(() => {
 .team-analysis-btn:focus-visible:not(:disabled) {
   border-color: transparent;
   background: var(--gaming-control-bg-hover-local);
-  color: #f7e6ad;
+  color: #e6f5ff;
   box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
   outline: none;
 }

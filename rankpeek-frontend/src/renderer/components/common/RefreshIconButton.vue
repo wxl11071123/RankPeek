@@ -342,9 +342,9 @@ onBeforeUnmount(() => {
   --refresh-border-hover: rgba(92, 181, 255, 0.62);
   --refresh-border-focus: rgba(92, 181, 255, 0.78);
   --refresh-border-active: rgba(92, 181, 255, 0.86);
-  --refresh-local-core: rgba(148, 211, 255, 0.96);
-  --refresh-local-fade: rgba(96, 176, 255, 0.38);
-  --refresh-edge-rgb: 148, 211, 255;
+  --refresh-local-core: rgba(78, 215, 255, 0.98);
+  --refresh-local-fade: rgba(41, 151, 255, 0.48);
+  --refresh-edge-rgb: 78, 215, 255;
   --refresh-edge-top-alpha: 0;
   --refresh-edge-right-alpha: 0;
   --refresh-edge-bottom-alpha: 0;
@@ -510,9 +510,9 @@ onBeforeUnmount(() => {
   --refresh-border-hover: rgba(41, 151, 255, 0.5);
   --refresh-border-focus: rgba(41, 151, 255, 0.64);
   --refresh-border-active: rgba(41, 151, 255, 0.72);
-  --refresh-local-core: rgba(226, 179, 34, 0.86);
-  --refresh-local-fade: rgba(226, 179, 34, 0.32);
-  --refresh-edge-rgb: 226, 179, 34;
+  --refresh-local-core: rgba(78, 215, 255, 0.98);
+  --refresh-local-fade: rgba(41, 151, 255, 0.48);
+  --refresh-edge-rgb: 78, 215, 255;
   --refresh-hover-shadow:
     0 0 0 1px rgba(41, 151, 255, 0.08),
     0 0 12px rgba(41, 151, 255, 0.16);

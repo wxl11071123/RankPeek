@@ -299,7 +299,7 @@ test('AI report center follows the shared module shell and hover glow contract',
   const tabHoverRule = extractRule(source, '.report-type-tab:hover,')
   const rechargeHoverRule = extractRule(source, '.balance-recharge-button:hover,')
 
-  assert.match(variablesRule, /--ai-analysis-module-hover-rgb:\s*212,\s*175,\s*55/)
+  assert.match(variablesRule, /--ai-analysis-module-hover-rgb:\s*96,\s*176,\s*255/)
   assert.match(variablesRule, /--ai-analysis-module-hover-border:\s*rgba\(var\(--ai-analysis-module-hover-rgb\),\s*0\.48\)/)
   assert.match(variablesRule, /--ai-analysis-module-hover-shadow:/)
   assert.match(lightVariablesRule, /--ai-analysis-module-hover-rgb:\s*86,\s*109,\s*134/)

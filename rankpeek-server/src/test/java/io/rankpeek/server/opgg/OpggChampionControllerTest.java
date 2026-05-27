@@ -38,7 +38,8 @@ class OpggChampionControllerTest {
                 .andExpect(jsonPath("$.data.position").value("mid"))
                 .andExpect(jsonPath("$.data.stats.winRate").value(0.51))
                 .andExpect(jsonPath("$.data.summonerSpells[0].ids[0]").value(4))
-                .andExpect(jsonPath("$.data.coreItems[0].ids[2]").value(4645));
+                .andExpect(jsonPath("$.data.coreItems[0].ids[2]").value(4645))
+                .andExpect(jsonPath("$.data.lastItems[0].ids[0]").value(3089));
     }
 
     @Test
@@ -154,7 +155,9 @@ class OpggChampionControllerTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(new OpggBuildOption("core", List.of(3118, 3152, 4645), List.of(), 70L, 0.54, 0.19))
+                List.of(new OpggBuildOption("core", List.of(3118, 3152, 4645), List.of(), 70L, 0.54, 0.19)),
+                List.of(new OpggBuildOption("last", List.of(3089), List.of(), 30L, 0.63, 0.12)),
+                List.of(new OpggBuildOption("augments", List.of(1133), List.of(), null, 0.86, 0.05))
         );
     }
 

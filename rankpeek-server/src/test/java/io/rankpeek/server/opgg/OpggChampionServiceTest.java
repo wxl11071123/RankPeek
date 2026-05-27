@@ -327,6 +327,8 @@ class OpggChampionServiceTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(),
+                List.of(),
                 List.of()
         );
     }
@@ -345,6 +347,8 @@ class OpggChampionServiceTest {
                 List.of(new OpggBuildOption("spells", List.of(4, 12), List.of(), 100L, 0.52, 0.6)),
                 List.of(),
                 List.of(new OpggBuildOption("skill_order", List.of(3, 1, 2), List.of(3, 1, 2, 1, 4), 3000L, 0.6, 0.375)),
+                List.of(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of()

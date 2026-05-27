@@ -212,7 +212,10 @@
               <div class="opgg-build-meta-column opgg-build-win">
                 <span>胜率</span>
                 <strong>{{ formatPercent(option.winRate) }}</strong>
-                <em>样本 {{ formatGameCount(option.games) }}</em>
+              </div>
+              <div class="opgg-build-meta-column opgg-build-sample">
+                <span>样本</span>
+                <em>{{ formatGameCount(option.games) }}</em>
               </div>
             </div>
           </article>
@@ -229,6 +232,7 @@ import type { OpggBuildOption, OpggChampionCounter, OpggChampionDetail } from '@
 import type { OpggChampionQuery } from '@/services/opggChampionQuery'
 import { splitOpggRuneIds, type OpggRuneGroups } from '@/services/opggRuneGroups.ts'
 import {
+  getAugmentIconUrl,
   getChampionIconUrl,
   getItemIconUrl,
   getPerkIconUrl,
@@ -236,7 +240,7 @@ import {
   markAssetLoadFailed
 } from '@/utils/gameAssetUrls'
 
-type IconType = 'spell' | 'perk' | 'item' | 'skill'
+type IconType = 'spell' | 'perk' | 'item' | 'skill' | 'augment'
 
 interface BuildSection {
   key: string
@@ -277,14 +281,21 @@ const runeGroupCache = new WeakMap<OpggBuildOption, OpggRuneGroups>()
 const buildSections = computed<BuildSection[]>(() => {
   const detail = props.detail
   if (!detail) return []
-  return [
-    { key: 'summonerSpells', title: '召唤师技能', iconType: 'spell', options: detail.summonerSpells || [] },
+  const sections: BuildSection[] = [
+    { key: 'summonerSpells', title: '召唤师技能', iconType: 'spell', options: detail.summonerSpells || [] }
+  ]
+  if (detail.mode === 'arena') {
+    sections.push({ key: 'augments', title: '强化符文', iconType: 'augment', options: detail.augments || [] })
+  }
+  sections.push(
     { key: 'runes', title: '符文', iconType: 'perk', options: detail.runes || [] },
     { key: 'skillOrders', title: '技能点法', iconType: 'skill', options: detail.skillOrders || [] },
     { key: 'starterItems', title: '出门装', iconType: 'item', options: detail.starterItems || [] },
     { key: 'boots', title: '鞋子', iconType: 'item', options: detail.boots || [] },
-    { key: 'coreItems', title: '核心装备', iconType: 'item', options: detail.coreItems || [] }
-  ]
+    { key: 'coreItems', title: '核心装备', iconType: 'item', options: detail.coreItems || [] },
+    { key: 'lastItems', title: '第四/五/六件装备', iconType: 'item', options: detail.lastItems || [] }
+  )
+  return sections
 })
 
 watch(() => props.detail?.championId, () => {
@@ -332,6 +343,7 @@ function skillOrderSequence(option: OpggBuildOption): number[] {
 
 function getIconUrl(iconType: IconType, id: number): string {
   if (iconType === 'spell') return getSummonerSpellIconUrl(id)
+  if (iconType === 'augment') return getAugmentIconUrl(id)
   if (iconType === 'perk') return getPerkIconUrl(id)
   if (iconType === 'item') return getItemIconUrl(id)
   return ''
@@ -369,6 +381,7 @@ function skillChipClass(id: number): string {
 
 <style scoped>
 .opgg-panel {
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -383,16 +396,18 @@ function skillChipClass(id: number): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border-color);
 }
 
 .opgg-title-row {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .opgg-title-copy {
@@ -403,7 +418,7 @@ function skillChipClass(id: number): string {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .opgg-champion-icon {
@@ -417,7 +432,7 @@ function skillChipClass(id: number): string {
 
 .opgg-title-row h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 21px;
   line-height: 1.1;
 }
 
@@ -442,13 +457,13 @@ function skillChipClass(id: number): string {
 }
 
 .opgg-counter-strip {
-  flex: 0 1 332px;
-  min-width: 250px;
+  flex: 0 0 300px;
+  min-width: 210px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 9px 10px;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--bg-tertiary);
@@ -466,12 +481,12 @@ function skillChipClass(id: number): string {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .opgg-counter-icons img {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   object-fit: cover;
@@ -489,18 +504,18 @@ function skillChipClass(id: number): string {
   overflow: auto;
   display: grid;
   gap: 12px;
-  padding: 16px 18px 18px;
+  padding: 14px 16px 16px;
 }
 
 .opgg-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(112px, 1fr));
   gap: 10px;
 }
 
 .opgg-stat-card {
   min-width: 0;
-  padding: 12px;
+  padding: 11px 12px;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--bg-tertiary);
@@ -565,10 +580,12 @@ function skillChipClass(id: number): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 9px 10px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 8px;
   border-radius: 9px;
   background: var(--bg-tertiary);
+  overflow-x: auto;
 }
 
 .opgg-rune-row {
@@ -580,7 +597,7 @@ function skillChipClass(id: number): string {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px 18px;
+  gap: 8px 12px;
 }
 
 .opgg-rune-paths {
@@ -594,17 +611,17 @@ function skillChipClass(id: number): string {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 5px;
+  flex-wrap: nowrap;
 }
 
 .opgg-rune-line {
-  gap: 8px;
+  gap: 7px;
 }
 
 .opgg-rune-page-icon {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   border-color: rgba(239, 68, 68, 0.62);
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.13);
@@ -646,7 +663,7 @@ function skillChipClass(id: number): string {
   display: flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .opgg-skill-arrow {
@@ -697,15 +714,16 @@ function skillChipClass(id: number): string {
 
 .opgg-icon-chain {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 5px;
+  flex-wrap: nowrap;
 }
 
 .opgg-icon-slot {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 1px solid var(--border-color);
@@ -726,23 +744,22 @@ function skillChipClass(id: number): string {
 .opgg-build-meta {
   flex: 0 0 auto;
   align-self: center;
-  position: relative;
-  min-width: 184px;
-  min-height: 62px;
+  min-width: 240px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(62px, 1fr));
+  grid-template-columns: repeat(3, max-content);
   align-content: center;
-  align-items: center;
-  gap: 14px;
-  padding-bottom: 16px;
+  align-items: start;
+  justify-content: flex-end;
+  column-gap: 16px;
   text-align: right;
+  white-space: nowrap;
 }
 
 .opgg-build-meta-column {
   min-width: 0;
   display: grid;
-  grid-template-rows: 18px 24px;
-  align-content: center;
+  grid-template-rows: auto auto;
+  align-content: start;
   gap: 4px;
   justify-items: end;
 }
@@ -762,15 +779,13 @@ function skillChipClass(id: number): string {
   white-space: nowrap;
 }
 
-.opgg-build-win em {
-  position: absolute;
-  right: 0;
-  bottom: 0;
+.opgg-build-sample em {
+  position: static;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
   font-style: normal;
-  line-height: 1.1;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -827,42 +842,4 @@ function skillChipClass(id: number): string {
   }
 }
 
-@media (max-width: 720px) {
-  .opgg-panel-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .opgg-counter-strip {
-    flex-basis: auto;
-    min-width: 0;
-  }
-
-  .opgg-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .opgg-build-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .opgg-rune-groups {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .opgg-rune-shards {
-    justify-content: flex-start;
-  }
-
-  .opgg-build-meta {
-    min-width: 0;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    text-align: left;
-  }
-
-  .opgg-build-meta-column {
-    justify-items: start;
-  }
-}
 </style>

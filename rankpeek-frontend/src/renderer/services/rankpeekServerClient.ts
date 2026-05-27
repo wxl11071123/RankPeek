@@ -76,6 +76,8 @@ export interface OpggChampionDetail {
   starterItems: OpggBuildOption[]
   boots: OpggBuildOption[]
   coreItems: OpggBuildOption[]
+  lastItems?: OpggBuildOption[]
+  augments?: OpggBuildOption[]
 }
 
 export interface OpggChampionCounter {

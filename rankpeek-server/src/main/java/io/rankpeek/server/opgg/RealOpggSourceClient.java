@@ -175,7 +175,9 @@ public class RealOpggSourceClient implements OpggSourceClient {
                     parseSkillOptions(data.path("skill_masteries"), 4),
                     parseOptions(data.path("starter_items"), "starter_items", 4),
                     parseOptions(data.path("boots"), "boots", 4),
-                    parseOptions(data.path("core_items"), "core_items", 5)
+                    parseOptions(data.path("core_items"), "core_items", 5),
+                    parseOptions(data.path("last_items"), "last_items", 8),
+                    List.of()
             );
         } catch (OpggSourceException exception) {
             throw exception;

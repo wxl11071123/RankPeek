@@ -90,6 +90,35 @@ test('match history page header stays in normal flow above overview and controls
   assert.ok(templateBlock.indexOf('<SummonerOverviewPanel') < templateBlock.indexOf('<MatchHistoryInlineDetail'))
 })
 
+test('lookup panel renders recent summoner chips that re-query players', () => {
+  const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const propsBlock = source.match(/const props = withDefaults\(defineProps<\{[\s\S]*?\}>\(\), \{[\s\S]*?\}\)/)?.[0] || ''
+  const emitBlock = source.match(/const emit = defineEmits<\{[\s\S]*?\}>\(\)/)?.[0] || ''
+  const templateBlock = source.match(/<template>[\s\S]*?<\/template>/)?.[0] || ''
+  const lookupPageShellRule = source.match(/\.match-history-view\[data-variant='lookup'\] \.page-shell \{[\s\S]*?\n\}/)?.[0] || ''
+  const lookupPageControlsRule = source.match(/\.match-history-view\[data-variant='lookup'\] \.page-controls \{[\s\S]*?\n\}/)?.[0] || ''
+  const recentLookupRule = source.match(/\.recent-lookup-strip \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(propsBlock, /recentLookupSummoners\?: Summoner\[\]/)
+  assert.match(propsBlock, /activeLookupName\?: string/)
+  assert.match(propsBlock, /recentLookupSummoners: \(\) => \[\]/)
+  assert.match(propsBlock, /activeLookupName: ''/)
+  assert.match(emitBlock, /\(event: 'select-recent-lookup', value: string\): void/)
+  assert.match(source, /const recentLookupSummoners = computed\(\(\) => props\.recentLookupSummoners\)/)
+  assert.match(source, /const activeLookupName = computed\(\(\) => normalizeLookupName\(props\.activeLookupName\)\)/)
+  assert.match(source, /function handleRecentLookupSelect\(summoner: Summoner\) \{[\s\S]*emit\('select-recent-lookup', formatSummonerName\(summoner\)\)/)
+  assert.match(templateBlock, /<div[\s\S]*v-if="isLookup && recentLookupSummoners\.length"[\s\S]*class="recent-lookup-strip"/)
+  assert.match(templateBlock, /v-for="summoner in recentLookupSummoners"/)
+  assert.match(templateBlock, /:class="\{ active: normalizeLookupName\(formatSummonerName\(summoner\)\) === activeLookupName \}"/)
+  assert.match(templateBlock, /@click="handleRecentLookupSelect\(summoner\)"/)
+  assert.match(templateBlock, /\{\{ formatSummonerName\(summoner\) \}\}/)
+  assert.match(lookupPageShellRule, /display:\s*grid/)
+  assert.match(lookupPageShellRule, /"title controls"/)
+  assert.match(lookupPageControlsRule, /grid-area:\s*controls/)
+  assert.match(lookupPageControlsRule, /flex-wrap:\s*nowrap/)
+  assert.match(recentLookupRule, /grid-area:\s*recent/)
+})
+
 test('champion filter renders champion names with separately styled game counts', () => {
   const source = readFileSync(new URL('./SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
 

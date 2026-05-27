@@ -135,7 +135,8 @@ const buildSections = computed<BuildSection[]>(() => {
     { key: 'skillOrders', title: '技能顺序', iconType: 'skill', options: detail.skillOrders || [] },
     { key: 'starterItems', title: '出门装', iconType: 'item', options: detail.starterItems || [] },
     { key: 'boots', title: '鞋子', iconType: 'item', options: detail.boots || [] },
-    { key: 'coreItems', title: '核心装备', iconType: 'item', options: detail.coreItems || [] }
+    { key: 'coreItems', title: '核心装备', iconType: 'item', options: detail.coreItems || [] },
+    { key: 'lastItems', title: '第四/五/六件装备', iconType: 'item', options: detail.lastItems || [] }
   ]
 })
 

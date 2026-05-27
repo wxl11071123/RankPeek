@@ -46,7 +46,7 @@ test('home chart card only applies the shared outer glow on hover or focus', () 
   const hoverRule = extractRule(source, '.home-chart-card:hover,\n.home-chart-card:focus-within')
   const lightRule = extractRule(source, ':global([data-theme="light"] .home-chart-card)')
 
-  assert.match(baseRule, /--chart-module-hover-border:\s*var\(--home-module-hover-border, rgba\(212, 175, 55, 0\.48\)\)/)
+  assert.match(baseRule, /--chart-module-hover-border:\s*var\(--home-module-hover-border, rgba\(96, 176, 255, 0\.48\)\)/)
   assert.match(baseRule, /--chart-module-hover-shadow:\s*var\(\s*--home-module-hover-shadow,/)
   assert.match(baseRule, /border:\s*1px solid var\(--border-color\)/)
   assert.match(baseRule, /box-shadow:\s*none/)

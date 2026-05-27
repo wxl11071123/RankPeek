@@ -61,7 +61,7 @@ test('light-mode AI report keeps coach card internals while inheriting the home 
 
   assert.match(coachCards, /\.ai-coach-cards:hover \.record-main-card:not\(\.record-main-card-leaving\)/)
   assert.match(coachCards, /\.ai-coach-cards:hover \.record-stack-card/)
-  assert.match(coachBaseRule, /--record-panel-border-hover:\s*var\(--home-module-hover-border, rgba\(212, 175, 55, 0\.48\)\)/)
+  assert.match(coachBaseRule, /--record-panel-border-hover:\s*var\(--home-module-hover-border, rgba\(96, 176, 255, 0\.48\)\)/)
   assert.match(coachBaseRule, /--record-panel-hover-shadow:\s*var\(\s*--home-module-hover-shadow,/)
   assert.match(homeCoachRule, /--record-panel-border-hover:\s*var\(--home-module-hover-border\)/)
   assert.match(homeCoachRule, /--record-panel-hover-shadow:\s*var\(--coach-report-hover-shadow\)/)
@@ -81,7 +81,7 @@ test('home modules have no static outer glow and share hover/focus glow variable
     '.account-panel:hover,\n.account-panel:focus-within,\n.ai-analysis-card:hover,\n.ai-analysis-card:focus-within,\n.fortune-card:hover,\n.fortune-card:focus-within,\n.coach-report-panel:hover,\n.coach-report-panel:focus-within',
   )
 
-  assert.match(rootRule, /--home-module-hover-rgb:\s*212, 175, 55/)
+  assert.match(rootRule, /--home-module-hover-rgb:\s*96, 176, 255/)
   assert.match(lightRootRule, /--home-module-hover-rgb:\s*86, 109, 134/)
   assert.match(baseRule, /background:\s*var\(--bg-secondary\)/)
   assert.match(baseRule, /border:\s*1px solid var\(--border-color\)/)
@@ -134,7 +134,7 @@ test('light home hover backgrounds do not tint account or coach interiors', () =
   assert.doesNotMatch(outerGlowRule, /inset|radial-gradient|linear-gradient/)
 })
 
-test('light fortune card removes blue fills from slot and button variables', () => {
+test('light fortune card keeps neutral fills with the shared blue edge highlight', () => {
   const source = readFileSync(new URL('./HomeView.vue', import.meta.url), 'utf8')
   const fortuneRule = extractRule(source, ':global([data-theme="light"] .home-view .fortune-card)')
   const disabledRule = extractRule(source, '.primary-btn:disabled,\n.secondary-btn:disabled,\n.fortune-button:disabled')
@@ -144,9 +144,10 @@ test('light fortune card removes blue fills from slot and button variables', () 
   assert.match(fortuneRule, /--home-ai-hover-bg:\s*var\(--bg-secondary\)/)
   assert.match(fortuneRule, /--slot-window-bg:\s*linear-gradient\(180deg, rgba\(255, 255, 255, 0\.98\), rgba\(246, 247, 249, 0\.94\)\)/)
   assert.match(fortuneRule, /--slot-window-bottom-fade:\s*linear-gradient\(0deg, rgba\(229, 231, 235, 0\.34\), transparent\)/)
-  assert.match(fortuneRule, /--slot-edge-rgb:\s*86, 109, 134/)
+  assert.match(fortuneRule, /--home-control-edge-rgb:\s*78, 215, 255/)
+  assert.match(fortuneRule, /--slot-edge-rgb:\s*78, 215, 255/)
   assert.match(fortuneRule, /--slot-reel-shadow:\s*none/)
-  assert.doesNotMatch(fortuneRule, /33,\s*196,\s*255|41,\s*151,\s*255|232,\s*248,\s*255|203,\s*238,\s*255|#147fbf/i)
+  assert.doesNotMatch(fortuneRule, /232,\s*248,\s*255|203,\s*238,\s*255|#147fbf/i)
   assert.doesNotMatch(disabledRule, /background|linear-gradient|33,\s*196,\s*255|41,\s*151,\s*255/)
 })
 

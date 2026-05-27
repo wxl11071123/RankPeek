@@ -38,6 +38,20 @@ test('OP.GG window follows current session until a manual filter change pauses a
   assert.match(source, /window\.electronAPI\?\.onOpggInitialQuery/)
 })
 
+test('OP.GG window does not expose aram mayhem in manual filters', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /type OpggMode = 'ranked' \| 'aram' \| 'arena' \| 'urf' \| 'nexus_blitz'/)
+  assert.doesNotMatch(source, /aram_mayhem/)
+})
+
+test('OP.GG champion search includes common Chinese nicknames beyond the official title', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /championOptionMatchesSearch/)
+  assert.match(source, /from '@\/utils\/championSearchAliases'/)
+})
+
 test('OP.GG auto polling does not reapply unchanged filters on every tick', () => {
   const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
   const unchangedGuard = source.match(/function applyCurrentGameQueryIfChanged\(query: OpggChampionQuery\) \{[\s\S]*?function applyCurrentGameQuery\(query: OpggChampionQuery\)/)?.[0] || ''
@@ -93,10 +107,22 @@ test('OP.GG window places the back action in the top toolbar beside the OP.GG ti
   assert.match(source, /class="opgg-toolbar-back-btn"/)
   assert.match(source, /v-if="activePanel === 'detail'"/)
   assert.match(source, /@click="showListPanel"/)
-  assert.match(source, /\.opgg-heading \{[\s\S]*display: flex[\s\S]*align-items: center[\s\S]*gap: 8px/)
+  assert.match(source, /\.opgg-heading \{[\s\S]*display: flex[\s\S]*align-items: center[\s\S]*gap: 6px/)
   assert.doesNotMatch(source, /:show-back-button="true"/)
   assert.doesNotMatch(source, /@back="showListPanel"/)
   assert.doesNotMatch(source, /opgg-detail-actions/)
+})
+
+test('OP.GG window keeps the filter toolbar compact on a single minimum-width row', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.opgg-window-view \{[\s\S]*min-width:\s*720px/)
+  assert.match(source, /\.opgg-toolbar \{[\s\S]*grid-template-columns:\s*auto minmax\(396px,\s*1fr\) auto/)
+  assert.match(source, /\.opgg-filter-row \{[\s\S]*grid-template-columns:\s*96px 64px 86px 82px 68px/)
+  assert.match(source, /\.opgg-toolbar-actions \{[\s\S]*flex-wrap:\s*nowrap/)
+  assert.match(source, /\.opgg-filter-input,[\s\S]*\.opgg-filter-select \{[\s\S]*height:\s*30px/)
+  assert.match(source, /\.opgg-follow-btn,[\s\S]*\.opgg-refresh-btn,[\s\S]*\.opgg-toolbar-back-btn \{[\s\S]*min-height:\s*30px[\s\S]*padding:\s*0 8px/)
+  assert.doesNotMatch(source, /@media \(max-width: 920px\)[\s\S]*\.opgg-toolbar \{[\s\S]*grid-template-columns:\s*1fr/)
 })
 
 test('OP.GG window keeps the toolbar clean and passes the selected champion title to detail', () => {
