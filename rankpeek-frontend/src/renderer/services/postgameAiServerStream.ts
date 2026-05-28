@@ -1,6 +1,9 @@
 import type { PostgameAiInputSnapshot, PostgameAiMode } from './postgameAiInputSnapshot.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
-import { getStoredRankPeekAuthSession } from './rankpeekAuthClient.ts'
+import {
+  getStoredRankPeekAuthSession,
+  refreshStoredRankPeekAuthSession
+} from './rankpeekAuthClient.ts'
 
 export const RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT = '/api/analysis/postgame/stream'
 
@@ -117,13 +120,17 @@ export async function streamPostgameAiAnalysis(
   options: { signal?: AbortSignal } = {}
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    const accessToken = getStoredRankPeekAuthSession()?.accessToken
-    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT}`, {
-      method: 'POST',
-      headers: createStreamRequestHeaders(accessToken),
-      body: JSON.stringify(request),
-      signal: options.signal
-    })
+    const session = getStoredRankPeekAuthSession()
+    let response = await postPostgameAiStreamRequest(request, session?.accessToken, options.signal)
+
+    if (response.status === 401 && session?.refreshToken) {
+      const refreshResult = await refreshStoredRankPeekAuthSession()
+      if (!refreshResult.ok) {
+        emitStreamEvent({ type: 'error', message: refreshResult.message }, handlers)
+        return { ok: false, message: refreshResult.message }
+      }
+      response = await postPostgameAiStreamRequest(request, refreshResult.session.accessToken, options.signal)
+    }
 
     if (!response.ok) {
       const message = `rankpeek-server request failed: HTTP ${response.status}`
@@ -154,6 +161,19 @@ export async function streamPostgameAiAnalysis(
     emitStreamEvent({ type: 'error', message }, handlers)
     return { ok: false, message }
   }
+}
+
+async function postPostgameAiStreamRequest(
+  request: PostgameAiStreamRequest,
+  accessToken: string | undefined,
+  signal: AbortSignal | undefined
+): Promise<Response> {
+  return fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT}`, {
+    method: 'POST',
+    headers: createStreamRequestHeaders(accessToken),
+    body: JSON.stringify(request),
+    signal
+  })
 }
 
 function createStreamRequestHeaders(accessToken: string | undefined): Record<string, string> {

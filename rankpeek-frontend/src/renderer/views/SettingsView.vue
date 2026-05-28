@@ -15,6 +15,7 @@ import {
   loginRankPeekAccount,
   logoutRankPeekAccount,
   registerRankPeekAccount,
+  requestRankPeekRegisterEmailCode,
   requestRankPeekPasswordReset,
   storeRankPeekAuthSession,
   type RankPeekAuthSession
@@ -43,9 +44,11 @@ const authMode = ref<AuthMode>('login')
 const authEmail = ref('')
 const authPassword = ref('')
 const authPasswordConfirm = ref('')
+const authVerificationCode = ref('')
 const showAuthPassword = ref(false)
 const showAuthPasswordConfirm = ref(false)
 const authBusy = ref(false)
+const authVerificationBusy = ref(false)
 const authError = ref('')
 const authInfo = ref('')
 
@@ -118,6 +121,7 @@ function openAuthModal(mode: AuthMode) {
   authEmail.value = signedInUser.value?.email ?? ''
   authPassword.value = ''
   authPasswordConfirm.value = ''
+  authVerificationCode.value = ''
   showAuthPassword.value = false
   showAuthPasswordConfirm.value = false
   authError.value = ''
@@ -126,7 +130,7 @@ function openAuthModal(mode: AuthMode) {
 }
 
 function closeAuthModal() {
-  if (authBusy.value) {
+  if (authBusy.value || authVerificationBusy.value) {
     return
   }
 
@@ -141,6 +145,7 @@ function switchAuthMode(mode: AuthMode) {
   authInfo.value = ''
   authPassword.value = ''
   authPasswordConfirm.value = ''
+  authVerificationCode.value = ''
   showAuthPassword.value = false
   showAuthPasswordConfirm.value = false
 }
@@ -153,6 +158,11 @@ async function submitAuthForm() {
 
   if (authMode.value === 'register' && authPassword.value !== authPasswordConfirm.value) {
     authError.value = t('settings.authPasswordMismatch')
+    return
+  }
+
+  if (authMode.value === 'register' && !authVerificationCode.value.trim()) {
+    authError.value = t('settings.authVerificationCodeRequired')
     return
   }
 
@@ -179,7 +189,8 @@ async function submitAuthForm() {
       })
       : await registerRankPeekAccount({
         email: authEmail.value,
-        password: authPassword.value
+        password: authPassword.value,
+        verificationCode: authVerificationCode.value
       })
 
     if (!result.ok) {
@@ -194,8 +205,33 @@ async function submitAuthForm() {
     authModalOpen.value = false
     authPassword.value = ''
     authPasswordConfirm.value = ''
+    authVerificationCode.value = ''
   } finally {
     authBusy.value = false
+  }
+}
+
+async function sendRegisterEmailCode() {
+  if (!authEmail.value) {
+    authError.value = t('settings.authRequiredFields')
+    return
+  }
+
+  authVerificationBusy.value = true
+  authError.value = ''
+  authInfo.value = ''
+
+  try {
+    const result = await requestRankPeekRegisterEmailCode({ email: authEmail.value })
+    if (!result.ok) {
+      authError.value = result.message
+      return
+    }
+
+    const minutes = Math.max(1, Math.ceil(result.expiresInSeconds / 60))
+    authInfo.value = t('settings.authVerificationCodeSent', { minutes })
+  } finally {
+    authVerificationBusy.value = false
   }
 }
 
@@ -369,7 +405,7 @@ async function openExternal(url: string) {
           <button
             class="auth-close-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
             :aria-label="t('common.cancel')"
             @click="closeAuthModal"
           >
@@ -477,6 +513,30 @@ async function openExternal(url: string) {
             </span>
           </label>
 
+          <label
+            v-if="authMode === 'register'"
+            class="auth-field"
+          >
+            <span>{{ t('settings.authVerificationCode') }}</span>
+            <span class="auth-code-control">
+              <input
+                v-model.trim="authVerificationCode"
+                autocomplete="one-time-code"
+                inputmode="numeric"
+                name="verificationCode"
+                type="text"
+              >
+              <button
+                class="secondary-btn auth-code-btn"
+                type="button"
+                :disabled="authBusy || authVerificationBusy"
+                @click="sendRegisterEmailCode"
+              >
+                {{ authVerificationBusy ? t('settings.authSendingVerificationCode') : t('settings.authSendVerificationCode') }}
+              </button>
+            </span>
+          </label>
+
           <p
             v-if="authError"
             class="auth-error"
@@ -493,7 +553,7 @@ async function openExternal(url: string) {
           <button
             class="primary-btn auth-submit"
             type="submit"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
           >
             {{ authBusy ? t('settings.saving') : authSubmitLabel }}
           </button>
@@ -504,7 +564,7 @@ async function openExternal(url: string) {
             v-if="authMode === 'login'"
             class="auth-link-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
             @click="switchAuthMode('forgotPassword')"
           >
             {{ t('settings.authForgotPassword') }}
@@ -513,7 +573,7 @@ async function openExternal(url: string) {
             v-if="authMode === 'login'"
             class="auth-link-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
             @click="switchAuthMode('register')"
           >
             {{ t('settings.authSwitchToRegister') }}
@@ -522,7 +582,7 @@ async function openExternal(url: string) {
             v-else
             class="auth-link-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
             @click="switchAuthMode('login')"
           >
             {{ t('settings.authSwitchToLogin') }}
@@ -891,6 +951,20 @@ async function openExternal(url: string) {
   padding-right: 44px;
 }
 
+.auth-code-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.auth-code-btn {
+  min-width: 108px;
+  height: 42px;
+  padding: 0 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .auth-password-toggle {
   position: absolute;
   top: 50%;
@@ -964,6 +1038,16 @@ async function openExternal(url: string) {
 
 .auth-link-btn:hover:not(:disabled) {
   color: var(--accent-color);
+}
+
+@media (max-width: 480px) {
+  .auth-code-control {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-code-btn {
+    width: 100%;
+  }
 }
 
 .settings-section {

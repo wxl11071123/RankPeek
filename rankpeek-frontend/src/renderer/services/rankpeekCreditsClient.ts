@@ -1,4 +1,5 @@
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
+import { refreshStoredRankPeekAuthSession } from './rankpeekAuthClient.ts'
 
 export const RANKPEEK_CREDITS_BALANCE_ENDPOINT = '/api/credits/balance'
 export const RANKPEEK_CREDITS_LEDGER_ENDPOINT = '/api/credits/ledger'
@@ -67,13 +68,14 @@ export async function getRankPeekCreditBalance(accessToken: string | null | unde
   }
 
   try {
-    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_CREDITS_BALANCE_ENDPOINT}`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`
+    let response = await fetchCreditRequest(RANKPEEK_CREDITS_BALANCE_ENDPOINT, accessToken)
+    if (response.status === 401) {
+      const refreshResult = await refreshStoredRankPeekAuthSession()
+      if (!refreshResult.ok) {
+        return { ok: false, message: refreshResult.message }
       }
-    })
+      response = await fetchCreditRequest(RANKPEEK_CREDITS_BALANCE_ENDPOINT, refreshResult.session.accessToken)
+    }
     const payload = await parseCreditBalanceResponse(response)
 
     if (!response.ok || payload.success === false) {
@@ -98,13 +100,14 @@ export async function getRankPeekCreditLedger(accessToken: string | null | undef
   }
 
   try {
-    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_CREDITS_LEDGER_ENDPOINT}`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`
+    let response = await fetchCreditRequest(RANKPEEK_CREDITS_LEDGER_ENDPOINT, accessToken)
+    if (response.status === 401) {
+      const refreshResult = await refreshStoredRankPeekAuthSession()
+      if (!refreshResult.ok) {
+        return { ok: false, message: refreshResult.message }
       }
-    })
+      response = await fetchCreditRequest(RANKPEEK_CREDITS_LEDGER_ENDPOINT, refreshResult.session.accessToken)
+    }
     const payload = await parseCreditLedgerResponse(response)
 
     if (!response.ok || payload.success === false) {
@@ -121,6 +124,16 @@ export async function getRankPeekCreditLedger(accessToken: string | null | undef
   } catch {
     return { ok: false, message: CREDIT_LEDGER_UNAVAILABLE_MESSAGE }
   }
+}
+
+async function fetchCreditRequest(endpoint: string, accessToken: string): Promise<Response> {
+  return fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`
+    }
+  })
 }
 
 async function parseCreditBalanceResponse(response: Response): Promise<CreditBalanceApiResponse> {

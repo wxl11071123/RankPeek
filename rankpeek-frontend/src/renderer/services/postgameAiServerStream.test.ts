@@ -8,7 +8,11 @@ import {
   streamPostgameAiAnalysis
 } from './postgameAiServerStream.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
-import { storeRankPeekAuthSession } from './rankpeekAuthClient.ts'
+import {
+  clearStoredRankPeekAuthSession,
+  getStoredRankPeekAuthSession,
+  storeRankPeekAuthSession
+} from './rankpeekAuthClient.ts'
 
 class MemoryStorage {
   private values = new Map<string, string>()
@@ -181,6 +185,88 @@ test('streams postgame AI analysis with the stored RankPeek auth token', async (
     assert.deepEqual(result, { ok: true })
   } finally {
     globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
+test('refreshes the stored RankPeek auth token and retries postgame AI stream once after 401', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'expired-postgame-stream-access-token',
+    refreshToken: 'postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
+  const request = createPostgameAiStreamRequest(createSnapshot(), 'review')
+  const originalFetch = globalThis.fetch
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: { code: 'ACCESS_TOKEN_INVALID' }
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    if (String(url).endsWith('/api/auth/refresh')) {
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          accessToken: 'rotated-postgame-stream-access-token',
+          refreshToken: 'rotated-postgame-stream-refresh-token',
+          expiresInSeconds: 3600
+        },
+        error: null
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: done\ndata: done\n\n'))
+        controller.close()
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamPostgameAiAnalysis(request, {})
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT}`)
+    assert.equal(calls[0]?.init?.headers?.['Authorization' as keyof HeadersInit], 'Bearer expired-postgame-stream-access-token')
+    assert.match(calls[1]?.url || '', /\/api\/auth\/refresh$/)
+    assert.equal(calls[2]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT}`)
+    assert.equal(calls[2]?.init?.headers?.['Authorization' as keyof HeadersInit], 'Bearer rotated-postgame-stream-access-token')
+    assert.equal(getStoredRankPeekAuthSession()?.accessToken, 'rotated-postgame-stream-access-token')
+  } finally {
+    globalThis.fetch = originalFetch
+    clearStoredRankPeekAuthSession()
     Object.defineProperty(globalThis, 'localStorage', {
       value: originalLocalStorage,
       configurable: true

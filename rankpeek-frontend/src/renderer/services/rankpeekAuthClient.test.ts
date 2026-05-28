@@ -9,8 +9,10 @@ import {
   RANKPEEK_AUTH_LOGOUT_ENDPOINT,
   RANKPEEK_AUTH_PASSWORD_RESET_REQUEST_ENDPOINT,
   RANKPEEK_AUTH_REFRESH_ENDPOINT,
+  RANKPEEK_AUTH_REGISTER_EMAIL_CODE_ENDPOINT,
   RANKPEEK_AUTH_REGISTER_ENDPOINT,
   registerRankPeekAccount,
+  requestRankPeekRegisterEmailCode,
   requestRankPeekPasswordReset,
   refreshStoredRankPeekAuthSession,
   storeRankPeekAuthSession
@@ -105,6 +107,70 @@ test('registers through rankpeek-server auth endpoint with display name derived 
       email: 'admin.user@rankpeek.local',
       password: 'Secret123!',
       displayName: 'admin.user'
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('registers with the email verification code required by production signup', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify(authPayload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await registerRankPeekAccount({
+      email: ' Admin.User@RANKPEEK.LOCAL ',
+      password: 'Secret123!',
+      verificationCode: ' 839204 '
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REGISTER_ENDPOINT}`)
+    assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
+      email: 'admin.user@rankpeek.local',
+      password: 'Secret123!',
+      displayName: 'admin.user',
+      verificationCode: '839204'
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('requests a register email verification code through rankpeek-server auth endpoint', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      success: true,
+      data: { accepted: true, expiresInSeconds: 900 },
+      error: null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await requestRankPeekRegisterEmailCode({
+      email: ' Admin.User@RANKPEEK.LOCAL '
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.ok ? result.accepted : false, true)
+    assert.equal(result.ok ? result.expiresInSeconds : 0, 900)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REGISTER_EMAIL_CODE_ENDPOINT}`)
+    assert.equal(calls[0]?.init?.method, 'POST')
+    assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
+      email: 'admin.user@rankpeek.local'
     })
   } finally {
     globalThis.fetch = originalFetch
@@ -247,6 +313,53 @@ test('refreshes a stored rankpeek auth session with rotated refresh tokens', asy
     assert.equal(getStoredRankPeekAuthSession()?.refreshToken, 'rotated-refresh-token')
     assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REFRESH_ENDPOINT}`)
     assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), { refreshToken: 'refresh-token' })
+  } finally {
+    globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
+test('deduplicates concurrent stored session refresh attempts', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession(authPayload.data)
+
+  const originalFetch = globalThis.fetch
+  let refreshCalls = 0
+  globalThis.fetch = (async () => {
+    refreshCalls += 1
+    await new Promise(resolve => setTimeout(resolve, 10))
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        accessToken: 'single-flight-access-token',
+        refreshToken: 'single-flight-refresh-token',
+        expiresInSeconds: 3600
+      },
+      error: null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const [first, second] = await Promise.all([
+      refreshStoredRankPeekAuthSession(),
+      refreshStoredRankPeekAuthSession()
+    ])
+
+    assert.equal(first.ok, true)
+    assert.equal(second.ok, true)
+    assert.equal(first.ok ? first.session.accessToken : '', 'single-flight-access-token')
+    assert.equal(second.ok ? second.session.accessToken : '', 'single-flight-access-token')
+    assert.equal(refreshCalls, 1)
   } finally {
     globalThis.fetch = originalFetch
     Object.defineProperty(globalThis, 'localStorage', {

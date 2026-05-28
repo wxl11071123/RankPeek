@@ -49,11 +49,19 @@ test('settings auth modal supports login first with an inline register mode', ()
   assert.match(source, /@click="switchAuthMode\('forgotPassword'\)"/)
   assert.match(source, /loginRankPeekAccount\(/)
   assert.match(source, /registerRankPeekAccount\(/)
+  assert.match(source, /requestRankPeekRegisterEmailCode\(/)
   assert.match(source, /requestRankPeekPasswordReset\(/)
   assert.match(source, /storeRankPeekAuthSession\(result\.session\)/)
+  assert.match(source, /authVerificationCode/)
+  assert.match(source, /name="verificationCode"/)
+  assert.match(source, /@click="sendRegisterEmailCode"/)
+  assert.match(source, /verificationCode:\s*authVerificationCode\.value/)
   assert.match(source, /settings\.authSwitchToRegister/)
   assert.match(source, /settings\.authSwitchToLogin/)
   assert.match(source, /settings\.authForgotPassword/)
+  assert.match(source, /settings\.authVerificationCode/)
+  assert.match(source, /settings\.authSendVerificationCode/)
+  assert.match(source, /settings\.authVerificationCodeSent/)
   assert.match(source, /settings\.authPasswordMismatch/)
   assert.match(source, /settings\.authResetRequestSent/)
   assert.doesNotMatch(source, /authDisplayName/)
@@ -169,6 +177,11 @@ test('settings copy is user-facing in both locales', () => {
     'settings.authPasswordConfirm',
     'settings.authPasswordShow',
     'settings.authPasswordHide',
+    'settings.authVerificationCode',
+    'settings.authSendVerificationCode',
+    'settings.authSendingVerificationCode',
+    'settings.authVerificationCodeSent',
+    'settings.authVerificationCodeRequired',
     'settings.authSubmitLogin',
     'settings.authSubmitRegister',
     'settings.authSubmitForgotPassword',

@@ -2,6 +2,7 @@ import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
 export const RANKPEEK_AUTH_LOGIN_ENDPOINT = '/api/auth/login'
 export const RANKPEEK_AUTH_REGISTER_ENDPOINT = '/api/auth/register'
+export const RANKPEEK_AUTH_REGISTER_EMAIL_CODE_ENDPOINT = '/api/auth/register/email-code'
 export const RANKPEEK_AUTH_PASSWORD_RESET_REQUEST_ENDPOINT = '/api/auth/password-reset/request'
 export const RANKPEEK_AUTH_REFRESH_ENDPOINT = '/api/auth/refresh'
 export const RANKPEEK_AUTH_LOGOUT_ENDPOINT = '/api/auth/logout'
@@ -11,6 +12,7 @@ const RANKPEEK_AUTH_STORAGE_KEY = 'rankpeek.auth.session'
 const AUTH_UNAVAILABLE_MESSAGE = 'rankpeek-server auth is unavailable'
 const AUTH_LOGIN_REQUIRED_MESSAGE = 'RankPeek account login is required'
 const INVALID_CREDENTIALS_MESSAGE = '邮箱或密码不正确'
+let inFlightRefreshSession: Promise<AuthResult> | null = null
 
 export interface RankPeekAuthUser {
   id: number
@@ -71,6 +73,17 @@ type PasswordResetRequestResult =
     message: string
   }
 
+type EmailCodeRequestResult =
+  | {
+    ok: true
+    accepted: boolean
+    expiresInSeconds: number
+  }
+  | {
+    ok: false
+    message: string
+  }
+
 export async function loginRankPeekAccount(input: {
   email: string
   password: string
@@ -84,13 +97,49 @@ export async function loginRankPeekAccount(input: {
 export async function registerRankPeekAccount(input: {
   email: string
   password: string
+  verificationCode?: string
 }): Promise<AuthResult> {
   const email = normalizeEmail(input.email)
-  return submitAuthRequest(RANKPEEK_AUTH_REGISTER_ENDPOINT, {
+  const verificationCode = input.verificationCode?.trim()
+  const body: Record<string, string | null> = {
     email,
     password: input.password,
     displayName: deriveRankPeekDisplayNameFromEmail(email)
-  }, 'register')
+  }
+  if (verificationCode) {
+    body.verificationCode = verificationCode
+  }
+  return submitAuthRequest(RANKPEEK_AUTH_REGISTER_ENDPOINT, body, 'register')
+}
+
+export async function requestRankPeekRegisterEmailCode(input: {
+  email: string
+}): Promise<EmailCodeRequestResult> {
+  try {
+    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REGISTER_EMAIL_CODE_ENDPOINT}`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: normalizeEmail(input.email) })
+    })
+    const payload = await parseAuthResponse<{ accepted?: boolean; expiresInSeconds?: number }>(response)
+
+    if (!response.ok || payload.success === false) {
+      return {
+        ok: false,
+        message: authFailureMessage(payload.error?.code, payload.error?.message, 'register')
+      }
+    }
+
+    return {
+      ok: true,
+      accepted: payload.data?.accepted === true,
+      expiresInSeconds: typeof payload.data?.expiresInSeconds === 'number'
+        ? payload.data.expiresInSeconds
+        : 0
+    }
+  } catch {
+    return { ok: false, message: AUTH_UNAVAILABLE_MESSAGE }
+  }
 }
 
 export async function requestRankPeekPasswordReset(input: {
@@ -135,6 +184,19 @@ export async function logoutRankPeekAccount(refreshToken: string | null | undefi
 }
 
 export async function refreshStoredRankPeekAuthSession(): Promise<AuthResult> {
+  if (inFlightRefreshSession) {
+    return inFlightRefreshSession
+  }
+
+  inFlightRefreshSession = refreshStoredRankPeekAuthSessionOnce()
+  try {
+    return await inFlightRefreshSession
+  } finally {
+    inFlightRefreshSession = null
+  }
+}
+
+async function refreshStoredRankPeekAuthSessionOnce(): Promise<AuthResult> {
   const currentSession = getStoredRankPeekAuthSession()
   if (!currentSession?.refreshToken) {
     return { ok: false, message: AUTH_LOGIN_REQUIRED_MESSAGE }
@@ -250,6 +312,12 @@ function authFailureMessage(code: string | undefined, message: string | undefine
   }
   if (code === 'EMAIL_ALREADY_REGISTERED') {
     return '这个邮箱已经注册'
+  }
+  if (code === 'EMAIL_VERIFICATION_CODE_INVALID') {
+    return '验证码无效或已过期'
+  }
+  if (code === 'EMAIL_VERIFICATION_CODE_TOO_FREQUENT') {
+    return '验证码发送太频繁，请稍后再试'
   }
   if (message) {
     return message
