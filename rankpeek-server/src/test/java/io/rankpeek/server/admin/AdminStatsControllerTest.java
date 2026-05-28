@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rankpeek.server.auth.AuthRepository;
 import io.rankpeek.server.auth.AuthUser;
 import io.rankpeek.server.auth.PasswordService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -50,6 +51,17 @@ class AdminStatsControllerTest {
 
     @Autowired
     private PasswordService passwordService;
+
+    @BeforeEach
+    void cleanStatsTables() {
+        jdbcTemplate.update("delete from ai_analysis_runs");
+        jdbcTemplate.update("delete from credit_ledger_entries");
+        jdbcTemplate.update("delete from user_credit_balances");
+        jdbcTemplate.update("delete from auth_password_reset_tokens");
+        jdbcTemplate.update("delete from auth_refresh_tokens");
+        jdbcTemplate.update("delete from auth_email_verification_codes");
+        jdbcTemplate.update("delete from users");
+    }
 
     @Test
     void adminCanReadOperationalStatsOverview() throws Exception {
