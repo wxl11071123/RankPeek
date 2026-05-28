@@ -171,7 +171,25 @@ if enabled RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED; then
   require_present SPRING_MAIL_PASSWORD
   reject_placeholder SPRING_MAIL_PASSWORD
 else
-  warn "Password reset email is disabled; real users cannot self-serve password recovery"
+  if ! enabled RANKPEEK_TENCENT_SES_ENABLED; then
+    warn "Password reset email is disabled; real users cannot self-serve password recovery"
+  fi
+fi
+
+if enabled RANKPEEK_TENCENT_SES_ENABLED; then
+  require_present RANKPEEK_TENCENT_SES_SECRET_ID
+  reject_placeholder RANKPEEK_TENCENT_SES_SECRET_ID
+  require_secret RANKPEEK_TENCENT_SES_SECRET_KEY 20
+  require_present RANKPEEK_TENCENT_SES_REGION
+  require_present RANKPEEK_TENCENT_SES_ENDPOINT
+  require_present RANKPEEK_TENCENT_SES_FROM_EMAIL
+  reject_placeholder RANKPEEK_TENCENT_SES_FROM_EMAIL
+  require_present RANKPEEK_TENCENT_SES_REGISTER_TEMPLATE_ID
+  require_present RANKPEEK_TENCENT_SES_PASSWORD_RESET_TEMPLATE_ID
+else
+  if enabled RANKPEEK_EMAIL_VERIFICATION_REQUIRED; then
+    fail "RANKPEEK_EMAIL_VERIFICATION_REQUIRED=true requires RANKPEEK_TENCENT_SES_ENABLED=true"
+  fi
 fi
 
 if enabled RANKPEEK_AI_ENABLED; then

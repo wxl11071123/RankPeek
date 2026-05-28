@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RankPeek Admin</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f16;
+      --panel: #121822;
+      --panel-2: #171f2b;
+      --line: #263244;
+      --text: #edf3fb;
+      --muted: #8ea0b8;
+      --accent: #3aa8ff;
+      --accent-2: #65d6b7;
+      --danger: #ff6b81;
+      --warning: #e8bd51;
+      --shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 18% 0%, rgba(58, 168, 255, 0.14), transparent 32rem),
+        radial-gradient(circle at 92% 10%, rgba(101, 214, 183, 0.12), transparent 26rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: linear-gradient(145deg, #1e7fff, #65d6b7);
+      box-shadow: 0 14px 32px rgba(58, 168, 255, 0.25);
+      color: #06111d;
+    }
+
+    .brand-mark svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.1;
+      font-weight: 760;
+    }
+
+    .brand p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar input {
+      height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(18, 24, 34, 0.86);
+      color: var(--text);
+    }
+
+    .button {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 0 14px;
+      color: var(--text);
+      background: var(--panel-2);
+      cursor: pointer;
+    }
+
+    .button.primary {
+      border-color: rgba(58, 168, 255, 0.72);
+      background: #1177d9;
+    }
+
+    .button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
+    .login-card,
+    .dashboard {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(18, 24, 34, 0.94);
+      box-shadow: var(--shadow);
+    }
+
+    .login-card {
+      max-width: 420px;
+      margin: 80px auto 0;
+      padding: 26px;
+    }
+
+    .login-card h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .login-card p {
+      margin: 0 0 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      margin-bottom: 14px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .field input {
+      width: 100%;
+      height: 42px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0d131c;
+      color: var(--text);
+    }
+
+    .error {
+      min-height: 20px;
+      margin-top: 12px;
+      color: var(--danger);
+      font-size: 13px;
+    }
+
+    .dashboard {
+      padding: 18px;
+    }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 0 0 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      min-height: 118px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 15px;
+      background: var(--panel-2);
+    }
+
+    .card h3 {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .metric {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .metric strong {
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 780;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .subgrid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .subgrid b {
+      display: block;
+      margin-top: 4px;
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    .span-2 {
+      grid-column: span 2;
+    }
+
+    .table-panel {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel-2);
+    }
+
+    .table-panel header {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-panel h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(38, 50, 68, 0.8);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 650;
+      background: rgba(11, 15, 22, 0.36);
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 980px) {
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        width: min(100% - 20px, 1180px);
+        padding-top: 16px;
+      }
+
+      .topbar,
+      .status-line,
+      .table-panel header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .toolbar {
+        justify-content: stretch;
+      }
+
+      .toolbar input,
+      .toolbar button {
+        width: 100%;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .span-2 {
+        grid-column: span 1;
+      }
+
+      .table-panel {
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3.5 12s3-5.5 8.5-5.5S20.5 12 20.5 12 17.5 17.5 12 17.5 3.5 12 3.5 12Z" fill="currentColor" opacity=".95"/>
+            <circle cx="12" cy="12" r="3.3" fill="#ffffff"/>
+            <circle cx="12" cy="12" r="1.45" fill="currentColor"/>
+          </svg>
+        </div>
+        <div>
+          <h1>RankPeek Admin</h1>
+          <p>运营统计后台</p>
+        </div>
+      </div>
+      <div class="toolbar hidden" id="toolbar">
+        <input id="dateInput" type="date" aria-label="统计日期">
+        <button class="button" id="refreshButton" type="button">刷新</button>
+        <button class="button" id="logoutButton" type="button">退出</button>
+      </div>
+    </header>
+
+    <section class="login-card" id="loginPanel">
+      <h2>管理员登录</h2>
+      <p>使用 RankPeek ADMIN 账号查看服务器运营数据。</p>
+      <form id="loginForm">
+        <div class="field">
+          <label for="emailInput">邮箱</label>
+          <input id="emailInput" type="email" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="passwordInput">密码</label>
+          <input id="passwordInput" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="button primary" id="loginButton" type="submit">登录</button>
+        <div class="error" id="loginError" role="alert"></div>
+      </form>
+    </section>
+
+    <section class="dashboard hidden" id="dashboard">
+      <div class="status-line">
+        <span id="adminEmail">未登录</span>
+        <span id="generatedAt">未加载</span>
+      </div>
+
+      <div class="grid">
+        <article class="card">
+          <h3>最近 1 小时活跃</h3>
+          <div class="metric"><strong id="active1h">0</strong><span>人</span></div>
+          <div class="subgrid">
+            <span>3 小时<b id="active3h">0</b></span>
+            <span>24 小时<b id="active24h">0</b></span>
+            <span>口径<b>近似</b></span>
+          </div>
+        </article>
+
+        <article class="card">
+          <h3>今日注册</h3>
+          <div class="metric"><strong id="registeredToday">0</strong><span>人</span></div>
+          <div class="subgrid">
+            <span>总用户<b id="totalUsers">0</b></span>
+            <span>启用<b id="activeUsers">0</b></span>
+            <span>禁用<b id="disabledUsers">0</b></span>
+          </div>
+        </article>
+
+        <article class="card">
+          <h3>今日 AI 请求</h3>
+          <div class="metric"><strong id="aiRequests">0</strong><span>次</span></div>
+          <div class="subgrid">
+            <span>成功<b id="aiSucceeded">0</b></span>
+            <span>失败<b id="aiFailed">0</b></span>
+            <span>成功率<b id="aiSuccessRate">0%</b></span>
+          </div>
+        </article>
+
+        <article class="card">
+          <h3>今日 Token</h3>
+          <div class="metric"><strong id="totalTokens">0</strong><span>tokens</span></div>
+          <div class="subgrid">
+            <span>Prompt<b id="promptTokens">0</b></span>
+            <span>Completion<b id="completionTokens">0</b></span>
+            <span>处理中<b id="aiReserved">0</b></span>
+          </div>
+        </article>
+
+        <article class="card span-2">
+          <h3>今日点数流水</h3>
+          <div class="subgrid">
+            <span>人工发放<b id="adminGranted">0</b></span>
+            <span>AI 扣点<b id="aiCharged">0</b></span>
+            <span>AI 退款<b id="aiRefunded">0</b></span>
+          </div>
+        </article>
+
+        <article class="card span-2">
+          <h3>点数余额</h3>
+          <div class="metric"><strong id="outstandingBalance">0</strong><span>点</span></div>
+          <div class="subgrid">
+            <span>今日净消耗<b id="netAiCredits">0</b></span>
+            <span>管理员<b id="adminUsers">0</b></span>
+            <span>日期<b id="statsDate">-</b></span>
+          </div>
+        </article>
+      </div>
+
+      <section class="table-panel">
+        <header>
+          <h2>最近 7 天</h2>
+          <span id="tableNote">按 Asia/Shanghai 自然日统计</span>
+        </header>
+        <table>
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>注册</th>
+              <th>AI 请求</th>
+              <th>成功</th>
+              <th>失败</th>
+              <th>扣点</th>
+              <th>退款</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="dailyRows"></tbody>
+        </table>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const tokenKey = 'rankpeek.admin.accessToken'
+    const emailKey = 'rankpeek.admin.email'
+    const state = {
+      token: localStorage.getItem(tokenKey) || '',
+      email: localStorage.getItem(emailKey) || ''
+    }
+
+    const byId = (id) => document.getElementById(id)
+    const formatNumber = (value) => Number(value || 0).toLocaleString('zh-CN')
+    const formatPercent = (value) => `${Math.round(Number(value || 0) * 1000) / 10}%`
+
+    function setText(id, value) {
+      byId(id).textContent = value
+    }
+
+    function setBusy(busy) {
+      byId('loginButton').disabled = busy
+      byId('refreshButton').disabled = busy
+    }
+
+    function showDashboard(show) {
+      byId('loginPanel').classList.toggle('hidden', show)
+      byId('dashboard').classList.toggle('hidden', !show)
+      byId('toolbar').classList.toggle('hidden', !show)
+    }
+
+    function defaultDate() {
+      const now = new Date()
+      const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+      return local.toISOString().slice(0, 10)
+    }
+
+    async function login(email, password) {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      })
+      const payload = await response.json()
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error?.message || payload.error?.code || '登录失败')
+      }
+      if (payload.data?.user?.role !== 'ADMIN') {
+        throw new Error('当前账号不是 ADMIN')
+      }
+      state.token = payload.data.accessToken
+      state.email = payload.data.user.email
+      localStorage.setItem(tokenKey, state.token)
+      localStorage.setItem(emailKey, state.email)
+    }
+
+    async function fetchOverview() {
+      const date = byId('dateInput').value || defaultDate()
+      const url = `/api/admin/stats/overview?date=${encodeURIComponent(date)}&zone=Asia%2FShanghai`
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${state.token}`
+        }
+      })
+      const payload = await response.json()
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error?.message || payload.error?.code || '统计数据加载失败')
+      }
+      renderOverview(payload.data)
+    }
+
+    function renderOverview(data) {
+      setText('adminEmail', state.email)
+      setText('generatedAt', `更新时间 ${new Date(data.generatedAt).toLocaleString('zh-CN')}`)
+      setText('active1h', formatNumber(data.activeUsers.last1Hour))
+      setText('active3h', formatNumber(data.activeUsers.last3Hours))
+      setText('active24h', formatNumber(data.activeUsers.last24Hours))
+      setText('registeredToday', formatNumber(data.users.registeredToday))
+      setText('totalUsers', formatNumber(data.users.total))
+      setText('activeUsers', formatNumber(data.users.active))
+      setText('disabledUsers', formatNumber(data.users.disabled))
+      setText('adminUsers', formatNumber(data.users.admins))
+      setText('aiRequests', formatNumber(data.ai.requestsToday))
+      setText('aiSucceeded', formatNumber(data.ai.succeededToday))
+      setText('aiFailed', formatNumber(data.ai.failedToday))
+      setText('aiReserved', formatNumber(data.ai.reservedToday))
+      setText('aiSuccessRate', formatPercent(data.ai.successRate))
+      setText('promptTokens', formatNumber(data.ai.promptTokensToday))
+      setText('completionTokens', formatNumber(data.ai.completionTokensToday))
+      setText('totalTokens', formatNumber(data.ai.totalTokensToday))
+      setText('adminGranted', formatNumber(data.credits.adminGrantedToday))
+      setText('aiCharged', formatNumber(data.credits.aiChargedToday))
+      setText('aiRefunded', formatNumber(data.credits.aiRefundedToday))
+      setText('netAiCredits', formatNumber(data.credits.netAiCreditsToday))
+      setText('outstandingBalance', formatNumber(data.credits.outstandingBalance))
+      setText('statsDate', data.date)
+
+      byId('dailyRows').innerHTML = data.daily.map((point) => `
+        <tr>
+          <td>${point.date}</td>
+          <td>${formatNumber(point.registeredUsers)}</td>
+          <td>${formatNumber(point.aiRequests)}</td>
+          <td>${formatNumber(point.aiSucceeded)}</td>
+          <td>${formatNumber(point.aiFailed)}</td>
+          <td>${formatNumber(point.chargedCredits)}</td>
+          <td>${formatNumber(point.refundedCredits)}</td>
+          <td>${formatNumber(point.totalTokens)}</td>
+        </tr>
+      `).join('')
+    }
+
+    async function loadDashboard() {
+      if (!state.token) {
+        showDashboard(false)
+        return
+      }
+      setBusy(true)
+      try {
+        await fetchOverview()
+        showDashboard(true)
+      } catch (error) {
+        localStorage.removeItem(tokenKey)
+        state.token = ''
+        byId('loginError').textContent = error.message || '请重新登录'
+        showDashboard(false)
+      } finally {
+        setBusy(false)
+      }
+    }
+
+    byId('dateInput').value = defaultDate()
+    byId('emailInput').value = state.email
+
+    byId('loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault()
+      byId('loginError').textContent = ''
+      setBusy(true)
+      try {
+        await login(byId('emailInput').value.trim(), byId('passwordInput').value)
+        byId('passwordInput').value = ''
+        await loadDashboard()
+      } catch (error) {
+        byId('loginError').textContent = error.message || '登录失败'
+      } finally {
+        setBusy(false)
+      }
+    })
+
+    byId('refreshButton').addEventListener('click', () => {
+      void loadDashboard()
+    })
+
+    byId('logoutButton').addEventListener('click', () => {
+      localStorage.removeItem(tokenKey)
+      state.token = ''
+      showDashboard(false)
+    })
+
+    void loadDashboard()
+  </script>
+</body>
+</html>

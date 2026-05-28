@@ -1,5 +1,6 @@
 package io.rankpeek.server.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.mail.Address;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -21,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PasswordResetEmailConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withBean(ObjectMapper.class, ObjectMapper::new)
             .withUserConfiguration(PasswordResetEmailConfiguration.class);
 
     @Test

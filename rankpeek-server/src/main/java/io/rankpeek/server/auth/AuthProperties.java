@@ -8,6 +8,7 @@ public record AuthProperties(
         long accessTokenTtlSeconds,
         long refreshTokenTtlSeconds,
         long passwordResetTokenTtlSeconds,
+        EmailVerification emailVerification,
         Boolean publicRegistrationEnabled,
         InitialAdmin initialAdmin
 ) {
@@ -26,6 +27,9 @@ public record AuthProperties(
         if (passwordResetTokenTtlSeconds <= 0) {
             passwordResetTokenTtlSeconds = 900;
         }
+        if (emailVerification == null) {
+            emailVerification = new EmailVerification(false, 900, 60);
+        }
         if (publicRegistrationEnabled == null) {
             publicRegistrationEnabled = true;
         }
@@ -40,5 +44,20 @@ public record AuthProperties(
             String password,
             String displayName
     ) {
+    }
+
+    public record EmailVerification(
+            boolean required,
+            long codeTtlSeconds,
+            long resendCooldownSeconds
+    ) {
+        public EmailVerification {
+            if (codeTtlSeconds <= 0) {
+                codeTtlSeconds = 900;
+            }
+            if (resendCooldownSeconds < 0) {
+                resendCooldownSeconds = 60;
+            }
+        }
     }
 }

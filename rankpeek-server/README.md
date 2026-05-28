@@ -21,6 +21,7 @@ This phase implements a server data, auth, admin, credits, CN meta sync, and moc
 - Flyway migration `V7__credits_foundation.sql` for user credit balances, credit ledger entries, and AI analysis run tracking.
 - Flyway migration `V8__ai_analysis_run_results.sql` for AI run request hashes, replayable success results, failure messages, and charge/refund ledger links.
 - Flyway migration `V9__password_reset_tokens.sql` for hashed password reset tokens.
+- Flyway migration `V10__email_verification_codes.sql` for hashed registration email verification codes.
 - `V3__cn_meta_sync_foundation.sql` intentionally remains V3 because V2 is already used by auth; renaming it would break databases that have applied V3.
 - H2-backed local-dev and test profiles.
 - PostgreSQL production profile, Ubuntu systemd, Nginx reverse-proxy, PostgreSQL backup, and monitoring templates, plus deployment smoke scripts.
@@ -111,7 +112,7 @@ Before using the real sample client outside local development, the endpoint temp
 - `POST /api/auth/password-reset/confirm`
 - `GET /api/auth/me`
 
-Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Password reset tokens are generated as opaque random values, stored only as SHA-256 hashes in `auth_password_reset_tokens`, expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`, and revoke active refresh-token sessions after a successful reset. Password reset email delivery is disabled by default; when `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true`, the server sends reset links through Spring Mail using configured SMTP settings and fails startup if the sender address or reset URL base is missing. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement email verification, payments, third-party login, CAPTCHA, or real password reset email delivery by default. It does not store LCU tokens, SGP tokens, match history, or private game data.
+Passwords are stored with BCrypt hashes. Refresh tokens are generated as opaque random values, but only their SHA-256 hashes are stored in `auth_refresh_tokens`. `POST /api/auth/refresh` rotates refresh tokens and rejects reuse of the previous token. Password reset tokens are generated as opaque random values, stored only as SHA-256 hashes in `auth_password_reset_tokens`, expire after `RANKPEEK_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS`, and revoke active refresh-token sessions after a successful reset. Registration email verification codes are six-digit random values, stored only as SHA-256 hashes in `auth_email_verification_codes`, and required only when `RANKPEEK_EMAIL_VERIFICATION_REQUIRED=true`. Password reset email delivery is disabled by default; when `RANKPEEK_TENCENT_SES_ENABLED=true`, registration and password reset emails are sent through Tencent Cloud SES template API. The older SMTP password reset path remains available when `RANKPEEK_PASSWORD_RESET_EMAIL_ENABLED=true` and Tencent SES is disabled. Access tokens use a local HMAC JWT service with local-dev/test secrets from config; non-dev modes must provide a real secret through configuration. This foundation does not implement payments, third-party login, CAPTCHA, or real password reset email delivery by default. It does not store LCU tokens, SGP tokens, match history, or private game data.
 
 To enable password reset email in a deployed environment, set:
 
@@ -120,6 +121,19 @@ To enable password reset email in a deployed environment, set:
 - `RANKPEEK_PASSWORD_RESET_URL_BASE=https://rankpeek.example.com/password-reset`
 - `RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT=RankPeek password reset` or another subject
 - `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`, and SMTP auth/TLS properties for the chosen mail provider
+
+When the SMTP password reset path is enabled, RankPeek fails startup if the sender address or reset URL base is missing.
+
+To enable Tencent Cloud SES template email in a deployed environment, set:
+
+- `RANKPEEK_TENCENT_SES_ENABLED=true`
+- `RANKPEEK_TENCENT_SES_SECRET_ID`
+- `RANKPEEK_TENCENT_SES_SECRET_KEY`
+- `RANKPEEK_TENCENT_SES_FROM_EMAIL=RankPeek <RankPeek@notify.rankpeek.cn>`
+- `RANKPEEK_TENCENT_SES_REGISTER_TEMPLATE_ID=180489`
+- `RANKPEEK_TENCENT_SES_PASSWORD_RESET_TEMPLATE_ID=180490`
+
+When Tencent Cloud SES is enabled, `POST /api/auth/register/email-code` sends the registration template with `code` and `expire_minutes`, and password reset sends the reset template with `token` and `expire_minutes`.
 
 Public registration is enabled for local development and tests, but production defaults it off through `RANKPEEK_PUBLIC_REGISTRATION_ENABLED=false`. For an internal MVP, create the first admin through the initial-admin bootstrap, then use `POST /api/admin/users` to create ordinary internal users instead of leaving open signup enabled. Production CORS is controlled by `RANKPEEK_CORS_ALLOWED_ORIGINS` and should list only trusted renderer or reverse-proxy origins.
 
@@ -217,7 +231,7 @@ See [`../docs/rankpeek-server-ubuntu-deployment.md`](../docs/rankpeek-server-ubu
 
 Every `/api/**` response includes `X-Request-Id`. Clients may provide one for support flows; otherwise the server generates one and writes an `api_request` access log line with method, path, status, duration, and request id.
 
-Run `deploy/ubuntu/rankpeek-server-preflight.sh` before starting the production service; it rejects placeholder secrets, placeholder initial admin email values, missing dependent SMTP/AI/admin values, wildcard CORS, disabled rate limiting, open public registration, missing admin access path, and unsafe env file ownership and mode for the internal MVP deployment shape. After deploying the jar and systemd service, run `deploy/ubuntu/rankpeek-server-smoke.sh` on the Ubuntu host. It verifies public health/version endpoints and `X-Request-Id`; with `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD`, it also checks admin diagnostics, Flyway version `9`, and optional expected config switches such as `RANKPEEK_SMOKE_EXPECT_MODE`, `RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED`, `RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED`, `RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED`, `RANKPEEK_SMOKE_EXPECT_AI_ENABLED`, and `RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED`. Run `deploy/ubuntu/rankpeek-server-admin-user-smoke.sh` to verify the admin-created internal user login path while public registration is disabled. When real AI is intentionally enabled, run `deploy/ubuntu/rankpeek-server-ai-smoke.sh` to verify credits, DeepSeek, and coach-summary idempotency. The Ubuntu templates also include PostgreSQL backup and restore-drill scripts under `deploy/ubuntu/postgres/`, plus a five-minute production monitor under `deploy/ubuntu/monitoring/`.
+Run `deploy/ubuntu/rankpeek-server-preflight.sh` before starting the production service; it rejects placeholder secrets, placeholder initial admin email values, missing dependent SMTP/AI/admin values, wildcard CORS, disabled rate limiting, open public registration, missing admin access path, and unsafe env file ownership and mode for the internal MVP deployment shape. After deploying the jar and systemd service, run `deploy/ubuntu/rankpeek-server-smoke.sh` on the Ubuntu host. It verifies public health/version endpoints and `X-Request-Id`; with `RANKPEEK_SMOKE_ADMIN_EMAIL` and `RANKPEEK_SMOKE_ADMIN_PASSWORD`, it also checks admin diagnostics, Flyway version `10`, and optional expected config switches such as `RANKPEEK_SMOKE_EXPECT_MODE`, `RANKPEEK_SMOKE_EXPECT_PUBLIC_REGISTRATION_ENABLED`, `RANKPEEK_SMOKE_EXPECT_INITIAL_ADMIN_ENABLED`, `RANKPEEK_SMOKE_EXPECT_PASSWORD_RESET_EMAIL_ENABLED`, `RANKPEEK_SMOKE_EXPECT_AI_ENABLED`, and `RANKPEEK_SMOKE_EXPECT_RATE_LIMIT_ENABLED`. Run `deploy/ubuntu/rankpeek-server-admin-user-smoke.sh` to verify the admin-created internal user login path while public registration is disabled. When real AI is intentionally enabled, run `deploy/ubuntu/rankpeek-server-ai-smoke.sh` to verify credits, DeepSeek, and coach-summary idempotency. The Ubuntu templates also include PostgreSQL backup and restore-drill scripts under `deploy/ubuntu/postgres/`, plus a five-minute production monitor under `deploy/ubuntu/monitoring/`.
 
 Useful endpoints:
 
@@ -225,6 +239,7 @@ Useful endpoints:
 - `GET /api/server/version`
 - `GET /api/server/diagnostics` (ADMIN bearer token)
 - `POST /api/auth/register`
+- `POST /api/auth/register/email-code`
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`

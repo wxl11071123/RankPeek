@@ -32,7 +32,25 @@ rankpeek:
       from: ${RANKPEEK_PASSWORD_RESET_EMAIL_FROM:}
       reset-url-base: ${RANKPEEK_PASSWORD_RESET_URL_BASE:}
       subject: ${RANKPEEK_PASSWORD_RESET_EMAIL_SUBJECT:RankPeek password reset}
+    email-verification:
+      required: ${RANKPEEK_EMAIL_VERIFICATION_REQUIRED:false}
+      code-ttl-seconds: ${RANKPEEK_EMAIL_VERIFICATION_CODE_TTL_SECONDS:900}
+      resend-cooldown-seconds: ${RANKPEEK_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:60}
     public-registration-enabled: ${RANKPEEK_PUBLIC_REGISTRATION_ENABLED:true}
+  email:
+    tencent-ses:
+      enabled: ${RANKPEEK_TENCENT_SES_ENABLED:false}
+      secret-id: ${RANKPEEK_TENCENT_SES_SECRET_ID:}
+      secret-key: ${RANKPEEK_TENCENT_SES_SECRET_KEY:}
+      region: ${RANKPEEK_TENCENT_SES_REGION:ap-hongkong}
+      endpoint: ${RANKPEEK_TENCENT_SES_ENDPOINT:https://ses.tencentcloudapi.com}
+      from-email-address: ${RANKPEEK_TENCENT_SES_FROM_EMAIL:}
+      register-subject: ${RANKPEEK_TENCENT_SES_REGISTER_SUBJECT:RankPeek 注册验证码}
+      register-template-id: ${RANKPEEK_TENCENT_SES_REGISTER_TEMPLATE_ID:}
+      password-reset-subject: ${RANKPEEK_TENCENT_SES_PASSWORD_RESET_SUBJECT:RankPeek 密码重置}
+      password-reset-template-id: ${RANKPEEK_TENCENT_SES_PASSWORD_RESET_TEMPLATE_ID:}
+      connect-timeout-ms: ${RANKPEEK_TENCENT_SES_CONNECT_TIMEOUT_MS:5000}
+      read-timeout-ms: ${RANKPEEK_TENCENT_SES_READ_TIMEOUT_MS:10000}
   credits:
     coach-summary-charge-credits: ${RANKPEEK_CREDITS_COACH_SUMMARY_CHARGE_CREDITS:1}
     ai-stream-charge-credits: ${RANKPEEK_CREDITS_AI_STREAM_CHARGE_CREDITS:1}

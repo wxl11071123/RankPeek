@@ -297,7 +297,7 @@ Confirm Flyway created tables:
 sudo -u postgres psql -d rankpeek_server -c "\dt"
 ```
 
-The migration history should be at version `9`, including `user_credit_balances`, `credit_ledger_entries`, `ai_analysis_runs`, and `auth_password_reset_tokens`:
+The migration history should be at version `10`, including `user_credit_balances`, `credit_ledger_entries`, `ai_analysis_runs`, `auth_password_reset_tokens`, and `auth_email_verification_codes`:
 
 ```bash
 sudo -u postgres psql -d rankpeek_server -c "select version, description, success from flyway_schema_history order by installed_rank desc limit 1;"
@@ -322,7 +322,7 @@ sudo chmod 750 /opt/rankpeek/server/rankpeek-server-admin-user-smoke.sh
 /opt/rankpeek/server/rankpeek-server-smoke.sh
 ```
 
-That public smoke run checks `/api/server/health`, `/api/server/version`, and the `X-Request-Id` response header. To also verify admin diagnostics and Flyway version `9`, pass the initial admin credentials through environment variables:
+That public smoke run checks `/api/server/health`, `/api/server/version`, and the `X-Request-Id` response header. To also verify admin diagnostics and Flyway version `10`, pass the initial admin credentials through environment variables:
 
 ```bash
 RANKPEEK_SMOKE_ADMIN_EMAIL=admin@example.com \

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -26,25 +27,30 @@ public class AuthService {
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final int MAX_DISPLAY_NAME_LENGTH = 64;
     private static final int MAX_USER_AGENT_LENGTH = 512;
+    private static final String REGISTER_EMAIL_PURPOSE = "REGISTER";
 
     private final AuthRepository authRepository;
     private final PasswordService passwordService;
     private final TokenService tokenService;
     private final AuthProperties authProperties;
     private final PasswordResetEmailSender passwordResetEmailSender;
+    private final EmailVerificationSender emailVerificationSender;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     public AuthService(
             AuthRepository authRepository,
             PasswordService passwordService,
             TokenService tokenService,
             AuthProperties authProperties,
-            PasswordResetEmailSender passwordResetEmailSender
+            PasswordResetEmailSender passwordResetEmailSender,
+            EmailVerificationSender emailVerificationSender
     ) {
         this.authRepository = authRepository;
         this.passwordService = passwordService;
         this.tokenService = tokenService;
         this.authProperties = authProperties;
         this.passwordResetEmailSender = passwordResetEmailSender;
+        this.emailVerificationSender = emailVerificationSender;
     }
 
     @Transactional
@@ -63,6 +69,9 @@ public class AuthService {
         if (authRepository.findUserByEmail(email).isPresent()) {
             throw emailAlreadyRegistered();
         }
+        if (authProperties.emailVerification().required()) {
+            consumeValidRegisterEmailCode(email, request.verificationCode(), Instant.now());
+        }
 
         AuthUser user;
         try {
@@ -72,6 +81,49 @@ public class AuthService {
         }
 
         return issueAuthResponse(user, userAgent);
+    }
+
+    @Transactional
+    public EmailVerificationResponse requestRegisterEmailCode(EmailVerificationRequest request) {
+        if (!Boolean.TRUE.equals(authProperties.publicRegistrationEnabled())) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "PUBLIC_REGISTRATION_DISABLED",
+                    "Public registration is disabled"
+            );
+        }
+        String email = normalizeEmail(request.email());
+        Instant now = Instant.now();
+        long ttlSeconds = authProperties.emailVerification().codeTtlSeconds();
+
+        if (authRepository.findUserByEmail(email).isPresent()) {
+            return new EmailVerificationResponse(true, ttlSeconds);
+        }
+
+        authRepository.findLatestEmailVerificationCode(email, REGISTER_EMAIL_PURPOSE)
+                .filter(code -> code.consumedAt() == null)
+                .filter(code -> code.createdAt() != null)
+                .filter(code -> now.isBefore(code.createdAt().plusSeconds(authProperties.emailVerification().resendCooldownSeconds())))
+                .ifPresent(code -> {
+                    throw new ApiException(
+                            HttpStatus.TOO_MANY_REQUESTS,
+                            "EMAIL_VERIFICATION_CODE_TOO_FREQUENT",
+                            "Please wait before requesting another email verification code"
+                    );
+                });
+
+        authRepository.revokeUnusedEmailVerificationCodes(email, REGISTER_EMAIL_PURPOSE, now);
+        String code = newVerificationCode();
+        Instant expiresAt = now.plusSeconds(ttlSeconds);
+        authRepository.insertEmailVerificationCode(
+                email,
+                REGISTER_EMAIL_PURPOSE,
+                tokenService.hashRefreshToken(code),
+                expiresAt,
+                now
+        );
+        sendRegisterVerificationEmailAfterCommit(email, code, expiresAt);
+        return new EmailVerificationResponse(true, ttlSeconds);
     }
 
     @Transactional
@@ -317,6 +369,50 @@ public class AuthService {
         }
     }
 
+    private void sendRegisterVerificationEmailAfterCommit(String email, String code, Instant expiresAt) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sendRegisterVerificationEmail(email, code, expiresAt);
+                }
+            });
+            return;
+        }
+        sendRegisterVerificationEmail(email, code, expiresAt);
+    }
+
+    private void sendRegisterVerificationEmail(String email, String code, Instant expiresAt) {
+        try {
+            emailVerificationSender.sendRegisterVerificationCode(email, code, expiresAt);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Register email verification delivery failed for email={}", email, exception);
+        }
+    }
+
+    private void consumeValidRegisterEmailCode(String email, String code, Instant now) {
+        if (code == null || code.isBlank()) {
+            throw invalidEmailVerificationCode();
+        }
+        StoredEmailVerificationCode stored = authRepository.findLatestEmailVerificationCode(email, REGISTER_EMAIL_PURPOSE)
+                .orElseThrow(AuthService::invalidEmailVerificationCode);
+        if (stored.consumedAt() != null || !stored.expiresAt().isAfter(now)) {
+            throw invalidEmailVerificationCode();
+        }
+        String normalizedCode = code.trim();
+        if (!MessageDigestSafe.equals(tokenService.hashRefreshToken(normalizedCode), stored.codeHash())) {
+            throw invalidEmailVerificationCode();
+        }
+        int consumed = authRepository.consumeEmailVerificationCode(stored.id(), now);
+        if (consumed == 0) {
+            throw invalidEmailVerificationCode();
+        }
+    }
+
+    private String newVerificationCode() {
+        return "%06d".formatted(secureRandom.nextInt(1_000_000));
+    }
+
     private StoredRefreshToken requireValidRefreshToken(String refreshToken, Instant now) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw invalidRefreshToken();
@@ -485,11 +581,28 @@ public class AuthService {
         );
     }
 
+    private static ApiException invalidEmailVerificationCode() {
+        return new ApiException(
+                HttpStatus.UNAUTHORIZED,
+                "EMAIL_VERIFICATION_CODE_INVALID",
+                "Email verification code is invalid, expired, or already used"
+        );
+    }
+
     private static ApiException invalidAccessToken() {
         return new ApiException(HttpStatus.UNAUTHORIZED, "ACCESS_TOKEN_INVALID", "Invalid or expired access token");
     }
 
     private static ApiException userNotFound() {
         return new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User was not found");
+    }
+
+    private static final class MessageDigestSafe {
+        private static boolean equals(String left, String right) {
+            return java.security.MessageDigest.isEqual(
+                    left == null ? new byte[0] : left.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    right == null ? new byte[0] : right.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            );
+        }
     }
 }
