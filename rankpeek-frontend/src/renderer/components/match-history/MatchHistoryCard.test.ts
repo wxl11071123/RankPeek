@@ -115,6 +115,37 @@ test('match history card renders saved AI report buttons without toggling the ca
   assert.ok(templateBlock.indexOf('class="saved-ai-actions"') < templateBlock.indexOf('class="teams-strip"'))
 })
 
+test('match history card shows KDA ratio and keeps kill participation in a fixed aligned column', () => {
+  const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
+  const templateBlock = source.match(/<template>[\s\S]*?<\/template>/)?.[0] || ''
+
+  assert.match(source, /const kdaRatioText = computed\(\(\) => formatKdaRatio\(currentStats\.value\)\)/)
+  assert.match(source, /const killParticipationText = computed\(\(\) => formatKillParticipation\(currentPlayer\.value, props\.match\.participants \|\| \[\]\)\)/)
+  assert.match(source, /function formatKdaRatio\(stats\?: Stats\): string/)
+  assert.match(source, /const kda = deaths === 0\s*\?\s*kills \+ assists\s*:\s*\(kills \+ assists\) \/ deaths/)
+  assert.match(source, /function formatKillParticipation\(participant: Participant \| null \| undefined, participants: Participant\[\]\): string/)
+  assert.match(source, /filter\(player => player\.teamId === participant\.teamId\)/)
+  assert.match(source, /reduce\(\(total, player\) => total \+ \(player\.stats\?\.kills \|\| 0\), 0\)/)
+  assert.match(source, /Math\.round\(\(\(kills \+ assists\) \/ teamKills\) \* 100\)/)
+  assert.match(templateBlock, /class="combat-block"[\s\S]*class="kda-line"[\s\S]*class="kda-ratio-line"[\s\S]*KDA \{\{ kdaRatioText \}\}/)
+  assert.match(templateBlock, /class="participation-block"[\s\S]*<span>参团率<\/span>[\s\S]*\{\{ killParticipationText \}\}/)
+  assert.match(source, /--trait-column-width:\s*calc\(\(var\(--loadout-slot-size\) \* 3\) \+ \(var\(--trait-grid-gap\) \* 2\)\)/)
+  assert.match(source, /--combat-column-width:\s*98px/)
+  assert.match(source, /--participation-column-width:\s*54px/)
+  assert.match(source, /\.identity-row\s*\{[\s\S]*display:\s*grid/)
+  assert.match(source, /\.identity-row\s*\{[\s\S]*grid-template-columns:\s*42px var\(--spell-column-width\) var\(--trait-column-width\) var\(--combat-column-width\) var\(--participation-column-width\)/)
+  assert.match(source, /\.champion-block\s*\{[\s\S]*grid-column:\s*1/)
+  assert.match(source, /\.spell-column\s*\{[\s\S]*grid-column:\s*2/)
+  assert.match(source, /\.trait-column,\s*\.trait-grid\s*\{[\s\S]*grid-column:\s*3/)
+  assert.match(source, /\.combat-block\s*\{[\s\S]*grid-column:\s*4/)
+  assert.match(source, /\.combat-block\s*\{[\s\S]*width:\s*var\(--combat-column-width\)/)
+  assert.match(source, /\.participation-block\s*\{[\s\S]*grid-column:\s*5/)
+  assert.match(source, /\.participation-block\s*\{[\s\S]*width:\s*var\(--participation-column-width\)/)
+  assert.match(source, /\.participation-block\s*\{[\s\S]*align-items:\s*center/)
+  assert.match(source, /\.participation-block\s*\{[\s\S]*text-align:\s*center/)
+  assert.doesNotMatch(source, /\.participation-block\s*\{[\s\S]*margin-left:\s*auto/)
+})
+
 test('match history card renders remake result state without win or loss coloring', () => {
   const source = readFileSync(new URL('./MatchHistoryCard.vue', import.meta.url), 'utf8')
 

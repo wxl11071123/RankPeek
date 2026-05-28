@@ -15,6 +15,8 @@ import {
   loginRankPeekAccount,
   logoutRankPeekAccount,
   registerRankPeekAccount,
+  requestRankPeekRegisterEmailCode,
+  requestRankPeekPasswordReset,
   storeRankPeekAuthSession,
   type RankPeekAuthSession
 } from '@/services/rankpeekAuthClient'
@@ -28,6 +30,7 @@ import brandEyeWhite from '@/assets/branding/rankpeek-eye-white.png'
 
 const themeStore = useThemeStore()
 const { t } = useI18n()
+type AuthMode = 'login' | 'register' | 'forgotPassword'
 
 const appVersion = ref('1.0.0')
 const defaultMatchQueueMode = ref(0)
@@ -37,12 +40,17 @@ const clearingUserCacheMode = ref<CacheClearMode | null>(null)
 const checkingLocalServer = ref(false)
 const authSession = ref<RankPeekAuthSession | null>(getStoredRankPeekAuthSession())
 const authModalOpen = ref(false)
-const authMode = ref<'login' | 'register'>('login')
+const authMode = ref<AuthMode>('login')
 const authEmail = ref('')
 const authPassword = ref('')
-const authDisplayName = ref('')
+const authPasswordConfirm = ref('')
+const authVerificationCode = ref('')
+const showAuthPassword = ref(false)
+const showAuthPasswordConfirm = ref(false)
 const authBusy = ref(false)
+const authVerificationBusy = ref(false)
 const authError = ref('')
+const authInfo = ref('')
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
 const githubIssuesUrl = 'https://github.com/wxl11071123/rankpeek/issues'
@@ -63,12 +71,28 @@ const aboutShowcaseSrc = computed(() =>
 
 const signedInUser = computed(() => authSession.value?.user ?? null)
 
-const authModalTitle = computed(() =>
-  authMode.value === 'login' ? t('settings.authLoginTitle') : t('settings.authRegisterTitle')
-)
+const authModalTitle = computed(() => {
+  if (authMode.value === 'login') {
+    return t('settings.authLoginTitle')
+  }
+  if (authMode.value === 'register') {
+    return t('settings.authRegisterTitle')
+  }
+  return t('settings.authForgotTitle')
+})
 
-const authSubmitLabel = computed(() =>
-  authMode.value === 'login' ? t('settings.authSubmitLogin') : t('settings.authSubmitRegister')
+const authSubmitLabel = computed(() => {
+  if (authMode.value === 'login') {
+    return t('settings.authSubmitLogin')
+  }
+  if (authMode.value === 'register') {
+    return t('settings.authSubmitRegister')
+  }
+  return t('settings.authSubmitForgotPassword')
+})
+
+const authPasswordAutocomplete = computed(() =>
+  authMode.value === 'login' ? 'current-password' : 'new-password'
 )
 
 if (window.electronAPI) {
@@ -92,40 +116,72 @@ onMounted(async () => {
   }
 })
 
-function openAuthModal(mode: 'login' | 'register') {
+function openAuthModal(mode: AuthMode) {
   authMode.value = mode
   authEmail.value = signedInUser.value?.email ?? ''
   authPassword.value = ''
-  authDisplayName.value = ''
+  authPasswordConfirm.value = ''
+  authVerificationCode.value = ''
+  showAuthPassword.value = false
+  showAuthPasswordConfirm.value = false
   authError.value = ''
+  authInfo.value = ''
   authModalOpen.value = true
 }
 
 function closeAuthModal() {
-  if (authBusy.value) {
+  if (authBusy.value || authVerificationBusy.value) {
     return
   }
 
   authModalOpen.value = false
   authError.value = ''
+  authInfo.value = ''
 }
 
-function switchAuthMode(mode: 'login' | 'register') {
+function switchAuthMode(mode: AuthMode) {
   authMode.value = mode
   authError.value = ''
+  authInfo.value = ''
   authPassword.value = ''
+  authPasswordConfirm.value = ''
+  authVerificationCode.value = ''
+  showAuthPassword.value = false
+  showAuthPasswordConfirm.value = false
 }
 
 async function submitAuthForm() {
-  if (!authEmail.value || !authPassword.value) {
+  if (!authEmail.value || (authMode.value !== 'forgotPassword' && !authPassword.value)) {
     authError.value = t('settings.authRequiredFields')
+    return
+  }
+
+  if (authMode.value === 'register' && authPassword.value !== authPasswordConfirm.value) {
+    authError.value = t('settings.authPasswordMismatch')
+    return
+  }
+
+  if (authMode.value === 'register' && !authVerificationCode.value.trim()) {
+    authError.value = t('settings.authVerificationCodeRequired')
     return
   }
 
   authBusy.value = true
   authError.value = ''
+  authInfo.value = ''
 
   try {
+    if (authMode.value === 'forgotPassword') {
+      const result = await requestRankPeekPasswordReset({ email: authEmail.value })
+      if (!result.ok) {
+        authError.value = result.message
+        return
+      }
+
+      authInfo.value = t('settings.authResetRequestSent')
+      return
+    }
+
     const result = authMode.value === 'login'
       ? await loginRankPeekAccount({
         email: authEmail.value,
@@ -134,7 +190,7 @@ async function submitAuthForm() {
       : await registerRankPeekAccount({
         email: authEmail.value,
         password: authPassword.value,
-        displayName: authDisplayName.value
+        verificationCode: authVerificationCode.value
       })
 
     if (!result.ok) {
@@ -148,8 +204,34 @@ async function submitAuthForm() {
     authSession.value = result.session
     authModalOpen.value = false
     authPassword.value = ''
+    authPasswordConfirm.value = ''
+    authVerificationCode.value = ''
   } finally {
     authBusy.value = false
+  }
+}
+
+async function sendRegisterEmailCode() {
+  if (!authEmail.value) {
+    authError.value = t('settings.authRequiredFields')
+    return
+  }
+
+  authVerificationBusy.value = true
+  authError.value = ''
+  authInfo.value = ''
+
+  try {
+    const result = await requestRankPeekRegisterEmailCode({ email: authEmail.value })
+    if (!result.ok) {
+      authError.value = result.message
+      return
+    }
+
+    const minutes = Math.max(1, Math.ceil(result.expiresInSeconds / 60))
+    authInfo.value = t('settings.authVerificationCodeSent', { minutes })
+  } finally {
+    authVerificationBusy.value = false
   }
 }
 
@@ -323,7 +405,7 @@ async function openExternal(url: string) {
           <button
             class="auth-close-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
             :aria-label="t('common.cancel')"
             @click="closeAuthModal"
           >
@@ -345,27 +427,114 @@ async function openExternal(url: string) {
             >
           </label>
 
-          <label class="auth-field">
+          <label
+            v-if="authMode !== 'forgotPassword'"
+            class="auth-field"
+          >
             <span>{{ t('settings.authPassword') }}</span>
-            <input
-              v-model="authPassword"
-              autocomplete="current-password"
-              name="password"
-              type="password"
-            >
+            <span class="auth-password-control">
+              <input
+                v-model="authPassword"
+                :autocomplete="authPasswordAutocomplete"
+                name="password"
+                :type="showAuthPassword ? 'text' : 'password'"
+              >
+              <button
+                class="auth-password-toggle"
+                type="button"
+                :aria-label="showAuthPassword ? t('settings.authPasswordHide') : t('settings.authPasswordShow')"
+                @click="showAuthPassword = !showAuthPassword"
+              >
+                <svg
+                  v-if="!showAuthPassword"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                  />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M3 3l18 18" />
+                  <path d="M2 12s3.5-6 10-6c1.2 0 2.3.2 3.3.6" />
+                  <path d="M21.1 13.9C19.7 16 16.6 18 12 18c-1.2 0-2.3-.2-3.3-.6" />
+                </svg>
+              </button>
+            </span>
           </label>
 
           <label
             v-if="authMode === 'register'"
             class="auth-field"
           >
-            <span>{{ t('settings.authDisplayName') }}</span>
-            <input
-              v-model.trim="authDisplayName"
-              autocomplete="nickname"
-              name="displayName"
-              type="text"
-            >
+            <span>{{ t('settings.authPasswordConfirm') }}</span>
+            <span class="auth-password-control">
+              <input
+                v-model="authPasswordConfirm"
+                autocomplete="new-password"
+                name="passwordConfirm"
+                :type="showAuthPasswordConfirm ? 'text' : 'password'"
+              >
+              <button
+                class="auth-password-toggle"
+                type="button"
+                :aria-label="showAuthPasswordConfirm ? t('settings.authPasswordHide') : t('settings.authPasswordShow')"
+                @click="showAuthPasswordConfirm = !showAuthPasswordConfirm"
+              >
+                <svg
+                  v-if="!showAuthPasswordConfirm"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                  />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M3 3l18 18" />
+                  <path d="M2 12s3.5-6 10-6c1.2 0 2.3.2 3.3.6" />
+                  <path d="M21.1 13.9C19.7 16 16.6 18 12 18c-1.2 0-2.3-.2-3.3-.6" />
+                </svg>
+              </button>
+            </span>
+          </label>
+
+          <label
+            v-if="authMode === 'register'"
+            class="auth-field"
+          >
+            <span>{{ t('settings.authVerificationCode') }}</span>
+            <span class="auth-code-control">
+              <input
+                v-model.trim="authVerificationCode"
+                autocomplete="one-time-code"
+                inputmode="numeric"
+                name="verificationCode"
+                type="text"
+              >
+              <button
+                class="secondary-btn auth-code-btn"
+                type="button"
+                :disabled="authBusy || authVerificationBusy"
+                @click="sendRegisterEmailCode"
+              >
+                {{ authVerificationBusy ? t('settings.authSendingVerificationCode') : t('settings.authSendVerificationCode') }}
+              </button>
+            </span>
           </label>
 
           <p
@@ -374,11 +543,17 @@ async function openExternal(url: string) {
           >
             {{ authError }}
           </p>
+          <p
+            v-if="authInfo"
+            class="auth-info"
+          >
+            {{ authInfo }}
+          </p>
 
           <button
             class="primary-btn auth-submit"
             type="submit"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
           >
             {{ authBusy ? t('settings.saving') : authSubmitLabel }}
           </button>
@@ -389,7 +564,16 @@ async function openExternal(url: string) {
             v-if="authMode === 'login'"
             class="auth-link-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
+            @click="switchAuthMode('forgotPassword')"
+          >
+            {{ t('settings.authForgotPassword') }}
+          </button>
+          <button
+            v-if="authMode === 'login'"
+            class="auth-link-btn"
+            type="button"
+            :disabled="authBusy || authVerificationBusy"
             @click="switchAuthMode('register')"
           >
             {{ t('settings.authSwitchToRegister') }}
@@ -398,7 +582,7 @@ async function openExternal(url: string) {
             v-else
             class="auth-link-btn"
             type="button"
-            :disabled="authBusy"
+            :disabled="authBusy || authVerificationBusy"
             @click="switchAuthMode('login')"
           >
             {{ t('settings.authSwitchToLogin') }}
@@ -445,23 +629,47 @@ async function openExternal(url: string) {
             <h3>{{ t('settings.clearCacheUser') }}</h3>
             <p>{{ t('settings.clearCacheUserDescription') }}</p>
           </div>
-          <div class="setting-control">
-            <button
-              class="secondary-btn compact"
-              type="button"
-              :disabled="clearingUserCacheMode !== null"
-              @click="clearUserCache('normal')"
-            >
-              {{ clearingUserCacheMode === 'normal' ? t('settings.clearingCache') : t('settings.normalClearCacheAction') }}
-            </button>
-            <button
-              class="secondary-btn compact"
-              type="button"
-              :disabled="clearingUserCacheMode !== null"
-              @click="clearUserCache('deep')"
-            >
-              {{ clearingUserCacheMode === 'deep' ? t('settings.clearingCache') : t('settings.deepClearCacheAction') }}
-            </button>
+          <div
+            class="setting-control cache-clear-control"
+            role="group"
+            :aria-label="t('settings.clearCacheUser')"
+          >
+            <span class="cache-clear-tooltip-anchor">
+              <button
+                class="secondary-btn compact"
+                type="button"
+                aria-describedby="normal-cache-clear-tooltip"
+                :disabled="clearingUserCacheMode !== null"
+                @click="clearUserCache('normal')"
+              >
+                {{ clearingUserCacheMode === 'normal' ? t('settings.clearingCache') : t('settings.normalClearCacheAction') }}
+              </button>
+              <span
+                id="normal-cache-clear-tooltip"
+                class="cache-clear-tooltip"
+                role="tooltip"
+              >
+                {{ t('settings.normalClearCacheTooltip') }}
+              </span>
+            </span>
+            <span class="cache-clear-tooltip-anchor">
+              <button
+                class="secondary-btn compact"
+                type="button"
+                aria-describedby="deep-cache-clear-tooltip"
+                :disabled="clearingUserCacheMode !== null"
+                @click="clearUserCache('deep')"
+              >
+                {{ clearingUserCacheMode === 'deep' ? t('settings.clearingCache') : t('settings.deepClearCacheAction') }}
+              </button>
+              <span
+                id="deep-cache-clear-tooltip"
+                class="cache-clear-tooltip"
+                role="tooltip"
+              >
+                {{ t('settings.deepClearCacheTooltip') }}
+              </span>
+            </span>
           </div>
         </article>
 
@@ -734,6 +942,62 @@ async function openExternal(url: string) {
   outline: none;
 }
 
+.auth-password-control {
+  position: relative;
+  display: block;
+}
+
+.auth-password-control input {
+  padding-right: 44px;
+}
+
+.auth-code-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.auth-code-btn {
+  min-width: 108px;
+  height: 42px;
+  padding: 0 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.auth-password-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.auth-password-toggle svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .auth-field input:focus {
   border-color: var(--input-focus-border);
   box-shadow:
@@ -748,12 +1012,20 @@ async function openExternal(url: string) {
   line-height: 1.45;
 }
 
+.auth-info {
+  margin: 0;
+  color: #5eead4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .auth-submit {
   width: 100%;
 }
 
 .auth-switch {
   display: flex;
+  gap: 10px;
   justify-content: center;
   margin-top: 14px;
 }
@@ -766,6 +1038,16 @@ async function openExternal(url: string) {
 
 .auth-link-btn:hover:not(:disabled) {
   color: var(--accent-color);
+}
+
+@media (max-width: 480px) {
+  .auth-code-control {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-code-btn {
+    width: 100%;
+  }
 }
 
 .settings-section {
@@ -820,6 +1102,66 @@ async function openExternal(url: string) {
 
 .match-mode-control {
   min-width: min(100%, 360px);
+}
+
+.cache-clear-control {
+  align-items: center;
+}
+
+.cache-clear-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.cache-clear-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: var(--z-tooltip);
+  box-sizing: border-box;
+  width: 260px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.26);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.96);
+  color: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 14px 28px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    visibility 0.14s ease;
+}
+
+.cache-clear-tooltip::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid rgba(var(--accent-rgb), 0.26);
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.26);
+  background: rgba(15, 23, 42, 0.96);
+  transform: rotate(45deg);
+}
+
+.cache-clear-tooltip-anchor:hover .cache-clear-tooltip,
+.cache-clear-tooltip-anchor:focus-within .cache-clear-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 
 .select-input {

@@ -39,14 +39,34 @@ test('settings auth modal supports login first with an inline register mode', ()
   assert.match(source, /<form[\s\S]*class="auth-form"[\s\S]*@submit\.prevent="submitAuthForm"[\s\S]*>/)
   assert.match(source, /v-model\.trim="authEmail"/)
   assert.match(source, /v-model="authPassword"/)
-  assert.match(source, /v-if="authMode === 'register'"/)
+  assert.match(source, /v-model="authPasswordConfirm"/)
+  assert.match(source, /showAuthPassword/)
+  assert.match(source, /showAuthPasswordConfirm/)
+  assert.match(source, /authMode === 'register'/)
+  assert.match(source, /forgotPassword/)
   assert.match(source, /@click="switchAuthMode\('register'\)"/)
   assert.match(source, /@click="switchAuthMode\('login'\)"/)
+  assert.match(source, /@click="switchAuthMode\('forgotPassword'\)"/)
   assert.match(source, /loginRankPeekAccount\(/)
   assert.match(source, /registerRankPeekAccount\(/)
+  assert.match(source, /requestRankPeekRegisterEmailCode\(/)
+  assert.match(source, /requestRankPeekPasswordReset\(/)
   assert.match(source, /storeRankPeekAuthSession\(result\.session\)/)
+  assert.match(source, /authVerificationCode/)
+  assert.match(source, /name="verificationCode"/)
+  assert.match(source, /@click="sendRegisterEmailCode"/)
+  assert.match(source, /verificationCode:\s*authVerificationCode\.value/)
   assert.match(source, /settings\.authSwitchToRegister/)
   assert.match(source, /settings\.authSwitchToLogin/)
+  assert.match(source, /settings\.authForgotPassword/)
+  assert.match(source, /settings\.authVerificationCode/)
+  assert.match(source, /settings\.authSendVerificationCode/)
+  assert.match(source, /settings\.authVerificationCodeSent/)
+  assert.match(source, /settings\.authPasswordMismatch/)
+  assert.match(source, /settings\.authResetRequestSent/)
+  assert.doesNotMatch(source, /authDisplayName/)
+  assert.doesNotMatch(source, /settings\.authDisplayName/)
+  assert.doesNotMatch(source, /name="displayName"/)
 })
 
 test('settings page keeps only the three common user settings', () => {
@@ -79,6 +99,22 @@ test('settings page keeps only the three common user settings', () => {
   assert.match(source, /themeStore\.setTheme\('dark'\)/)
   assert.match(source, /settings\.appearanceTheme/)
   assert.match(source, /settings\.appearanceThemeDescription/)
+})
+
+test('settings cache clear buttons explain normal and deep clearing with accessible tooltips', () => {
+  assert.match(source, /id="normal-cache-clear-tooltip"/)
+  assert.match(source, /id="deep-cache-clear-tooltip"/)
+  assert.match(source, /aria-describedby="normal-cache-clear-tooltip"/)
+  assert.match(source, /aria-describedby="deep-cache-clear-tooltip"/)
+  assert.match(source, /role="tooltip"/)
+  assert.match(source, /settings\.normalClearCacheTooltip/)
+  assert.match(source, /settings\.deepClearCacheTooltip/)
+  assert.match(source, /\.cache-clear-tooltip-anchor:hover \.cache-clear-tooltip/)
+  assert.match(source, /\.cache-clear-tooltip-anchor:focus-within \.cache-clear-tooltip/)
+  assert.match(source, /\.cache-clear-tooltip\s*\{[\s\S]*opacity:\s*0/)
+  assert.match(source, /\.cache-clear-tooltip\s*\{[\s\S]*visibility:\s*hidden/)
+  assert.doesNotMatch(source, /title="[^"]*Clear/)
+  assert.doesNotMatch(source, /title="\{\{ t\('settings\.(?:normalClearCacheTooltip|deepClearCacheTooltip)'\) \}\}"/)
 })
 
 test('settings account card checks local rankpeek-server without exposing raw diagnostics', () => {
@@ -138,16 +174,28 @@ test('settings copy is user-facing in both locales', () => {
     'settings.logout',
     'settings.authEmail',
     'settings.authPassword',
-    'settings.authDisplayName',
+    'settings.authPasswordConfirm',
+    'settings.authPasswordShow',
+    'settings.authPasswordHide',
+    'settings.authVerificationCode',
+    'settings.authSendVerificationCode',
+    'settings.authSendingVerificationCode',
+    'settings.authVerificationCodeSent',
+    'settings.authVerificationCodeRequired',
     'settings.authSubmitLogin',
     'settings.authSubmitRegister',
+    'settings.authSubmitForgotPassword',
     'settings.authSwitchToRegister',
     'settings.authSwitchToLogin',
+    'settings.authForgotPassword',
     'settings.authLoginTitle',
     'settings.authRegisterTitle',
+    'settings.authForgotTitle',
     'settings.authLoginFailed',
     'settings.authRegisterFailed',
     'settings.authRequiredFields',
+    'settings.authPasswordMismatch',
+    'settings.authResetRequestSent',
     'settings.signedInAs',
     'settings.accountRole',
     'settings.checkLocalServer',
@@ -160,7 +208,9 @@ test('settings copy is user-facing in both locales', () => {
     'settings.clearCacheUser',
     'settings.clearCacheUserDescription',
     'settings.normalClearCacheAction',
+    'settings.normalClearCacheTooltip',
     'settings.deepClearCacheAction',
+    'settings.deepClearCacheTooltip',
     'settings.appearanceTheme',
     'settings.appearanceThemeDescription',
     'settings.aboutRankPeek'

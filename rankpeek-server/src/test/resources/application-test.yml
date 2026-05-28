@@ -27,7 +27,23 @@ rankpeek:
     access-token-ttl-seconds: 3600
     refresh-token-ttl-seconds: 2592000
     password-reset-token-ttl-seconds: 900
+    email-verification:
+      required: false
+      code-ttl-seconds: 900
+      resend-cooldown-seconds: 60
     public-registration-enabled: true
+  email:
+    tencent-ses:
+      enabled: false
+      secret-id:
+      secret-key:
+      region: ap-hongkong
+      endpoint: https://ses.tencentcloudapi.com
+      from-email-address:
+      register-subject: RankPeek 注册验证码
+      register-template-id:
+      password-reset-subject: RankPeek 密码重置
+      password-reset-template-id:
   credits:
     coach-summary-charge-credits: 1
     ai-stream-charge-credits: 1

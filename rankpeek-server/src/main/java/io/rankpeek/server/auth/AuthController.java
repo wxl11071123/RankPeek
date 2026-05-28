@@ -27,6 +27,13 @@ public class AuthController {
         return ApiResponse.success(authService.register(request, userAgent));
     }
 
+    @PostMapping("/register/email-code")
+    public ApiResponse<EmailVerificationResponse> requestRegisterEmailCode(
+            @RequestBody EmailVerificationRequest request
+    ) {
+        return ApiResponse.success(authService.requestRegisterEmailCode(request));
+    }
+
     @PostMapping("/login")
     public ApiResponse<AuthResponse> login(
             @RequestBody LoginRequest request,

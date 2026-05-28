@@ -80,19 +80,62 @@
         v-for="section in buildSections"
         :key="section.key"
         class="opgg-section"
+        :class="{ expandable: canExpandSection(section), expanded: isSectionExpanded(section.key), 'opgg-last-items-section': isLastItemsSection(section) }"
+        :role="canExpandSection(section) ? 'button' : undefined"
+        :tabindex="canExpandSection(section) ? 0 : undefined"
+        :aria-expanded="canExpandSection(section) ? isSectionExpanded(section.key) : undefined"
+        @click="toggleSectionExpandedFromCard(section)"
+        @keydown.enter.prevent="toggleSectionExpandedFromCard(section)"
+        @keydown.space.prevent="toggleSectionExpandedFromCard(section)"
       >
         <header class="opgg-section-header">
           <h3>{{ section.title }}</h3>
-          <button
+          <span
             v-if="canExpandSection(section)"
-            class="opgg-section-toggle"
-            type="button"
-            @click="toggleSectionExpanded(section.key)"
+            class="opgg-section-expand-indicator"
+            aria-hidden="true"
           >
             {{ isSectionExpanded(section.key) ? '收起' : '展开' }}
-          </button>
+          </span>
         </header>
-        <div v-if="section.options.length" class="opgg-build-list">
+        <div v-if="isLastItemsSection(section) && section.options.length" class="opgg-last-items-grid">
+          <article
+            v-for="column in lastItemColumns(section)"
+            :key="column.key"
+            class="opgg-last-item-column"
+          >
+            <h4>{{ column.title }}</h4>
+            <div v-if="column.options.length" class="opgg-last-item-list">
+              <article
+                v-for="(option, index) in visibleLastItemColumnOptions(section, column)"
+                :key="`${column.key}-${index}`"
+                class="opgg-last-item-row"
+              >
+                <div class="opgg-icon-chain opgg-last-item-icon-chain">
+                  <span
+                    v-for="(id, idIndex) in option.ids"
+                    :key="`${column.key}-${index}-${id}-${idIndex}`"
+                    class="opgg-icon-slot"
+                  >
+                    <img
+                      v-if="getIconUrl(section.iconType, id)"
+                      :src="getIconUrl(section.iconType, id)"
+                      alt=""
+                      @error="markAssetLoadFailed"
+                    />
+                    <span v-else>{{ formatSkillId(id) }}</span>
+                  </span>
+                </div>
+                <div class="opgg-last-item-metrics">
+                  <strong>{{ formatPercent(option.winRate) }}</strong>
+                  <span>{{ formatLastItemGames(option.games) }}</span>
+                </div>
+              </article>
+            </div>
+            <p v-else class="opgg-empty-section">暂无数据</p>
+          </article>
+        </div>
+        <div v-else-if="section.options.length" class="opgg-build-list">
           <article
             v-for="(option, index) in visibleSectionOptions(section)"
             :key="`${section.key}-${index}`"
@@ -249,7 +292,17 @@ interface BuildSection {
   options: OpggBuildOption[]
 }
 
+interface LastItemColumn {
+  key: string
+  title: string
+  options: OpggBuildOption[]
+}
+
 const INITIAL_VISIBLE_BUILD_OPTIONS = 2
+const LAST_ITEM_COLUMN_SIZE = 5
+const LAST_ITEM_COLLAPSED_OPTIONS_PER_COLUMN = 2
+const LAST_ITEM_COLUMN_TITLES = ['第四件装备', '第五件装备', '第六件装备']
+const LAST_ITEMS_SECTION_KEY = 'lastItems'
 
 const props = defineProps<{
   query: OpggChampionQuery
@@ -293,7 +346,7 @@ const buildSections = computed<BuildSection[]>(() => {
     { key: 'starterItems', title: '出门装', iconType: 'item', options: detail.starterItems || [] },
     { key: 'boots', title: '鞋子', iconType: 'item', options: detail.boots || [] },
     { key: 'coreItems', title: '核心装备', iconType: 'item', options: detail.coreItems || [] },
-    { key: 'lastItems', title: '第四/五/六件装备', iconType: 'item', options: detail.lastItems || [] }
+    { key: LAST_ITEMS_SECTION_KEY, title: '第四/五/六件装备', iconType: 'item', options: detail.lastItems || [] }
   )
   return sections
 })
@@ -310,7 +363,32 @@ function visibleSectionOptions(section: BuildSection): OpggBuildOption[] {
 }
 
 function canExpandSection(section: BuildSection): boolean {
+  if (isLastItemsSection(section)) {
+    return lastItemColumns(section).some(column => column.options.length > LAST_ITEM_COLLAPSED_OPTIONS_PER_COLUMN)
+  }
   return section.options.length > INITIAL_VISIBLE_BUILD_OPTIONS
+}
+
+function isLastItemsSection(section: BuildSection): boolean {
+  return section.key === LAST_ITEMS_SECTION_KEY
+}
+
+function lastItemColumns(section: BuildSection): LastItemColumn[] {
+  return LAST_ITEM_COLUMN_TITLES.map((title, index) => {
+    const start = index * LAST_ITEM_COLUMN_SIZE
+    return {
+      key: `${LAST_ITEMS_SECTION_KEY}-${index}`,
+      title,
+      options: section.options.slice(start, start + LAST_ITEM_COLUMN_SIZE)
+    }
+  })
+}
+
+function visibleLastItemColumnOptions(section: BuildSection, column: LastItemColumn): OpggBuildOption[] {
+  if (isSectionExpanded(section.key)) {
+    return column.options
+  }
+  return column.options.slice(0, LAST_ITEM_COLLAPSED_OPTIONS_PER_COLUMN)
 }
 
 function isSectionExpanded(sectionKey: string): boolean {
@@ -325,6 +403,11 @@ function toggleSectionExpanded(sectionKey: string) {
     nextKeys.add(sectionKey)
   }
   expandedSectionKeys.value = nextKeys
+}
+
+function toggleSectionExpandedFromCard(section: BuildSection) {
+  if (!canExpandSection(section)) return
+  toggleSectionExpanded(section.key)
 }
 
 function runeGroup(option: OpggBuildOption): OpggRuneGroups {
@@ -362,6 +445,11 @@ function formatNumber(value?: number | null): string {
 function formatGameCount(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   return Math.round(value).toLocaleString()
+}
+
+function formatLastItemGames(value?: number | null): string {
+  const count = formatGameCount(value)
+  return count === '-' ? '-' : `${count} 场次`
 }
 
 function formatSkillId(id: number): string {
@@ -544,6 +632,18 @@ function skillChipClass(id: number): string {
   background: rgba(var(--accent-rgb), 0.035);
 }
 
+.opgg-section.expandable {
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.opgg-section.expandable:hover,
+.opgg-section.expandable:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.06);
+  outline: none;
+}
+
 .opgg-section-header {
   display: flex;
   align-items: center;
@@ -558,21 +658,111 @@ function skillChipClass(id: number): string {
   line-height: 1.2;
 }
 
-.opgg-section-toggle {
+.opgg-section-expand-indicator {
   min-height: 28px;
-  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
   border: 1px solid rgba(var(--accent-rgb), 0.45);
   border-radius: 7px;
   background: rgba(var(--accent-rgb), 0.12);
   color: var(--accent-color);
   font-size: 12px;
   font-weight: 900;
-  cursor: pointer;
+  line-height: 1;
+}
+
+.opgg-section-expand-indicator::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.16s ease;
+}
+
+.opgg-section.expanded .opgg-section-expand-indicator::after {
+  transform: rotate(225deg) translateY(-1px);
 }
 
 .opgg-build-list {
   display: grid;
   gap: 9px;
+}
+
+.opgg-last-items-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--border-color);
+}
+
+.opgg-last-item-column {
+  min-width: 0;
+  background: var(--bg-tertiary);
+}
+
+.opgg-last-item-column h4 {
+  margin: 0;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.opgg-last-item-list {
+  display: grid;
+}
+
+.opgg-last-item-row {
+  min-width: 0;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.opgg-last-item-row:first-child {
+  border-top: 0;
+}
+
+.opgg-last-item-icon-chain {
+  flex: 1 1 auto;
+}
+
+.opgg-last-item-metrics {
+  flex: 0 0 auto;
+  min-width: 64px;
+  display: grid;
+  gap: 3px;
+  justify-items: end;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.opgg-last-item-metrics strong {
+  color: #4f8cff;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.opgg-last-item-metrics span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .opgg-build-row {

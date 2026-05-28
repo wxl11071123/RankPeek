@@ -76,6 +76,21 @@ server {
         include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
     }
 
+    location = /admin {
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location /admin/ {
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
+    location /password-reset/ {
+        proxy_pass http://rankpeek_server_upstream;
+        include /etc/nginx/snippets/rankpeek-proxy-headers.conf;
+    }
+
     location / {
         return 404;
     }

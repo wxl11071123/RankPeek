@@ -50,6 +50,16 @@ public class AuthRepository {
             instantOrNull(rs.getTimestamp("created_at"))
     );
 
+    private final RowMapper<StoredEmailVerificationCode> emailVerificationCodeMapper = (rs, rowNum) -> new StoredEmailVerificationCode(
+            rs.getLong("id"),
+            rs.getString("email"),
+            rs.getString("purpose"),
+            rs.getString("code_hash"),
+            instantOrNull(rs.getTimestamp("expires_at")),
+            instantOrNull(rs.getTimestamp("consumed_at")),
+            instantOrNull(rs.getTimestamp("created_at"))
+    );
+
     public AuthRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -323,6 +333,72 @@ public class AuthRepository {
                         """,
                 Timestamp.from(now),
                 userId
+        );
+    }
+
+    public void insertEmailVerificationCode(
+            String email,
+            String purpose,
+            String codeHash,
+            Instant expiresAt,
+            Instant createdAt
+    ) {
+        jdbcTemplate.update(
+                """
+                        insert into auth_email_verification_codes (
+                            email, purpose, code_hash, expires_at, created_at
+                        ) values (?, ?, ?, ?, ?)
+                        """,
+                email,
+                purpose,
+                codeHash,
+                Timestamp.from(expiresAt),
+                Timestamp.from(createdAt)
+        );
+    }
+
+    public Optional<StoredEmailVerificationCode> findLatestEmailVerificationCode(String email, String purpose) {
+        List<StoredEmailVerificationCode> rows = jdbcTemplate.query(
+                """
+                        select *
+                        from auth_email_verification_codes
+                        where email = ?
+                          and purpose = ?
+                        order by created_at desc, id desc
+                        limit 1
+                        """,
+                emailVerificationCodeMapper,
+                email,
+                purpose
+        );
+        return rows.stream().findFirst();
+    }
+
+    public int consumeEmailVerificationCode(Long codeId, Instant now) {
+        return jdbcTemplate.update(
+                """
+                        update auth_email_verification_codes
+                        set consumed_at = ?
+                        where id = ?
+                          and consumed_at is null
+                        """,
+                Timestamp.from(now),
+                codeId
+        );
+    }
+
+    public int revokeUnusedEmailVerificationCodes(String email, String purpose, Instant now) {
+        return jdbcTemplate.update(
+                """
+                        update auth_email_verification_codes
+                        set consumed_at = ?
+                        where email = ?
+                          and purpose = ?
+                          and consumed_at is null
+                        """,
+                Timestamp.from(now),
+                email,
+                purpose
         );
     }
 

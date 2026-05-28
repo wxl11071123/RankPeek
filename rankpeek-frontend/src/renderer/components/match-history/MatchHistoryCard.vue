@@ -76,6 +76,8 @@ const { t } = useI18n()
 
 const currentPlayer = computed(() => getCurrentPlayer(props.match))
 const currentStats = computed(() => currentPlayer.value?.stats)
+const kdaRatioText = computed(() => formatKdaRatio(currentStats.value))
+const killParticipationText = computed(() => formatKillParticipation(currentPlayer.value, props.match.participants || []))
 const isWin = computed(() => Boolean(currentStats.value?.win))
 const isRemake = computed(() => isRemakeMatch(props.match))
 const resultText = computed(() =>
@@ -413,6 +415,36 @@ function formatKda(stats?: Stats): string {
   return `${stats?.kills || 0} / ${stats?.deaths || 0} / ${stats?.assists || 0}`
 }
 
+function formatKdaRatio(stats?: Stats): string {
+  if (!stats) {
+    return '--'
+  }
+
+  const kills = stats.kills || 0
+  const deaths = stats.deaths || 0
+  const assists = stats.assists || 0
+  const kda = deaths === 0 ? kills + assists : (kills + assists) / deaths
+  return kda.toFixed(1)
+}
+
+function formatKillParticipation(participant: Participant | null | undefined, participants: Participant[]): string {
+  if (!participant?.stats) {
+    return '--'
+  }
+
+  const kills = participant.stats.kills || 0
+  const assists = participant.stats.assists || 0
+  const teamKills = participants
+    .filter(player => player.teamId === participant.teamId)
+    .reduce((total, player) => total + (player.stats?.kills || 0), 0)
+
+  if (teamKills <= 0) {
+    return '--'
+  }
+
+  return `${Math.round(((kills + assists) / teamKills) * 100)}%`
+}
+
 function displayMode(match: MatchHistory): string {
   return match.queueName || match.gameMode || t('common.unknownMode')
 }
@@ -513,6 +545,12 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 
         <div class="combat-block">
           <strong class="kda-line">{{ formatKda(currentStats) }}</strong>
+          <span class="kda-ratio-line">KDA {{ kdaRatioText }}</span>
+        </div>
+
+        <div class="participation-block">
+          <span>参团率</span>
+          <strong>{{ killParticipationText }}</strong>
         </div>
       </div>
 
@@ -797,6 +835,11 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 
 .player-summary {
   --loadout-slot-size: 19px;
+  --trait-grid-gap: 3px;
+  --spell-column-width: var(--loadout-slot-size);
+  --trait-column-width: calc((var(--loadout-slot-size) * 3) + (var(--trait-grid-gap) * 2));
+  --combat-column-width: 98px;
+  --participation-column-width: 54px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -806,7 +849,8 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 }
 
 .identity-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 42px var(--spell-column-width) var(--trait-column-width) var(--combat-column-width) var(--participation-column-width);
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -815,6 +859,7 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 
 .champion-block {
   display: flex;
+  grid-column: 1;
   align-items: center;
   flex: 0 0 auto;
   min-width: 0;
@@ -843,12 +888,41 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 
 .combat-block {
   display: flex;
+  grid-column: 4;
   flex-direction: column;
   justify-content: center;
-  flex: 1 1 auto;
-  min-width: 66px;
+  flex: 0 1 auto;
+  width: var(--combat-column-width);
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
+}
+
+.participation-block {
+  display: flex;
+  grid-column: 5;
+  flex: 0 0 54px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: var(--participation-column-width);
+  margin-left: 0;
+  color: var(--text-secondary);
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.participation-block span {
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.participation-block strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
 }
 
 .loadout-column {
@@ -858,6 +932,15 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
   gap: 3px;
   flex: 0 0 auto;
   min-width: 0;
+}
+
+.spell-column {
+  grid-column: 2;
+}
+
+.trait-column,
+.trait-grid {
+  grid-column: 3;
 }
 
 .trait-column {
@@ -872,7 +955,7 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
   display: grid;
   grid-template-columns: repeat(3, var(--loadout-slot-size));
   grid-auto-rows: var(--loadout-slot-size);
-  gap: 3px;
+  gap: var(--trait-grid-gap);
   flex: 0 0 auto;
   align-content: center;
 }
@@ -931,6 +1014,15 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
   line-height: 1.12;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kda-ratio-line {
+  margin-top: 3px;
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
@@ -1130,6 +1222,9 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
 
   .player-summary {
     --loadout-slot-size: 17px;
+    --trait-grid-gap: 2px;
+    --combat-column-width: 78px;
+    --participation-column-width: 46px;
     gap: 6px;
   }
 
@@ -1138,8 +1233,8 @@ function openSavedAiReport(mode: SavedAiReportMode): void {
     gap: 6px;
   }
 
-  .combat-block {
-    min-width: 42px;
+  .identity-row {
+    grid-template-columns: 36px var(--spell-column-width) var(--trait-column-width) var(--combat-column-width) var(--participation-column-width);
   }
 
   .champion-avatar {

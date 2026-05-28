@@ -37,6 +37,7 @@ class FlywayMigrationTest {
                 "users",
                 "auth_refresh_tokens",
                 "auth_password_reset_tokens",
+                "auth_email_verification_codes",
                 "cn_meta_sync_jobs",
                 "cn_meta_source_documents",
                 "user_credit_balances",
@@ -70,6 +71,17 @@ class FlywayMigrationTest {
                 """
                         select user_id, token_hash, expires_at, used_at, created_at
                         from auth_password_reset_tokens
+                        where 1 = 0
+                        """
+        )).doesNotThrowAnyException();
+    }
+
+    @Test
+    void migrationAddsEmailVerificationCodeTable() {
+        assertThatCode(() -> jdbcTemplate.queryForList(
+                """
+                        select email, purpose, code_hash, expires_at, consumed_at, created_at
+                        from auth_email_verification_codes
                         where 1 = 0
                         """
         )).doesNotThrowAnyException();
