@@ -63,7 +63,7 @@ test('AI report center keeps account-scoped local results and local-snapshot log
   assert.doesNotMatch(source, /listAnalysisResultsByAccount\(['"]all|allAccounts|selectedAccountScope/)
 })
 
-test('AI report center product copy, recharge copy, sidebar entry, and icon are wired', () => {
+test('AI report center product copy, points copy, sidebar entry, and icon are wired', () => {
   const sidebar = readRendererFile('components/layout/Sidebar.vue')
   const zhCN = readRendererFile('i18n/locales/zh-CN.ts')
   const enUS = readRendererFile('i18n/locales/en-US.ts')
@@ -75,7 +75,8 @@ test('AI report center product copy, recharge copy, sidebar entry, and icon are 
   assert.match(zhCN, /'aiAnalysis\.title': 'AI \u62a5\u544a\u4e2d\u5fc3'/u)
   assert.match(zhCN, /'aiAnalysis\.subtitle': '\u6240\u6709\u62a5\u544a\u90fd\u4f1a\u6309\u8d26\u53f7\u4fdd\u5b58\u5728\u8fd9\u91cc\u3002'/u)
   assert.match(zhCN, /'aiAnalysis\.rankpeekAccountGuest': '\u672a\u767b\u5f55'/u)
-  assert.match(zhCN, /'aiAnalysis\.recharge': '\u5145\u503c'/u)
+  assert.match(zhCN, /'aiAnalysis\.pointsAction': '\u70b9\u6570'/u)
+  assert.match(zhCN, /'aiAnalysis\.pointsBalance': '\{count\} \u70b9'/u)
   assert.match(zhCN, /'aiAnalysis\.featurePreGame': '\u8d5b\u524d\u5206\u6790'/u)
   assert.match(zhCN, /'aiAnalysis\.featurePostGame': '\u8d5b\u540e\u590d\u76d8'/u)
   assert.match(zhCN, /'aiAnalysis\.featurePraise': '\u5938\u5938\u673a'/u)
@@ -88,7 +89,8 @@ test('AI report center product copy, recharge copy, sidebar entry, and icon are 
   assert.match(zhCN, /'aiAnalysis\.emptyHistoryTitle': '\u6682\u65e0 AI \u62a5\u544a'/u)
   assert.match(enUS, /'aiAnalysis\.title': 'AI Report Center'/)
   assert.match(enUS, /'aiAnalysis\.subtitle': 'All reports are saved here by account.'/)
-  assert.match(enUS, /'aiAnalysis\.recharge': 'Recharge'/)
+  assert.match(enUS, /'aiAnalysis\.pointsAction': 'Points'/)
+  assert.match(enUS, /'aiAnalysis\.pointsBalance': '\{count\} points'/)
   assert.match(enUS, /'aiAnalysis\.featurePraise': 'Praise Machine'/)
   assert.match(enUS, /'aiAnalysis\.preGamePositioning': 'A fast risk read on teammates and opponents before the match.'/)
   assert.match(enUS, /'aiAnalysis\.postGamePositioning': 'A single-match performance review after the game.'/)
@@ -132,10 +134,12 @@ test('AI report center removes the old feature placeholder cards', () => {
   assert.doesNotMatch(source, /goMatchHistory|goLiveGame|viewReports/)
 })
 
-test('AI report center hero keeps account values and recharge as a UI-only placeholder', () => {
+test('AI report center hero keeps RankPeek login, game account, and points separated', () => {
   const source = readViewSource()
 
   assert.doesNotMatch(source, /centerEyebrow|class="eyebrow"|\u5386\u53f2\u62a5\u544a\u4e2d\u5fc3/u)
+  assert.match(source, /import \{[\s\S]*getStoredRankPeekAuthSession[\s\S]*type RankPeekAuthSession[\s\S]*\} from '@\/services\/rankpeekAuthClient'/)
+  assert.match(source, /import \{[\s\S]*getRankPeekCreditBalance[\s\S]*getRankPeekCreditLedger[\s\S]*type RankPeekCreditLedgerEntry[\s\S]*\} from '@\/services\/rankpeekCreditsClient'/)
   assert.match(source, /account-showcase-card/)
   assert.match(source, /rankpeek-account-value/)
   assert.match(source, /league-account-showcase/)
@@ -144,13 +148,19 @@ test('AI report center hero keeps account values and recharge as a UI-only place
   assert.match(source, /balance-recharge-button/)
   assert.match(source, /rankpeekAccountLabel/)
   assert.match(source, /rankpeekBalanceLabel/)
-  assert.match(source, /t\('aiAnalysis\.recharge'\)/)
+  assert.match(source, /rankpeekCreditLedgerEntries/)
+  assert.match(source, /t\('aiAnalysis\.pointsAction'\)/)
   assert.match(source, /currentSummonerProfileIconUrl/)
   assert.match(source, /getProfileIconUrl\(summoner\.profileIconId\)/)
   assert.match(source, /@error="markAssetLoadFailed"/)
   assert.match(source, /accountStatusLabel = computed\(\(\) => currentSummonerName\.value \|\| t\('aiAnalysis\.noAccountStatus'\)\)/)
-  assert.match(source, /rankpeekBalanceLabel = computed\(\(\) => '\uffe50\.00'\)/u)
-  assert.doesNotMatch(source, /pay|payment|stripe|checkout|invoice|rechargeApi|balanceApi/i)
+  assert.match(source, /rankpeekAuthSession = ref<RankPeekAuthSession \| null>\(getStoredRankPeekAuthSession\(\)\)/)
+  assert.match(source, /rankpeekAccountLabel = computed\(\(\) => rankpeekAuthSession\.value\?\.user\.email \?\? t\('aiAnalysis\.rankpeekAccountGuest'\)\)/)
+  assert.match(source, /rankpeekBalanceLabel = computed\(\(\) => t\('aiAnalysis\.pointsBalance', \{ count: rankpeekCreditBalance\.value \?\? 0 \}\)\)/)
+  assert.match(source, /getRankPeekCreditBalance\(session\.accessToken\)/)
+  assert.match(source, /getRankPeekCreditLedger\(session\.accessToken\)/)
+  assert.doesNotMatch(source, /\uffe5|0\.00|t\('aiAnalysis\.recharge'\)/u)
+  assert.doesNotMatch(source, /pay|payment|stripe|checkout|invoice|rechargeApi/i)
   assert.doesNotMatch(source, /account-report-note|accountReportHint|noAccountReportHint/)
 })
 
@@ -225,7 +235,7 @@ test('AI report center refreshes history when a local postgame run is saved', ()
   assert.match(source, /onMounted/)
   assert.match(source, /onBeforeUnmount/)
   assert.match(source, /rankpeek:ai-analysis-result-saved/)
-  assert.match(source, /function handleLocalAiAnalysisResultSaved\(\)[\s\S]*refreshLocalAnalysisResults\(\)/)
+  assert.match(source, /function handleLocalAiAnalysisResultSaved\(\)[\s\S]*refreshRankPeekAccountState\(\)[\s\S]*refreshLocalAnalysisResults\(\)/)
   assert.match(persistence, /dispatchEvent\(new Event\('rankpeek:ai-analysis-result-saved'\)\)/)
 })
 
@@ -237,47 +247,54 @@ test('postgame analysis modal supports read-only saved-result rendering', () => 
   assert.match(source, /v-if="showStartButton"[\s\S]*class="postgame-ai-analysis-start"/)
 })
 
-test('AI report center exposes AI memory stats and export without delete actions', () => {
+test('AI report center exposes AI billing ledger instead of AI memory internals', () => {
   const source = readViewSource()
-  const localDatabaseTypes = readRendererFile('types/localDatabase.ts')
-  const electronTypes = readRendererFile('types/electron.ts')
-  const preload = readFileSync(new URL('../../preload/preload.ts', import.meta.url), 'utf8')
+  const creditsClient = readRendererFile('services/rankpeekCreditsClient.ts')
   const zhCN = readRendererFile('i18n/locales/zh-CN.ts')
   const enUS = readRendererFile('i18n/locales/en-US.ts')
 
-  assert.match(localDatabaseTypes, /interface AiMemoryStats[\s\S]*totalCount: number[\s\S]*analysisTypeCounts: AiMemoryTypeCount\[]/)
-  assert.match(localDatabaseTypes, /getAiMemoryStats\(accountPuuid: string\)/)
-  assert.match(localDatabaseTypes, /exportAiMemory\(accountPuuid: string\)/)
-  assert.match(electronTypes, /database: LocalDatabaseAPI/)
-  assert.match(preload, /ipcRenderer\.invoke\('db:ai:getMemoryStats', accountPuuid\)/)
-  assert.match(preload, /ipcRenderer\.invoke\('db:ai:exportMemory', accountPuuid\)/)
+  assert.match(creditsClient, /RANKPEEK_CREDITS_LEDGER_ENDPOINT = '\/api\/credits\/ledger'/)
+  assert.match(creditsClient, /export interface RankPeekCreditLedgerEntry/)
+  assert.match(creditsClient, /export async function getRankPeekCreditLedger/)
 
-  assert.match(source, /aiMemoryStats/)
-  assert.match(source, /loadAiMemoryStats/)
-  assert.match(source, /exportAiMemory/)
-  assert.match(source, /const database = window\.electronAPI\?\.database/)
-  assert.match(source, /database\.getAiMemoryStats\(puuid\)/)
-  assert.match(source, /database\.exportAiMemory\(puuid\)/)
-  assert.match(source, /class="ai-memory-section"/)
-  assert.match(source, /t\('aiAnalysis\.memoryTitle'\)/)
-  assert.match(source, /t\('aiAnalysis\.memoryExport'\)/)
-  assert.match(source, /memoryTypeDistribution/)
-  assert.doesNotMatch(source, /deleteAiMemory|clearAiMemory|deleteMemory|clearMemory/)
+  assert.match(source, /rankpeekCreditLedgerEntries = ref<RankPeekCreditLedgerEntry\[\]>\(\[\]\)/)
+  assert.match(source, /rankpeekCreditLedgerLoading/)
+  assert.match(source, /rankpeekCreditLedgerError/)
+  assert.match(source, /loadRankPeekCreditLedger/)
+  assert.match(source, /getRankPeekCreditLedger\(session\.accessToken\)/)
+  assert.match(source, /class="ai-billing-section"/)
+  assert.match(source, /class="billing-card"/)
+  assert.match(source, /class="billing-ledger-list"/)
+  assert.match(source, /getCreditLedgerEntryTitle\(entry\)/)
+  assert.match(source, /formatCreditLedgerAmount\(entry\.amount\)/)
+  assert.match(source, /formatCreditLedgerDate\(entry\.createdAt\)/)
+  assert.match(source, /t\('aiAnalysis\.billingTitle'\)/)
+  assert.match(source, /t\('aiAnalysis\.billingBalanceAfter'/)
+  assert.doesNotMatch(source, /aiMemory|loadAiMemoryStats|exportAiMemory|getAiMemoryStats|ai-memory-section|memoryTypeDistribution/)
 
   for (const key of [
-    'aiAnalysis.memoryTitle',
-    'aiAnalysis.memoryDescription',
-    'aiAnalysis.memoryTotal',
-    'aiAnalysis.memoryTypes',
-    'aiAnalysis.memoryLinkedMatches',
-    'aiAnalysis.memoryDateRange',
-    'aiAnalysis.memoryExport',
-    'aiAnalysis.memoryExported',
-    'aiAnalysis.memoryUnavailable'
+    'aiAnalysis.billingTitle',
+    'aiAnalysis.billingDescription',
+    'aiAnalysis.billingCurrentBalance',
+    'aiAnalysis.billingAccount',
+    'aiAnalysis.billingLoading',
+    'aiAnalysis.billingLoginRequired',
+    'aiAnalysis.billingUnavailable',
+    'aiAnalysis.billingEmpty',
+    'aiAnalysis.billingBalanceAfter',
+    'aiAnalysis.billingAiCharge',
+    'aiAnalysis.billingAiRefund',
+    'aiAnalysis.billingAdminCredit',
+    'aiAnalysis.billingAdminDebit',
+    'aiAnalysis.billingAdjustment',
+    'aiAnalysis.billingPointsDelta'
   ]) {
     assert.ok(zhCN.includes(`'${key}'`), `zh-CN should include ${key}`)
     assert.ok(enUS.includes(`'${key}'`), `en-US should include ${key}`)
   }
+
+  assert.doesNotMatch(zhCN, /AI 记忆|导出 AI 记忆/)
+  assert.doesNotMatch(enUS, /AI Memory|Export AI Memory/)
 })
 
 test('AI report center no longer renders data status or AI service support cards', () => {

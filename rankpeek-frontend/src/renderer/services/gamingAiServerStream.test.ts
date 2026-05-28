@@ -8,6 +8,23 @@ import {
   streamGamingAiAnalysis
 } from './gamingAiServerStream.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
+import { storeRankPeekAuthSession } from './rankpeekAuthClient.ts'
+
+class MemoryStorage {
+  private values = new Map<string, string>()
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value)
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key)
+  }
+}
 
 function createSnapshot(): GamingAiInputSnapshot {
   const base = {
@@ -136,6 +153,58 @@ test('streams gaming AI analysis delta and player verdict events from an SSE res
     }])
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test('streams gaming AI analysis with the stored RankPeek auth token', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'stream-access-token',
+    refreshToken: 'stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
+  const request = createGamingAiStreamRequest(createSnapshot())
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    assert.deepEqual(init?.headers, {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer stream-access-token'
+    })
+
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: done\ndata: done\n\n'))
+        controller.close()
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamGamingAiAnalysis(request, {})
+
+    assert.deepEqual(result, { ok: true })
+  } finally {
+    globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
   }
 })
 

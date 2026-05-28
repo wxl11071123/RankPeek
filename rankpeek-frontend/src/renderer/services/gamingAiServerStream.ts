@@ -1,5 +1,6 @@
 import type { GamingAiInputPlayer, GamingAiInputSnapshot, GamingAiTeamSnapshot } from './gamingAiInputSnapshot.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
+import { getStoredRankPeekAuthSession } from './rankpeekAuthClient.ts'
 
 export const RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT = '/api/analysis/pregame/stream'
 
@@ -81,9 +82,10 @@ export async function streamGamingAiAnalysis(
   options: { signal?: AbortSignal } = {}
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
+    const accessToken = getStoredRankPeekAuthSession()?.accessToken
     const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_GAMING_STREAM_ENDPOINT}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: createStreamRequestHeaders(accessToken),
       body: JSON.stringify(request),
       signal: options.signal
     })
@@ -117,6 +119,14 @@ export async function streamGamingAiAnalysis(
     emitStreamEvent({ type: 'error', message }, handlers)
     return { ok: false, message }
   }
+}
+
+function createStreamRequestHeaders(accessToken: string | undefined): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`
+  }
+  return headers
 }
 
 async function parseSseStream(

@@ -7,9 +7,11 @@ import {
   logoutRankPeekAccount,
   RANKPEEK_AUTH_LOGIN_ENDPOINT,
   RANKPEEK_AUTH_LOGOUT_ENDPOINT,
+  RANKPEEK_AUTH_PASSWORD_RESET_REQUEST_ENDPOINT,
   RANKPEEK_AUTH_REFRESH_ENDPOINT,
   RANKPEEK_AUTH_REGISTER_ENDPOINT,
   registerRankPeekAccount,
+  requestRankPeekPasswordReset,
   refreshStoredRankPeekAuthSession,
   storeRankPeekAuthSession
 } from './rankpeekAuthClient.ts'
@@ -80,7 +82,7 @@ test('logs in through rankpeek-server auth endpoint and normalizes the session',
   }
 })
 
-test('registers through rankpeek-server auth endpoint with a display name', async () => {
+test('registers through rankpeek-server auth endpoint with display name derived from email', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -93,17 +95,48 @@ test('registers through rankpeek-server auth endpoint with a display name', asyn
 
   try {
     const result = await registerRankPeekAccount({
-      email: 'admin@rankpeek.local',
-      password: 'Secret123!',
-      displayName: ' RankPeek Admin '
+      email: ' Admin.User@RANKPEEK.LOCAL ',
+      password: 'Secret123!'
     })
 
     assert.equal(result.ok, true)
     assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_REGISTER_ENDPOINT}`)
     assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
-      email: 'admin@rankpeek.local',
+      email: 'admin.user@rankpeek.local',
       password: 'Secret123!',
-      displayName: 'RankPeek Admin'
+      displayName: 'admin.user'
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('requests password reset through rankpeek-server auth endpoint', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      success: true,
+      data: { accepted: true },
+      error: null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await requestRankPeekPasswordReset({
+      email: ' Admin.User@RANKPEEK.LOCAL '
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.ok ? result.accepted : false, true)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_PASSWORD_RESET_REQUEST_ENDPOINT}`)
+    assert.equal(calls[0]?.init?.method, 'POST')
+    assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
+      email: 'admin.user@rankpeek.local'
     })
   } finally {
     globalThis.fetch = originalFetch

@@ -10,11 +10,19 @@ import {
   type LocalAiAnalysisDisplayResult
 } from '@/services/localAiAnalysis'
 import type { PostgameAiRunOutputV1 } from '@/services/postgameAiRunPersistence'
-import type { AiMemoryStats } from '@/types/localDatabase'
 import {
   buildAccountAnalysisInputSnapshot,
   type AiAnalysisInputSnapshot
 } from '@/services/aiAnalysisInputSnapshot'
+import {
+  getStoredRankPeekAuthSession,
+  type RankPeekAuthSession
+} from '@/services/rankpeekAuthClient'
+import {
+  getRankPeekCreditBalance,
+  getRankPeekCreditLedger,
+  type RankPeekCreditLedgerEntry
+} from '@/services/rankpeekCreditsClient'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 type ReportTypeFilter = 'all' | 'pregame' | 'postgame' | 'praise' | 'coach'
@@ -49,14 +57,15 @@ const preparingInput = ref(false)
 const preparationUnavailable = ref(false)
 const preparationError = ref<string | null>(null)
 const selectedReportType = ref<ReportTypeFilter>('all')
-const aiMemoryStats = ref<AiMemoryStats | null>(null)
-const aiMemoryLoading = ref(false)
-const aiMemoryUnavailable = ref(false)
-const aiMemoryError = ref<string | null>(null)
-const exportingAiMemory = ref(false)
+const rankpeekAuthSession = ref<RankPeekAuthSession | null>(getStoredRankPeekAuthSession())
+const rankpeekCreditBalance = ref<number | null>(null)
+const rankpeekCreditLedgerEntries = ref<RankPeekCreditLedgerEntry[]>([])
+const rankpeekCreditLedgerLoading = ref(false)
+const rankpeekCreditLedgerError = ref<string | null>(null)
 let loadRequestId = 0
 let prepareRequestId = 0
-let memoryStatsRequestId = 0
+let creditBalanceRequestId = 0
+let creditLedgerRequestId = 0
 let championIdByNamePromise: Promise<Record<string, number>> | null = null
 let selectedPostgameReplayTimer: ReturnType<typeof window.setTimeout> | null = null
 
@@ -87,29 +96,11 @@ const selectedPostgameModalRosterPlayers = computed(() => {
   return selectedPostgameRun.value?.rosterPlayers ?? []
 })
 const accountStatusLabel = computed(() => currentSummonerName.value || t('aiAnalysis.noAccountStatus'))
-const rankpeekAccountLabel = computed(() => t('aiAnalysis.rankpeekAccountGuest'))
-const rankpeekBalanceLabel = computed(() => '￥0.00')
+const rankpeekAccountLabel = computed(() => rankpeekAuthSession.value?.user.email ?? t('aiAnalysis.rankpeekAccountGuest'))
+const rankpeekBalanceLabel = computed(() => t('aiAnalysis.pointsBalance', { count: rankpeekCreditBalance.value ?? 0 }))
 const currentSummonerProfileIconUrl = computed(() => {
   const summoner = currentSummoner.value
   return summoner?.profileIconId ? getProfileIconUrl(summoner.profileIconId) : ''
-})
-const memoryTypeDistribution = computed(() => {
-  const stats = aiMemoryStats.value
-  if (!stats || stats.analysisTypeCounts.length === 0) {
-    return t('common.none')
-  }
-
-  return stats.analysisTypeCounts
-    .map(item => `${getAnalysisTypeLabel(item.analysisType)} ${item.count}`)
-    .join(' / ')
-})
-const aiMemoryDateRange = computed(() => {
-  const stats = aiMemoryStats.value
-  if (!stats || !stats.earliestCreatedAt || !stats.latestCreatedAt) {
-    return t('common.none')
-  }
-
-  return `${formatMemoryDate(stats.earliestCreatedAt)} - ${formatMemoryDate(stats.latestCreatedAt)}`
 })
 const accountInitial = computed(() => {
   const name = currentSummoner.value?.gameName || currentSummonerName.value
@@ -150,23 +141,76 @@ watch(
     prepareRequestId += 1
     closeReportDetail()
     resetPreparedSnapshot()
-    void loadAiMemoryStats()
     void refreshLocalAnalysisResults()
   },
   { immediate: true }
 )
 
 onMounted(() => {
+  refreshRankPeekAccountState()
   window.addEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
+  window.addEventListener('focus', refreshRankPeekAccountState)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
+  window.removeEventListener('focus', refreshRankPeekAccountState)
   stopSavedPostgameReplay()
 })
 
+function refreshRankPeekAccountState() {
+  rankpeekAuthSession.value = getStoredRankPeekAuthSession()
+  void loadRankPeekCreditBalance()
+  void loadRankPeekCreditLedger()
+}
+
+async function loadRankPeekCreditBalance() {
+  const session = rankpeekAuthSession.value
+  const requestId = ++creditBalanceRequestId
+
+  if (!session) {
+    rankpeekCreditBalance.value = null
+    return
+  }
+
+  const result = await getRankPeekCreditBalance(session.accessToken)
+  if (requestId !== creditBalanceRequestId) {
+    return
+  }
+
+  if (result.ok) {
+    rankpeekCreditBalance.value = result.balance
+  }
+}
+
+async function loadRankPeekCreditLedger() {
+  const session = rankpeekAuthSession.value
+  const requestId = ++creditLedgerRequestId
+  rankpeekCreditLedgerError.value = null
+
+  if (!session) {
+    rankpeekCreditLedgerEntries.value = []
+    rankpeekCreditLedgerLoading.value = false
+    return
+  }
+
+  rankpeekCreditLedgerLoading.value = true
+  const result = await getRankPeekCreditLedger(session.accessToken)
+  if (requestId !== creditLedgerRequestId) {
+    return
+  }
+
+  if (result.ok) {
+    rankpeekCreditLedgerEntries.value = result.entries
+  } else {
+    rankpeekCreditLedgerEntries.value = []
+    rankpeekCreditLedgerError.value = t('aiAnalysis.billingUnavailable')
+  }
+  rankpeekCreditLedgerLoading.value = false
+}
+
 function handleLocalAiAnalysisResultSaved() {
-  void loadAiMemoryStats()
+  refreshRankPeekAccountState()
   void refreshLocalAnalysisResults()
 }
 
@@ -468,98 +512,52 @@ function normalizePositiveInteger(value: unknown): number | null {
   return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null
 }
 
-function getAnalysisTypeLabel(analysisType: string) {
-  return analysisType
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(' ')
+function getCreditLedgerEntryTitle(entry: RankPeekCreditLedgerEntry) {
+  switch (entry.type) {
+    case 'AI_CHARGE':
+      return t('aiAnalysis.billingAiCharge')
+    case 'AI_REFUND':
+      return t('aiAnalysis.billingAiRefund')
+    case 'ADMIN_ADJUSTMENT':
+      return entry.amount >= 0
+        ? t('aiAnalysis.billingAdminCredit')
+        : t('aiAnalysis.billingAdminDebit')
+    default:
+      return t('aiAnalysis.billingAdjustment')
+  }
 }
 
-function formatMemoryDate(value: string) {
+function getCreditLedgerEntryReason(entry: RankPeekCreditLedgerEntry) {
+  const reason = entry.reason?.trim()
+  if (!reason || reason === 'AI analysis charge' || reason === 'AI analysis refund') {
+    return ''
+  }
+  return reason
+}
+
+function formatCreditLedgerAmount(amount: number) {
+  const sign = amount > 0 ? '+' : amount < 0 ? '-' : ''
+  return t('aiAnalysis.billingPointsDelta', {
+    sign,
+    count: Math.abs(amount)
+  })
+}
+
+function formatCreditLedgerDate(value: string | null | undefined) {
+  if (!value) {
+    return t('common.none')
+  }
   const timestamp = Date.parse(value)
   if (Number.isNaN(timestamp)) {
     return value
   }
 
-  return new Date(timestamp).toLocaleDateString()
-}
-
-async function loadAiMemoryStats() {
-  const puuid = accountPuuid.value
-  const requestId = ++memoryStatsRequestId
-  aiMemoryError.value = null
-
-  if (!puuid) {
-    aiMemoryStats.value = null
-    aiMemoryUnavailable.value = false
-    aiMemoryLoading.value = false
-    return
-  }
-
-  const database = window.electronAPI?.database
-  if (!database?.getAiMemoryStats) {
-    aiMemoryStats.value = null
-    aiMemoryUnavailable.value = true
-    aiMemoryLoading.value = false
-    aiMemoryError.value = t('aiAnalysis.memoryUnavailable')
-    return
-  }
-
-  aiMemoryLoading.value = true
-
-  try {
-    const result = await database.getAiMemoryStats(puuid)
-    if (requestId !== memoryStatsRequestId) {
-      return
-    }
-
-    if (!result.success) {
-      throw new Error(result.error)
-    }
-
-    aiMemoryStats.value = result.data
-    aiMemoryUnavailable.value = false
-  } catch (error) {
-    if (requestId !== memoryStatsRequestId) {
-      return
-    }
-
-    aiMemoryStats.value = null
-    aiMemoryUnavailable.value = true
-    aiMemoryError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    if (requestId === memoryStatsRequestId) {
-      aiMemoryLoading.value = false
-    }
-  }
-}
-
-async function exportAiMemory() {
-  const puuid = accountPuuid.value
-  const database = window.electronAPI?.database
-  if (!puuid || !database?.exportAiMemory) {
-    window.alert(t('aiAnalysis.memoryUnavailable'))
-    return
-  }
-
-  exportingAiMemory.value = true
-
-  try {
-    const result = await database.exportAiMemory(puuid)
-    if (!result.success) {
-      throw new Error(result.error)
-    }
-
-    if (!result.data.canceled) {
-      window.alert(t('aiAnalysis.memoryExported', { count: result.data.exportedCount }))
-    }
-  } catch (error) {
-    console.error('Failed to export AI memory', error)
-    window.alert(t('aiAnalysis.memoryExportFailed'))
-  } finally {
-    exportingAiMemory.value = false
-  }
+  return new Date(timestamp).toLocaleString([], {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 async function prepareAnalysisInputSnapshot() {
@@ -666,51 +664,62 @@ async function refreshLocalAnalysisResults() {
         </div>
         <div class="account-showcase-item balance-row">
           <span class="balance-showcase">{{ rankpeekBalanceLabel }}</span>
-          <button class="balance-recharge-button" type="button">{{ t('aiAnalysis.recharge') }}</button>
+          <button class="balance-recharge-button" type="button">{{ t('aiAnalysis.pointsAction') }}</button>
         </div>
       </div>
     </section>
 
     <p v-if="placeholderNotice" class="notice-line">{{ placeholderNotice }}</p>
 
-    <section class="ai-memory-section">
-      <div class="section-heading memory-heading">
-        <span>{{ t('aiAnalysis.memoryTitle') }}</span>
-        <button
-          class="memory-export-button"
-          type="button"
-          :disabled="!accountPuuid || exportingAiMemory || aiMemoryLoading"
-          @click="exportAiMemory"
-        >
-          {{ exportingAiMemory ? t('aiAnalysis.memoryExporting') : t('aiAnalysis.memoryExport') }}
-        </button>
+    <section class="ai-billing-section">
+      <div class="section-heading billing-heading">
+        <span>{{ t('aiAnalysis.billingTitle') }}</span>
+        <small>{{ rankpeekAccountLabel }}</small>
       </div>
 
-      <div class="memory-card">
-        <p class="memory-description">{{ t('aiAnalysis.memoryDescription') }}</p>
+      <div class="billing-card">
+        <p class="billing-description">{{ t('aiAnalysis.billingDescription') }}</p>
 
-        <div v-if="!currentSummoner" class="memory-state">{{ t('aiAnalysis.noAccountHistoryBody') }}</div>
-        <div v-else-if="aiMemoryLoading" class="memory-state">{{ t('aiAnalysis.memoryLoading') }}</div>
-        <div v-else-if="aiMemoryUnavailable" class="memory-state warning">
-          {{ aiMemoryError || t('aiAnalysis.memoryUnavailable') }}
+        <div class="billing-summary-grid">
+          <div class="billing-summary-item">
+            <span>{{ t('aiAnalysis.billingCurrentBalance') }}</span>
+            <strong>{{ rankpeekBalanceLabel }}</strong>
+          </div>
+          <div class="billing-summary-item">
+            <span>{{ t('aiAnalysis.billingAccount') }}</span>
+            <strong>{{ rankpeekAccountLabel }}</strong>
+          </div>
         </div>
-        <div v-else class="memory-stats-grid">
-          <div class="memory-stat">
-            <span>{{ t('aiAnalysis.memoryTotal') }}</span>
-            <strong>{{ aiMemoryStats?.totalCount ?? 0 }}</strong>
-          </div>
-          <div class="memory-stat">
-            <span>{{ t('aiAnalysis.memoryLinkedMatches') }}</span>
-            <strong>{{ aiMemoryStats?.linkedMatchCount ?? 0 }}</strong>
-          </div>
-          <div class="memory-stat wide">
-            <span>{{ t('aiAnalysis.memoryTypes') }}</span>
-            <strong>{{ memoryTypeDistribution }}</strong>
-          </div>
-          <div class="memory-stat wide">
-            <span>{{ t('aiAnalysis.memoryDateRange') }}</span>
-            <strong>{{ aiMemoryDateRange }}</strong>
-          </div>
+
+        <div v-if="!rankpeekAuthSession" class="billing-state">
+          {{ t('aiAnalysis.billingLoginRequired') }}
+        </div>
+        <div v-else-if="rankpeekCreditLedgerLoading" class="billing-state">
+          {{ t('aiAnalysis.billingLoading') }}
+        </div>
+        <div v-else-if="rankpeekCreditLedgerError" class="billing-state warning">
+          {{ rankpeekCreditLedgerError || t('aiAnalysis.billingUnavailable') }}
+        </div>
+        <div v-else-if="rankpeekCreditLedgerEntries.length === 0" class="billing-state">
+          {{ t('aiAnalysis.billingEmpty') }}
+        </div>
+        <div v-else class="billing-ledger-list">
+          <article
+            v-for="entry in rankpeekCreditLedgerEntries"
+            :key="entry.id ?? `${entry.type}-${entry.createdAt}-${entry.balanceAfter}`"
+            class="billing-ledger-entry"
+            :class="{ credit: entry.amount > 0, debit: entry.amount < 0 }"
+          >
+            <div class="billing-ledger-main">
+              <strong>{{ getCreditLedgerEntryTitle(entry) }}</strong>
+              <span v-if="getCreditLedgerEntryReason(entry)">{{ getCreditLedgerEntryReason(entry) }}</span>
+              <time>{{ formatCreditLedgerDate(entry.createdAt) }}</time>
+            </div>
+            <div class="billing-ledger-numbers">
+              <strong>{{ formatCreditLedgerAmount(entry.amount) }}</strong>
+              <span>{{ t('aiAnalysis.billingBalanceAfter', { count: entry.balanceAfter }) }}</span>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -936,7 +945,7 @@ async function refreshLocalAnalysisResults() {
 .hero-panel,
 .status-card,
 .empty-card,
-.memory-card {
+.billing-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -1071,7 +1080,7 @@ async function refreshLocalAnalysisResults() {
   font-weight: 600;
 }
 
-.ai-memory-section,
+.ai-billing-section,
 .history-section {
   margin-top: 24px;
 }
@@ -1197,65 +1206,38 @@ async function refreshLocalAnalysisResults() {
   color: var(--accent-color);
 }
 
-.memory-card {
+.billing-card {
   padding: 18px;
 }
 
-.memory-heading {
+.billing-heading {
   align-items: center;
 }
 
-.memory-export-button {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0;
-  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.2s ease, color 0.18s ease;
-}
-
-.memory-export-button:hover:not(:disabled),
-.memory-export-button:focus-visible {
-  border-color: var(--ai-analysis-control-hover-border);
-  background: var(--ai-analysis-control-hover-bg);
-  box-shadow: var(--ai-analysis-control-hover-shadow);
-  color: var(--text-primary);
-  outline: none;
-}
-
-.memory-export-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.memory-description,
-.memory-state {
+.billing-description,
+.billing-state {
   margin: 0;
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.55;
 }
 
-.memory-state {
+.billing-state {
   margin-top: 12px;
 }
 
-.memory-state.warning {
+.billing-state.warning {
   color: rgb(var(--ai-analysis-accent-rgb));
 }
 
-.memory-stats-grid {
+.billing-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
 
-.memory-stat {
+.billing-summary-item {
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--border-subtle);
@@ -1263,23 +1245,94 @@ async function refreshLocalAnalysisResults() {
   background: var(--bg-tertiary);
 }
 
-.memory-stat span,
-.memory-stat strong {
+.billing-summary-item span,
+.billing-summary-item strong {
   display: block;
   overflow-wrap: anywhere;
 }
 
-.memory-stat span {
+.billing-summary-item span {
   color: var(--text-tertiary);
   font-size: 12px;
   font-weight: 650;
 }
 
-.memory-stat strong {
+.billing-summary-item strong {
   margin-top: 6px;
   color: var(--text-primary);
   font-size: 15px;
   font-weight: 780;
+}
+
+.billing-ledger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.billing-ledger-entry {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
+.billing-ledger-main,
+.billing-ledger-numbers {
+  min-width: 0;
+}
+
+.billing-ledger-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.billing-ledger-main strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.3;
+}
+
+.billing-ledger-main span,
+.billing-ledger-main time,
+.billing-ledger-numbers span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.billing-ledger-numbers {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  text-align: right;
+}
+
+.billing-ledger-numbers strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 820;
+  line-height: 1.2;
+}
+
+.billing-ledger-entry.credit .billing-ledger-numbers strong {
+  color: var(--success-color);
+}
+
+.billing-ledger-entry.debit .billing-ledger-numbers strong {
+  color: rgb(var(--ai-analysis-accent-rgb));
 }
 
 .report-card {
@@ -1484,7 +1537,7 @@ async function refreshLocalAnalysisResults() {
 }
 
 @media (max-width: 1120px) {
-  .memory-stats-grid {
+  .billing-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1516,8 +1569,17 @@ async function refreshLocalAnalysisResults() {
     flex-wrap: wrap;
   }
 
-  .memory-stats-grid {
+  .billing-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .billing-ledger-entry {
+    flex-direction: column;
+  }
+
+  .billing-ledger-numbers {
+    align-items: flex-start;
+    text-align: left;
   }
 }
 </style>

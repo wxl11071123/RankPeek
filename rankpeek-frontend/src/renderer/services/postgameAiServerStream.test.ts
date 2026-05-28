@@ -8,6 +8,23 @@ import {
   streamPostgameAiAnalysis
 } from './postgameAiServerStream.ts'
 import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
+import { storeRankPeekAuthSession } from './rankpeekAuthClient.ts'
+
+class MemoryStorage {
+  private values = new Map<string, string>()
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value)
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key)
+  }
+}
 
 function createSnapshot(): PostgameAiInputSnapshot {
   return {
@@ -116,6 +133,58 @@ test('streams postgame AI analysis events from an SSE response', async () => {
     }])
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test('streams postgame AI analysis with the stored RankPeek auth token', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'postgame-stream-access-token',
+    refreshToken: 'postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
+  const request = createPostgameAiStreamRequest(createSnapshot(), 'review')
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    assert.deepEqual(init?.headers, {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer postgame-stream-access-token'
+    })
+
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: done\ndata: done\n\n'))
+        controller.close()
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamPostgameAiAnalysis(request, {})
+
+    assert.deepEqual(result, { ok: true })
+  } finally {
+    globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
   }
 })
 

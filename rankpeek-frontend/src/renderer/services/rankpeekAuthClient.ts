@@ -2,6 +2,7 @@ import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
 
 export const RANKPEEK_AUTH_LOGIN_ENDPOINT = '/api/auth/login'
 export const RANKPEEK_AUTH_REGISTER_ENDPOINT = '/api/auth/register'
+export const RANKPEEK_AUTH_PASSWORD_RESET_REQUEST_ENDPOINT = '/api/auth/password-reset/request'
 export const RANKPEEK_AUTH_REFRESH_ENDPOINT = '/api/auth/refresh'
 export const RANKPEEK_AUTH_LOGOUT_ENDPOINT = '/api/auth/logout'
 export const RANKPEEK_AUTH_ME_ENDPOINT = '/api/auth/me'
@@ -60,6 +61,16 @@ type LogoutResult =
     message: string
   }
 
+type PasswordResetRequestResult =
+  | {
+    ok: true
+    accepted: boolean
+  }
+  | {
+    ok: false
+    message: string
+  }
+
 export async function loginRankPeekAccount(input: {
   email: string
   password: string
@@ -73,13 +84,34 @@ export async function loginRankPeekAccount(input: {
 export async function registerRankPeekAccount(input: {
   email: string
   password: string
-  displayName: string
 }): Promise<AuthResult> {
+  const email = normalizeEmail(input.email)
   return submitAuthRequest(RANKPEEK_AUTH_REGISTER_ENDPOINT, {
-    email: normalizeEmail(input.email),
+    email,
     password: input.password,
-    displayName: input.displayName.trim() || null
+    displayName: deriveRankPeekDisplayNameFromEmail(email)
   }, 'register')
+}
+
+export async function requestRankPeekPasswordReset(input: {
+  email: string
+}): Promise<PasswordResetRequestResult> {
+  try {
+    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_AUTH_PASSWORD_RESET_REQUEST_ENDPOINT}`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: normalizeEmail(input.email) })
+    })
+    const payload = await parseAuthResponse<{ accepted?: boolean }>(response)
+
+    if (!response.ok || payload.success === false) {
+      return { ok: false, message: payload.error?.message || AUTH_UNAVAILABLE_MESSAGE }
+    }
+
+    return { ok: true, accepted: payload.data?.accepted === true }
+  } catch {
+    return { ok: false, message: AUTH_UNAVAILABLE_MESSAGE }
+  }
 }
 
 export async function logoutRankPeekAccount(refreshToken: string | null | undefined): Promise<LogoutResult> {
@@ -227,6 +259,11 @@ function authFailureMessage(code: string | undefined, message: string | undefine
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+function deriveRankPeekDisplayNameFromEmail(email: string): string {
+  const localPart = email.split('@')[0]?.trim()
+  return localPart || email
 }
 
 function jsonHeaders(): Record<string, string> {
