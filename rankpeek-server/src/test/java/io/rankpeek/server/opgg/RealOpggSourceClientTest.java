@@ -84,8 +84,11 @@ class RealOpggSourceClientTest {
                     });
             assertThat(detail.coreItems()).singleElement()
                     .satisfies(option -> assertThat(option.ids()).containsExactly(3118, 3152, 4645));
-            assertThat(detail.lastItems()).singleElement()
+            assertThat(detail.lastItems()).hasSize(15);
+            assertThat(detail.lastItems().get(0))
                     .satisfies(option -> assertThat(option.ids()).containsExactly(3089));
+            assertThat(detail.lastItems().get(14))
+                    .satisfies(option -> assertThat(option.ids()).containsExactly(3135));
         }
     }
 
@@ -235,7 +238,22 @@ class RealOpggSourceClientTest {
                       { "ids": [3118, 3152, 4645], "play": 3016, "win": 1623, "pick_rate": 0.1913 }
                     ],
                     "last_items": [
-                      { "ids": [3089], "play": 1322, "win_rate": 0.632, "pick_rate": 0.18 }
+                      { "ids": [3089], "play": 1322, "win_rate": 0.632, "pick_rate": 0.18 },
+                      { "ids": [3135], "play": 1090, "win_rate": 0.541, "pick_rate": 0.14 },
+                      { "ids": [3118], "play": 580, "win_rate": 0.603, "pick_rate": 0.08 },
+                      { "ids": [4633], "play": 470, "win_rate": 0.553, "pick_rate": 0.06 },
+                      { "ids": [6653], "play": 390, "win_rate": 0.717, "pick_rate": 0.05 },
+                      { "ids": [3089], "play": 400, "win_rate": 0.625, "pick_rate": 0.04 },
+                      { "ids": [3135], "play": 170, "win_rate": 0.471, "pick_rate": 0.03 },
+                      { "ids": [3118], "play": 140, "win_rate": 0.643, "pick_rate": 0.02 },
+                      { "ids": [4633], "play": 100, "win_rate": 0.5, "pick_rate": 0.02 },
+                      { "ids": [6653], "play": 80, "win_rate": 0.625, "pick_rate": 0.01 },
+                      { "ids": [4645], "play": 3, "win_rate": 1.0, "pick_rate": 0.01 },
+                      { "ids": [4628], "play": 2, "win_rate": 0.0, "pick_rate": 0.01 },
+                      { "ids": [3116], "play": 2, "win_rate": 1.0, "pick_rate": 0.01 },
+                      { "ids": [3100], "play": 1, "win_rate": 1.0, "pick_rate": 0.01 },
+                      { "ids": [3135], "play": 1, "win_rate": 1.0, "pick_rate": 0.01 },
+                      { "ids": [3026], "play": 1, "win_rate": 1.0, "pick_rate": 0.01 }
                     ]
                   }
                 }

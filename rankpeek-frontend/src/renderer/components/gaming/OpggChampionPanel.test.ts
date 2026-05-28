@@ -81,9 +81,30 @@ test('OP.GG champion panel limits build rows to two until expanded', () => {
   assert.match(source, /INITIAL_VISIBLE_BUILD_OPTIONS = 2/)
   assert.match(source, /visibleSectionOptions\(section\)/)
   assert.match(source, /section\.options\.slice\(0, INITIAL_VISIBLE_BUILD_OPTIONS\)/)
-  assert.match(source, /toggleSectionExpanded\(section\.key\)/)
-  assert.match(source, /'展开'/)
-  assert.match(source, /'收起'/)
+  assert.match(source, /@click="toggleSectionExpandedFromCard\(section\)"/)
+  assert.match(source, /@keydown\.enter\.prevent="toggleSectionExpandedFromCard\(section\)"/)
+  assert.match(source, /@keydown\.space\.prevent="toggleSectionExpandedFromCard\(section\)"/)
+  assert.match(source, /:aria-expanded="canExpandSection\(section\) \? isSectionExpanded\(section\.key\) : undefined"/)
+  assert.match(source, /opgg-section-expand-indicator/)
+  assert.doesNotMatch(source, /<button[\s\S]*opgg-section-toggle/)
+})
+
+test('OP.GG champion panel renders fourth fifth and sixth items as three columns', () => {
+  const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /LAST_ITEM_COLUMN_SIZE = 5/)
+  assert.match(source, /LAST_ITEM_COLLAPSED_OPTIONS_PER_COLUMN = 2/)
+  assert.match(source, /LAST_ITEM_COLUMN_TITLES = \['第四件装备', '第五件装备', '第六件装备'\]/)
+  assert.match(source, /function lastItemColumns\(section: BuildSection\)/)
+  assert.match(source, /section\.options\.slice\(start, start \+ LAST_ITEM_COLUMN_SIZE\)/)
+  assert.match(source, /function visibleLastItemColumnOptions/)
+  assert.match(source, /class="opgg-last-items-grid"/)
+  assert.match(source, /class="opgg-last-item-column"/)
+  assert.match(source, /class="opgg-last-item-list"/)
+  assert.match(source, /class="opgg-last-item-metrics"/)
+  assert.match(source, /formatPercent\(option\.winRate\)/)
+  assert.match(source, /formatLastItemGames\(option\.games\)/)
+  assert.doesNotMatch(source, /section\.key === 'lastItems'[\s\S]*opgg-build-list/)
 })
 
 test('OP.GG champion panel renders runes as icon-only primary and secondary rows', () => {
