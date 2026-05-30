@@ -9,6 +9,7 @@ import type {
 import type { GameDetail, MatchTimeline, MatchTimelineFetchResult } from '../types/api'
 import type { CoachSummaryOverview } from '../types/coachSummaryReport'
 import { stableStringify } from './aiAnalysisInputSnapshot.ts'
+import { createMatchRpIndexModel, type RpTrendLabel } from './matchRpIndex.ts'
 
 export const COACH_SUMMARY_SCHEMA_VERSION = 'coach_summary.v1' as const
 export const COACH_SUMMARY_ANALYSIS_TYPE = 'coach_summary' as const
@@ -282,8 +283,13 @@ export interface CoachSummaryMatchDigest {
       goldPerMin?: number
       totalDamageDealtToChampions?: number
       damageShare?: number
+      damageConversionRate?: number
       visionScore?: number
       killParticipation?: number
+    }
+    rpIndex?: {
+      finalScore: number
+      trendLabel?: RpTrendLabel
     }
   }
   laneOpponent?: {
@@ -530,20 +536,6 @@ export async function prepareCoachSummaryGeneration({
       message: '最近排位不足 20 局，暂时无法生成电子教练报告。',
       currentRankedMatchCount: rankedRecords.length,
       requiredRankedMatchCount: COACH_SUMMARY_REQUIRED_RANKED_MATCHES
-    }
-  }
-
-  const latestCoachSummary = await loadLatestCoachSummaryResult(database, normalizedPuuid)
-  if (latestCoachSummary) {
-    const newRankedMatchCount = countNewRankedMatchesSinceLastReport(rankedRecords, latestCoachSummary)
-    if (newRankedMatchCount < COACH_SUMMARY_REQUIRED_RANKED_MATCHES) {
-      return {
-        status: 'not_enough_new_ranked_matches',
-        message: '距离上次电子教练报告还不足 20 局排位，继续多打几局后再来。',
-        newRankedMatchCountSinceLastReport: newRankedMatchCount,
-        requiredNewRankedMatchCount: COACH_SUMMARY_REQUIRED_RANKED_MATCHES,
-        lastGeneratedAt: latestCoachSummary.createdAt
-      }
     }
   }
 
@@ -1478,10 +1470,18 @@ export function buildCoachSummaryRankedMatchDigest(
   const stats = buildSelfStats(self.stats, participants, selfTeamId, durationSeconds)
   const championId = firstNumber(self.participant.championId, record.championId)
   const champion = resolveChampionIdentity(championId, firstString(self.participant.championName, self.participant.championNameCn))
+  const queueId = firstNumber(record.queueId, parsed.detail?.queueId, toRecord(parsed.detail?.info)?.queueId, parsed.summary?.queueId, toRecord(parsed.summary?.info)?.queueId) ?? 0
+  const rpIndex = buildCoachSummaryRpIndex({
+    parsed,
+    participants,
+    selfParticipantId: self.participantId,
+    queueId,
+    durationSeconds
+  })
   const digest: CoachSummaryMatchDigest = {
     matchRef,
     matchIdHash: hashText(record.matchId),
-    queueId: firstNumber(record.queueId) ?? 0,
+    queueId,
     ...(record.gameCreation !== null ? { gameCreation: record.gameCreation } : {}),
     ...optionalTimestampFields(parsed),
     ...(durationSeconds !== undefined ? { durationSeconds } : {}),
@@ -1501,7 +1501,8 @@ export function buildCoachSummaryRankedMatchDigest(
       items,
       ...(summonerSpells.length ? { summonerSpells } : {}),
       ...(runes ? { runes } : {}),
-      ...(stats ? { stats } : {})
+      ...(stats ? { stats } : {}),
+      ...(rpIndex ? { rpIndex } : {})
     },
     ...(laneOpponent ? { laneOpponent: buildLaneOpponentDigest(laneOpponent) } : {}),
     ...(economy.laneDiff ? { laneDiff: economy.laneDiff } : {}),
@@ -2001,6 +2002,115 @@ function buildParticipantStats(participant: Record<string, unknown>): Record<str
   }
 }
 
+function buildCoachSummaryRpIndex({
+  parsed,
+  participants,
+  selfParticipantId,
+  queueId,
+  durationSeconds
+}: {
+  parsed: ParsedMatchData
+  participants: Record<string, unknown>[]
+  selfParticipantId: number | null
+  queueId: number
+  durationSeconds?: number
+}): CoachSummaryMatchDigest['self']['rpIndex'] | undefined {
+  if (selfParticipantId === null || !hasUsableTimeline(parsed.timeline)) {
+    return undefined
+  }
+
+  const rpParticipants = participants
+    .map(buildRpGameParticipant)
+    .filter((participant): participant is GameDetail['participants'][number] => participant !== null)
+  if (rpParticipants.length < 10) {
+    return undefined
+  }
+
+  const gameDetail = {
+    gameId: readParsedGameId(parsed) ?? 0,
+    gameMode: firstString(parsed.detail?.gameMode, toRecord(parsed.detail?.info)?.gameMode, parsed.summary?.gameMode, toRecord(parsed.summary?.info)?.gameMode) ?? 'CLASSIC',
+    gameType: firstString(parsed.detail?.gameType, toRecord(parsed.detail?.info)?.gameType, parsed.summary?.gameType, toRecord(parsed.summary?.info)?.gameType) ?? 'MATCHED_GAME',
+    mapId: toPositiveInteger(firstNumber(parsed.detail?.mapId, toRecord(parsed.detail?.info)?.mapId, parsed.summary?.mapId, toRecord(parsed.summary?.info)?.mapId)) ?? 11,
+    queueId,
+    gameDuration: durationSeconds ?? 0,
+    gameCreation: firstNumber(parsed.detail?.gameCreation, toRecord(parsed.detail?.info)?.gameCreation, parsed.summary?.gameCreation, toRecord(parsed.summary?.info)?.gameCreation) ?? 0,
+    participantIdentities: [],
+    participants: rpParticipants
+  } satisfies GameDetail
+
+  const model = createMatchRpIndexModel(parsed.timeline as MatchTimeline, gameDetail, {
+    trendLabelParticipantId: selfParticipantId
+  })
+  if (model.status !== 'ready') {
+    return undefined
+  }
+
+  const selfRp = model.players.find(player => player.participantId === selfParticipantId)
+  if (!selfRp) {
+    return undefined
+  }
+
+  return {
+    finalScore: Number(selfRp.finalScore.toFixed(1)),
+    ...(selfRp.trendLabel ? { trendLabel: selfRp.trendLabel } : {})
+  }
+}
+
+function buildRpGameParticipant(participant: Record<string, unknown>): GameDetail['participants'][number] | null {
+  const participantId = toPositiveInteger(participant.participantId)
+  const teamId = toPositiveInteger(participant.teamId)
+  const championId = toPositiveInteger(participant.championId)
+  if (participantId === null || teamId === null || championId === null) {
+    return null
+  }
+
+  const stats = buildParticipantStats(participant) ?? {}
+  const timeline = toRecord(participant.timeline) ?? {}
+
+  return {
+    participantId,
+    teamId,
+    championId,
+    spell1Id: toPositiveInteger(firstNumber(participant.spell1Id, participant.summoner1Id)) ?? 0,
+    spell2Id: toPositiveInteger(firstNumber(participant.spell2Id, participant.summoner2Id)) ?? 0,
+    ...(firstString(participant.teamPosition) ? { teamPosition: firstString(participant.teamPosition) ?? undefined } : {}),
+    ...(firstString(participant.individualPosition) ? { individualPosition: firstString(participant.individualPosition) ?? undefined } : {}),
+    ...(firstString(participant.selectedPosition) ? { selectedPosition: firstString(participant.selectedPosition) ?? undefined } : {}),
+    timeline: timeline as GameDetail['participants'][number]['timeline'],
+    stats: {
+      win: firstBoolean(stats.win) ?? false,
+      kills: firstNumber(stats.kills) ?? 0,
+      deaths: firstNumber(stats.deaths) ?? 0,
+      assists: firstNumber(stats.assists) ?? 0,
+      totalMinionsKilled: firstNumber(stats.totalMinionsKilled, stats.minionsKilled) ?? 0,
+      neutralMinionsKilled: firstNumber(stats.neutralMinionsKilled, stats.jungleMinionsKilled) ?? 0,
+      goldEarned: firstNumber(stats.goldEarned) ?? 0,
+      totalDamageDealtToChampions: firstNumber(stats.totalDamageDealtToChampions) ?? 0,
+      totalDamageTaken: firstNumber(stats.totalDamageTaken) ?? 0,
+      totalHeal: firstNumber(stats.totalHeal) ?? 0,
+      visionScore: firstNumber(stats.visionScore) ?? 0,
+      visionWardsBoughtInGame: firstNumber(stats.visionWardsBoughtInGame) ?? 0,
+      wardsPlaced: firstNumber(stats.wardsPlaced) ?? 0,
+      wardsKilled: firstNumber(stats.wardsKilled) ?? 0,
+      largestMultiKill: firstNumber(stats.largestMultiKill) ?? 0,
+      doubleKills: firstNumber(stats.doubleKills) ?? 0,
+      tripleKills: firstNumber(stats.tripleKills) ?? 0,
+      quadraKills: firstNumber(stats.quadraKills) ?? 0,
+      pentaKills: firstNumber(stats.pentaKills) ?? 0,
+      extraFields: stats
+    }
+  }
+}
+
+function readParsedGameId(parsed: ParsedMatchData): number | null {
+  return toPositiveInteger(firstNumber(
+    parsed.detail?.gameId,
+    toRecord(parsed.detail?.info)?.gameId,
+    parsed.summary?.gameId,
+    toRecord(parsed.summary?.info)?.gameId
+  ))
+}
+
 function buildLaneOpponentDigest(opponent: ParticipantContext): NonNullable<CoachSummaryMatchDigest['laneOpponent']> {
   const player = toRecord(opponent.identity?.player)
   const puuid = firstString(opponent.participant.puuid, player?.puuid)
@@ -2364,6 +2474,7 @@ function buildSelfStats(
     ...(durationSeconds && durationSeconds > 0 && goldEarned !== null ? { goldPerMin: roundMetric(goldEarned / (durationSeconds / 60)) } : {}),
     ...(totalDamageDealtToChampions !== null ? { totalDamageDealtToChampions } : {}),
     ...(totalDamageDealtToChampions !== null && teamDamage > 0 ? { damageShare: roundMetric(totalDamageDealtToChampions / teamDamage) } : {}),
+    ...(totalDamageDealtToChampions !== null && goldEarned !== null && goldEarned > 0 ? { damageConversionRate: roundMetric((totalDamageDealtToChampions / goldEarned) * 100) } : {}),
     ...(visionScore !== null ? { visionScore } : {}),
     ...(kills !== null && assists !== null && teamKills > 0 ? { killParticipation: roundMetric((kills + assists) / teamKills) } : {})
   }
@@ -2431,34 +2542,22 @@ interface CoachSummaryGroupAccumulator {
   kdaValues: number[]
   laneGoldDiffAt15Values: number[]
   killParticipationValues: number[]
+  damageConversionRateValues: number[]
+  rpFinalScores: number[]
 }
 
 function buildCoachSummaryAnalysisBrief({
-  generatedInputAt,
   matches,
-  queues,
-  latestMatchTimestamp,
-  oldestMatchTimestamp,
   dataQuality
 }: BuildCoachSummaryAnalysisBriefInput): CoachSummaryAnalysisBrief {
-  const overviewFacts = buildCoachSummaryOverviewFacts({
-    generatedInputAt,
-    matches,
-    queues,
-    latestMatchTimestamp,
-    oldestMatchTimestamp
-  })
+  const overviewFacts = buildCoachSummaryOverviewFacts(matches)
   const trendFacts = buildCoachSummaryTrendFacts(matches)
   const championFacts = buildCoachSummaryChampionFacts(matches)
   const roleFacts = buildCoachSummaryRoleFacts(matches)
   const overallState = calculateCoachSummaryOverallState(matches)
-  const overallStateFacts = [
-    `整体状态：${overallState.label}。${overallState.reasons.join('；')}。`
-  ]
   const matchFacts = matches.map(formatCoachSummaryMatchFact)
   const dataQualityFacts = buildCoachSummaryDataQualityFacts(dataQuality, matches.length)
   const sections = [
-    overallStateFacts,
     overviewFacts,
     trendFacts,
     championFacts,
@@ -2483,39 +2582,19 @@ function buildCoachSummaryAnalysisBrief({
   }
 }
 
-function buildCoachSummaryOverviewFacts({
-  generatedInputAt,
-  matches,
-  queues,
-  latestMatchTimestamp,
-  oldestMatchTimestamp
-}: Omit<BuildCoachSummaryAnalysisBriefInput, 'dataQuality'>): string[] {
+function buildCoachSummaryOverviewFacts(matches: CoachSummaryMatchDigest[]): string[] {
   const outcome = calculateCoachSummaryOutcome(matches)
-  const queueText = queues.length
-    ? queues.map(queue => `${formatQueueId(queue.queueId)}${queue.count}局`).join('、')
-    : '队列未知'
-  const dateRange = oldestMatchTimestamp !== undefined && latestMatchTimestamp !== undefined
-    ? `，时间范围${formatDateOnly(oldestMatchTimestamp)}到${formatDateOnly(latestMatchTimestamp)}`
-    : ''
-  const averageKda = averageNumber(matches.map(readMatchKdaRatio))
-  const primaryRoles = summarizeTopGroups(buildRoleGroups(matches), 3)
+  const averageRp = averageNumber(matches.map(readMatchRpFinalScore))
+  const averageGoldDiffAt15 = averageNumber(matches.map(match => match.laneDiff?.goldDiffAt15))
+  const averageKillParticipation = averageNumber(matches.map(match => match.self.stats?.killParticipation))
   return [
-    `当前snapshot时间：${generatedInputAt}。样本：最近20局排位，${queueText}${dateRange}。`,
-    `整体表现：${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, outcome.wins + outcome.losses)}，平均KDA${formatNullableDecimal(averageKda)}，主要位置：${primaryRoles || '未知'}。`
+    `20局总览：${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, outcome.wins + outcome.losses)}，平均RP${formatNullableDecimal(averageRp)}，15分钟对位经济平均${formatSignedOrUnknown(averageGoldDiffAt15)}，参团率${formatNullablePercent(averageKillParticipation)}。`
   ]
 }
 
 function buildCoachSummaryTrendFacts(matches: CoachSummaryMatchDigest[]): string[] {
-  const outcome = calculateCoachSummaryOutcome(matches)
-  const latestFive = matches.slice(0, 5)
-    .map(match => `${match.matchRef}${formatResultShort(match.result)}`)
-    .join('、')
-  const currentStreak = formatCurrentStreak(matches)
-  const averageGoldDiffAt15 = averageNumber(matches.map(match => match.laneDiff?.goldDiffAt15))
-  const resourceDeathCount = matches.reduce((total, match) => total + countDeathsBeforeObjective(match), 0)
   return [
-    `最近20局走势：${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, outcome.wins + outcome.losses)}，${currentStreak}；最新5局：${latestFive || '暂无可用胜负'}。`,
-    `趋势证据：15分钟对位经济平均${formatSignedOrUnknown(averageGoldDiffAt15)}，资源前${OBJECTIVE_LOOKAHEAD_SECONDS}秒内死亡${resourceDeathCount}次。`
+    `RP终局序列：${matches.map(formatRpSequencePoint).join('、')}。`
   ]
 }
 
@@ -2533,57 +2612,48 @@ function summarizeGroupFacts(groups: CoachSummaryGroupAccumulator[], prefix: str
     .slice(0, 5)
     .map(group => {
       const total = group.wins + group.losses
-      return `${prefix}：${group.label} ${group.games}局${group.wins}胜${group.losses}负，胜率${formatRate(group.wins, total)}，平均KDA${formatNullableDecimal(averageNumber(group.kdaValues))}，15分钟对位经济平均${formatSignedOrUnknown(averageNumber(group.laneGoldDiffAt15Values))}，参团率${formatNullablePercent(averageNumber(group.killParticipationValues))}。`
+      return `${prefix}：${group.label} ${group.games}局${group.wins}胜${group.losses}负，胜率${formatRate(group.wins, total)}，平均RP${formatNullableDecimal(averageNumber(group.rpFinalScores))}，15分钟对位经济平均${formatSignedOrUnknown(averageNumber(group.laneGoldDiffAt15Values))}，参团率${formatNullablePercent(averageNumber(group.killParticipationValues))}，伤转率${formatDamageConversionRate(averageNumber(group.damageConversionRateValues))}。`
     })
 }
 
 function formatCoachSummaryMatchFact(match: CoachSummaryMatchDigest): string {
   const champion = formatChampionName(match)
   const role = formatRoleName(match.self.position ?? match.self.lane ?? match.self.role)
-  const opponent = match.laneOpponent?.championName
-    ? `，对位${match.laneOpponent.championName}`
-    : ''
   const metricParts = [
-    match.self.kdaText ? `KDA ${match.self.kdaText}` : '',
+    `K/D/A ${formatKillsDeathsAssists(match)}`,
+    match.self.rpIndex?.trendLabel ? `RP标签${match.self.rpIndex.trendLabel}` : match.self.rpIndex ? 'RP标签不可用' : 'RP不可用，RP标签不可用',
+    match.self.rpIndex ? `RP终局${formatDecimal(match.self.rpIndex.finalScore)}` : '',
     match.self.stats?.killParticipation !== undefined ? `参团率${formatPercent(match.self.stats.killParticipation)}` : '',
     match.self.stats?.damageShare !== undefined ? `伤害占比${formatPercent(match.self.stats.damageShare)}` : '',
     match.self.stats?.visionScore !== undefined ? `视野${formatNumber(match.self.stats.visionScore)}` : '',
-    match.self.stats?.csPerMin !== undefined ? `补刀${formatDecimal(match.self.stats.csPerMin)}/分` : ''
+    match.self.stats?.csPerMin !== undefined ? `补刀${formatDecimal(match.self.stats.csPerMin)}/分` : '',
+    match.self.stats?.damageConversionRate !== undefined ? `伤转率${formatDamageConversionRate(match.self.stats.damageConversionRate)}` : ''
   ].filter(Boolean)
   const diffParts = [
-    match.laneDiff?.goldDiffAt10 !== undefined ? `10分钟对位经济${formatSignedInteger(match.laneDiff.goldDiffAt10)}` : '',
-    match.laneDiff?.goldDiffAt15 !== undefined ? `15分钟对位经济${formatSignedInteger(match.laneDiff.goldDiffAt15)}` : '',
-    match.economyTimeline?.teamGoldDiffAt15 !== undefined ? `15分钟团队经济${formatSignedInteger(match.economyTimeline.teamGoldDiffAt15)}` : ''
-  ].filter(Boolean)
-  const eventParts = [
-    match.events.objectives.length ? `参与样本资源事件${match.events.objectives.length}次` : '',
-    match.events.deaths.length ? `死亡${match.events.deaths.length}次` : '',
-    countDeathsBeforeObjective(match) > 0 ? `资源前死亡${countDeathsBeforeObjective(match)}次` : ''
+    match.laneDiff?.goldDiffAt15 !== undefined ? `15分钟对位经济${formatSignedInteger(match.laneDiff.goldDiffAt15)}` : ''
   ].filter(Boolean)
   const factParts = [
-    `${match.matchRef} ${formatResult(match.result)}，${champion} ${role}${opponent}`,
+    `${match.matchRef} ${formatResult(match.result)}，${champion} ${role}`,
     ...metricParts,
-    ...diffParts,
-    ...eventParts
+    ...diffParts
   ]
   return `${factParts.join('，')}。`
 }
 
 function buildCoachSummaryDataQualityFacts(dataQuality: CoachSummaryDataQuality, totalMatches: number): string[] {
   const missingParts = [
-    dataQuality.missingParticipantDetailMatchRefs.length ? `缺详情${dataQuality.missingParticipantDetailMatchRefs.length}局` : '',
-    dataQuality.missingTimelineMatchRefs.length ? `缺timeline${dataQuality.missingTimelineMatchRefs.length}局` : '',
+    dataQuality.missingParticipantDetailMatchRefs.length ? `缺详情：${dataQuality.missingParticipantDetailMatchRefs.join('、')}` : '',
+    dataQuality.missingTimelineMatchRefs.length ? `缺timeline：${dataQuality.missingTimelineMatchRefs.join('、')}` : '',
     dataQuality.missingLaneOpponentMatchRefs.length ? `缺对位${dataQuality.missingLaneOpponentMatchRefs.length}局` : '',
-    dataQuality.missingEconomyDiffMatchRefs.length ? `缺经济差${dataQuality.missingEconomyDiffMatchRefs.length}局` : '',
+    dataQuality.missingEconomyDiffMatchRefs.length ? `缺15分钟经济差：${dataQuality.missingEconomyDiffMatchRefs.join('、')}` : '',
     dataQuality.missingRuneOrItemMatchRefs.length ? `缺符文或装备${dataQuality.missingRuneOrItemMatchRefs.length}局` : ''
   ].filter(Boolean)
-  const hydration = dataQuality.sgpHydration
-    ? `SGP补全：尝试${dataQuality.sgpHydration.attempted ? '是' : '否'}，详情补全${dataQuality.sgpHydration.detailFetchedCount}局，timeline补全${dataQuality.sgpHydration.timelineFetchedCount}局，错误${dataQuality.sgpHydration.errors.length}条。`
-    : 'SGP补全：本次未记录补全摘要。'
-  return [
-    `数据质量：${formatConfidence(dataQuality.confidence)}，样本${totalMatches}局；${missingParts.length ? missingParts.join('、') : '关键详情、timeline、对位和经济差完整'}。`,
-    hydration
-  ]
+  const hasHydrationErrors = (dataQuality.sgpHydration?.errors.length ?? 0) > 0
+  if (dataQuality.confidence === 'high' && missingParts.length === 0 && !hasHydrationErrors) {
+    return []
+  }
+  const detail = missingParts.length ? missingParts.join('；') : '关键字段部分缺失'
+  return [`数据缺口：样本${totalMatches}局，置信度${formatConfidence(dataQuality.confidence)}，${detail}。`]
 }
 
 export function buildCoachSummaryReportOverview(
@@ -2593,6 +2663,7 @@ export function buildCoachSummaryReportOverview(
   const outcome = calculateCoachSummaryOutcome(matches)
   const total = outcome.wins + outcome.losses
   const overallState = snapshot.analysisBrief?.overallState ?? calculateCoachSummaryOverallState(matches)
+  const averageRp = averageNumber(matches.map(readMatchRpFinalScore))
   const primaryRoles = buildRoleGroups(matches)
     .sort(compareCoachSummaryGroups)
     .slice(0, 3)
@@ -2634,7 +2705,7 @@ export function buildCoachSummaryReportOverview(
     wins: outcome.wins,
     losses: outcome.losses,
     winRate: parseFloat(formatRateNumber(outcome.wins, total).toFixed(1)),
-    summary: `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, total)}，整体状态${overallState.label}。${overallState.reasons.join('；')}。`,
+    summary: `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, total)}，${averageRp === null ? '' : `平均RP${formatDecimal(averageRp)}，`}整体状态${overallState.label}。${overallState.reasons.join('；')}。`,
     overallState: overallState.state,
     overallStateLabel: overallState.label,
     primaryRoles,
@@ -2688,7 +2759,9 @@ function accumulateGroup(
     assists: 0,
     kdaValues: [],
     laneGoldDiffAt15Values: [],
-    killParticipationValues: []
+    killParticipationValues: [],
+    damageConversionRateValues: [],
+    rpFinalScores: []
   }
   if (group.championId === undefined && champion?.championId !== undefined) {
     group.championId = champion.championId
@@ -2708,6 +2781,8 @@ function accumulateGroup(
   pushNumber(group.kdaValues, readMatchKdaRatio(match))
   pushNumber(group.laneGoldDiffAt15Values, match.laneDiff?.goldDiffAt15)
   pushNumber(group.killParticipationValues, match.self.stats?.killParticipation)
+  pushNumber(group.damageConversionRateValues, match.self.stats?.damageConversionRate)
+  pushNumber(group.rpFinalScores, readMatchRpFinalScore(match))
   groups.set(label, group)
 }
 
@@ -2741,19 +2816,20 @@ function calculateCoachSummaryOverallState(matches: CoachSummaryMatchDigest[]): 
   const outcome = calculateCoachSummaryOutcome(matches)
   const decidedTotal = outcome.wins + outcome.losses
   const winRate = decidedTotal > 0 ? outcome.wins / decidedTotal : 0
-  const latestFive = matches.slice(0, 5)
-  const latestFiveWins = latestFive.filter(match => match.result === 'win').length
-  const averageKda = averageNumber(matches.map(readMatchKdaRatio))
+  const averageRp = averageNumber(matches.map(readMatchRpFinalScore))
+  const averageGoldDiffAt15 = averageNumber(matches.map(match => match.laneDiff?.goldDiffAt15))
+  const averageKillParticipation = averageNumber(matches.map(match => match.self.stats?.killParticipation))
   const reasons = [
     `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, decidedTotal)}`,
-    `最近5局${latestFiveWins}胜${Math.max(0, latestFive.length - latestFiveWins)}负`,
-    averageKda === null ? '' : `平均KDA${formatDecimal(averageKda)}`
+    averageRp === null ? '' : `平均RP${formatDecimal(averageRp)}`,
+    averageGoldDiffAt15 === null ? '' : `15分钟对位经济平均${formatSignedInteger(averageGoldDiffAt15)}`,
+    averageKillParticipation === null ? '' : `参团率${formatPercent(averageKillParticipation)}`
   ].filter(Boolean)
 
-  if (winRate >= 0.68) {
+  if (winRate >= 0.68 || (averageRp ?? 0) >= 7.2) {
     return { state: 'excellent', label: '很好', reasons }
   }
-  if (winRate >= 0.58 || (winRate >= 0.52 && latestFiveWins >= 3 && (averageKda ?? 0) >= 2.8)) {
+  if (winRate >= 0.58 || (averageRp ?? 0) >= 6.2) {
     return { state: 'good', label: '良好', reasons }
   }
   if (winRate >= 0.48) {
@@ -2787,33 +2863,9 @@ function readMatchKdaRatio(match: CoachSummaryMatchDigest): number | null {
     : (match.self.kills + match.self.assists) / match.self.deaths
 }
 
-function countDeathsBeforeObjective(match: CoachSummaryMatchDigest): number {
-  return match.events.deaths.filter(death => death.nearestUpcomingObjective !== undefined).length
-}
-
-function formatCurrentStreak(matches: CoachSummaryMatchDigest[]): string {
-  const first = matches[0]?.result
-  if (first !== 'win' && first !== 'loss') {
-    return '当前无明确连胜连败'
-  }
-  let count = 0
-  for (const match of matches) {
-    if (match.result !== first) {
-      break
-    }
-    count += 1
-  }
-  return `当前${first === 'win' ? '连胜' : '连败'}${count}局`
-}
-
-function formatQueueId(queueId: number): string {
-  if (queueId === 420) {
-    return '单双排'
-  }
-  if (queueId === 440) {
-    return '灵活排位'
-  }
-  return `队列${queueId}`
+function readMatchRpFinalScore(match: CoachSummaryMatchDigest): number | null {
+  const score = match.self.rpIndex?.finalScore
+  return typeof score === 'number' && Number.isFinite(score) ? score : null
 }
 
 function formatChampionName(match: CoachSummaryMatchDigest): string {
@@ -2855,12 +2907,21 @@ function formatResult(result: CoachSummaryMatchDigest['result']): string {
   return '胜负未知'
 }
 
-function formatResultShort(result: CoachSummaryMatchDigest['result']): string {
-  return result === 'win' ? '胜' : result === 'loss' ? '负' : '未知'
+function formatRpSequencePoint(match: CoachSummaryMatchDigest): string {
+  const score = readMatchRpFinalScore(match)
+  return `${match.matchRef} ${score === null ? 'RP不可用' : formatDecimal(score)}`
 }
 
-function formatDateOnly(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10)
+function formatKillsDeathsAssists(match: CoachSummaryMatchDigest): string {
+  return [
+    match.self.kills ?? 0,
+    match.self.deaths ?? 0,
+    match.self.assists ?? 0
+  ].join('/')
+}
+
+function formatDamageConversionRate(value: number | null): string {
+  return value === null ? '未知' : `${value.toFixed(1)}%`
 }
 
 function formatConfidence(confidence: CoachSummaryDataQuality['confidence']): string {

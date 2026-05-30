@@ -932,10 +932,9 @@ class DeepSeekAnalysisControllerTest {
                         "【敌方辅助｜璐璐】2/7/13。"
                       ],
                       "timelineFacts": [
-                        "【你｜我方打野｜凯隐】 RP指数：终局8.3，标签：关键阶段站出来接管，每分钟：5.0,5.4,6.2,8.3。",
                         "15:30 我方拿下小龙。"
                       ],
-                      "dataQualityFacts": ["timeline 可用。"]
+                      "dataQualityFacts": []
                     }
                   }
                 }
@@ -964,12 +963,15 @@ class DeepSeekAnalysisControllerTest {
         assertThat(messages).contains("夯", "顶级", "人上人", "NPC", "拉完了");
         assertThat(messages).contains("levels", "summary", "playerRef", "phrase");
         assertThat(messages).contains("只输出 JSON");
-        assertThat(systemMessage).contains("RP指数", "0-10", "每分钟");
+        assertThat(systemMessage).contains("RP指数", "0-10", "当前 postgame snapshot 只提供每名玩家的终局 RP");
+        assertThat(systemMessage).doesNotContain("每3分钟", "praise 模式", "postgame_praise_result.v1");
+        assertThat(systemMessage).doesNotContain("RP标签");
         assertThat(userMessage).contains("snapshotText:");
         assertThat(userMessage).contains("对局信息：");
         assertThat(userMessage).contains("- 模式：单双排位；时间：24:55；结果：我方获胜。");
         assertThat(userMessage).contains("时间轴与 RP：");
-        assertThat(userMessage).contains("RP指数：终局8.3，标签：关键阶段站出来接管");
+        assertThat(userMessage).doesNotContain("每3分钟");
+        assertThat(userMessage).doesNotContain("数据质量：");
         assertThat(userMessage).doesNotContain("snapshotJson:");
         assertThat(userMessage).doesNotContain("\"analysisBrief\"");
     }
@@ -1024,8 +1026,11 @@ class DeepSeekAnalysisControllerTest {
         JsonNode body = OBJECT_MAPPER.readTree(capturedRequest.body());
         JsonNode messagesNode = body.get("messages");
         String messages = messagesNode.toString();
+        String systemMessage = messagesNode.get(0).get("content").asText();
         String userMessage = messagesNode.get(1).get("content").asText();
         assertThat(messages).contains("postgame_praise_result.v1");
+        assertThat(systemMessage).contains("RP指数", "0-10", "当前 postgame snapshot 只提供每名玩家的终局 RP");
+        assertThat(systemMessage).doesNotContain("每3分钟", "review 模式", "postgame_review_result.v1");
         assertThat(messages).contains("headline", "paragraphs");
         assertThat(messages).contains("只围绕当前用户");
         assertThat(messages).contains("带有【你｜");

@@ -235,6 +235,34 @@ test('turns each player into one compact natural-language line only', () => {
   assert.doesNotMatch(serialized, /"rank"|"metrics"|"tags"|"sampleMatches"|"preGroupMarker"|"displayName"|"selectedPosition"|"recordStatus"/)
 })
 
+test('maps recent match champion ids to Chinese names before sending', () => {
+  const puuid = 'champion-map-puuid'
+  const match = createRecentMatches(puuid, 1)[0]
+  const participant = match?.participants?.[0] as (Record<string, unknown> | undefined)
+  if (!match || !participant) {
+    throw new Error('test fixture missing participant')
+  }
+  delete participant.championName
+  delete participant.championNameCn
+  participant.championKey = '64'
+
+  const player = createPlayer({
+    name: 'ChampionMap',
+    puuid,
+    matchHistory: [match]
+  })
+  const snapshot = buildGamingAiInputSnapshot({
+    mode: 'teammate',
+    sessionData: createSessionData({ teamOne: [player], teamTwo: [], currentSummoner: player.summoner }),
+    selectedPlayers: [player],
+    currentSummonerPuuid: puuid
+  })
+
+  const summaryLine = snapshot.teammateSnapshot.players[0]?.summaryLine ?? ''
+  assert.match(summaryLine, /最近对局：盲僧 上路 胜 1\/2\/3/)
+  assert.doesNotMatch(summaryLine, /最近对局：(?:64|英雄64) /)
+})
+
 test('does not copy raw match history into the snapshot', () => {
   const snapshot = buildGamingAiInputSnapshot({
     mode: 'teammate',

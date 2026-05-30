@@ -1,4 +1,5 @@
 import type { MatchHistory, Participant, RecordStatus, SessionData, SessionSummoner, Summoner } from '@/types/api'
+import { getChampionDisplayName } from '../utils/championSearchAliases.ts'
 
 export type GamingAiInputMode = 'teammate' | 'opponent'
 export type GamingAiTeamSide = 'ally' | 'enemy'
@@ -255,16 +256,34 @@ function findParticipantInMatch(match: MatchHistory, puuid?: string): Participan
 
 function readParticipantChampionName(participant: Participant): string {
   const source = participant as unknown as Record<string, unknown>
-  const championName = readNonEmptyString(source.championName)
-    || readNonEmptyString(source.championNameCn)
-    || readNonEmptyString(source.championKey)
-
-  if (championName) {
-    return championName
+  const championId = toFiniteNumber(participant.championId)
+  const rawChampionName = firstString(
+    source.championNameCn,
+    source.championName
+  )
+  if (rawChampionName && containsCjkText(rawChampionName)) {
+    return rawChampionName
   }
 
-  const championId = toFiniteNumber(participant.championId)
+  const mappedChampionName = getChampionDisplayName(championId)
+  if (mappedChampionName) {
+    return mappedChampionName
+  }
+
+  if (rawChampionName) {
+    return rawChampionName
+  }
+
+  const championKey = readNonEmptyString(source.championKey)
+  if (championKey && !/^\d+$/.test(championKey)) {
+    return championKey
+  }
+
   return championId != null ? `英雄${championId}` : '未知英雄'
+}
+
+function containsCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/.test(value)
 }
 
 function readParticipantPosition(participant: Participant): string {

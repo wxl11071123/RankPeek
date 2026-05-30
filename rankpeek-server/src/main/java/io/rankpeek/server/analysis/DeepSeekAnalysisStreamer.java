@@ -353,11 +353,7 @@ public class DeepSeekAnalysisStreamer {
         return List.of(
                 new DeepSeekChatMessage(
                         "system",
-                        """
-                                你是 RankPeek 的英雄联盟赛后复盘助手。只根据用户提供的 postgame snapshot 分析，不臆造不存在的数据。
-                                review 模式必须输出可被 JSON.parse 解析的 postgame_review_result.v1；praise 模式必须输出可被 JSON.parse 解析的 postgame_praise_result.v1。
-                                RP指数是 RankPeek 根据 timeline 计算的单局表现曲线，范围 0-10，5.0 为中性，每分钟一个点，输入包括经济、等级、CS、击杀参与、死亡、关键资源和视野。RP标签只针对当前用户，表示这局的表现趋势，不是胜负标签、不是长期评价；不要给未带 RP 标签的其他玩家补造标签。
-                                """
+                        buildPostgameSystemPrompt(mode)
                 ),
                 new DeepSeekChatMessage(
                         "user",
@@ -375,6 +371,15 @@ public class DeepSeekAnalysisStreamer {
                         )
                 )
         );
+    }
+
+    private static String buildPostgameSystemPrompt(String mode) {
+        String schema = "praise".equals(mode) ? "postgame_praise_result.v1" : "postgame_review_result.v1";
+        return """
+                你是 RankPeek 的英雄联盟赛后复盘助手。只根据用户提供的 postgame snapshot 分析，不臆造不存在的数据。
+                必须输出可被 JSON.parse 解析的 %s。
+                RP指数是 RankPeek 根据 timeline 计算的单局表现曲线，范围 0-10，5.0 为中性，计算依据包括经济、等级、CS、击杀参与、死亡、关键资源和视野；当前 postgame snapshot 只提供每名玩家的终局 RP，不提供完整曲线或采样序列。
+                """.formatted(schema);
     }
 
     private static String formatPostgameSnapshotText(Map<String, Object> snapshot) {

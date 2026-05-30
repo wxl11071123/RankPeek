@@ -13,16 +13,21 @@ function makeSnapshot() {
       schemaVersion: 'coach_summary_analysis_brief.v1',
       language: 'zh-CN',
       text: [
-        '当前snapshot时间：2026-05-25T12:00:00.000Z。',
-        '最近20局走势：12胜8负，平均KDA 3.2，15分钟对位经济平均+88。',
-        'm01：Karma 辅助 胜 2/1/18，15分钟经济+420，资源前120秒内死亡0次。'
+        '20局总览：20局12胜8负，胜率60.0%，平均RP6.4，15分钟对位经济平均+88，参团率52.4%。',
+        'RP终局序列：m01 7.2、m02 6.1、m03 RP不可用。',
+        'm01 胜，卡尔玛 辅助，K/D/A 2/1/18，RP标签稳稳当当不掉线，RP终局7.2，参团率66.7%，伤害占比18.0%，视野45，补刀1.2/分，伤转率98.4%，15分钟对位经济+420。'
       ].join('\n'),
       overviewFacts: [],
       trendFacts: [],
       championFacts: [],
       roleFacts: [],
       matchFacts: [],
-      dataQualityFacts: []
+      dataQualityFacts: [],
+      overallState: {
+        state: 'good',
+        label: '良好',
+        reasons: ['12胜8负，胜率60.0%']
+      }
     },
     dataQuality: {
       confidence: 'high',
@@ -49,57 +54,62 @@ function makeSnapshot() {
   }
 }
 
-test('coach summary prompt wraps the natural-language snapshot with long-term coaching rules', async () => {
+test('coach summary prompt sends only the current 20-match analysis facts without coaching or history noise', async () => {
   assert.equal(existsSync(promptModuleUrl), true)
   const { buildCoachSummaryPromptPayload, COACH_SUMMARY_PROMPT_VERSION } = await import('./coachSummaryPrompt.ts')
-
-  const payload = buildCoachSummaryPromptPayload({
-    snapshot: makeSnapshot(),
-    historicalCoachContext: '上次报告：资源团前死亡偏多，本轮需要观察是否改善。'
-  })
-
-  assert.equal(COACH_SUMMARY_PROMPT_VERSION, 'coach_summary.prompt.v2')
-  assert.equal(payload.promptVersion, 'coach_summary.prompt.v2')
-  assert.match(payload.systemPrompt, /长期电子教练/)
-  assert.match(payload.systemPrompt, /只输出 JSON/)
-  assert.match(payload.systemPrompt, /coach_summary_report\.v1/)
-  assert.match(payload.systemPrompt, /顶层必须包含这些字段：title、summary、verdict/)
-  assert.match(payload.systemPrompt, /不要把报告包在 report\/result\/data 字段里/)
-  assert.match(payload.systemPrompt, /先判断 currentSnapshotMeta\.overallState/)
-  assert.doesNotMatch(payload.systemPrompt, /资源/)
-  assert.match(payload.systemPrompt, /不要逐局流水账/)
-  assert.doesNotMatch(payload.systemPrompt, /不超过 \d+ 个中文字符/)
-  assert.doesNotMatch(payload.systemPrompt, /\d+-\d+ 个中文字符/)
-  assert.match(payload.systemPrompt, /m01/)
-  assert.match(payload.systemPrompt, /不要输出真实 matchId、gameId、puuid、summonerName、gameName、tagLine/)
-  assert.match(payload.systemPrompt, /没有历史上下文时/)
-  assert.match(payload.systemPrompt, /historicalCoachContext 只用于趋势对比/)
-  assert.match(payload.systemPrompt, /不要把历史报告里的旧问题直接当成本轮问题复述/)
-  assert.match(payload.systemPrompt, /title、cardTitle、shortTitle 必须是正向主结论/)
-  assert.match(payload.systemPrompt, /不能出现“但是”“但”“需提升”“短板”“仅”/)
-  assert.match(payload.systemPrompt, /分路\/英雄低胜率样本只能作为观察项/)
-  assert.match(payload.systemPrompt, /keyFindings 优先 2 条/)
-  assert.match(payload.systemPrompt, /不要写成编号清单、小标题清单或模板化体检报告/)
-  assert.match(payload.systemPrompt, /trainingPlan 2-3 条/)
-  assert.match(payload.systemPrompt, /championAdvice 2-5 条/)
-
-  assert.match(payload.userPrompt, /currentSnapshotText/)
-  assert.match(payload.userPrompt, /最近20局走势：12胜8负/)
-  assert.match(payload.userPrompt, /currentSnapshotMeta/)
-  assert.match(payload.userPrompt, /coach-input-hash/)
-  assert.match(payload.userPrompt, /historicalCoachContext/)
-  assert.match(payload.userPrompt, /资源团前死亡偏多/)
-})
-
-test('coach summary prompt uses an explicit empty historical context for first reports', async () => {
-  assert.equal(existsSync(promptModuleUrl), true)
-  const { buildCoachSummaryPromptPayload } = await import('./coachSummaryPrompt.ts')
 
   const payload = buildCoachSummaryPromptPayload({
     snapshot: makeSnapshot()
   })
 
-  assert.match(payload.userPrompt, /historicalCoachContext/)
-  assert.match(payload.userPrompt, /无历史电子教练报告/)
+  assert.equal(COACH_SUMMARY_PROMPT_VERSION, 'coach_summary.prompt.v3')
+  assert.equal(payload.promptVersion, 'coach_summary.prompt.v3')
+  assert.match(payload.systemPrompt, /近20局排位数据分析/)
+  assert.match(payload.systemPrompt, /不教玩家打游戏/)
+  assert.match(payload.systemPrompt, /只输出 JSON/)
+  assert.match(payload.systemPrompt, /coach_summary_report\.v1/)
+  assert.match(payload.systemPrompt, /顶层必须包含这些字段：title、summary、verdict/)
+  assert.match(payload.systemPrompt, /不要把报告包在 report\/result\/data 字段里/)
+  assert.match(payload.systemPrompt, /RP指数/)
+  assert.match(payload.systemPrompt, /终局RP/)
+  assert.match(payload.systemPrompt, /RP指数是主要依据/)
+  assert.match(payload.systemPrompt, /不要逐局流水账/)
+  assert.doesNotMatch(payload.systemPrompt, /不超过 \d+ 个中文字符/)
+  assert.doesNotMatch(payload.systemPrompt, /\d+-\d+ 个中文字符/)
+  assert.match(payload.systemPrompt, /m01/)
+  assert.match(payload.systemPrompt, /不要输出真实 matchId、gameId、puuid、summonerName、gameName、tagLine/)
+  assert.doesNotMatch(payload.systemPrompt, /自然语言分段|历史上下文|历史电子教练|训练|教练语气|玩法指导/)
+  assert.match(payload.systemPrompt, /keyFindings 优先 2 条/)
+  assert.match(payload.systemPrompt, /trainingPlan 2-3 条/)
+  assert.match(payload.systemPrompt, /后续观察项/)
+  assert.match(payload.systemPrompt, /championAdvice 2-5 条/)
+  assert.match(payload.systemPrompt, /样本结论/)
+
+  assert.match(payload.userPrompt, /【近20局排位数据】/)
+  assert.match(payload.userPrompt, /20局总览：20局12胜8负/)
+  assert.match(payload.userPrompt, /RP终局序列：m01 7\.2/)
+  assert.match(payload.userPrompt, /K\/D\/A 2\/1\/18/)
+  assert.doesNotMatch(payload.userPrompt, /coach-input-hash|schemaVersion|analysisBriefSchemaVersion|overallState|dataQuality|generatedAt|matchRefs|anchorMatchRefs/)
+  assert.doesNotMatch(payload.userPrompt, /历史|上次报告|currentSnapshotText|currentSnapshotMeta|historicalCoachContext/)
+  assert.doesNotMatch(payload.userPrompt.trim(), /^\{/)
+})
+
+test('coach summary prompt includes a short data gap notice only when key data is incomplete', async () => {
+  assert.equal(existsSync(promptModuleUrl), true)
+  const { buildCoachSummaryPromptPayload } = await import('./coachSummaryPrompt.ts')
+  const snapshot = makeSnapshot()
+  snapshot.dataQuality.confidence = 'medium'
+  snapshot.dataQuality.hasAllTimelines = false
+  snapshot.dataQuality.missingTimelineMatchRefs = ['m03']
+  snapshot.dataQuality.missingEconomyDiffMatchRefs = ['m03']
+
+  const payload = buildCoachSummaryPromptPayload({
+    snapshot
+  })
+
+  assert.match(payload.userPrompt, /【数据缺口】/)
+  assert.match(payload.userPrompt, /缺timeline：m03/)
+  assert.match(payload.userPrompt, /缺15分钟经济差：m03/)
+  assert.doesNotMatch(payload.userPrompt, /inputHash|generatedAt|anchorMatchRefs/)
   assert.doesNotMatch(payload.userPrompt, /undefined|null/)
 })

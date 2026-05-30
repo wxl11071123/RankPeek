@@ -9,8 +9,9 @@ export const RANKPEEK_AUTH_LOGOUT_ENDPOINT = '/api/auth/logout'
 export const RANKPEEK_AUTH_ME_ENDPOINT = '/api/auth/me'
 
 const RANKPEEK_AUTH_STORAGE_KEY = 'rankpeek.auth.session'
-const AUTH_UNAVAILABLE_MESSAGE = 'rankpeek-server auth is unavailable'
-const AUTH_LOGIN_REQUIRED_MESSAGE = 'RankPeek account login is required'
+const AUTH_UNAVAILABLE_MESSAGE = 'RankPeek 账号服务暂时不可用，请稍后再试。'
+const AUTH_LOGIN_REQUIRED_MESSAGE = '请先登录 RankPeek 账号后再试。'
+const AUTH_LOGIN_EXPIRED_MESSAGE = '登录状态已失效，请重新登录后再试。'
 const INVALID_CREDENTIALS_MESSAGE = '邮箱或密码不正确'
 let inFlightRefreshSession: Promise<AuthResult> | null = null
 
@@ -216,7 +217,9 @@ async function refreshStoredRankPeekAuthSessionOnce(): Promise<AuthResult> {
       }
       return {
         ok: false,
-        message: payload.error?.message || payload.error?.code || AUTH_UNAVAILABLE_MESSAGE
+        message: payload.error?.code === 'REFRESH_TOKEN_INVALID'
+          ? AUTH_LOGIN_EXPIRED_MESSAGE
+          : AUTH_UNAVAILABLE_MESSAGE
       }
     }
     if (payload.success !== true || !isRefreshTokenResponse(payload.data)) {

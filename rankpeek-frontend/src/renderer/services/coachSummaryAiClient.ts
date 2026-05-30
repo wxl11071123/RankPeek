@@ -7,7 +7,12 @@ import type { CoachSummaryPromptPayload } from './coachSummaryPrompt'
 import type { CoachSummaryConfidence, CoachSummaryReportV1 } from '../types/coachSummaryReport'
 
 export const RANKPEEK_SERVER_COACH_SUMMARY_ENDPOINT = '/api/analysis/coach-summary'
-const AUTH_LOGIN_REQUIRED_MESSAGE = 'RankPeek account login is required'
+const COACH_SUMMARY_LOGIN_REQUIRED_MESSAGE = '请先登录 RankPeek 账号后再使用 AI 分析。'
+const COACH_SUMMARY_LOGIN_EXPIRED_MESSAGE = '登录状态已失效，请重新登录后再试。'
+const COACH_SUMMARY_INSUFFICIENT_CREDITS_MESSAGE = 'AI 分析次数不足，请充值后再试。'
+const COACH_SUMMARY_RATE_LIMIT_MESSAGE = '请求太频繁，请稍后再试。'
+const COACH_SUMMARY_UNAVAILABLE_MESSAGE = 'AI 服务暂时不可用，请稍后再试。'
+const COACH_SUMMARY_BAD_REQUEST_MESSAGE = '请求无法完成，请稍后再试。'
 const IDEMPOTENCY_HEADER = 'X-RankPeek-Idempotency-Key'
 
 export interface GenerateCoachSummaryReportParams {
@@ -61,7 +66,7 @@ export async function generateCoachSummaryReport({
   const session = accessToken ? null : getStoredRankPeekAuthSession()
   const requestAccessToken = accessToken ?? session?.accessToken
   if (!requestAccessToken) {
-    return { ok: false, message: AUTH_LOGIN_REQUIRED_MESSAGE }
+    return { ok: false, message: COACH_SUMMARY_LOGIN_REQUIRED_MESSAGE }
   }
 
   try {
@@ -76,7 +81,7 @@ export async function generateCoachSummaryReport({
     if (response.status === 401 && !accessToken && session?.refreshToken) {
       const refreshResult = await refreshStoredRankPeekAuthSession()
       if (!refreshResult.ok) {
-        return { ok: false, message: refreshResult.message }
+        return { ok: false, message: COACH_SUMMARY_LOGIN_EXPIRED_MESSAGE }
       }
       response = await postCoachSummaryRequest(
         refreshResult.session.accessToken,
@@ -91,15 +96,13 @@ export async function generateCoachSummaryReport({
     if (!response.ok || !payload.success) {
       return {
         ok: false,
-        message: payload.error?.message
-          || payload.error?.code
-          || `rankpeek-server request failed: HTTP ${response.status}`
+        message: toCoachSummaryUserFacingErrorMessage(response.status, payload.error?.code)
       }
     }
     if (!payload.data?.report) {
       return {
         ok: false,
-        message: 'rankpeek-server returned an empty coach summary report'
+        message: COACH_SUMMARY_UNAVAILABLE_MESSAGE
       }
     }
 
@@ -111,9 +114,25 @@ export async function generateCoachSummaryReport({
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : String(error)
+      message: COACH_SUMMARY_UNAVAILABLE_MESSAGE
     }
   }
+}
+
+function toCoachSummaryUserFacingErrorMessage(status: number, code?: string): string {
+  if (status === 401 || code === 'ACCESS_TOKEN_INVALID' || code === 'REFRESH_TOKEN_INVALID') {
+    return COACH_SUMMARY_LOGIN_EXPIRED_MESSAGE
+  }
+  if (status === 402 || code === 'INSUFFICIENT_CREDITS') {
+    return COACH_SUMMARY_INSUFFICIENT_CREDITS_MESSAGE
+  }
+  if (status === 429 || code === 'RATE_LIMIT_EXCEEDED') {
+    return COACH_SUMMARY_RATE_LIMIT_MESSAGE
+  }
+  if (status >= 500) {
+    return COACH_SUMMARY_UNAVAILABLE_MESSAGE
+  }
+  return COACH_SUMMARY_BAD_REQUEST_MESSAGE
 }
 
 async function postCoachSummaryRequest(

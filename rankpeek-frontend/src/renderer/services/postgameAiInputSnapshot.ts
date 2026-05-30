@@ -96,6 +96,10 @@ export interface PostgameAiTeamSnapshot {
     inhibitors: number | null
     turretPlates: number | null
   }
+  rankedMetrics?: {
+    teamGoldDiffAt15?: number
+    laneGoldDiffAt15?: Partial<Record<Exclude<GoldDiffMetricKey, 'teamAverage'>, number>>
+  }
 }
 
 export interface PostgameAiPlayerSnapshot {
@@ -216,6 +220,13 @@ const LANE_METRICS: Array<Exclude<GoldDiffMetricKey, 'teamAverage'>> = [
   'bottom',
   'support'
 ]
+const LANE_METRIC_LABELS: Record<Exclude<GoldDiffMetricKey, 'teamAverage'>, string> = {
+  top: '上单',
+  jungle: '打野',
+  middle: '中单',
+  bottom: '下路',
+  support: '辅助'
+}
 
 export function buildPostgameAiInputSnapshot(
   params: BuildPostgameAiInputSnapshotParams
@@ -266,7 +277,14 @@ export function buildPostgameAiInputSnapshot(
   const hasArenaAugments = players.some(player => player.loadout.augmentIds.length > 0)
   const teams = ([BLUE_TEAM_ID, RED_TEAM_ID] as const)
     .filter(teamId => teamIds.has(teamId))
-    .map(teamId => toTeamSnapshot(teamId, participants, teamTotals, detail?.teamObjectives))
+    .map(teamId => toTeamSnapshot(
+      teamId,
+      participants,
+      teamTotals,
+      detail?.teamObjectives,
+      teamGoldDiffAt15,
+      laneGoldDiffAt15
+    ))
   const dataQuality: PostgameAiDataQualitySnapshot = {
     hasMatchHistory: Boolean(params.matchHistory),
     hasGameDetail: Boolean(params.gameDetail?.participants?.length),
@@ -390,8 +408,9 @@ function formatTeamFact(team: PostgameAiTeamSnapshot, currentSide: PostgameAiSid
       ].filter(Boolean)
     : []
   const objectiveText = objectiveParts.length ? `，目标资源：${objectiveParts.join('、')}` : ''
+  const rankedMetricText = formatTeamRankedMetricFact(team)
 
-  return `${formatRelativeSide(team.side, currentSide)}${team.win === true ? '胜利' : team.win === false ? '失败' : '胜负未知'}，团队KDA ${team.totals.kills}/${team.totals.deaths}/${team.totals.assists}，总经济${formatInteger(team.totals.goldEarned)}，英雄伤害${formatInteger(team.totals.totalDamageDealtToChampions)}，承伤${formatInteger(team.totals.totalDamageTaken)}，视野分${formatInteger(team.totals.visionScore)}${objectiveText}。`
+  return `${formatRelativeSide(team.side, currentSide)}${team.win === true ? '胜利' : team.win === false ? '失败' : '胜负未知'}，团队KDA ${team.totals.kills}/${team.totals.deaths}/${team.totals.assists}，总经济${formatInteger(team.totals.goldEarned)}，英雄伤害${formatInteger(team.totals.totalDamageDealtToChampions)}，承伤${formatInteger(team.totals.totalDamageTaken)}，视野分${formatInteger(team.totals.visionScore)}${rankedMetricText}${objectiveText}。`
 }
 
 function formatPlayerFact(
@@ -401,7 +420,6 @@ function formatPlayerFact(
 ): string {
   const parts = [
     `${formatPlayerBriefLabel(player, currentSide)}${player.stats.kills}/${player.stats.deaths}/${player.stats.assists}`,
-    player.stats.kda !== null ? `KDA ${formatDecimal(player.stats.kda)}` : '',
     player.stats.killParticipation !== null ? `参团率${formatPercent(player.stats.killParticipation)}` : '',
     player.stats.damageShare !== null ? `伤害占比${formatPercent(player.stats.damageShare)}` : '',
     player.stats.goldShare !== null ? `经济占比${formatPercent(player.stats.goldShare)}` : '',
@@ -423,9 +441,7 @@ function formatPlayerRpIndexFact(rpPlayer: NonNullable<PostgameAiTimelineSnapsho
   if (!rpPlayer) {
     return ''
   }
-  const labelText = rpPlayer.trendLabel ? `，RP标签：${rpPlayer.trendLabel}` : ''
-  const pointText = rpPlayer.points.map(point => formatRpScore(point)).join(',')
-  return `RP终局${formatRpScore(rpPlayer.finalScore)}${labelText}，RP每分钟：${pointText}`
+  return `RP终局${formatRpScore(rpPlayer.finalScore)}`
 }
 
 function formatLoadoutFact(player: PostgameAiPlayerSnapshot): string {
@@ -486,16 +502,34 @@ function formatRankedMetricFact(player: PostgameAiPlayerSnapshot): string {
   }
 
   const parts: string[] = []
-  if (metrics.laneGoldDiffAt15 !== undefined) {
-    parts.push(`15分钟${formatRoleLabel(player)}经济${formatSignedInteger(metrics.laneGoldDiffAt15)}`)
-  }
-  if (metrics.teamGoldDiffAt15 !== undefined) {
-    parts.push(`15分钟团队经济${formatSignedInteger(metrics.teamGoldDiffAt15)}`)
-  }
   if (metrics.turretPlatesTaken !== undefined && metrics.turretPlatesTaken > 0) {
     parts.push(`个人镀层${metrics.turretPlatesTaken}`)
   }
   return parts.join('，')
+}
+
+function formatTeamRankedMetricFact(team: PostgameAiTeamSnapshot): string {
+  const metrics = team.rankedMetrics
+  if (!metrics) {
+    return ''
+  }
+
+  const parts: string[] = []
+  if (metrics.teamGoldDiffAt15 !== undefined) {
+    parts.push(`15分钟团队经济${formatSignedInteger(metrics.teamGoldDiffAt15)}`)
+  }
+
+  const laneGoldDiffParts = LANE_METRICS
+    .map(metric => {
+      const diff = metrics.laneGoldDiffAt15?.[metric]
+      return diff === undefined ? '' : `${LANE_METRIC_LABELS[metric]}${formatSignedInteger(diff)}`
+    })
+    .filter(Boolean)
+  if (laneGoldDiffParts.length) {
+    parts.push(`15分钟对位经济：${laneGoldDiffParts.join('、')}`)
+  }
+
+  return parts.length ? `，${parts.join('，')}` : ''
 }
 
 function formatFactTagGroup(label: string, values: string[] | undefined): string {
@@ -532,11 +566,6 @@ function buildTimelineFacts(
   }
 
   facts.push(...buildRpIndexTimelineFacts(timeline, players, currentSide))
-
-  const minute15 = timeline.goldDiffPoints?.find(point => point.minute === 15 && point.teamGoldDiff !== undefined)
-  if (minute15?.teamGoldDiff !== undefined) {
-    addTimedFact(15 * 60, `15分钟团队经济差：${formatTeamGoldDiff(minute15.teamGoldDiff, currentSide)}。`)
-  }
 
   for (const event of timeline.objectiveEvents ?? []) {
     addTimedFact(event.timeSeconds, `${formatClock(event.timeSeconds)} ${formatObjectiveEventSide(event, currentSide)}获得${formatObjectiveLabel(event.type)}。`)
@@ -710,16 +739,7 @@ function formatRpUnavailableReason(reason: RpIndexUnavailableReason): string {
 }
 
 function buildDataQualityFacts(dataQuality: PostgameAiDataQualitySnapshot): string[] {
-  const facts = [
-    `数据来源：${dataQuality.hasMatchHistory ? '有 match history' : '缺少 match history'}，${dataQuality.hasGameDetail ? '有 game detail' : '缺少 game detail'}，${dataQuality.hasTimeline ? '有 timeline' : '缺少 timeline'}。`,
-    `玩家数据：${dataQuality.participantCount}名玩家，${dataQuality.teamCount}支队伍；${dataQuality.hasRankedTimelineMetrics ? '15分钟经济差可用' : '15分钟经济差不可用'}；${dataQuality.hasArenaAugments ? '包含竞技场强化符文' : '不含竞技场强化符文'}。`
-  ]
-
-  for (const warning of dataQuality.warnings) {
-    facts.push(formatDataQualityWarning(warning))
-  }
-
-  return facts
+  return dataQuality.warnings.map(formatDataQualityWarning)
 }
 
 function formatDataQualityWarning(warning: string): string {
@@ -785,21 +805,6 @@ function formatRelativeSide(side: PostgameAiSide, currentSide: PostgameAiSide | 
     return side === 'blue' ? '蓝方' : '红方'
   }
   return side === currentSide ? '我方' : '敌方'
-}
-
-function formatTeamGoldDiff(blueSideDiff: number, currentSide: PostgameAiSide | null): string {
-  if (!currentSide) {
-    if (blueSideDiff === 0) {
-      return '双方持平'
-    }
-    return blueSideDiff > 0 ? `蓝方领先${formatInteger(Math.abs(blueSideDiff))}` : `红方领先${formatInteger(Math.abs(blueSideDiff))}`
-  }
-
-  const relativeDiff = currentSide === 'blue' ? blueSideDiff : -blueSideDiff
-  if (relativeDiff === 0) {
-    return '我方与敌方持平'
-  }
-  return relativeDiff > 0 ? `我方领先${formatInteger(Math.abs(relativeDiff))}` : `我方落后${formatInteger(Math.abs(relativeDiff))}`
 }
 
 function formatPerspectiveGoldDiff(diff: number): string {
@@ -915,16 +920,20 @@ function toTeamSnapshot(
   teamId: 100 | 200,
   participants: SnapshotParticipant[],
   totalsByTeamId: Map<number, PostgameAiTeamSnapshot['totals']>,
-  objectiveSummaries: TeamObjectiveSummary[] | undefined
+  objectiveSummaries: TeamObjectiveSummary[] | undefined,
+  teamGoldDiffAt15: number | null,
+  laneGoldDiffAt15: Map<GoldDiffMetricKey, number>
 ): PostgameAiTeamSnapshot {
   const teamPlayers = participants.filter(participant => participant.teamId === teamId)
   const objectiveSummary = objectiveSummaries?.find(summary => summary.teamId === teamId)
+  const rankedMetrics = buildTeamRankedMetrics(teamId, teamGoldDiffAt15, laneGoldDiffAt15)
   return {
     side: teamIdToSide(teamId),
     teamId,
     win: readTeamWin(teamPlayers),
     totals: totalsByTeamId.get(teamId) ?? emptyTeamTotals(),
-    ...(objectiveSummary ? { objectives: toObjectiveSnapshot(objectiveSummary) } : {})
+    ...(objectiveSummary ? { objectives: toObjectiveSnapshot(objectiveSummary) } : {}),
+    ...(rankedMetrics ? { rankedMetrics } : {})
   }
 }
 
@@ -1026,7 +1035,7 @@ function withPlayerFactTags(players: PostgameAiPlayerSnapshot[]): PostgameAiPlay
   addMaxRankingFacts(rankingFactsByPlayerKey, players, 'all', player => player.stats.deaths, '死亡', 'most')
 
   return players.map(player => {
-    const rankings = rankingFactsByPlayerKey.get(player.playerKey) ?? []
+    const rankings = removeTeamRankingFactsCoveredByAll(rankingFactsByPlayerKey.get(player.playerKey) ?? [])
     const highlights = buildPlayerHighlightFacts(player)
     if (!rankings.length && !highlights.length) {
       return player
@@ -1040,6 +1049,35 @@ function withPlayerFactTags(players: PostgameAiPlayerSnapshot[]): PostgameAiPlay
       }
     }
   })
+}
+
+function removeTeamRankingFactsCoveredByAll(rankings: string[]): string[] {
+  const coveredAllMetrics = new Set<string>()
+  for (const ranking of rankings) {
+    const metric = readRankingMetric(ranking, '全场')
+    if (metric) {
+      coveredAllMetrics.add(metric)
+    }
+  }
+
+  return rankings.filter(ranking => {
+    const metric = readRankingMetric(ranking, '队内')
+    return !metric || !coveredAllMetrics.has(metric)
+  })
+}
+
+function readRankingMetric(ranking: string, scope: '队内' | '全场'): string | null {
+  if (!ranking.startsWith(scope)) {
+    return null
+  }
+  const body = ranking.slice(scope.length)
+  const suffixes = ['并列第一', '第一', '并列最多', '最多']
+  const suffix = suffixes.find(candidate => body.endsWith(candidate))
+  if (!suffix) {
+    return null
+  }
+  const metric = body.slice(0, -suffix.length)
+  return metric || null
 }
 
 function addMaxRankingFacts(
@@ -1129,6 +1167,31 @@ function buildRankedMetrics(
   return Object.keys(metrics).length ? metrics : null
 }
 
+function buildTeamRankedMetrics(
+  teamId: 100 | 200,
+  teamGoldDiffAt15: number | null,
+  laneGoldDiffAt15: Map<GoldDiffMetricKey, number>
+): PostgameAiTeamSnapshot['rankedMetrics'] | null {
+  const metrics: NonNullable<PostgameAiTeamSnapshot['rankedMetrics']> = {}
+  const perspectiveMultiplier = teamId === BLUE_TEAM_ID ? 1 : -1
+  if (teamGoldDiffAt15 !== null) {
+    metrics.teamGoldDiffAt15 = teamGoldDiffAt15 * perspectiveMultiplier
+  }
+
+  const laneDiffs: NonNullable<PostgameAiTeamSnapshot['rankedMetrics']>['laneGoldDiffAt15'] = {}
+  for (const lane of LANE_METRICS) {
+    const diff = laneGoldDiffAt15.get(lane)
+    if (diff !== undefined) {
+      laneDiffs[lane] = diff * perspectiveMultiplier
+    }
+  }
+  if (Object.keys(laneDiffs).length) {
+    metrics.laneGoldDiffAt15 = laneDiffs
+  }
+
+  return Object.keys(metrics).length ? metrics : null
+}
+
 function createTimelineSnapshot(
   timeline: MatchTimeline | null,
   gameDetail: GameDetail | null,
@@ -1162,7 +1225,6 @@ function createTimelineSnapshot(
     ? rpIndex.players.map(player => ({
         playerKey: playerKeyByParticipantId.get(player.participantId) ?? `player:${player.participantId}`,
         finalScore: player.finalScore,
-        ...(player.trendLabel ? { trendLabel: player.trendLabel } : {}),
         points: player.points.map(point => point.score)
       }))
     : []

@@ -274,10 +274,14 @@ test('builds a compact postgame AI input snapshot from match history, detail, an
   assert.match(snapshot.analysisBrief.playerFacts[5] ?? '', /【敌方上单｜英雄称号16】/)
   assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.playerFacts), /英雄ID/)
   assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /我方/.test(fact)))
-  assert.ok(snapshot.analysisBrief.timelineFacts.some(fact => /15分钟/.test(fact)))
+  assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /15分钟团队经济/.test(fact)))
+  assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /15分钟对位经济/.test(fact)))
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.playerFacts), /KDA \d/)
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.playerFacts), /15分钟团队经济|15分钟上单经济|15分钟打野经济|15分钟中单经济|15分钟下路经济|15分钟辅助经济/)
+  assert.deepEqual(snapshot.analysisBrief.dataQualityFacts, [])
 })
 
-test('merges full-minute RP index data into each player fact', () => {
+test('merges final RP index into each player fact without labels or sampled series', () => {
   const snapshot = buildPostgameAiInputSnapshot({
     matchHistory: createMatchHistory(),
     gameDetail: createGameDetail(),
@@ -294,9 +298,10 @@ test('merges full-minute RP index data into each player fact', () => {
   assert.equal(timelineRpFacts.length, 0)
   assert.equal(playerRpFacts.length, 10)
   assert.ok(playerRpFacts.every(fact => /RP终局\d+\.\d/.test(fact)))
-  assert.ok(playerRpFacts.every(fact => /RP每分钟：5\.0,/.test(fact)))
-  assert.equal(playerRpFacts.filter(fact => fact.includes('RP标签：')).length, 1)
-  assert.match(currentRpFact, /RP标签：/)
+  assert.equal(playerRpFacts.filter(fact => fact.includes('RP标签：')).length, 0)
+  assert.doesNotMatch(currentRpFact, /RP标签：/)
+  assert.doesNotMatch(JSON.stringify(playerRpFacts), /RP每3分钟/)
+  assert.doesNotMatch(JSON.stringify(playerRpFacts), /RP每分钟/)
   assert.doesNotMatch(JSON.stringify(playerRpFacts), /胜局|败局/)
 })
 
@@ -403,7 +408,8 @@ test('adds explicit player ranking and highlight facts for postgame AI wording',
   })
 
   const currentPlayerFact = snapshot.analysisBrief.playerFacts[0] ?? ''
-  assert.match(currentPlayerFact, /排名：队内伤害第一、全场伤害第一、队内打钱第一、全场打钱第一、队内助攻第一、全场助攻第一、队内死亡最多、全场死亡最多/)
+  assert.match(currentPlayerFact, /排名：全场伤害第一、全场打钱第一、全场助攻第一、全场死亡最多/)
+  assert.doesNotMatch(currentPlayerFact, /队内伤害第一|队内打钱第一|队内助攻第一|队内死亡最多/)
   assert.match(currentPlayerFact, /高光：双杀2次、三杀1次、四杀1次、五杀1次、最高连杀9、超神1次/)
   assert.match(currentPlayerFact, /个人镀层3/)
   assert.doesNotMatch(currentPlayerFact, /，镀层3/)
@@ -451,14 +457,11 @@ test('orders timeline facts chronologically from early game to later events', ()
     championNamesById: createChampionNamesById()
   })
   const facts = snapshot.analysisBrief.timelineFacts
-  const minute15Index = facts.findIndex(fact => fact.includes('15分钟团队经济差'))
   const deathIndex = facts.findIndex(fact => fact.startsWith('16:00') && fact.includes('死亡'))
   const dragonIndex = facts.findIndex(fact => fact.startsWith('16:30') && fact.includes('小龙'))
 
-  assert.notEqual(minute15Index, -1)
   assert.notEqual(deathIndex, -1)
   assert.notEqual(dragonIndex, -1)
-  assert.ok(minute15Index < deathIndex)
   assert.ok(deathIndex < dragonIndex)
 })
 
@@ -474,6 +477,23 @@ test('records timeline data quality warnings without inventing missing timeline 
   assert.ok(snapshot.analysisBrief.timelineFacts.some(fact => fact.includes('缺少 timeline，不能分析具体时间点、死亡前视野或资源交换')))
   assert.ok(snapshot.analysisBrief.dataQualityFacts.some(fact => fact.includes('缺少 timeline')))
   assert.doesNotMatch(JSON.stringify(snapshot), /teamGoldDiffAt15|laneGoldDiffAt15/)
+})
+
+test('keeps 15-minute team and matchup gold differences in team facts only', () => {
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory: createMatchHistory(),
+    gameDetail: createGameDetail(),
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+
+  assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /我方.*15分钟团队经济\+\d/.test(fact)))
+  assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /敌方.*15分钟团队经济-\d/.test(fact)))
+  assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /15分钟对位经济：上单/.test(fact)))
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.playerFacts), /15分钟.*经济/)
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.timelineFacts), /15分钟团队经济差/)
 })
 
 test('omits unknown or zero turret plate text from the natural-language brief', () => {

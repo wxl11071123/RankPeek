@@ -657,8 +657,7 @@ async function runAnalysis() {
     if (result.status === 'ready') {
       console.info('RankPeek coach_summary input snapshot ready:', result.snapshot)
       const promptPayload = buildCoachSummaryPromptPayload({
-        snapshot: result.snapshot,
-        historicalCoachContext: buildCoachSummaryHistoricalContext()
+        snapshot: result.snapshot
       })
       console.info('RankPeek coach_summary prompt payload ready:', promptPayload)
       setCoachProgressNotice(AI_COACH_GENERATING_NOTICE)
@@ -734,25 +733,6 @@ async function runAnalysis() {
   } finally {
     coachAnalysisBusy.value = false
   }
-}
-
-function buildCoachSummaryHistoricalContext(): string {
-  if (coachReports.value.length === 0) {
-    return ''
-  }
-
-  return coachReports.value
-    .slice(0, 3)
-    .map((report, index) => {
-      const parts = [
-        `历史报告 ${index + 1}`,
-        report.meta ? `时间：${report.meta}` : '',
-        report.title ? `标题：${report.title}` : '',
-        report.detail || report.body ? `结论：${report.detail || report.body}` : ''
-      ].filter(Boolean)
-      return parts.join('；')
-    })
-    .join('\n')
 }
 
 function addCoachSummaryUsageMetadata(

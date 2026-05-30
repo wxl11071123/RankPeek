@@ -277,6 +277,26 @@ test('stores, reads, clears, and logs out rankpeek auth sessions locally', async
   }
 })
 
+test('reports a user-facing login prompt when refreshing without a stored session', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+
+  try {
+    const result = await refreshStoredRankPeekAuthSession()
+
+    assert.equal(result.ok, false)
+    assert.equal(result.ok ? '' : result.message, '请先登录 RankPeek 账号后再试。')
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
 test('refreshes a stored rankpeek auth session with rotated refresh tokens', async () => {
   const originalLocalStorage = globalThis.localStorage
   Object.defineProperty(globalThis, 'localStorage', {

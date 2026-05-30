@@ -379,6 +379,31 @@ function baseParticipants(opponentPosition = 'MIDDLE') {
       }
     },
     {
+      participantId: 3,
+      teamId: 100,
+      championId: 59,
+      championName: 'JarvanIV',
+      spell1Id: 4,
+      spell2Id: 12,
+      teamPosition: 'TOP',
+      individualPosition: 'TOP',
+      stats: {
+        win: true,
+        kills: 3,
+        deaths: 3,
+        assists: 6,
+        goldEarned: 10_800,
+        totalMinionsKilled: 185,
+        neutralMinionsKilled: 4,
+        totalDamageDealtToChampions: 16_000
+      },
+      timeline: {
+        lane: 'TOP',
+        role: 'SOLO',
+        teamPosition: 'TOP'
+      }
+    },
+    {
       participantId: 2,
       teamId: 100,
       championId: 64,
@@ -398,6 +423,57 @@ function baseParticipants(opponentPosition = 'MIDDLE') {
         lane: 'JUNGLE',
         role: 'NONE',
         teamPosition: 'JUNGLE'
+      }
+    },
+    {
+      participantId: 4,
+      teamId: 100,
+      championId: 22,
+      championName: 'Ashe',
+      spell1Id: 4,
+      spell2Id: 7,
+      teamPosition: 'BOTTOM',
+      individualPosition: 'BOTTOM',
+      stats: {
+        win: true,
+        kills: 5,
+        deaths: 2,
+        assists: 9,
+        goldEarned: 11_600,
+        totalMinionsKilled: 205,
+        neutralMinionsKilled: 0,
+        totalDamageDealtToChampions: 21_000
+      },
+      timeline: {
+        lane: 'BOTTOM',
+        role: 'CARRY',
+        teamPosition: 'BOTTOM'
+      }
+    },
+    {
+      participantId: 5,
+      teamId: 100,
+      championId: 89,
+      championName: 'Leona',
+      spell1Id: 4,
+      spell2Id: 14,
+      teamPosition: 'UTILITY',
+      individualPosition: 'UTILITY',
+      stats: {
+        win: true,
+        kills: 1,
+        deaths: 4,
+        assists: 12,
+        goldEarned: 7_600,
+        totalMinionsKilled: 34,
+        neutralMinionsKilled: 0,
+        totalDamageDealtToChampions: 7_500,
+        visionScore: 48
+      },
+      timeline: {
+        lane: 'BOTTOM',
+        role: 'SUPPORT',
+        teamPosition: 'UTILITY'
       }
     },
     {
@@ -423,6 +499,82 @@ function baseParticipants(opponentPosition = 'MIDDLE') {
         lane: opponentPosition,
         role: 'SOLO',
         teamPosition: opponentPosition
+      }
+    },
+    {
+      participantId: 8,
+      teamId: 200,
+      championId: 122,
+      championName: 'Darius',
+      spell1Id: 4,
+      spell2Id: 6,
+      teamPosition: 'TOP',
+      individualPosition: 'TOP',
+      stats: {
+        win: false,
+        kills: 2,
+        deaths: 4,
+        assists: 3,
+        goldEarned: 9_600,
+        totalMinionsKilled: 168,
+        neutralMinionsKilled: 2,
+        totalDamageDealtToChampions: 14_000
+      },
+      timeline: {
+        lane: 'TOP',
+        role: 'SOLO',
+        teamPosition: 'TOP'
+      }
+    },
+    {
+      participantId: 9,
+      teamId: 200,
+      championId: 51,
+      championName: 'Caitlyn',
+      spell1Id: 4,
+      spell2Id: 7,
+      teamPosition: 'BOTTOM',
+      individualPosition: 'BOTTOM',
+      stats: {
+        win: false,
+        kills: 3,
+        deaths: 3,
+        assists: 5,
+        goldEarned: 10_400,
+        totalMinionsKilled: 198,
+        neutralMinionsKilled: 0,
+        totalDamageDealtToChampions: 18_000
+      },
+      timeline: {
+        lane: 'BOTTOM',
+        role: 'CARRY',
+        teamPosition: 'BOTTOM'
+      }
+    },
+    {
+      participantId: 10,
+      teamId: 200,
+      championId: 117,
+      championName: 'Lulu',
+      spell1Id: 4,
+      spell2Id: 3,
+      teamPosition: 'UTILITY',
+      individualPosition: 'UTILITY',
+      stats: {
+        win: false,
+        kills: 0,
+        deaths: 5,
+        assists: 9,
+        goldEarned: 7_000,
+        totalMinionsKilled: 25,
+        neutralMinionsKilled: 0,
+        totalDamageDealtToChampions: 6_000,
+        visionScore: 42
+      },
+      timeline: {
+        lane: 'BOTTOM',
+        role: 'SUPPORT',
+        teamPosition: 'UTILITY'
       }
     },
     {
@@ -469,6 +621,27 @@ function makeTimeline() {
           jungleMinionsKilled: 48,
           xp: 3800 + minute * 180
         },
+        3: {
+          participantId: 3,
+          totalGold: 2850 + minute * 105,
+          minionsKilled: 50 + minute * 4,
+          jungleMinionsKilled: 2,
+          xp: 3700 + minute * 190
+        },
+        4: {
+          participantId: 4,
+          totalGold: 2950 + minute * 112,
+          minionsKilled: 58 + minute * 5,
+          jungleMinionsKilled: 0,
+          xp: 3600 + minute * 185
+        },
+        5: {
+          participantId: 5,
+          totalGold: 2000 + minute * 72,
+          minionsKilled: 8 + minute,
+          jungleMinionsKilled: 0,
+          xp: 3000 + minute * 165
+        },
         6: {
           participantId: 6,
           totalGold: 2800 + minute * 110,
@@ -482,6 +655,27 @@ function makeTimeline() {
           minionsKilled: 12,
           jungleMinionsKilled: 46,
           xp: 3600 + minute * 175
+        },
+        8: {
+          participantId: 8,
+          totalGold: 2700 + minute * 98,
+          minionsKilled: 48 + minute * 4,
+          jungleMinionsKilled: 1,
+          xp: 3600 + minute * 180
+        },
+        9: {
+          participantId: 9,
+          totalGold: 2850 + minute * 100,
+          minionsKilled: 56 + minute * 5,
+          jungleMinionsKilled: 0,
+          xp: 3500 + minute * 178
+        },
+        10: {
+          participantId: 10,
+          totalGold: 1900 + minute * 68,
+          minionsKilled: 7 + minute,
+          jungleMinionsKilled: 0,
+          xp: 2900 + minute * 160
         }
       },
       events: minute === 10
@@ -731,6 +925,7 @@ test('returns ready when exactly 20 ranked solo or flex matches are cached', asy
   assert.equal(result.snapshot.matches[0]?.laneDiff?.goldDiffAt10, 300)
   assert.equal(result.snapshot.matches[0]?.laneDiff?.csDiffAt10, 7)
   assert.equal(result.snapshot.matches[0]?.laneDiff?.xpDiffAt10, 200)
+  assert.equal(typeof result.snapshot.matches[0]?.self.rpIndex?.finalScore, 'number')
   assert.match(result.snapshot.inputHash, /^[a-f0-9]{8,}$/)
 
   const brief = (result.snapshot as typeof result.snapshot & {
@@ -740,23 +935,43 @@ test('returns ready when exactly 20 ranked solo or flex matches are cached', asy
       text: string
       overviewFacts: string[]
       trendFacts: string[]
+      championFacts: string[]
+      roleFacts: string[]
       matchFacts: string[]
       dataQualityFacts: string[]
     }
   }).analysisBrief
   assert.equal(brief?.schemaVersion, 'coach_summary_analysis_brief.v1')
   assert.equal(brief?.language, 'zh-CN')
-  assert.match(brief?.text ?? '', /最近20局走势/)
-  assert.doesNotMatch(brief?.text ?? '', /最近\s*10\s*局走势/)
-  assert.match(brief?.overviewFacts.join('\n') ?? '', /最近20局排位/)
-  assert.match(brief?.trendFacts.join('\n') ?? '', /最近20局走势/)
+  assert.match(brief?.text ?? '', /20局总览/)
+  assert.doesNotMatch(brief?.text ?? '', /^整体状态：/m)
+  assert.match(brief?.overviewFacts.join('\n') ?? '', /20局总览：20局\d+胜\d+负/)
+  assert.match(brief?.overviewFacts.join('\n') ?? '', /平均RP\d+\.\d/)
+  assert.match(brief?.overviewFacts.join('\n') ?? '', /15分钟对位经济平均/)
+  assert.match(brief?.overviewFacts.join('\n') ?? '', /参团率/)
+  assert.match(brief?.trendFacts.join('\n') ?? '', /RP终局序列：m01/)
+  assert.doesNotMatch(brief?.text ?? '', /最近5局|平均KDA|10分钟对位经济|15分钟团队经济|资源前|参与样本资源事件|数据质量/)
   assert.equal(brief?.matchFacts.length, 20)
   assert.match(brief?.matchFacts[0] ?? '', /^m01 /)
-  assert.match(brief?.matchFacts[0] ?? '', /10分钟对位经济\+300/)
-  assert.match(brief?.dataQualityFacts.join('\n') ?? '', /数据质量/)
+  assert.match(brief?.matchFacts[0] ?? '', /K\/D\/A 6\/3\/8/)
+  assert.match(brief?.matchFacts[0] ?? '', /RP标签/)
+  assert.match(brief?.matchFacts[0] ?? '', /RP终局\d+\.\d/)
+  assert.match(brief?.matchFacts[0] ?? '', /参团率/)
+  assert.match(brief?.matchFacts[0] ?? '', /伤害占比/)
+  assert.match(brief?.matchFacts[0] ?? '', /视野25/)
+  assert.match(brief?.matchFacts[0] ?? '', /补刀\d+\.\d\/分/)
+  assert.match(brief?.matchFacts[0] ?? '', /伤转率\d+\.\d%/)
+  assert.match(brief?.matchFacts[0] ?? '', /15分钟对位经济\+/)
+  assert.match(brief?.championFacts.join('\n') ?? '', /英雄池：/)
+  assert.match(brief?.championFacts.join('\n') ?? '', /平均RP/)
+  assert.match(brief?.championFacts.join('\n') ?? '', /伤转率/)
+  assert.match(brief?.roleFacts.join('\n') ?? '', /位置：/)
+  assert.match(brief?.roleFacts.join('\n') ?? '', /平均RP/)
+  assert.match(brief?.roleFacts.join('\n') ?? '', /伤转率/)
+  assert.deepEqual(brief?.dataQualityFacts, [])
 })
 
-test('coach_summary resource death window only marks deaths within 60 seconds before objective', async () => {
+test('coach_summary keeps resource death signals out of the DS analysis brief', async () => {
   const records = Array.from({ length: 20 }, (_item, index) => makeRecord(index + 1))
   const details = records.map((record, index) =>
     index === 0
@@ -771,8 +986,7 @@ test('coach_summary resource death window only marks deaths within 60 seconds be
 
   assert.equal(result.status, 'ready')
   assert.equal(result.snapshot.matches[0]?.events.deaths[0]?.nearestUpcomingObjective, undefined)
-  assert.match(result.snapshot.analysisBrief.trendFacts.join('\n'), /60/)
-  assert.doesNotMatch(result.snapshot.analysisBrief.trendFacts.join('\n'), /120/)
+  assert.doesNotMatch(result.snapshot.analysisBrief.text, /资源前|资源事件|60秒|120秒/)
 })
 
 test('coach_summary deterministic overview marks 12 wins in 20 games as a good recent state', async () => {
@@ -816,7 +1030,7 @@ test('does not count non-ranked queues toward the 20 match requirement', async (
   assert.equal(result.currentRankedMatchCount, 18)
 })
 
-test('returns not_enough_new_ranked_matches when fewer than 20 ranked games exist after the latest coach report anchor', async () => {
+test('allows regenerating a coach summary even when fewer than 20 ranked games exist after the latest report', async () => {
   const records = Array.from({ length: 25 }, (_item, index) => makeRecord(index + 1))
   const sgpClient = makeSgpClient()
 
@@ -826,11 +1040,8 @@ test('returns not_enough_new_ranked_matches when fewer than 20 ranked games exis
     sgpHydrationClient: sgpClient
   })
 
-  assert.equal(result.status, 'not_enough_new_ranked_matches')
-  assert.equal(result.message, '距离上次电子教练报告还不足 20 局排位，继续多打几局后再来。')
-  assert.equal(result.newRankedMatchCountSinceLastReport, 5)
-  assert.equal(result.requiredNewRankedMatchCount, COACH_SUMMARY_REQUIRED_RANKED_MATCHES)
-  assert.equal(result.lastGeneratedAt, '2026-01-01T00:00:00.000Z')
+  assert.equal(result.status, 'ready')
+  assert.equal(result.status === 'ready' ? result.snapshot.matches.length : 0, COACH_SUMMARY_REQUIRED_RANKED_MATCHES)
   assert.equal(sgpClient.detailCalls.length, 0)
   assert.equal(sgpClient.timelineCalls.length, 0)
 })
@@ -1138,6 +1349,9 @@ test('ready snapshot records missing timeline data without blocking generation',
     reasons: ['timeline_missing', 'economy_diff_unavailable']
   })
   assert.equal(result.snapshot.matches[0]?.economyTimeline, undefined)
+  assert.match(result.snapshot.analysisBrief.matchFacts[0] ?? '', /RP不可用，RP标签不可用/)
+  assert.match(result.snapshot.analysisBrief.dataQualityFacts.join('\n'), /数据缺口/)
+  assert.match(result.snapshot.analysisBrief.dataQualityFacts.join('\n'), /缺timeline：m01/)
 })
 
 test('lane opponent matching failure does not throw and is recorded in dataQuality', async () => {

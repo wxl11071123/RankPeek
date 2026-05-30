@@ -73,6 +73,24 @@ test('review and praise stream requests reuse the same postgame snapshot', () =>
 })
 
 test('streams postgame AI analysis events from an SSE response', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'postgame-stream-access-token',
+    refreshToken: 'postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
   const request = createPostgameAiStreamRequest(createSnapshot(), 'review')
   const events: string[] = []
   const deltas: string[] = []
@@ -83,7 +101,10 @@ test('streams postgame AI analysis events from an SSE response', async () => {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     assert.equal(String(url), `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT}`)
     assert.equal(init?.method, 'POST')
-    assert.deepEqual(init?.headers, { 'Content-Type': 'application/json' })
+    assert.deepEqual(init?.headers, {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer postgame-stream-access-token'
+    })
     assert.equal(JSON.parse(String(init?.body)).snapshotSchemaVersion, 'postgame_ai_input_snapshot.v3')
 
     const encoder = new TextEncoder()
@@ -137,6 +158,11 @@ test('streams postgame AI analysis events from an SSE response', async () => {
     }])
   } finally {
     globalThis.fetch = originalFetch
+    clearStoredRankPeekAuthSession()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
   }
 })
 
@@ -274,6 +300,152 @@ test('refreshes the stored RankPeek auth token and retries postgame AI stream on
   }
 })
 
+test('returns a login prompt without calling rankpeek-server when no auth session is stored', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+
+  const originalFetch = globalThis.fetch
+  let fetchCalled = false
+  const errors: string[] = []
+  globalThis.fetch = (async () => {
+    fetchCalled = true
+    throw new Error('should not fetch without auth')
+  }) as typeof fetch
+
+  try {
+    const result = await streamPostgameAiAnalysis(createPostgameAiStreamRequest(createSnapshot(), 'review'), {
+      onError: message => errors.push(message)
+    })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.ok ? '' : result.message, '请先登录 RankPeek 账号后再使用 AI 分析。')
+    assert.deepEqual(errors, ['请先登录 RankPeek 账号后再使用 AI 分析。'])
+    assert.equal(fetchCalled, false)
+  } finally {
+    globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
+test('returns a friendly expired-login message when postgame auth refresh fails', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'expired-postgame-stream-access-token',
+    refreshToken: 'invalid-postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
+  const originalFetch = globalThis.fetch
+  const errors: string[] = []
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    if (String(url).endsWith('/api/auth/refresh')) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          code: 'REFRESH_TOKEN_INVALID',
+          message: 'Invalid or expired refresh token'
+        }
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    return new Response(JSON.stringify({
+      success: false,
+      error: { code: 'ACCESS_TOKEN_INVALID' }
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await streamPostgameAiAnalysis(createPostgameAiStreamRequest(createSnapshot(), 'review'), {
+      onError: message => errors.push(message)
+    })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.ok ? '' : result.message, '登录状态已失效，请重新登录后再试。')
+    assert.deepEqual(errors, ['登录状态已失效，请重新登录后再试。'])
+    assert.equal(getStoredRankPeekAuthSession(), null)
+  } finally {
+    globalThis.fetch = originalFetch
+    clearStoredRankPeekAuthSession()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
+test('maps postgame credit errors to user-facing text instead of HTTP codes', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'postgame-stream-access-token',
+    refreshToken: 'postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
+  const originalFetch = globalThis.fetch
+  const errors: string[] = []
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    success: false,
+    error: {
+      code: 'INSUFFICIENT_CREDITS',
+      message: 'Credit balance is insufficient'
+    }
+  }), {
+    status: 402,
+    headers: { 'Content-Type': 'application/json' }
+  })) as typeof fetch
+
+  try {
+    const result = await streamPostgameAiAnalysis(createPostgameAiStreamRequest(createSnapshot(), 'review'), {
+      onError: message => errors.push(message)
+    })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.ok ? '' : result.message, 'AI 分析次数不足，请充值后再试。')
+    assert.deepEqual(errors, ['AI 分析次数不足，请充值后再试。'])
+  } finally {
+    globalThis.fetch = originalFetch
+    clearStoredRankPeekAuthSession()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
+  }
+})
+
 test('estimates mainland DeepSeek token cost with cache hit, cache miss, and output tokens', () => {
   const cost = estimatePostgameAiTokenCostCny({
     provider: 'deepseek',
@@ -300,6 +472,24 @@ test('estimates mainland DeepSeek token cost with cache hit, cache miss, and out
 })
 
 test('streams postgame AI analysis events from an NDJSON response including errors', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'postgame-stream-access-token',
+    refreshToken: 'postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
   const request = createPostgameAiStreamRequest(createSnapshot(), 'praise')
   const events: string[] = []
   const errors: string[] = []
@@ -332,10 +522,33 @@ test('streams postgame AI analysis events from an NDJSON response including erro
     assert.deepEqual(errors, ['mock warning'])
   } finally {
     globalThis.fetch = originalFetch
+    clearStoredRankPeekAuthSession()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
   }
 })
 
 test('returns a failed result instead of throwing when rankpeek-server is unavailable', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'player@rankpeek.local',
+      displayName: 'Player',
+      role: 'USER',
+      status: 'ACTIVE'
+    },
+    accessToken: 'postgame-stream-access-token',
+    refreshToken: 'postgame-stream-refresh-token',
+    expiresInSeconds: 3600
+  })
+
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async () => {
     throw new TypeError('fetch failed')
@@ -345,8 +558,13 @@ test('returns a failed result instead of throwing when rankpeek-server is unavai
     const result = await streamPostgameAiAnalysis(createPostgameAiStreamRequest(createSnapshot(), 'review'), {})
 
     assert.equal(result.ok, false)
-    assert.match(result.ok ? '' : result.message, /rankpeek-server/)
+    assert.equal(result.ok ? '' : result.message, 'AI 服务暂时不可用，请稍后再试。')
   } finally {
     globalThis.fetch = originalFetch
+    clearStoredRankPeekAuthSession()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
   }
 })

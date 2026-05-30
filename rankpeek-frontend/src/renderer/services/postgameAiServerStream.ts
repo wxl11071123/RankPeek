@@ -6,6 +6,12 @@ import {
 } from './rankpeekAuthClient.ts'
 
 export const RANKPEEK_SERVER_POSTGAME_STREAM_ENDPOINT = '/api/analysis/postgame/stream'
+const POSTGAME_AI_LOGIN_REQUIRED_MESSAGE = '请先登录 RankPeek 账号后再使用 AI 分析。'
+const POSTGAME_AI_LOGIN_EXPIRED_MESSAGE = '登录状态已失效，请重新登录后再试。'
+const POSTGAME_AI_INSUFFICIENT_CREDITS_MESSAGE = 'AI 分析次数不足，请充值后再试。'
+const POSTGAME_AI_RATE_LIMIT_MESSAGE = '请求太频繁，请稍后再试。'
+const POSTGAME_AI_UNAVAILABLE_MESSAGE = 'AI 服务暂时不可用，请稍后再试。'
+const POSTGAME_AI_BAD_REQUEST_MESSAGE = '请求无法完成，请稍后再试。'
 
 export type PostgameAiStreamState =
   | 'idle'
@@ -121,27 +127,26 @@ export async function streamPostgameAiAnalysis(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     const session = getStoredRankPeekAuthSession()
-    let response = await postPostgameAiStreamRequest(request, session?.accessToken, options.signal)
+    if (!session?.accessToken) {
+      return emitFailedPostgameAiStream(POSTGAME_AI_LOGIN_REQUIRED_MESSAGE, handlers)
+    }
+
+    let response = await postPostgameAiStreamRequest(request, session.accessToken, options.signal)
 
     if (response.status === 401 && session?.refreshToken) {
       const refreshResult = await refreshStoredRankPeekAuthSession()
       if (!refreshResult.ok) {
-        emitStreamEvent({ type: 'error', message: refreshResult.message }, handlers)
-        return { ok: false, message: refreshResult.message }
+        return emitFailedPostgameAiStream(POSTGAME_AI_LOGIN_EXPIRED_MESSAGE, handlers)
       }
       response = await postPostgameAiStreamRequest(request, refreshResult.session.accessToken, options.signal)
     }
 
     if (!response.ok) {
-      const message = `rankpeek-server request failed: HTTP ${response.status}`
-      emitStreamEvent({ type: 'error', message }, handlers)
-      return { ok: false, message }
+      return emitFailedPostgameAiStream(await readPostgameAiHttpErrorMessage(response), handlers)
     }
 
     if (!response.body) {
-      const message = 'rankpeek-server is unavailable'
-      emitStreamEvent({ type: 'error', message }, handlers)
-      return { ok: false, message }
+      return emitFailedPostgameAiStream(POSTGAME_AI_UNAVAILABLE_MESSAGE, handlers)
     }
 
     const contentType = response.headers.get('Content-Type') || ''
@@ -157,10 +162,50 @@ export async function streamPostgameAiAnalysis(
       return { ok: false, message: 'request cancelled' }
     }
 
-    const message = 'rankpeek-server is unavailable'
-    emitStreamEvent({ type: 'error', message }, handlers)
-    return { ok: false, message }
+    return emitFailedPostgameAiStream(POSTGAME_AI_UNAVAILABLE_MESSAGE, handlers)
   }
+}
+
+function emitFailedPostgameAiStream(
+  message: string,
+  handlers: PostgameAiStreamHandlers
+): { ok: false; message: string } {
+  emitStreamEvent({ type: 'error', message }, handlers)
+  return { ok: false, message }
+}
+
+async function readPostgameAiHttpErrorMessage(response: Response): Promise<string> {
+  const payload = await readPostgameAiErrorPayload(response)
+  return toPostgameAiUserFacingErrorMessage(response.status, payload?.error?.code)
+}
+
+async function readPostgameAiErrorPayload(response: Response): Promise<{
+  error?: {
+    code?: string
+  } | null
+} | null> {
+  try {
+    const payload = await response.json() as unknown
+    return payload && typeof payload === 'object' ? payload as { error?: { code?: string } | null } : null
+  } catch {
+    return null
+  }
+}
+
+function toPostgameAiUserFacingErrorMessage(status: number, code?: string): string {
+  if (status === 401 || code === 'ACCESS_TOKEN_INVALID' || code === 'REFRESH_TOKEN_INVALID') {
+    return POSTGAME_AI_LOGIN_EXPIRED_MESSAGE
+  }
+  if (status === 402 || code === 'INSUFFICIENT_CREDITS') {
+    return POSTGAME_AI_INSUFFICIENT_CREDITS_MESSAGE
+  }
+  if (status === 429 || code === 'RATE_LIMIT_EXCEEDED') {
+    return POSTGAME_AI_RATE_LIMIT_MESSAGE
+  }
+  if (status >= 500) {
+    return POSTGAME_AI_UNAVAILABLE_MESSAGE
+  }
+  return POSTGAME_AI_BAD_REQUEST_MESSAGE
 }
 
 async function postPostgameAiStreamRequest(

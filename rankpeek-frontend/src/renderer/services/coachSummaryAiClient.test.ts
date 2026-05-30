@@ -135,7 +135,7 @@ test('generateCoachSummaryReport returns a failed result for server errors', asy
     })
 
     assert.equal(result.ok, false)
-    assert.match(result.ok ? '' : result.message, /DeepSeek AI is not enabled/)
+    assert.equal(result.ok ? '' : result.message, '请求无法完成，请稍后再试。')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -162,10 +162,65 @@ test('generateCoachSummaryReport fails before fetch when no auth token is availa
     })
 
     assert.equal(result.ok, false)
-    assert.match(result.ok ? '' : result.message, /login|required/i)
+    assert.equal(result.ok ? '' : result.message, '请先登录 RankPeek 账号后再使用 AI 分析。')
     assert.equal(called, false)
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test('generateCoachSummaryReport maps credit errors to user-facing text instead of HTTP codes', async () => {
+  const originalLocalStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new MemoryStorage(),
+    configurable: true
+  })
+  storeRankPeekAuthSession({
+    user: {
+      id: 1,
+      email: 'admin@rankpeek.local',
+      displayName: 'RankPeek Admin',
+      role: 'ADMIN',
+      status: 'ACTIVE'
+    },
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    expiresInSeconds: 3600
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    success: false,
+    data: null,
+    error: {
+      code: 'INSUFFICIENT_CREDITS',
+      message: 'Credit balance is insufficient'
+    }
+  }), {
+    status: 402,
+    headers: { 'Content-Type': 'application/json' }
+  })) as typeof fetch
+
+  try {
+    const result = await generateCoachSummaryReport({
+      inputHash: 'coach-hash-1',
+      snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
+      dataQualityConfidence: 'medium',
+      promptPayload: {
+        promptVersion: 'coach_summary.prompt.v2',
+        systemPrompt: 'system prompt',
+        userPrompt: '{}'
+      }
+    })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.ok ? '' : result.message, 'AI 分析次数不足，请充值后再试。')
+  } finally {
+    globalThis.fetch = originalFetch
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true
+    })
   }
 })
 
