@@ -83,6 +83,18 @@ test('OP.GG default filter refresh keeps the last tier during transient rank rel
   assert.doesNotMatch(refreshDefaults, /defaultRankedTier\.value === 'all' && filter\.tier !== 'all'/)
 })
 
+test('OP.GG default rank and lane are applied once and do not overwrite manual list filters', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+  const refreshDefaults = source.match(/async function refreshDefaultRankedFilters[\s\S]*?async function refreshCurrentGameQuery/)?.[0] || ''
+
+  assert.match(source, /let hasAppliedInitialDefaultTier = false/)
+  assert.match(source, /let hasAppliedInitialDefaultPosition = false/)
+  assert.match(refreshDefaults, /followCurrentGame\.value && !hasAppliedInitialDefaultTier/)
+  assert.match(refreshDefaults, /hasAppliedInitialDefaultTier = true/)
+  assert.match(refreshDefaults, /followCurrentGame\.value &&\s*!hasAppliedInitialDefaultPosition/)
+  assert.match(refreshDefaults, /hasAppliedInitialDefaultPosition = true/)
+})
+
 test('OP.GG window loads tier list without champion and opens detail after champion selection', () => {
   const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
 

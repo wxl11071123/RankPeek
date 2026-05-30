@@ -221,6 +221,8 @@ let applyingAutoFilter = false
 let defaultPositionPuuid = ''
 let defaultPositionRequestId = 0
 let hasAppliedInitialAutoQuery = false
+let hasAppliedInitialDefaultTier = false
+let hasAppliedInitialDefaultPosition = false
 let lastSeenAutoChampionId: number | null = null
 
 const filteredChampionOptions = computed(() => {
@@ -336,11 +338,19 @@ async function refreshDefaultRankedFilters(options: {
     defaultRankedTier.value = 'all'
   }
 
-  if (filter.mode === 'ranked' && filter.tier === 'all' && defaultRankedTier.value !== 'all') {
+  const canApplyInitialDefaultTier = followCurrentGame.value && !hasAppliedInitialDefaultTier
+  if (
+    canApplyInitialDefaultTier &&
+    filter.mode === 'ranked' &&
+    filter.tier === 'all' &&
+    defaultRankedTier.value !== 'all'
+  ) {
     filter.tier = defaultRankedTier.value
+    hasAppliedInitialDefaultTier = true
     shouldRefreshList = activePanel.value === 'list'
-  } else if (!hasKnownAccount && filter.mode === 'ranked' && followCurrentGame.value && filter.tier !== 'all') {
+  } else if (canApplyInitialDefaultTier && !hasKnownAccount && filter.mode === 'ranked' && filter.tier !== 'all') {
     filter.tier = 'all'
+    hasAppliedInitialDefaultTier = true
     shouldRefreshList = activePanel.value === 'list'
   }
 
@@ -368,8 +378,14 @@ async function refreshDefaultRankedFilters(options: {
     }
 
     defaultRankedPosition.value = position
-    if (filter.mode === 'ranked' && filter.position === 'none') {
+    const canApplyInitialDefaultPosition = followCurrentGame.value && !hasAppliedInitialDefaultPosition
+    if (
+      canApplyInitialDefaultPosition &&
+      filter.mode === 'ranked' &&
+      filter.position === 'none'
+    ) {
       filter.position = position
+      hasAppliedInitialDefaultPosition = true
     }
   } finally {
     if (requestId === defaultPositionRequestId) {
