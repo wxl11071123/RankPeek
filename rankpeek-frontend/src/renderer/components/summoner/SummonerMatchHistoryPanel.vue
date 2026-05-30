@@ -440,7 +440,7 @@ interface MatchHistoryHydrateOptions {
 
 type UserTagLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 type DetailLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
-type InlineDetailTabKey = 'overview' | 'runes' | 'chart'
+type InlineDetailTabKey = 'overview' | 'rp' | 'runes' | 'chart'
 type SavedPostgameAiMode = 'review' | 'praise'
 
 interface SavedPostgameAiReports {

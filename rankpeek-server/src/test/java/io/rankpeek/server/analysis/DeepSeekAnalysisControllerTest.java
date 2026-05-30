@@ -917,7 +917,7 @@ class DeepSeekAnalysisControllerTest {
                     "analysisBrief": {
                       "schemaVersion": "postgame_analysis_brief.v1",
                       "language": "zh-CN",
-                      "matchFacts": ["本局为单双排排位。"],
+                      "matchFacts": ["模式：单双排位；时间：24:55；结果：我方获胜。"],
                       "teamFacts": ["我方击杀 28，敌方击杀 24。"],
                       "playerFacts": [
                         "【你｜我方打野｜凯隐】7/5/11，KDA 3.6。",
@@ -931,7 +931,10 @@ class DeepSeekAnalysisControllerTest {
                         "【敌方下路｜伊泽瑞尔】6/6/4。",
                         "【敌方辅助｜璐璐】2/7/13。"
                       ],
-                      "timelineFacts": ["15:30 我方拿下小龙。"],
+                      "timelineFacts": [
+                        "【你｜我方打野｜凯隐】 RP指数：终局8.3，标签：关键阶段站出来接管，每分钟：5.0,5.4,6.2,8.3。",
+                        "15:30 我方拿下小龙。"
+                      ],
                       "dataQualityFacts": ["timeline 可用。"]
                     }
                   }
@@ -952,12 +955,23 @@ class DeepSeekAnalysisControllerTest {
                 .andExpect(content().string(containsString("event:done")));
 
         JsonNode body = OBJECT_MAPPER.readTree(capturedRequest.body());
-        String messages = body.get("messages").toString();
+        JsonNode messagesNode = body.get("messages");
+        String messages = messagesNode.toString();
+        String systemMessage = messagesNode.get(0).get("content").asText();
+        String userMessage = messagesNode.get(1).get("content").asText();
         assertThat(messages).contains("postgame_ai_input_snapshot.v3");
         assertThat(messages).contains("postgame_review_result.v1");
         assertThat(messages).contains("夯", "顶级", "人上人", "NPC", "拉完了");
         assertThat(messages).contains("levels", "summary", "playerRef", "phrase");
         assertThat(messages).contains("只输出 JSON");
+        assertThat(systemMessage).contains("RP指数", "0-10", "每分钟");
+        assertThat(userMessage).contains("snapshotText:");
+        assertThat(userMessage).contains("对局信息：");
+        assertThat(userMessage).contains("- 模式：单双排位；时间：24:55；结果：我方获胜。");
+        assertThat(userMessage).contains("时间轴与 RP：");
+        assertThat(userMessage).contains("RP指数：终局8.3，标签：关键阶段站出来接管");
+        assertThat(userMessage).doesNotContain("snapshotJson:");
+        assertThat(userMessage).doesNotContain("\"analysisBrief\"");
     }
 
     @Test

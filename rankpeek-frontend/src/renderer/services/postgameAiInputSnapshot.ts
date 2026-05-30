@@ -14,11 +14,18 @@ import {
   resolveParticipantLane,
   type GoldDiffMetricKey
 } from './matchTimelineChart.ts'
+import {
+  createMatchRpIndexModel,
+  formatRpScore,
+  type RpIndexUnavailableReason,
+  type RpTrendLabel
+} from './matchRpIndex.ts'
 import { stableStringify } from './aiAnalysisInputSnapshot.ts'
 import {
   getItemAssetDetails,
   getPerkAssetDetails
 } from '../utils/gameAssetUrls.ts'
+import { getChampionDisplayName } from '../utils/championSearchAliases.ts'
 
 export type PostgameAiMode = 'review' | 'praise'
 export type PostgameAiAnalysisType = 'postgame'
@@ -172,7 +179,16 @@ export interface PostgameAiTimelineSnapshot {
     teamGoldDiffAtDeath?: number
     secondsBeforeObjective?: number
   }>
+  rpIndexPlayers?: Array<{
+    playerKey: string
+    finalScore: number
+    trendLabel?: RpTrendLabel
+    points: number[]
+  }>
+  rpIndexUnavailableReason?: RpIndexUnavailableReason
 }
+
+type PostgameAiRpIndexPlayerSnapshot = NonNullable<PostgameAiTimelineSnapshot['rpIndexPlayers']>[number]
 
 interface BuildPostgameAiInputSnapshotParams {
   matchHistory: MatchHistory
@@ -243,12 +259,12 @@ export function buildPostgameAiInputSnapshot(
     laneGoldDiffAt15,
     params.championNamesById
   )))
-  const timelineSnapshot = createTimelineSnapshot(params.timeline, detail, playerKeyByParticipantId)
+  const timelineSnapshot = createTimelineSnapshot(params.timeline, detail, playerKeyByParticipantId, currentParticipantId)
   const hasRankedTimelineMetrics = match.isRanked
     && teamGoldDiffAt15 !== null
     && laneGoldDiffAt15.size > 0
   const hasArenaAugments = players.some(player => player.loadout.augmentIds.length > 0)
-  const teams = [BLUE_TEAM_ID, RED_TEAM_ID]
+  const teams = ([BLUE_TEAM_ID, RED_TEAM_ID] as const)
     .filter(teamId => teamIds.has(teamId))
     .map(teamId => toTeamSnapshot(teamId, participants, teamTotals, detail?.teamObjectives))
   const dataQuality: PostgameAiDataQualitySnapshot = {
@@ -299,13 +315,16 @@ interface BuildPostgameAnalysisBriefInput {
 function buildPostgameAnalysisBrief(input: BuildPostgameAnalysisBriefInput): PostgameAnalysisBrief {
   const currentPlayer = input.players.find(player => player.isCurrentPlayer)
   const currentSide = currentPlayer?.side ?? null
+  const rpIndexByPlayerKey = new Map(
+    (input.timeline.rpIndexPlayers ?? []).map(player => [player.playerKey, player])
+  )
 
   return {
     schemaVersion: POSTGAME_ANALYSIS_BRIEF_SCHEMA_VERSION,
     language: 'zh-CN',
     matchFacts: buildMatchFacts(input.match, input.teams, currentPlayer, currentSide),
     teamFacts: input.teams.map(team => formatTeamFact(team, currentSide)),
-    playerFacts: input.players.map(player => formatPlayerFact(player, currentSide)),
+    playerFacts: input.players.map(player => formatPlayerFact(player, currentSide, rpIndexByPlayerKey.get(player.playerKey))),
     timelineFacts: buildTimelineFacts(input.timeline, input.players, currentPlayer, currentSide),
     dataQualityFacts: buildDataQualityFacts(input.dataQuality)
   }
@@ -318,18 +337,44 @@ function buildMatchFacts(
   currentSide: PostgameAiSide | null
 ): string[] {
   const facts: string[] = []
-  const queue = match.queueName || match.gameMode || (match.queueId !== null ? `队列 ${match.queueId}` : '未知队列')
+  const queue = formatQueueLabel(match)
   const winner = teams.find(team => team.win === true)
   const winnerText = winner ? `${formatRelativeSide(winner.side, currentSide)}获胜` : '胜负未知'
-  facts.push(`本局为${queue}，时长${formatDuration(match.durationSeconds)}，${winnerText}。`)
+  facts.push(`模式：${queue}；时间：${formatMatchDurationClock(match.durationSeconds)}；结果：${winnerText}。`)
 
   if (currentPlayer) {
-    facts.push(`当前用户在${formatRelativeSide(currentPlayer.side, currentSide)}，使用${formatChampionLabel(currentPlayer)}，位置${formatRoleLabel(currentPlayer)}。`)
+    facts.push(`当前用户：${formatRelativeSide(currentPlayer.side, currentSide)}；英雄：${formatChampionLabel(currentPlayer)}；位置：${formatRoleLabel(currentPlayer)}。`)
   } else {
     facts.push('未能确认当前用户对应玩家。')
   }
 
   return facts
+}
+
+function formatQueueLabel(match: PostgameAiMatchSnapshot): string {
+  switch (match.queueId) {
+    case 420:
+      return '单双排位'
+    case 440:
+      return '灵活排位'
+    case 450:
+      return '极地大乱斗'
+    case 1700:
+    case 1710:
+      return '斗魂竞技场'
+    default:
+      return readUsableQueueName(match.queueName)
+        ?? match.gameMode
+        ?? (match.queueId !== null ? `队列 ${match.queueId}` : '未知队列')
+  }
+}
+
+function readUsableQueueName(queueName: string | undefined): string | null {
+  const value = firstString(queueName)
+  if (!value) {
+    return null
+  }
+  return /[?�?]{2,}/u.test(value) ? null : value
 }
 
 function formatTeamFact(team: PostgameAiTeamSnapshot, currentSide: PostgameAiSide | null): string {
@@ -349,7 +394,11 @@ function formatTeamFact(team: PostgameAiTeamSnapshot, currentSide: PostgameAiSid
   return `${formatRelativeSide(team.side, currentSide)}${team.win === true ? '胜利' : team.win === false ? '失败' : '胜负未知'}，团队KDA ${team.totals.kills}/${team.totals.deaths}/${team.totals.assists}，总经济${formatInteger(team.totals.goldEarned)}，英雄伤害${formatInteger(team.totals.totalDamageDealtToChampions)}，承伤${formatInteger(team.totals.totalDamageTaken)}，视野分${formatInteger(team.totals.visionScore)}${objectiveText}。`
 }
 
-function formatPlayerFact(player: PostgameAiPlayerSnapshot, currentSide: PostgameAiSide | null): string {
+function formatPlayerFact(
+  player: PostgameAiPlayerSnapshot,
+  currentSide: PostgameAiSide | null,
+  rpPlayer?: NonNullable<PostgameAiTimelineSnapshot['rpIndexPlayers']>[number]
+): string {
   const parts = [
     `${formatPlayerBriefLabel(player, currentSide)}${player.stats.kills}/${player.stats.deaths}/${player.stats.assists}`,
     player.stats.kda !== null ? `KDA ${formatDecimal(player.stats.kda)}` : '',
@@ -362,11 +411,21 @@ function formatPlayerFact(player: PostgameAiPlayerSnapshot, currentSide: Postgam
     player.stats.csPerMinute !== null ? `每分钟补刀${formatDecimal(player.stats.csPerMinute)}` : '',
     formatLoadoutFact(player),
     formatRankedMetricFact(player),
+    formatPlayerRpIndexFact(rpPlayer),
     formatFactTagGroup('排名', player.factTags?.rankings),
     formatFactTagGroup('高光', player.factTags?.highlights)
   ].filter(Boolean)
 
   return `${parts.join('，')}。`
+}
+
+function formatPlayerRpIndexFact(rpPlayer: NonNullable<PostgameAiTimelineSnapshot['rpIndexPlayers']>[number] | undefined): string {
+  if (!rpPlayer) {
+    return ''
+  }
+  const labelText = rpPlayer.trendLabel ? `，RP标签：${rpPlayer.trendLabel}` : ''
+  const pointText = rpPlayer.points.map(point => formatRpScore(point)).join(',')
+  return `RP终局${formatRpScore(rpPlayer.finalScore)}${labelText}，RP每分钟：${pointText}`
 }
 
 function formatLoadoutFact(player: PostgameAiPlayerSnapshot): string {
@@ -472,6 +531,8 @@ function buildTimelineFacts(
     facts.push(`timeline 覆盖时长${formatDuration(timeline.durationSeconds)}。`)
   }
 
+  facts.push(...buildRpIndexTimelineFacts(timeline, players, currentSide))
+
   const minute15 = timeline.goldDiffPoints?.find(point => point.minute === 15 && point.teamGoldDiff !== undefined)
   if (minute15?.teamGoldDiff !== undefined) {
     addTimedFact(15 * 60, `15分钟团队经济差：${formatTeamGoldDiff(minute15.teamGoldDiff, currentSide)}。`)
@@ -509,6 +570,143 @@ function buildTimelineFacts(
     .map(fact => fact.text))
 
   return facts.length ? facts : ['timeline 可用，但没有可确认的关键资源、死亡或经济差事件。']
+}
+
+function buildRpIndexTimelineFacts(
+  timeline: PostgameAiTimelineSnapshot,
+  players: PostgameAiPlayerSnapshot[],
+  currentSide: PostgameAiSide | null
+): string[] {
+  if (timeline.rpIndexPlayers?.length) {
+    return []
+  }
+  const rpIndexPlayers = timeline.rpIndexPlayers ?? []
+  if (!rpIndexPlayers.length) {
+    return timeline.rpIndexUnavailableReason
+      ? [`RP指数不可用：${formatRpUnavailableReason(timeline.rpIndexUnavailableReason)}。`]
+      : []
+  }
+
+  const facts: string[] = []
+  const currentPlayer = players.find(player => player.isCurrentPlayer) ?? null
+  const currentRpPlayer = currentPlayer
+    ? rpIndexPlayers.find(player => player.playerKey === currentPlayer.playerKey) ?? null
+    : null
+  const currentOpponent = currentPlayer
+    ? findSamePositionOpponent(currentPlayer, players)
+    : null
+  const currentOpponentRpPlayer = currentOpponent
+    ? rpIndexPlayers.find(player => player.playerKey === currentOpponent.playerKey) ?? null
+    : null
+
+  const finalOverview = rpIndexPlayers
+    .flatMap(rpPlayer => {
+      const player = players.find(candidate => candidate.playerKey === rpPlayer.playerKey)
+      return player
+        ? [`${formatPlayerBriefLabel(player, currentSide)}${formatRpScore(rpPlayer.finalScore)}`]
+        : []
+    })
+    .join('；')
+  if (finalOverview) {
+    facts.push(`RP指数终局概览：${finalOverview}。`)
+  }
+
+  if (currentPlayer && currentRpPlayer) {
+    facts.push(formatFocusedRpIndexFact(currentPlayer, currentRpPlayer, currentSide))
+  }
+
+  if (currentOpponent && currentOpponentRpPlayer) {
+    facts.push(formatFocusedRpIndexFact(currentOpponent, currentOpponentRpPlayer, currentSide, '对位参考'))
+  }
+
+  return facts
+}
+
+function formatFocusedRpIndexFact(
+  player: PostgameAiPlayerSnapshot,
+  rpPlayer: PostgameAiRpIndexPlayerSnapshot,
+  currentSide: PostgameAiSide | null,
+  prefix = '当前用户'
+): string {
+  const labelText = rpPlayer.trendLabel ? `，标签：${rpPlayer.trendLabel}` : ''
+  const sampledText = formatRpSampledPoints(rpPlayer.points)
+  const rangeText = formatRpRange(rpPlayer.points)
+  return `${prefix}${formatPlayerBriefLabel(player, currentSide)} RP指数：终局${formatRpScore(rpPlayer.finalScore)}${labelText}，走势采样：${sampledText}${rangeText}。`
+}
+
+function formatRpSampledPoints(points: number[]): string {
+  if (!points.length) {
+    return '无可用点'
+  }
+  const lastMinute = points.length - 1
+  const sampledMinutes = Array.from(new Set([
+    0,
+    ...Array.from({ length: Math.floor(lastMinute / 5) }, (_item, index) => (index + 1) * 5),
+    lastMinute
+  ])).filter(minute => minute >= 0 && minute <= lastMinute)
+  return sampledMinutes
+    .map(minute => `${minute}分${formatRpScore(points[minute] ?? 5)}`)
+    .join('、')
+}
+
+function formatRpRange(points: number[]): string {
+  if (!points.length) {
+    return ''
+  }
+  let peakMinute = 0
+  let lowMinute = 0
+  for (let index = 1; index < points.length; index += 1) {
+    if ((points[index] ?? 0) > (points[peakMinute] ?? 0)) {
+      peakMinute = index
+    }
+    if ((points[index] ?? 10) < (points[lowMinute] ?? 10)) {
+      lowMinute = index
+    }
+  }
+  return `；峰值${formatRpScore(points[peakMinute] ?? 5)}@${peakMinute}分，低点${formatRpScore(points[lowMinute] ?? 5)}@${lowMinute}分`
+}
+
+function findSamePositionOpponent(
+  currentPlayer: PostgameAiPlayerSnapshot,
+  players: PostgameAiPlayerSnapshot[]
+): PostgameAiPlayerSnapshot | null {
+  const currentPosition = normalizeRpPositionKey(currentPlayer)
+  if (!currentPosition) {
+    return null
+  }
+  return players.find(player => (
+    player.teamId !== currentPlayer.teamId &&
+    normalizeRpPositionKey(player) === currentPosition
+  )) ?? null
+}
+
+function normalizeRpPositionKey(player: Pick<PostgameAiPlayerSnapshot, 'position' | 'lane' | 'role'>): string {
+  const value = normalizeText(firstString(player.position, player.lane, player.role))
+  if (value === 'MIDDLE') {
+    return 'MID'
+  }
+  if (value === 'BOTTOM') {
+    return 'ADC'
+  }
+  if (value === 'UTILITY') {
+    return 'SUPPORT'
+  }
+  return value
+}
+
+function formatRpUnavailableReason(reason: RpIndexUnavailableReason): string {
+  switch (reason) {
+    case 'not_ranked':
+      return '仅支持排位 420/440'
+    case 'missing_detail':
+      return '缺少 game detail'
+    case 'missing_timeline':
+      return '缺少 timeline'
+    case 'short_game':
+      return '对局少于 10 分钟'
+    case 'incomplete_matchups':
+      return '缺少完整五路对位'
+  }
 }
 
 function buildDataQualityFacts(dataQuality: PostgameAiDataQualitySnapshot): string[] {
@@ -549,7 +747,7 @@ function formatPlayerBriefLabel(player: PostgameAiPlayerSnapshot, currentSide: P
 }
 
 function formatChampionLabel(player: Pick<PostgameAiPlayerSnapshot, 'championId' | 'championName'>): string {
-  return player.championName || (player.championId !== null ? `英雄ID ${player.championId}` : '未知英雄')
+  return player.championName || getChampionDisplayName(player.championId) || '未知英雄'
 }
 
 function readChampionNameById(championNamesById: ChampionNameLookup | undefined, championId: number | null): string | null {
@@ -658,6 +856,16 @@ function formatDuration(seconds: number | null | undefined): string {
   return secondsPart > 0 ? `${minutesPart}分${secondsPart}秒` : `${minutesPart}分钟`
 }
 
+function formatMatchDurationClock(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) {
+    return '未知'
+  }
+  const safeSeconds = Math.max(0, Math.round(seconds))
+  const minutesPart = Math.floor(safeSeconds / 60)
+  const secondsPart = safeSeconds % 60
+  return `${minutesPart}:${String(secondsPart).padStart(2, '0')}`
+}
+
 function formatInteger(value: number): string {
   return Number.isFinite(value) ? Math.round(value).toLocaleString('zh-CN') : '未知'
 }
@@ -686,19 +894,20 @@ function buildMatchSnapshot(matchHistory: MatchHistory, detail: GameDetail | nul
   const gameVersion = firstString(readRecordValue(detail, 'gameVersion'), readRecordValue(matchHistory, 'gameVersion'))
   const gameId = firstNumber(detail?.gameId, matchHistory.gameId)
   const matchId = firstString(readRecordValue(matchHistory, 'matchId'), readRecordValue(detail, 'matchId'))
+  const queueName = firstString(matchHistory.queueName) ?? undefined
 
   return {
     ...(matchId ? { matchIdHash: hashText(`match:${matchId}`) } : {}),
     ...(gameId !== null ? { gameIdHash: hashText(`game:${gameId}`) } : {}),
     queueId,
-    ...(firstString(matchHistory.queueName) ? { queueName: firstString(matchHistory.queueName) ?? undefined } : {}),
+    ...(queueName ? { queueName } : {}),
     ...(gameMode ? { gameMode } : {}),
     gameVersion,
     gameCreation: firstNumber(detail?.gameCreation, matchHistory.gameCreation),
     durationSeconds: firstNumber(detail?.gameDuration, matchHistory.gameDuration),
-    isRanked: isRankedQueue(queueId, matchHistory.queueName, gameMode),
-    isAram: isAramQueue(queueId, matchHistory.queueName, gameMode),
-    isArena: isArenaQueue(queueId, matchHistory.queueName, gameMode)
+    isRanked: isRankedQueue(queueId, queueName, gameMode ?? undefined),
+    isAram: isAramQueue(queueId, queueName, gameMode ?? undefined),
+    isArena: isArenaQueue(queueId, queueName, gameMode ?? undefined)
   }
 }
 
@@ -751,7 +960,8 @@ function toPlayerSnapshot(
   const championName = firstString(
     readRecordValue(participant, 'championName'),
     readRecordValue(participant, 'championNameCn'),
-    readChampionNameById(championNamesById, championId)
+    readChampionNameById(championNamesById, championId),
+    getChampionDisplayName(championId)
   )
 
   return {
@@ -922,7 +1132,8 @@ function buildRankedMetrics(
 function createTimelineSnapshot(
   timeline: MatchTimeline | null,
   gameDetail: GameDetail | null,
-  playerKeyByParticipantId: Map<number, string>
+  playerKeyByParticipantId: Map<number, string>,
+  currentParticipantId: number | null
 ): PostgameAiTimelineSnapshot {
   if (!hasTimeline(timeline)) {
     return { hasTimeline: false }
@@ -944,6 +1155,18 @@ function createTimelineSnapshot(
     playerKeyByParticipantId
   )
   const goldDiffPoints = createGoldDiffPoints(model.seriesByMetric)
+  const rpIndex = createMatchRpIndexModel(timeline, gameDetail, {
+    trendLabelParticipantId: currentParticipantId
+  })
+  const rpIndexPlayers = rpIndex.status === 'ready'
+    ? rpIndex.players.map(player => ({
+        playerKey: playerKeyByParticipantId.get(player.participantId) ?? `player:${player.participantId}`,
+        finalScore: player.finalScore,
+        ...(player.trendLabel ? { trendLabel: player.trendLabel } : {}),
+        points: player.points.map(point => point.score)
+      }))
+    : []
+  const rpIndexUnavailableReason = rpIndex.status === 'unavailable' ? rpIndex.reason : null
   const durationSeconds = getTimelineDurationSeconds(timeline)
 
   return {
@@ -951,7 +1174,9 @@ function createTimelineSnapshot(
     ...(durationSeconds !== null ? { durationSeconds } : {}),
     ...(goldDiffPoints.length ? { goldDiffPoints } : {}),
     ...(objectiveEvents.length ? { objectiveEvents } : {}),
-    ...(deathEvents.length ? { deathEvents } : {})
+    ...(deathEvents.length ? { deathEvents } : {}),
+    ...(rpIndexPlayers.length ? { rpIndexPlayers } : {}),
+    ...(rpIndexUnavailableReason !== null ? { rpIndexUnavailableReason } : {})
   }
 }
 

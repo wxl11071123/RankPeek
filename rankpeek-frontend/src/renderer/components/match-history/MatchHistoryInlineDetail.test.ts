@@ -294,17 +294,27 @@ function createObjectiveCountHarness(gameDetail: Record<string, unknown>): Objec
   return (context as { __objectiveCountHarness: ObjectiveCountHarness }).__objectiveCountHarness
 }
 
-test('inline match detail exposes compact overview, rune, and chart tabs', () => {
+test('inline match detail exposes compact overview, RP, rune, and chart tabs', () => {
   const source = readInlineDetailSource()
   const zh = readFileSync(new URL('../../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
   const en = readFileSync(new URL('../../i18n/locales/en-US.ts', import.meta.url), 'utf8')
 
-  assert.match(source, /type InlineDetailTabKey = 'overview' \| 'runes' \| 'chart'/)
+  assert.match(source, /type InlineDetailTabKey = 'overview' \| 'rp' \| 'runes' \| 'chart'/)
   assert.match(source, /class="inline-match-detail"/)
   assert.match(source, /class="inline-detail-tabs"/)
+  assertOrdered(source, [
+    "key: 'overview'",
+    "key: 'rp'",
+    "key: 'runes'",
+    "key: 'chart'"
+  ])
   assert.match(source, /key: 'overview'[\s\S]*t\('matchDetail\.overviewTab'\)/)
+  assert.match(source, /key: 'rp'[\s\S]*t\('matchDetail\.rpTab'\)/)
   assert.match(source, /key: 'runes'[\s\S]*t\('matchDetail\.runesTab'\)/)
   assert.match(source, /key: 'chart'[\s\S]*t\('matchDetail\.chartTab'\)/)
+  assert.match(source, /detailTabs[\s\S]*isChartRankedMode\.value[\s\S]*return baseTabs/)
+  assert.match(zh, /'matchDetail\.rpTab': 'RP指数'/)
+  assert.match(en, /'matchDetail\.rpTab': 'RP Index'/)
   assert.match(zh, /'matchDetail\.runesTab': '符文'/)
   assert.match(zh, /'matchDetail\.chartTab': '线图'/)
   assert.match(en, /'matchDetail\.runesTab': 'Runes'/)
@@ -429,22 +439,88 @@ test('chart tab renders timeline chart UI instead of a placeholder', () => {
   assert.match(chartBlock, /class="timeline-event-track"/)
 })
 
-test('non-ranked chart tab shows ranked-only empty state and does not request timeline', () => {
+test('non-ranked detail hides RP and chart tabs and does not request timeline', () => {
   const source = readInlineDetailSource()
 
   assert.match(source, /const isChartRankedMode = computed\(\(\) => isRankedMode\(props\.matchHistory\) \|\| isRankedMode\(displayGameDetail\.value\)\)/)
-  assert.match(source, /matchDetail\.timelineRankedOnly/)
+  assert.match(source, /return baseTabs\.filter\(tab => tab\.key !== 'rp' && tab\.key !== 'chart'\)/)
   assert.match(source, /if \(!isChartRankedMode\.value\) \{[\s\S]*return[\s\S]*\}/)
 })
 
-test('chart tab lazy-loads timeline only after chart is selected', () => {
+test('chart and RP tabs lazy-load timeline only after either timeline-backed tab is selected', () => {
   const source = readInlineDetailSource()
   const loaderBlock = readFunctionBlock(source, 'async function loadTimelineForCurrentGame()')
+  const timelineWatcherBlock = source.match(/watch\(\s*\(\) => \[activeTabValue\.value, currentTimelineGameId\.value, isChartRankedMode\.value\][\s\S]*?\{ immediate: true \}\s*\)/)?.[0] || ''
 
   assert.match(source, /watch\([\s\S]*activeTabValue\.value[\s\S]*loadTimelineForCurrentGame/)
-  assert.match(loaderBlock, /activeTabValue\.value !== 'chart'/)
+  assert.match(timelineWatcherBlock, /activeTabValue\.value === 'chart' \|\| activeTabValue\.value === 'rp'/)
+  assert.match(loaderBlock, /activeTabValue\.value !== 'chart' && activeTabValue\.value !== 'rp'/)
   assert.match(loaderBlock, /apiClient\.getGameTimeline\(gameId,[\s\S]*source: 'auto'/)
   assert.match(loaderBlock, /timelineRequestedGameId\.value === gameId/)
+})
+
+test('RP tab renders score cards, multi-line chart, empty selection, and input explainer', () => {
+  const source = readInlineDetailSource()
+  const zh = readFileSync(new URL('../../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
+  const en = readFileSync(new URL('../../i18n/locales/en-US.ts', import.meta.url), 'utf8')
+  const rpBlock = source.match(/<div v-else-if="activeTabValue === 'rp'"[\s\S]*?<div v-else-if="activeTabValue === 'chart'"/)?.[0] || ''
+
+  assert.match(source, /createMatchRpIndexModel/)
+  assert.match(source, /formatRpScore/)
+  assert.match(source, /selectedRpParticipantIds/)
+  assert.match(source, /rpSelectedSeries/)
+  assert.match(source, /rpTrendBadges/)
+  assert.match(rpBlock, /class="rp-index-shell"/)
+  assert.match(rpBlock, /class="rp-trend-badges"/)
+  assert.match(rpBlock, /v-for="group in rpScoreGroups"/)
+  assert.match(rpBlock, /class="rp-score-card"/)
+  assert.match(rpBlock, /@click="toggleRpParticipant/)
+  const rpScoreCardClassIndex = rpBlock.indexOf('class="rp-score-card"')
+  const rpScoreCardStart = rpBlock.lastIndexOf('<button', rpScoreCardClassIndex)
+  const rpScoreCardEnd = rpBlock.indexOf('</button>', rpScoreCardClassIndex)
+  const rpScoreCardBlock = rpScoreCardStart >= 0 && rpScoreCardEnd >= 0
+    ? rpBlock.slice(rpScoreCardStart, rpScoreCardEnd + '</button>'.length)
+    : ''
+  const selectedCardRule = source.match(/\.rp-score-card\.selected \{[\s\S]*?\n\}/)?.[0] || ''
+  assert.doesNotMatch(rpScoreCardBlock, /:title=|title=/)
+  assert.doesNotMatch(source, /function getRpScoreCardTitle/)
+  assert.match(selectedCardRule, /box-shadow:\s*inset 0 0 0 4px/)
+  assert.match(rpBlock, /class="rp-chart-svg"/)
+  assert.match(rpBlock, /v-for="series in rpSelectedSeries"/)
+  assert.match(rpBlock, /class="rp-chart-hover-line"/)
+  assert.match(rpBlock, /class="rp-chart-hover-point"/)
+  assert.match(rpBlock, /v-for="row in rpTooltipRows"/)
+  assert.match(rpBlock, /class="[^"]*rp-chart-tooltip[^"]*"/)
+  assert.match(rpBlock, /matchDetail\.rpEmptySelection/)
+  assert.match(rpBlock, /matchDetail\.rpInputSummary/)
+  assert.doesNotMatch(rpBlock, /hoveredRpPoint\.series\.playerLabel/)
+  assert.doesNotMatch(rpBlock, /timeline-axis-marker|timeline-event-track/)
+  const rpHeadingBlock = source.match(/<header class="rp-chart-heading"[\s\S]*?<\/header>/)?.[0] || ''
+  assert.match(rpHeadingBlock, /class="rp-chart-title-row"/)
+  assert.match(rpHeadingBlock, /class="rp-trend-badges"/)
+  assert.match(rpHeadingBlock, /rpTrendBadges\.length/)
+  assert.match(zh, /'matchDetail\.rpEmptySelection': '选择玩家查看 RP 曲线'/)
+  assert.match(en, /'matchDetail\.rpEmptySelection': 'Select players to view RP curves'/)
+})
+
+test('RP chart uses a high-contrast fixed ten-color palette', () => {
+  const source = readInlineDetailSource()
+  const colorBlock = source.match(/const RP_CHART_COLORS = \[([\s\S]*?)\]/)?.[1] || ''
+  const colors = [...colorBlock.matchAll(/'(#(?:[0-9a-fA-F]{6}))'/g)].map(match => match[1])
+
+  assert.deepEqual(colors, [
+    '#ff4d6d',
+    '#ffd166',
+    '#4cc9f0',
+    '#7ae582',
+    '#c77dff',
+    '#3a86ff',
+    '#f72585',
+    '#ff8c42',
+    '#ff3dcb',
+    '#d6ff4d'
+  ])
+  assert.equal(new Set(colors).size, 10)
 })
 
 test('chart tab renders gold diff filters, svg line chart, and event markers with timeline data', () => {

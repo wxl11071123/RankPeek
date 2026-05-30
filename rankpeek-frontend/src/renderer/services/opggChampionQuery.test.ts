@@ -73,6 +73,46 @@ test('ranked OP.GG query uses current champion, lane, exact queue rank bucket, a
   assert.equal(query.filterLabel, 'KR · 排位 · 翡翠+ · 中路')
 })
 
+test('ranked OP.GG query only reads the matched current summoner champion', () => {
+  const self = player({ championId: 103, selectedPosition: 'MIDDLE' })
+  const ally = player({
+    championId: 222,
+    selectedPosition: 'BOTTOM',
+    summoner: {
+      ...self.summoner,
+      gameName: 'Ally',
+      puuid: 'ally-puuid',
+      summonerId: 2
+    }
+  })
+
+  const query = buildOpggChampionQuery(session({ teamOne: [ally, self] }, self))
+
+  assert.equal(query.championId, 103)
+  assert.equal(query.position, 'mid')
+})
+
+test('ranked OP.GG query does not guess another player when current summoner is unavailable', () => {
+  const ally = player({
+    championId: 222,
+    selectedPosition: 'BOTTOM',
+    summoner: {
+      gameName: 'Ally',
+      tagLine: '1234',
+      summonerLevel: 300,
+      profileIconId: 1,
+      puuid: 'ally-puuid',
+      summonerId: 2
+    }
+  })
+
+  const query = buildOpggChampionQuery(session({ currentSummoner: undefined, teamOne: [ally] }))
+
+  assert.equal(query.championId, null)
+  assert.equal(query.position, 'none')
+  assert.match(query.reason, /英雄/)
+})
+
 test('ranked OP.GG query maps flex rank, jungle position, and master-plus tiers', () => {
   const self = player({
     selectedPosition: 'JUNGLE',

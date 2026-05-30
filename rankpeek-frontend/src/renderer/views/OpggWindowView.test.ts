@@ -21,20 +21,25 @@ test('OP.GG window view provides manual filters and loads champion options', () 
   assert.match(source, /@click="refreshActiveOpggPanel"/)
 })
 
-test('OP.GG window follows current session until a manual filter change pauses auto override', () => {
+test('OP.GG window auto applies only on page entry and own champion selection', () => {
   const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /const followCurrentGame = ref\(true\)/)
-  assert.match(source, /let lastAppliedAutoQueryKey = ''/)
-  assert.match(source, /function applyCurrentGameQueryIfChanged\(query: OpggChampionQuery\)/)
-  assert.match(source, /function buildAutoQueryKey\(query: OpggChampionQuery\)/)
+  assert.match(source, /type OpggAutoApplyTrigger = 'initial' \| 'champion-change'/)
+  assert.match(source, /let hasAppliedInitialAutoQuery = false/)
+  assert.match(source, /let lastSeenAutoChampionId: number \| null = null/)
+  assert.doesNotMatch(source, /let lastAppliedAutoQueryKey = ''/)
+  assert.match(source, /function applyCurrentGameQueryForTrigger\(query: OpggChampionQuery, trigger\?: OpggAutoApplyTrigger\)/)
+  assert.match(source, /function readAutoChampionId\(query: OpggChampionQuery\)/)
   assert.match(source, /function handleRankFilterChange/)
   assert.match(source, /followCurrentGame\.value = false/)
   assert.match(source, /function restoreFollowCurrentGame/)
   assert.match(source, /followCurrentGame\.value = true/)
   assert.match(source, /getGamingSessionData\(\{ forceRefresh: false \}\)/)
   assert.match(source, /buildOpggChampionQuery\(sessionData\)/)
-  assert.match(source, /applyCurrentGameQueryIfChanged\(query\)/)
+  assert.match(source, /refreshCurrentGameQuery\(\{ apply: 'initial' \}\)/)
+  assert.match(source, /refreshCurrentGameQuery\(\{ apply: 'champion-change' \}\)/)
+  assert.match(source, /applyCurrentGameQueryForTrigger\(query, options\.apply\)/)
   assert.match(source, /window\.electronAPI\?\.onOpggInitialQuery/)
 })
 
@@ -52,13 +57,22 @@ test('OP.GG champion search includes common Chinese nicknames beyond the officia
   assert.match(source, /from '@\/utils\/championSearchAliases'/)
 })
 
-test('OP.GG auto polling does not reapply unchanged filters on every tick', () => {
+test('OP.GG polling ignores rank position and other player changes after the initial auto jump', () => {
   const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
-  const unchangedGuard = source.match(/function applyCurrentGameQueryIfChanged\(query: OpggChampionQuery\) \{[\s\S]*?function applyCurrentGameQuery\(query: OpggChampionQuery\)/)?.[0] || ''
+  const autoApply = source.match(/function applyCurrentGameQueryForTrigger\(query: OpggChampionQuery, trigger\?: OpggAutoApplyTrigger\) \{[\s\S]*?function applyCurrentGameQuery\(query: OpggChampionQuery\)/)?.[0] || ''
+  const pollBlock = source.match(/pollTimer = setInterval\(\(\) => \{[\s\S]*?\}, 4000\)/)?.[0] || ''
 
-  assert.match(unchangedGuard, /const nextKey = buildAutoQueryKey\(query\)/)
-  assert.match(unchangedGuard, /if \(nextKey === lastAppliedAutoQueryKey\) \{[\s\S]*return[\s\S]*\}/)
-  assert.match(unchangedGuard, /applyCurrentGameQuery\(query\)/)
+  assert.match(autoApply, /if \(!followCurrentGame\.value \|\| !trigger\)/)
+  assert.match(autoApply, /if \(trigger === 'initial'\)/)
+  assert.match(autoApply, /if \(hasAppliedInitialAutoQuery\)/)
+  assert.match(autoApply, /hasAppliedInitialAutoQuery = true/)
+  assert.match(autoApply, /const championId = readAutoChampionId\(query\)/)
+  assert.match(autoApply, /if \(!championId \|\| championId === lastSeenAutoChampionId\)/)
+  assert.match(autoApply, /lastSeenAutoChampionId = championId/)
+  assert.match(autoApply, /applyCurrentGameQuery\(query\)/)
+  assert.doesNotMatch(autoApply, /buildAutoQueryKey/)
+  assert.doesNotMatch(autoApply, /resolveRankedTier\(query\.tier\)[\s\S]*resolveRankedPosition\(query\.position\)/)
+  assert.match(pollBlock, /refreshCurrentGameQuery\(\{ apply: 'champion-change' \}\)/)
 })
 
 test('OP.GG default filter refresh keeps the last tier during transient rank reloads', () => {

@@ -43,6 +43,13 @@ import {
   type TimelineEventMarker
 } from '@/services/matchTimelineChart'
 import {
+  createMatchRpIndexModel,
+  formatRpScore,
+  type MatchRpIndexModel,
+  type RpIndexPoint,
+  type RpPlayerIndex
+} from '@/services/matchRpIndex'
+import {
   getAugmentAssetDetails,
   getAugmentIconUrl,
   getAugmentRarityClass,
@@ -73,7 +80,7 @@ import {
   type TeamStatsSummary
 } from '@/utils/matchDetailMetrics'
 
-export type InlineDetailTabKey = 'overview' | 'runes' | 'chart'
+export type InlineDetailTabKey = 'overview' | 'rp' | 'runes' | 'chart'
 
 type PostgameAiAnalysisMode = 'review' | 'praise'
 type DetailLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
@@ -252,6 +259,48 @@ interface TimelineEventTooltipAnchor {
   arrowLeft: string
 }
 
+interface RpScoreCard {
+  participantId: number
+  teamId: number
+  championId: number | null
+  finalScore: number
+  trendLabel?: string
+  selected: boolean
+  color: string
+  playerLabel: string
+}
+
+interface RpScoreGroup {
+  key: 'win' | 'loss'
+  label: string
+  players: RpScoreCard[]
+}
+
+interface RpTrendBadge {
+  key: string
+  label: string
+}
+
+interface RpChartSeries {
+  key: string
+  participantId: number
+  color: string
+  playerLabel: string
+  points: RpIndexPoint[]
+}
+
+interface RpHoverPoint {
+  series: RpChartSeries
+  point: RpIndexPoint
+}
+
+interface RpTooltipRow {
+  key: string
+  color: string
+  score: number
+  y: number
+}
+
 const LANE_BASED_QUEUE_IDS = new Set([400, 420, 430, 440, 490, 700])
 const NON_LANE_BASED_QUEUE_IDS = new Set([450, 900, 1020, 1700, 1710])
 const LANE_BASED_GAME_MODES = new Set(['CLASSIC'])
@@ -269,6 +318,23 @@ const CHART_PLOT_WIDTH = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
 const CHART_PLOT_HEIGHT = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
 const CHART_Y_TICK_LABEL_MIN_GAP = 28
 const MAX_CHART_Y_TICK_COUNT = Math.max(3, Math.floor(CHART_PLOT_HEIGHT / CHART_Y_TICK_LABEL_MIN_GAP) + 1)
+const RP_CHART_WIDTH = CHART_WIDTH
+const RP_CHART_HEIGHT = CHART_HEIGHT
+const RP_CHART_PADDING = CHART_PADDING
+const RP_CHART_PLOT_WIDTH = CHART_PLOT_WIDTH
+const RP_CHART_PLOT_HEIGHT = CHART_PLOT_HEIGHT
+const RP_CHART_COLORS = [
+  '#ff4d6d',
+  '#ffd166',
+  '#4cc9f0',
+  '#7ae582',
+  '#c77dff',
+  '#3a86ff',
+  '#f72585',
+  '#ff8c42',
+  '#ff3dcb',
+  '#d6ff4d'
+]
 const LANE_WATERMARK_SIZE = 46
 const LANE_WATERMARK_AXIS_GAP = 8
 const TEAM_WATERMARK_SIZE = 34
@@ -570,6 +636,10 @@ const hoveredGoldDiffPoint = ref<GoldDiffPoint | null>(null)
 const hoveredGoldDiffTooltipAnchor = ref<TimelineEventTooltipAnchor | null>(null)
 const hoveredEventCluster = ref<TimelineEventCluster | null>(null)
 const hoveredEventTooltipAnchor = ref<TimelineEventTooltipAnchor | null>(null)
+const selectedRpParticipantIds = ref<Set<number>>(new Set())
+const rpSelectionInitializedGameId = ref<number | null>(null)
+const hoveredRpPoint = ref<RpHoverPoint | null>(null)
+const hoveredRpTooltipAnchor = ref<TimelineEventTooltipAnchor | null>(null)
 const timelineChartModel = computed(() => createTimelineChartModel(timelineData.value, displayGameDetail.value))
 const selectedGoldDiffSeries = computed<GoldDiffSeries>(() => timelineChartModel.value.seriesByMetric[selectedGoldDiffMetric.value])
 const selectedGoldDiffDomain = computed(() => createGoldDiffDomain(selectedGoldDiffSeries.value.points, { maxTickCount: MAX_CHART_Y_TICK_COUNT }))
@@ -583,6 +653,18 @@ const chartHasAnySeriesData = computed(() => goldDiffMetricOptions.some(
   option => timelineChartModel.value.seriesByMetric[option.key].points.length > 0
 ))
 const hasTimelineData = computed(() => isChartRankedMode.value && timelineLoadStatus.value === 'loaded' && chartHasAnySeriesData.value)
+const currentRpParticipantId = computed(() => getCurrentParticipantId())
+const rpIndexModel = computed<MatchRpIndexModel>(() => createMatchRpIndexModel(timelineData.value, displayGameDetail.value, {
+  trendLabelParticipantId: currentRpParticipantId.value
+}))
+const hasRpIndexData = computed(() => isChartRankedMode.value && timelineLoadStatus.value === 'loaded' && rpIndexModel.value.status === 'ready')
+const rpScoreGroups = computed<RpScoreGroup[]>(() => createRpScoreGroups())
+const rpTrendBadges = computed<RpTrendBadge[]>(() => createRpTrendBadges())
+const rpSelectedSeries = computed<RpChartSeries[]>(() => createRpSelectedSeries())
+const rpChartDomain = computed(() => createRpChartDomain(rpSelectedSeries.value.flatMap(series => series.points)))
+const rpChartGridLines = computed<ChartGridLine[]>(() => createRpChartGridLines())
+const rpChartTimeTicks = computed<ChartTimeTick[]>(() => createRpChartTimeTicks())
+const rpTooltipRows = computed<RpTooltipRow[]>(() => createRpTooltipRows())
 const selectedGoldDiffSegments = computed<ChartLineSegment[]>(() => createGoldDiffSegments(selectedGoldDiffSeries.value.points))
 const chartGridLines = computed<ChartGridLine[]>(() => createChartGridLines())
 const chartTimeTicks = computed<ChartTimeTick[]>(() => createChartTimeTicks())
@@ -616,11 +698,18 @@ const postgameAiStreamAbortController = ref<AbortController | null>(null)
 const postgameAiChampionNamesById = ref<Record<number, string>>({})
 const postgameAiReviewRosterPlayers = computed<PostgameAiReviewRosterPlayer[]>(() => createPostgameAiReviewRosterPlayers())
 
-const detailTabs = computed<Array<{ key: InlineDetailTabKey; label: string }>>(() => [
-  { key: 'overview', label: t('matchDetail.overviewTab') },
-  { key: 'runes', label: t('matchDetail.runesTab') },
-  { key: 'chart', label: t('matchDetail.chartTab') }
-])
+const detailTabs = computed<Array<{ key: InlineDetailTabKey; label: string }>>(() => {
+  const baseTabs: Array<{ key: InlineDetailTabKey; label: string }> = [
+    { key: 'overview', label: t('matchDetail.overviewTab') },
+    { key: 'rp', label: t('matchDetail.rpTab') },
+    { key: 'runes', label: t('matchDetail.runesTab') },
+    { key: 'chart', label: t('matchDetail.chartTab') }
+  ]
+  if (!isChartRankedMode.value) {
+    return baseTabs.filter(tab => tab.key !== 'rp' && tab.key !== 'chart')
+  }
+  return baseTabs
+})
 
 const teamSections = computed<TeamSection[]>(() => [
   createTeamSection('blue', 100, t('common.blueTeam'), blueTeamPlayers.value, blueTeamTotals.value),
@@ -650,6 +739,16 @@ watch(
 )
 
 watch(
+  () => detailTabs.value.map(tab => tab.key).join('|'),
+  () => {
+    if (!detailTabs.value.some(tab => tab.key === activeTabValue.value)) {
+      activeTabValue.value = 'overview'
+    }
+  },
+  { immediate: true }
+)
+
+watch(
   () => currentTimelineGameId.value,
   () => {
     resetTimelineChartState()
@@ -659,9 +758,17 @@ watch(
 watch(
   () => [activeTabValue.value, currentTimelineGameId.value, isChartRankedMode.value],
   () => {
-    if (activeTabValue.value === 'chart') {
+    if (activeTabValue.value === 'chart' || activeTabValue.value === 'rp') {
       void loadTimelineForCurrentGame()
     }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [rpIndexModel.value.status, currentTimelineGameId.value, currentRpParticipantId.value, allPlayers.value.length],
+  () => {
+    initializeRpSelectionForCurrentGame()
   },
   { immediate: true }
 )
@@ -910,11 +1017,15 @@ function resetTimelineChartState(): void {
   hoveredGoldDiffTooltipAnchor.value = null
   hoveredEventCluster.value = null
   hoveredEventTooltipAnchor.value = null
+  hoveredRpPoint.value = null
+  hoveredRpTooltipAnchor.value = null
+  selectedRpParticipantIds.value = new Set()
+  rpSelectionInitializedGameId.value = null
   selectedGoldDiffMetric.value = 'teamAverage'
 }
 
 async function loadTimelineForCurrentGame(): Promise<void> {
-  if (activeTabValue.value !== 'chart') {
+  if (activeTabValue.value !== 'chart' && activeTabValue.value !== 'rp') {
     return
   }
   if (!isChartRankedMode.value) {
@@ -1058,6 +1169,288 @@ function getChartY(diff: number): number {
   const range = Math.max(1, domain.max - domain.min)
   const ratio = (domain.max - diff) / range
   return CHART_PADDING.top + Math.max(0, Math.min(1, ratio)) * CHART_PLOT_HEIGHT
+}
+
+function initializeRpSelectionForCurrentGame(): void {
+  const gameId = currentTimelineGameId.value
+  if (gameId === null || rpIndexModel.value.status !== 'ready') {
+    return
+  }
+  if (rpSelectionInitializedGameId.value === gameId) {
+    return
+  }
+
+  const currentParticipantId = getCurrentParticipantId()
+  selectedRpParticipantIds.value = currentParticipantId === null
+    ? new Set()
+    : new Set([currentParticipantId])
+  rpSelectionInitializedGameId.value = gameId
+}
+
+function createRpScoreGroups(): RpScoreGroup[] {
+  if (rpIndexModel.value.status !== 'ready') {
+    return []
+  }
+
+  const cards = rpIndexModel.value.players.map(player => createRpScoreCard(player))
+  const groups: RpScoreGroup[] = [
+    {
+      key: 'win',
+      label: t('matchDetail.rpWinningSide'),
+      players: cards.filter(card => isWinningTeamCard(card))
+    },
+    {
+      key: 'loss',
+      label: t('matchDetail.rpLosingSide'),
+      players: cards.filter(card => !isWinningTeamCard(card))
+    }
+  ]
+  return groups.filter(group => group.players.length > 0)
+}
+
+function createRpScoreCard(player: RpPlayerIndex): RpScoreCard {
+  const detailPlayer = findDetailPlayerByParticipantId(player.participantId)
+  return {
+    participantId: player.participantId,
+    teamId: player.teamId,
+    championId: player.championId,
+    finalScore: player.finalScore,
+    trendLabel: player.trendLabel,
+    selected: selectedRpParticipantIds.value.has(player.participantId),
+    color: getRpPlayerColor(player.participantId),
+    playerLabel: detailPlayer ? getPlayerName(detailPlayer) : `${t('common.unknownPlayer')} ${player.participantId}`
+  }
+}
+
+function isWinningTeamCard(card: RpScoreCard): boolean {
+  const player = findDetailPlayerByParticipantId(card.participantId)
+  return Boolean(player?.stats?.win)
+}
+
+function createRpTrendBadges(): RpTrendBadge[] {
+  if (rpIndexModel.value.status !== 'ready') {
+    return []
+  }
+  const currentParticipantId = getCurrentParticipantId()
+  const currentRpPlayer = currentParticipantId === null
+    ? null
+    : rpIndexModel.value.players.find(player => player.participantId === currentParticipantId) ?? null
+  if (!currentRpPlayer?.trendLabel) {
+    return []
+  }
+  return [{
+    key: `rp-trend-${currentRpPlayer.participantId}`,
+    label: currentRpPlayer.trendLabel
+  }]
+}
+
+function createRpSelectedSeries(): RpChartSeries[] {
+  if (rpIndexModel.value.status !== 'ready') {
+    return []
+  }
+
+  return rpIndexModel.value.players
+    .filter(player => selectedRpParticipantIds.value.has(player.participantId))
+    .map(player => {
+      const detailPlayer = findDetailPlayerByParticipantId(player.participantId)
+      const color = getRpPlayerColor(player.participantId)
+      return {
+        key: `rp-series-${player.participantId}`,
+        participantId: player.participantId,
+        color,
+        playerLabel: detailPlayer ? getPlayerName(detailPlayer) : `${t('common.unknownPlayer')} ${player.participantId}`,
+        points: player.points
+      }
+    })
+}
+
+function createRpChartDomain(points: RpIndexPoint[]): { min: number; max: number; ticks: number[] } {
+  const scores = points.map(point => point.score).filter(score => Number.isFinite(score))
+  const rawMin = scores.length ? Math.min(5, ...scores) : 4.5
+  const rawMax = scores.length ? Math.max(5, ...scores) : 5.5
+  const min = Math.max(0, Math.floor((rawMin - 0.5) * 2) / 2)
+  const max = Math.min(10, Math.ceil((rawMax + 0.5) * 2) / 2)
+  const safeMax = Math.max(max, min + 1)
+  const middle = Math.round(((min + safeMax) / 2) * 10) / 10
+  const ticks = [...new Set([min, middle, 5, safeMax])].sort((left, right) => left - right)
+  return { min, max: safeMax, ticks }
+}
+
+function createRpChartGridLines(): ChartGridLine[] {
+  return rpChartDomain.value.ticks.map(value => ({
+    key: `rp-grid-${value}`,
+    value,
+    y: getRpChartY(value),
+    label: formatRpScore(value),
+    zero: value === 5
+  }))
+}
+
+function createRpChartTimeTicks(): ChartTimeTick[] {
+  const maxTimestamp = getRpMaxTimestamp()
+  return Array.from({ length: 5 }, (_item, index) => {
+    const timestamp = Math.round(maxTimestamp * index / 4)
+    return {
+      key: `rp-tick-${index}-${timestamp}`,
+      timestamp,
+      x: getRpChartX(timestamp),
+      label: formatTimelineTime(timestamp)
+    }
+  })
+}
+
+function createRpLinePath(points: RpIndexPoint[]): string {
+  return points
+    .map((point, index) => {
+      const command = index === 0 ? 'M' : 'L'
+      return `${command} ${getRpChartX(point.timestamp).toFixed(2)} ${getRpChartY(point.score).toFixed(2)}`
+    })
+    .join(' ')
+}
+
+function createRpTooltipRows(): RpTooltipRow[] {
+  const hovered = hoveredRpPoint.value
+  if (!hovered) {
+    return []
+  }
+  return rpSelectedSeries.value
+    .flatMap(series => {
+      const point = series.points.find(candidate => candidate.minute === hovered.point.minute)
+      return point
+        ? [{
+            key: `${series.participantId}-${point.minute}`,
+            color: series.color,
+            score: point.score,
+            y: getRpChartY(point.score)
+          }]
+        : []
+    })
+    .sort((left, right) => right.score - left.score)
+}
+
+function getRpChartX(timestamp: number): number {
+  const maxTimestamp = Math.max(getRpMaxTimestamp(), 1)
+  const ratio = Math.max(0, Math.min(1, timestamp / maxTimestamp))
+  return RP_CHART_PADDING.left + ratio * RP_CHART_PLOT_WIDTH
+}
+
+function getRpChartY(score: number): number {
+  const domain = rpChartDomain.value
+  const range = Math.max(1, domain.max - domain.min)
+  const ratio = (domain.max - score) / range
+  return RP_CHART_PADDING.top + Math.max(0, Math.min(1, ratio)) * RP_CHART_PLOT_HEIGHT
+}
+
+function getRpMaxTimestamp(): number {
+  return rpIndexModel.value.status === 'ready'
+    ? Math.max(1, rpIndexModel.value.maxMinute * 60_000)
+    : 1
+}
+
+function getRpHoverX(): number {
+  return hoveredRpPoint.value ? getRpChartX(hoveredRpPoint.value.point.timestamp) : RP_CHART_PADDING.left
+}
+
+function toggleRpParticipant(participantId: number): void {
+  const next = new Set(selectedRpParticipantIds.value)
+  if (next.has(participantId)) {
+    next.delete(participantId)
+  } else {
+    next.add(participantId)
+  }
+  selectedRpParticipantIds.value = next
+  hoveredRpPoint.value = null
+  hoveredRpTooltipAnchor.value = null
+}
+
+function showRpTooltip(event: PointerEvent, series: RpChartSeries, point: RpIndexPoint): void {
+  hoveredRpPoint.value = { series, point }
+  hoveredRpTooltipAnchor.value = getRpChartPointerAnchor(event, point)
+}
+
+function moveRpTooltip(event: PointerEvent, series: RpChartSeries, point: RpIndexPoint): void {
+  hoveredRpPoint.value = { series, point }
+  hoveredRpTooltipAnchor.value = getRpChartPointerAnchor(event, point)
+}
+
+function hideRpTooltip(): void {
+  hoveredRpPoint.value = null
+  hoveredRpTooltipAnchor.value = null
+}
+
+function getRpTooltipStyle(): Record<string, string> {
+  const hovered = hoveredRpPoint.value
+  if (!hovered) {
+    return {}
+  }
+  const anchor = hoveredRpTooltipAnchor.value
+  const left = anchor?.x ?? getRpChartX(hovered.point.timestamp)
+  const top = anchor?.y ?? getRpChartY(hovered.point.score)
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    '--timeline-chart-tooltip-arrow-left': anchor?.arrowLeft ?? '50%'
+  }
+}
+
+function getRpChartPointerAnchor(event: PointerEvent, point: RpIndexPoint): TimelineEventTooltipAnchor {
+  const target = event.currentTarget instanceof Element ? event.currentTarget : null
+  const stage = target?.closest('.rp-chart-stage')
+  if (!(stage instanceof HTMLElement)) {
+    return {
+      x: getRpChartX(point.timestamp),
+      y: getRpChartY(point.score),
+      arrowLeft: '50%'
+    }
+  }
+
+  const rect = stage.getBoundingClientRect()
+  const rawX = event.clientX - rect.left
+  const rawY = event.clientY - rect.top
+  const x = Math.max(14, Math.min(rect.width - 14, rawX))
+  const y = Math.max(24, Math.min(rect.height - 10, rawY))
+  const arrowOffset = Math.round(rawX - x)
+  return {
+    x,
+    y,
+    arrowLeft: arrowOffset === 0 ? '50%' : `calc(50% + ${arrowOffset}px)`
+  }
+}
+
+function getRpScoreCardStyle(card: RpScoreCard): Record<string, string> {
+  return {
+    '--rp-player-color': card.color
+  }
+}
+
+function getRpSeriesStyle(series: RpChartSeries): Record<string, string> {
+  return {
+    '--rp-player-color': series.color
+  }
+}
+
+function getRpPointKey(series: RpChartSeries, point: RpIndexPoint): string {
+  return `${series.participantId}-${point.minute}`
+}
+
+function findDetailPlayerByParticipantId(participantId: number): MatchDetailParticipant | null {
+  return allPlayers.value.find(player => player.participantId === participantId) ?? null
+}
+
+function getCurrentParticipantId(): number | null {
+  const currentPuuid = props.currentPuuid.trim()
+  const player = allPlayers.value.find(candidate => {
+    if (candidate.isCurrentPlayer) {
+      return true
+    }
+    return Boolean(currentPuuid && candidate.puuid === currentPuuid)
+  })
+  return normalizePositiveInteger(player?.participantId)
+}
+
+function getRpPlayerColor(participantId: number): string {
+  const index = Math.max(0, (participantId - 1) % RP_CHART_COLORS.length)
+  return RP_CHART_COLORS[index]
 }
 
 function createLaneMatchupWatermarks(): LaneMatchupWatermark[] {
@@ -2276,7 +2669,7 @@ function readStructureObjectiveCount(teamId: number, summary: TeamObjectiveSumma
   if (lastFallbackStatCount !== null) {
     return lastFallbackStatCount
   }
-  if (sourceKey !== 'turretPlate' && summaryCount !== null) {
+  if (summaryCount !== null) {
     return summaryCount
   }
   return null
@@ -3420,6 +3813,187 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
             </div>
           </div>
         </article>
+      </div>
+
+      <div v-else-if="activeTabValue === 'rp'" class="rp-tab">
+        <div v-if="timelineLoadStatus === 'loading' || timelineLoadStatus === 'idle'" class="timeline-empty">
+          <strong>{{ t('matchDetail.timelineLoading') }}</strong>
+        </div>
+        <div v-else-if="hasRpIndexData" class="rp-index-shell">
+          <section class="rp-chart-panel">
+            <header class="rp-chart-heading">
+              <div class="rp-chart-title-row">
+                <div class="rp-chart-title">
+                  <strong>{{ t('matchDetail.rpTitle') }}</strong>
+                  <button
+                    class="rp-info-button"
+                    type="button"
+                    :title="t('matchDetail.rpInputSummary')"
+                    :aria-label="t('matchDetail.rpInputSummary')"
+                  >
+                    i
+                  </button>
+                </div>
+                <div v-if="rpTrendBadges.length" class="rp-trend-badges" aria-label="RP trend labels">
+                  <span
+                    v-for="badge in rpTrendBadges"
+                    :key="badge.key"
+                    class="rp-trend-badge"
+                  >
+                    {{ badge.label }}
+                  </span>
+                </div>
+              </div>
+            </header>
+
+            <div class="rp-score-groups">
+              <section
+                v-for="group in rpScoreGroups"
+                :key="group.key"
+                class="rp-score-group"
+              >
+                <span class="rp-score-group-label">{{ group.label }}</span>
+                <div class="rp-score-card-row">
+                  <button
+                    v-for="card in group.players"
+                    :key="`rp-card-${card.participantId}`"
+                    type="button"
+                    class="rp-score-card"
+                    :class="{ selected: card.selected }"
+                    :style="getRpScoreCardStyle(card)"
+                    :aria-pressed="card.selected"
+                    @click="toggleRpParticipant(card.participantId)"
+                  >
+                    <img
+                      v-if="card.championId !== null"
+                      class="rp-score-card-avatar"
+                      :src="getChampionIconUrl(card.championId)"
+                      :alt="card.playerLabel"
+                      @error="markAssetLoadFailed"
+                    >
+                    <span class="rp-score-card-value">{{ formatRpScore(card.finalScore) }}</span>
+                    <span v-if="card.selected" class="rp-score-card-check" aria-hidden="true">✓</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <div v-if="rpSelectedSeries.length" class="rp-chart-stage">
+              <svg
+                class="rp-chart-svg"
+                :viewBox="`0 0 ${RP_CHART_WIDTH} ${RP_CHART_HEIGHT}`"
+                role="img"
+                :aria-label="t('matchDetail.rpTitle')"
+              >
+                <g class="rp-chart-grid">
+                  <line
+                    v-for="line in rpChartGridLines"
+                    :key="line.key"
+                    :class="{ zero: line.zero }"
+                    :x1="RP_CHART_PADDING.left"
+                    :x2="RP_CHART_WIDTH - RP_CHART_PADDING.right"
+                    :y1="line.y"
+                    :y2="line.y"
+                  />
+                  <text
+                    v-for="line in rpChartGridLines"
+                    :key="`${line.key}-label`"
+                    :x="RP_CHART_PADDING.left - 10"
+                    :y="line.y + 4"
+                    text-anchor="end"
+                  >
+                    {{ line.label }}
+                  </text>
+                </g>
+                <g class="rp-chart-time-axis">
+                  <line
+                    v-for="tick in rpChartTimeTicks"
+                    :key="tick.key"
+                    :x1="tick.x"
+                    :x2="tick.x"
+                    :y1="RP_CHART_PADDING.top"
+                    :y2="RP_CHART_HEIGHT - RP_CHART_PADDING.bottom"
+                  />
+                  <text
+                    v-for="tick in rpChartTimeTicks"
+                    :key="`${tick.key}-label`"
+                    :x="tick.x"
+                    :y="RP_CHART_HEIGHT - 10"
+                    text-anchor="middle"
+                  >
+                    {{ tick.label }}
+                  </text>
+                </g>
+                <line
+                  v-if="hoveredRpPoint"
+                  class="rp-chart-hover-line"
+                  :x1="getRpHoverX()"
+                  :x2="getRpHoverX()"
+                  :y1="RP_CHART_PADDING.top"
+                  :y2="RP_CHART_HEIGHT - RP_CHART_PADDING.bottom"
+                />
+                <path
+                  v-for="series in rpSelectedSeries"
+                  :key="series.key"
+                  class="rp-score-line"
+                  :style="getRpSeriesStyle(series)"
+                  :d="createRpLinePath(series.points)"
+                />
+                <circle
+                  v-for="row in rpTooltipRows"
+                  :key="`rp-hover-${row.key}`"
+                  class="rp-chart-hover-point"
+                  :style="{ '--rp-player-color': row.color }"
+                  :cx="getRpHoverX()"
+                  :cy="row.y"
+                  r="4.2"
+                />
+                <g
+                  v-for="series in rpSelectedSeries"
+                  :key="`${series.key}-hits`"
+                >
+                  <circle
+                    v-for="point in series.points"
+                    :key="getRpPointKey(series, point)"
+                    class="rp-chart-hit-area"
+                    :cx="getRpChartX(point.timestamp)"
+                    :cy="getRpChartY(point.score)"
+                    r="9"
+                    fill="transparent"
+                    opacity="0"
+                    @pointerenter="showRpTooltip($event, series, point)"
+                    @pointermove="moveRpTooltip($event, series, point)"
+                    @pointerleave="hideRpTooltip"
+                  />
+                </g>
+              </svg>
+
+              <div
+                v-if="hoveredRpPoint"
+                class="rp-chart-tooltip"
+                :style="getRpTooltipStyle()"
+              >
+                <strong>{{ formatTimelineTime(hoveredRpPoint.point.timestamp) }}</strong>
+                <span
+                  v-for="row in rpTooltipRows"
+                  :key="`rp-tooltip-${row.key}`"
+                  class="rp-tooltip-row"
+                >
+                  <span class="rp-tooltip-dot" :style="{ '--rp-player-color': row.color }" aria-hidden="true"></span>
+                  <span>{{ formatRpScore(row.score) }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div v-else class="rp-empty-selection">
+              {{ t('matchDetail.rpEmptySelection') }}
+            </div>
+          </section>
+        </div>
+        <div v-else class="timeline-empty">
+          <strong>{{ t('matchDetail.rpUnavailable') }}</strong>
+          <small>{{ t('matchDetail.rpDataRequirement') }}</small>
+        </div>
       </div>
 
       <div v-else-if="activeTabValue === 'runes'" class="runes-tab">
@@ -4957,6 +5531,231 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 .chart-tab {
   min-height: 136px;
+}
+
+.rp-tab {
+  min-width: 0;
+}
+
+.rp-index-shell,
+.rp-chart-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.rp-trend-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rp-trend-badge {
+  border: 1px solid rgba(124, 156, 255, 0.32);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-primary);
+  background: rgba(42, 59, 108, 0.38);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rp-chart-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rp-chart-title-row,
+.rp-chart-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.rp-chart-title-row {
+  flex-wrap: wrap;
+}
+
+.rp-chart-title strong {
+  font-size: 14px;
+}
+
+.rp-info-button {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(143, 162, 216, 0.42);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: rgba(14, 19, 34, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rp-score-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rp-score-group {
+  display: grid;
+  gap: 8px;
+}
+
+.rp-score-group-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rp-score-card-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
+  gap: 8px;
+}
+
+.rp-score-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 72px;
+  place-items: center;
+  border: 1px solid rgba(143, 162, 216, 0.2);
+  border-radius: 8px;
+  padding: 7px 5px 6px;
+  color: var(--text-primary);
+  background: rgba(15, 20, 34, 0.84);
+}
+
+.rp-score-card.selected {
+  border-color: var(--rp-player-color);
+  box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--rp-player-color) 64%, transparent);
+}
+
+.rp-score-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.rp-score-card-value {
+  margin-top: 5px;
+  color: var(--rp-player-color);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rp-score-card-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  color: #08101d;
+  background: var(--rp-player-color);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.rp-chart-stage {
+  position: relative;
+  min-height: 220px;
+}
+
+.rp-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.rp-chart-grid line,
+.rp-chart-time-axis line {
+  stroke: rgba(143, 162, 216, 0.14);
+  stroke-width: 1;
+}
+
+.rp-chart-grid line.zero {
+  stroke: rgba(210, 220, 255, 0.28);
+}
+
+.rp-chart-grid text,
+.rp-chart-time-axis text {
+  fill: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.rp-score-line {
+  fill: none;
+  stroke: var(--rp-player-color);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rp-chart-hover-line {
+  stroke: rgba(225, 232, 255, 0.58);
+  stroke-width: 1.2;
+}
+
+.rp-chart-hover-point {
+  fill: var(--rp-player-color);
+  stroke: #f8fbff;
+  stroke-width: 1.5;
+}
+
+.rp-chart-tooltip {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  min-width: 70px;
+  gap: 6px;
+  transform: translate(-50%, -100%);
+  border: 1px solid rgba(143, 162, 216, 0.22);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text-primary);
+  background: rgba(7, 10, 18, 0.96);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+  pointer-events: none;
+}
+
+.rp-chart-tooltip strong {
+  font-size: 12px;
+}
+
+.rp-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rp-tooltip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rp-player-color);
+}
+
+.rp-empty-selection {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  border: 1px dashed rgba(143, 162, 216, 0.24);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .timeline-chart-shell {
