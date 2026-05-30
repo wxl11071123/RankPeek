@@ -212,6 +212,38 @@ function createChampionNamesById(): Record<number, string> {
   )
 }
 
+test('uses bundled champion display names when no champion lookup is provided', () => {
+  const championIds = [22, 81, 67, 950, 141, 103, 222, 412, 64, 266]
+  const matchHistory = {
+    ...createMatchHistory(),
+    participants: createParticipants().map((participant, index) => ({
+      ...participant,
+      championId: championIds[index] ?? participant.championId
+    }))
+  }
+  const gameDetail = {
+    ...createGameDetail(),
+    participants: createGameDetail().participants.map((participant, index) => ({
+      ...participant,
+      championId: championIds[index] ?? participant.championId
+    }))
+  }
+
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory,
+    gameDetail,
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1'
+  })
+
+  assert.equal(snapshot.analysisBrief.matchFacts[1], '当前用户：我方；英雄：寒冰射手；位置：上单。')
+  assert.match(snapshot.analysisBrief.playerFacts[1] ?? '', /【我方打野｜探险家】/)
+  assert.match(snapshot.analysisBrief.playerFacts[2] ?? '', /【我方中单｜暗夜猎手】/)
+  assert.match(snapshot.analysisBrief.playerFacts[3] ?? '', /【我方下路｜百裂冥犬】/)
+  assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief), /英雄ID/)
+})
+
 test('builds a compact postgame AI input snapshot from match history, detail, and timeline', () => {
   const snapshot = buildPostgameAiInputSnapshot({
     matchHistory: createMatchHistory(),
@@ -234,6 +266,8 @@ test('builds a compact postgame AI input snapshot from match history, detail, an
   assert.match(snapshot.inputHash, /^[a-f0-9]{8,}$/)
   assert.equal(snapshot.analysisBrief.schemaVersion, 'postgame_analysis_brief.v1')
   assert.equal(snapshot.analysisBrief.language, 'zh-CN')
+  assert.equal(snapshot.analysisBrief.matchFacts[0], '模式：单双排位；时间：30:00；结果：我方获胜。')
+  assert.equal(snapshot.analysisBrief.matchFacts[1], '当前用户：我方；英雄：盖伦；位置：上单。')
   assert.equal(snapshot.analysisBrief.playerFacts.length, 10)
   assert.equal(snapshot.analysisBrief.playerFacts.filter(fact => fact.includes('【你｜')).length, 1)
   assert.match(snapshot.analysisBrief.playerFacts[0] ?? '', /【你｜我方上单｜盖伦】/)
@@ -241,6 +275,55 @@ test('builds a compact postgame AI input snapshot from match history, detail, an
   assert.doesNotMatch(JSON.stringify(snapshot.analysisBrief.playerFacts), /英雄ID/)
   assert.ok(snapshot.analysisBrief.teamFacts.some(fact => /我方/.test(fact)))
   assert.ok(snapshot.analysisBrief.timelineFacts.some(fact => /15分钟/.test(fact)))
+})
+
+test('merges full-minute RP index data into each player fact', () => {
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory: createMatchHistory(),
+    gameDetail: createGameDetail(),
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+
+  const timelineRpFacts = snapshot.analysisBrief.timelineFacts.filter(fact => fact.includes('RP'))
+  const playerRpFacts = snapshot.analysisBrief.playerFacts.filter(fact => fact.includes('RP'))
+  const currentRpFact = playerRpFacts.find(fact => fact.includes('【你｜')) ?? ''
+
+  assert.equal(timelineRpFacts.length, 0)
+  assert.equal(playerRpFacts.length, 10)
+  assert.ok(playerRpFacts.every(fact => /RP终局\d+\.\d/.test(fact)))
+  assert.ok(playerRpFacts.every(fact => /RP每分钟：5\.0,/.test(fact)))
+  assert.equal(playerRpFacts.filter(fact => fact.includes('RP标签：')).length, 1)
+  assert.match(currentRpFact, /RP标签：/)
+  assert.doesNotMatch(JSON.stringify(playerRpFacts), /胜局|败局/)
+})
+
+test('adds RP unavailable quality fact without inventing fake RP timelines', () => {
+  const matchHistory = {
+    ...createMatchHistory(),
+    gameDuration: 540
+  }
+  const gameDetail = {
+    ...createGameDetail(),
+    gameDuration: 540
+  }
+  const snapshot = buildPostgameAiInputSnapshot({
+    matchHistory,
+    gameDetail,
+    timeline: createTimeline(),
+    currentPuuid: 'current-puuid',
+    currentSummonerName: 'Current#CN1',
+    championNamesById: createChampionNamesById()
+  })
+
+  const rpFacts = snapshot.analysisBrief.timelineFacts.filter(fact => fact.includes('RP指数'))
+
+  assert.equal(rpFacts.length, 1)
+  assert.match(rpFacts[0] ?? '', /RP指数不可用/)
+  assert.match(rpFacts[0] ?? '', /10 分钟/)
+  assert.doesNotMatch(JSON.stringify(rpFacts), /终局|每分钟/)
 })
 
 test('adds compact final item and rune build facts to every player line', () => {

@@ -142,6 +142,7 @@ import { championOptionMatchesSearch } from '@/utils/championSearchAliases'
 type OpggMode = 'ranked' | 'aram' | 'arena' | 'urf' | 'nexus_blitz'
 type OpggRegion = 'kr'
 type OpggPanel = 'list' | 'detail'
+type OpggAutoApplyTrigger = 'initial' | 'champion-change'
 
 export interface OpggManualFilterState {
   championId: number
@@ -219,7 +220,8 @@ let removeInitialQueryListener: (() => void) | null = null
 let applyingAutoFilter = false
 let defaultPositionPuuid = ''
 let defaultPositionRequestId = 0
-let lastAppliedAutoQueryKey = ''
+let hasAppliedInitialAutoQuery = false
+let lastSeenAutoChampionId: number | null = null
 
 const filteredChampionOptions = computed(() => {
   const keyword = championSearch.value.trim().toLowerCase()
@@ -282,9 +284,9 @@ onMounted(() => {
   removeInitialQueryListener = window.electronAPI?.onOpggInitialQuery?.((query) => {
     handleInitialQuery(query)
   }) || null
-  void refreshCurrentGameQuery()
+  void refreshCurrentGameQuery({ apply: 'initial' })
   pollTimer = setInterval(() => {
-    void refreshCurrentGameQuery()
+    void refreshCurrentGameQuery({ apply: 'champion-change' })
   }, 4000)
 })
 
@@ -380,15 +382,13 @@ async function refreshDefaultRankedFilters(options: {
   }
 }
 
-async function refreshCurrentGameQuery() {
+async function refreshCurrentGameQuery(options: { apply?: OpggAutoApplyTrigger } = {}) {
   try {
     const sessionData = await getGamingSessionData({ forceRefresh: false })
     const query = buildOpggChampionQuery(sessionData)
     followState.lastAutoQuery = query
     void refreshDefaultRankedFilters({ sessionData, query })
-    if (followCurrentGame.value) {
-      applyCurrentGameQueryIfChanged(query)
-    }
+    applyCurrentGameQueryForTrigger(query, options.apply)
   } catch {
     // OP.GG 窗口不能因为对战信息暂时不可用而打断手动筛选。
   }
@@ -397,21 +397,34 @@ async function refreshCurrentGameQuery() {
 function handleInitialQuery(query: OpggChampionQuery) {
   followState.lastAutoQuery = query
   void refreshDefaultRankedFilters({ query })
-  if (followCurrentGame.value) {
-    applyCurrentGameQueryIfChanged(query)
-  }
+  applyCurrentGameQueryForTrigger(query, 'initial')
 }
 
-function applyCurrentGameQueryIfChanged(query: OpggChampionQuery) {
-  const nextKey = buildAutoQueryKey(query)
-  if (nextKey === lastAppliedAutoQueryKey) {
+function applyCurrentGameQueryForTrigger(query: OpggChampionQuery, trigger?: OpggAutoApplyTrigger) {
+  if (!followCurrentGame.value || !trigger) {
     return
   }
+
+  if (trigger === 'initial') {
+    if (hasAppliedInitialAutoQuery) {
+      return
+    }
+    hasAppliedInitialAutoQuery = true
+    lastSeenAutoChampionId = readAutoChampionId(query)
+    applyCurrentGameQuery(query)
+    return
+  }
+
+  const championId = readAutoChampionId(query)
+  if (!championId || championId === lastSeenAutoChampionId) {
+    return
+  }
+  lastSeenAutoChampionId = championId
   applyCurrentGameQuery(query)
 }
 
 function applyCurrentGameQuery(query: OpggChampionQuery) {
-  lastAppliedAutoQueryKey = buildAutoQueryKey(query)
+  lastSeenAutoChampionId = readAutoChampionId(query)
   applyingAutoFilter = true
   filter.championId = query.championId || 0
   filter.mode = normalizeMode(query.mode)
@@ -499,10 +512,12 @@ function restoreFollowCurrentGame() {
   followCurrentGame.value = true
   followState.followCurrentGame = true
   if (followState.lastAutoQuery) {
+    hasAppliedInitialAutoQuery = true
+    lastSeenAutoChampionId = readAutoChampionId(followState.lastAutoQuery)
     applyCurrentGameQuery(followState.lastAutoQuery)
     return
   }
-  void refreshCurrentGameQuery()
+  void refreshCurrentGameQuery({ apply: 'initial' })
 }
 
 function normalizeManualFilter() {
@@ -544,17 +559,6 @@ function readQueryRankedTier(query?: OpggChampionQuery) {
   return tier && tier !== 'all' ? tier : 'all'
 }
 
-function buildAutoQueryKey(query: OpggChampionQuery) {
-  const mode = normalizeMode(query.mode)
-  return [
-    query.championId || 0,
-    mode,
-    'kr',
-    mode === 'ranked' ? resolveRankedTier(query.tier) : 'all',
-    mode === 'ranked' ? resolveRankedPosition(query.position) : 'none'
-  ].join(':')
-}
-
 function resolveRankedPosition(value: unknown): OpggRankedPosition | 'none' {
   const position = typeof value === 'string' ? value.trim() : ''
   if (isOpggRankedPosition(position)) {
@@ -573,6 +577,11 @@ function resolveDefaultPositionSummoner(sessionData?: SessionData): Summoner | n
 
 function normalizePuuid(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function readAutoChampionId(query: OpggChampionQuery) {
+  const championId = Number(query.championId)
+  return Number.isFinite(championId) && championId > 0 ? championId : null
 }
 
 function showChampionDetail(championId: number) {

@@ -142,70 +142,126 @@
             :class="section.key === 'runes' ? 'opgg-build-row opgg-rune-row' : 'opgg-build-row'"
           >
             <div v-if="section.key === 'runes'" class="opgg-rune-groups">
-              <div class="opgg-rune-paths">
-                <div class="opgg-rune-line opgg-rune-line-primary">
-                  <span class="opgg-icon-slot opgg-rune-page-icon">
-                    <img
-                      v-if="runeGroup(option).primaryPageId && getIconUrl(section.iconType, runeGroup(option).primaryPageId)"
-                      :src="getIconUrl(section.iconType, runeGroup(option).primaryPageId)"
-                      alt=""
-                      @error="markAssetLoadFailed"
-                    />
-                  </span>
-                  <div class="opgg-rune-icon-chain">
-                    <span
-                      v-for="(id, idIndex) in runeGroup(option).primaryRuneIds"
-                      :key="`primary-rune-${index}-${id}-${idIndex}`"
-                      class="opgg-icon-slot"
-                    >
-                      <img
-                        v-if="getIconUrl(section.iconType, id)"
-                        :src="getIconUrl(section.iconType, id)"
-                        alt=""
-                        @error="markAssetLoadFailed"
-                      />
-                    </span>
-                  </div>
-                </div>
-                <div class="opgg-rune-line opgg-rune-line-secondary">
-                  <span class="opgg-icon-slot opgg-rune-page-icon">
-                    <img
-                      v-if="runeGroup(option).secondaryPageId && getIconUrl(section.iconType, runeGroup(option).secondaryPageId)"
-                      :src="getIconUrl(section.iconType, runeGroup(option).secondaryPageId)"
-                      alt=""
-                      @error="markAssetLoadFailed"
-                    />
-                  </span>
-                  <div class="opgg-rune-icon-chain">
-                    <span
-                      v-for="(id, idIndex) in runeGroup(option).secondaryRuneIds"
-                      :key="`secondary-rune-${index}-${id}-${idIndex}`"
-                      class="opgg-icon-slot"
-                    >
-                      <img
-                        v-if="getIconUrl(section.iconType, id)"
-                        :src="getIconUrl(section.iconType, id)"
-                        alt=""
-                        @error="markAssetLoadFailed"
-                      />
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div class="opgg-rune-shards">
-                <div class="opgg-rune-icon-chain">
-                  <span
-                    v-for="(id, idIndex) in runeGroup(option).statModIds"
-                    :key="`stat-rune-${index}-${id}-${idIndex}`"
-                    class="opgg-icon-slot opgg-rune-shard-icon"
+              <div class="opgg-rune-board">
+                <div v-if="section.options.length > 1" class="opgg-rune-tabs" role="tablist" aria-label="Rune builds">
+                  <button
+                    v-for="(runeOption, runeIndex) in section.options"
+                    :key="`rune-tab-${runeIndex}`"
+                    type="button"
+                    class="opgg-rune-tab"
+                    :class="{ active: selectedRuneOption(section) === runeOption }"
+                    role="tab"
+                    :aria-selected="selectedRuneOption(section) === runeOption"
+                    :tabindex="selectedRuneOption(section) === runeOption ? 0 : -1"
+                    @click.stop="selectRuneOption(runeIndex)"
                   >
-                    <img
-                      v-if="getIconUrl(section.iconType, id)"
-                      :src="getIconUrl(section.iconType, id)"
-                      alt=""
-                      @error="markAssetLoadFailed"
-                    />
-                  </span>
+                    <span class="opgg-rune-tab-icons">
+                      <span class="opgg-icon-slot opgg-rune-tab-icon">
+                        <img
+                          v-if="runeGroup(runeOption).primaryPageId && getIconUrl(section.iconType, runeGroup(runeOption).primaryPageId)"
+                          :src="getIconUrl(section.iconType, runeGroup(runeOption).primaryPageId)"
+                          alt=""
+                          @error="markAssetLoadFailed"
+                        />
+                      </span>
+                      <span class="opgg-icon-slot opgg-rune-tab-icon">
+                        <img
+                          v-if="runeGroup(runeOption).secondaryPageId && getIconUrl(section.iconType, runeGroup(runeOption).secondaryPageId)"
+                          :src="getIconUrl(section.iconType, runeGroup(runeOption).secondaryPageId)"
+                          alt=""
+                          @error="markAssetLoadFailed"
+                        />
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                <div class="opgg-rune-board-grid">
+                  <div class="opgg-rune-tree opgg-rune-tree-primary">
+                    <div
+                      v-for="row in selectedPrimaryRuneRows(section)"
+                      :key="row.key"
+                      class="opgg-rune-row-grid"
+                      :class="{ 'opgg-rune-keystone-row': row.isKeystone }"
+                      :style="{ '--opgg-rune-row-columns': String(row.slots.length) }"
+                    >
+                      <template
+                        v-for="(slot, slotIndex) in row.slots"
+                        :key="`${row.key}-${slotIndex}`"
+                      >
+                        <span
+                          v-if="slot.id !== null"
+                          class="opgg-icon-slot opgg-rune-slot"
+                          :class="{ selected: slot.selected, muted: !slot.selected }"
+                        >
+                          <img
+                            v-if="getIconUrl(section.iconType, slot.id)"
+                            :src="getIconUrl(section.iconType, slot.id)"
+                            alt=""
+                            @error="markAssetLoadFailed"
+                          />
+                        </span>
+                      </template>
+                      <span v-if="row.isKeystone" class="opgg-rune-keystone-summary">
+                        <strong>{{ runeKeystoneName(option) }}</strong>
+                        <span>胜率：{{ formatPercent(option.winRate) }}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="opgg-rune-tree opgg-rune-tree-secondary">
+                    <div
+                      v-for="row in selectedSecondaryRuneRows(section)"
+                      :key="row.key"
+                      class="opgg-rune-row-grid"
+                      :style="{ '--opgg-rune-row-columns': String(row.slots.length) }"
+                    >
+                      <template
+                        v-for="(slot, slotIndex) in row.slots"
+                        :key="`${row.key}-${slotIndex}`"
+                      >
+                        <span
+                          v-if="slot.id !== null"
+                          class="opgg-icon-slot opgg-rune-slot"
+                          :class="{ selected: slot.selected, muted: !slot.selected }"
+                        >
+                          <img
+                            v-if="getIconUrl(section.iconType, slot.id)"
+                            :src="getIconUrl(section.iconType, slot.id)"
+                            alt=""
+                            @error="markAssetLoadFailed"
+                          />
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="opgg-rune-shards">
+                    <div
+                      v-for="slot in selectedRuneShardRows(section)"
+                      :key="slot.key"
+                      class="opgg-rune-shard-row"
+                    >
+                      <span
+                        class="opgg-icon-slot opgg-rune-slot opgg-rune-shard-icon selected"
+                      >
+                        <img
+                          v-if="getIconUrl(section.iconType, slot.id)"
+                          :src="getIconUrl(section.iconType, slot.id)"
+                          alt=""
+                          @error="markAssetLoadFailed"
+                        />
+                      </span>
+                      <span class="opgg-rune-shard-label">{{ runeStatLabel(slot.id) }}</span>
+                    </div>
+                  </div>
+                  <div class="opgg-rune-board-metrics">
+                    <span class="opgg-rune-board-metric opgg-rune-board-pick">
+                      <span>选择率</span>
+                      <strong>{{ formatPercent(option.pickRate) }}</strong>
+                    </span>
+                    <span class="opgg-rune-board-metric opgg-rune-board-games">
+                      <span>样本</span>
+                      <strong>{{ formatRuneTabGames(option.games) }}</strong>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -247,7 +303,7 @@
                 <span v-else>{{ formatSkillId(id) }}</span>
               </span>
             </div>
-            <div class="opgg-build-meta">
+            <div v-if="section.key !== 'runes'" class="opgg-build-meta">
               <div class="opgg-build-meta-column opgg-build-pick">
                 <span>选择率</span>
                 <strong>{{ formatPercent(option.pickRate) }}</strong>
@@ -278,6 +334,7 @@ import {
   getAugmentIconUrl,
   getChampionIconUrl,
   getItemIconUrl,
+  getPerkAssetDetails,
   getPerkIconUrl,
   getSummonerSpellIconUrl,
   markAssetLoadFailed
@@ -298,11 +355,70 @@ interface LastItemColumn {
   options: OpggBuildOption[]
 }
 
+interface RuneLayoutSlot {
+  id: number | null
+  selected: boolean
+}
+
+interface RuneLayoutRow {
+  key: string
+  slots: RuneLayoutSlot[]
+  isKeystone: boolean
+}
+
+interface RuneShardRow {
+  key: string
+  id: number
+}
+
 const INITIAL_VISIBLE_BUILD_OPTIONS = 2
 const LAST_ITEM_COLUMN_SIZE = 5
 const LAST_ITEM_COLLAPSED_OPTIONS_PER_COLUMN = 2
 const LAST_ITEM_COLUMN_TITLES = ['第四件装备', '第五件装备', '第六件装备']
 const LAST_ITEMS_SECTION_KEY = 'lastItems'
+const RUNE_TREE_LAYOUTS: Record<number, number[][]> = {
+  8000: [
+    [8005, 8008, 8021, 8010],
+    [9101, 9111, 8009],
+    [9104, 9105, 9103],
+    [8014, 8017, 8299]
+  ],
+  8100: [
+    [8112, 8128, 9923],
+    [8126, 8139, 8143],
+    [8137, 8140, 8141],
+    [8135, 8105, 8106]
+  ],
+  8200: [
+    [8214, 8229, 8230, 8992],
+    [8224, 8226, 8275],
+    [8210, 8234, 8233],
+    [8237, 8232, 8236]
+  ],
+  8300: [
+    [8351, 8360, 8369],
+    [8306, 8304, 8321],
+    [8313, 8352, 8345],
+    [8347, 8410, 8316]
+  ],
+  8400: [
+    [8437, 8439, 8465],
+    [8446, 8463, 8401],
+    [8429, 8444, 8473],
+    [8451, 8453, 8242]
+  ]
+}
+const RUNE_STAT_LABELS: Record<number, string> = {
+  5001: '成长生命值',
+  5002: '护甲',
+  5003: '魔抗',
+  5005: '攻击速度',
+  5007: '技能急速',
+  5008: '适应之力',
+  5010: '移动速度',
+  5011: '固定生命值',
+  5012: '成长双抗'
+}
 
 const props = defineProps<{
   query: OpggChampionQuery
@@ -322,6 +438,7 @@ defineEmits<{
 }>()
 
 const expandedSectionKeys = ref<Set<string>>(new Set())
+const selectedRuneOptionIndex = ref(0)
 
 const panelTitle = computed(() => {
   const explicitTitle = props.title?.trim()
@@ -353,9 +470,14 @@ const buildSections = computed<BuildSection[]>(() => {
 
 watch(() => props.detail?.championId, () => {
   expandedSectionKeys.value = new Set()
+  selectedRuneOptionIndex.value = 0
 })
 
 function visibleSectionOptions(section: BuildSection): OpggBuildOption[] {
+  if (section.key === 'runes') {
+    const option = selectedRuneOption(section)
+    return option ? [option] : []
+  }
   if (isSectionExpanded(section.key)) {
     return section.options
   }
@@ -363,6 +485,9 @@ function visibleSectionOptions(section: BuildSection): OpggBuildOption[] {
 }
 
 function canExpandSection(section: BuildSection): boolean {
+  if (section.key === 'runes') {
+    return false
+  }
   if (isLastItemsSection(section)) {
     return lastItemColumns(section).some(column => column.options.length > LAST_ITEM_COLLAPSED_OPTIONS_PER_COLUMN)
   }
@@ -420,6 +545,89 @@ function runeGroup(option: OpggBuildOption): OpggRuneGroups {
   return groups
 }
 
+function selectedRuneOption(section: BuildSection): OpggBuildOption | null {
+  if (section.key !== 'runes' || !section.options.length) {
+    return null
+  }
+  const index = Math.min(Math.max(selectedRuneOptionIndex.value, 0), section.options.length - 1)
+  return section.options[index] || section.options[0] || null
+}
+
+function selectRuneOption(index: number) {
+  selectedRuneOptionIndex.value = Math.max(0, index)
+}
+
+function selectedRuneGroup(section: BuildSection): OpggRuneGroups | null {
+  const option = selectedRuneOption(section)
+  return option ? runeGroup(option) : null
+}
+
+function selectedPrimaryRuneRows(section: BuildSection): RuneLayoutRow[] {
+  const group = selectedRuneGroup(section)
+  return group ? runeTreeRows(group.primaryPageId, group.primaryRuneIds, true) : []
+}
+
+function selectedSecondaryRuneRows(section: BuildSection): RuneLayoutRow[] {
+  const group = selectedRuneGroup(section)
+  return group ? runeTreeRows(group.secondaryPageId, group.secondaryRuneIds, false) : []
+}
+
+function selectedRuneShardRows(section: BuildSection): RuneShardRow[] {
+  const group = selectedRuneGroup(section)
+  return group ? runeStatRows(group.statModIds) : []
+}
+
+function runeKeystoneName(option: OpggBuildOption): string {
+  const keystoneId = runeGroup(option).primaryRuneIds[0]
+  const details = getPerkAssetDetails(keystoneId)
+  return details?.name?.trim() || details?.nameTRA?.trim() || '基石符文'
+}
+
+function runeTreeRows(pageId: number | null, selectedIds: number[], includeKeystone: boolean): RuneLayoutRow[] {
+  if (!pageId) {
+    return fallbackRuneRows(selectedIds, includeKeystone ? 'primary' : 'secondary')
+  }
+  const layoutRows = includeKeystone ? RUNE_TREE_LAYOUTS[pageId] : RUNE_TREE_LAYOUTS[pageId]?.slice(1)
+  if (!layoutRows?.length) {
+    return fallbackRuneRows(selectedIds, includeKeystone ? 'primary' : 'secondary')
+  }
+  const selectedSet = new Set(selectedIds)
+  return layoutRows
+    .map((rowIds, rowIndex) => {
+      const isKeystoneRow = includeKeystone && rowIndex === 0
+      const visibleRuneRowIds = isKeystoneRow ? rowIds.filter(id => selectedSet.has(id)) : rowIds
+
+      return {
+        key: `${pageId}-${includeKeystone ? 'primary' : 'secondary'}-${rowIndex}`,
+        isKeystone: isKeystoneRow,
+        slots: visibleRuneRowIds.map(id => ({ id, selected: selectedSet.has(id) }))
+      }
+    })
+    .filter(row => row.slots.length > 0)
+}
+
+function runeStatRows(selectedIds: number[]): RuneShardRow[] {
+  return selectedIds
+    .filter(id => Number.isFinite(id) && id > 0)
+    .map((id, index) => ({
+      key: `stat-${index}-${id}`,
+      id,
+      label: runeStatLabel(id)
+    }))
+}
+
+function runeStatLabel(id: number): string {
+  return RUNE_STAT_LABELS[id] || '属性碎片'
+}
+
+function fallbackRuneRows(ids: number[], keyPrefix: string): RuneLayoutRow[] {
+  return ids.map((id, index) => ({
+    key: `${keyPrefix}-fallback-${index}`,
+    isKeystone: keyPrefix === 'primary' && index === 0,
+    slots: [{ id, selected: true }]
+  }))
+}
+
 function skillOrderSequence(option: OpggBuildOption): number[] {
   return (option.order?.length ? option.order : option.ids).filter(id => id >= 1 && id <= 4)
 }
@@ -448,6 +656,11 @@ function formatGameCount(value?: number | null): string {
 }
 
 function formatLastItemGames(value?: number | null): string {
+  const count = formatGameCount(value)
+  return count === '-' ? '-' : `${count} 场次`
+}
+
+function formatRuneTabGames(value?: number | null): string {
   const count = formatGameCount(value)
   return count === '-' ? '-' : `${count} 场次`
 }
@@ -780,51 +993,212 @@ function skillChipClass(id: number): string {
 
 .opgg-rune-row {
   align-items: stretch;
+  padding: 0;
+  background: transparent;
+  overflow-x: hidden;
 }
 
 .opgg-rune-groups {
+  flex: 1 1 auto;
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px 12px;
 }
 
-.opgg-rune-paths {
+.opgg-rune-board {
   min-width: 0;
+  min-height: 196px;
   display: grid;
-  gap: 8px;
+  align-content: start;
+  gap: 16px;
+  padding: 10px 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
 }
 
-.opgg-rune-line,
-.opgg-rune-icon-chain {
+.opgg-rune-tabs {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
-  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
 }
 
-.opgg-rune-line {
+.opgg-rune-tab {
+  flex: 0 0 auto;
+  min-height: 40px;
+  min-width: 86px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.opgg-rune-tab.active {
+  border-color: rgba(var(--accent-rgb), 0.72);
+  background: rgba(var(--accent-rgb), 0.14);
+}
+
+.opgg-rune-tab:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.66);
+  outline-offset: 2px;
+}
+
+.opgg-rune-tab-icons {
+  min-width: 0;
+  display: flex;
+  align-items: center;
   gap: 7px;
 }
 
-.opgg-rune-page-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  border-color: rgba(239, 68, 68, 0.62);
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.13);
+.opgg-rune-tab-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.opgg-rune-board-grid {
+  min-width: 0;
+  min-height: 138px;
+  display: grid;
+  grid-template-columns: max-content max-content max-content minmax(96px, 1fr);
+  justify-content: start;
+  align-items: start;
+  gap: clamp(24px, 4.6vw, 42px);
+  padding: 2px 4px 0;
+}
+
+.opgg-rune-tree {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.opgg-rune-tree-secondary {
+  justify-items: start;
+  padding-top: 34px;
+}
+
+.opgg-rune-row-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--opgg-rune-row-columns), 28px);
+  align-items: center;
+  column-gap: clamp(16px, 3.4vw, 28px);
+  row-gap: 12px;
+}
+
+.opgg-rune-keystone-row {
+  grid-template-columns: 28px max-content;
+  column-gap: 8px;
+}
+
+.opgg-rune-keystone-summary {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.opgg-rune-keystone-summary strong {
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.opgg-rune-keystone-summary span {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .opgg-rune-shards {
-  display: flex;
+  min-width: 0;
+  display: grid;
+  grid-auto-rows: max-content;
+  gap: 10px;
+  justify-items: start;
+  padding-top: 34px;
+}
+
+.opgg-rune-shard-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px max-content;
   align-items: center;
-  justify-content: flex-end;
+  column-gap: 8px;
+}
+
+.opgg-rune-shard-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .opgg-rune-shard-icon {
   background: rgba(var(--accent-rgb), 0.08);
+}
+
+.opgg-rune-board-metrics {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  justify-items: end;
+  padding-top: 34px;
+  white-space: nowrap;
+}
+
+.opgg-rune-board-metric {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.opgg-rune-board-metric > span {
+  color: #38bdf8;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.opgg-rune-board-metric strong {
+  font-size: 16px;
+}
+
+.opgg-rune-slot {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.opgg-rune-slot.selected {
+  border-color: rgba(var(--accent-rgb), 0.58);
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.opgg-rune-slot.muted {
+  opacity: 0.56;
+}
+
+.opgg-rune-slot.muted img {
+  filter: grayscale(1);
+  opacity: 0.48;
 }
 
 .opgg-skill-order {

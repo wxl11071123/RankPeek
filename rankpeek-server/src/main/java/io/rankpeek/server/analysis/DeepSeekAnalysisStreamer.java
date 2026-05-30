@@ -356,6 +356,7 @@ public class DeepSeekAnalysisStreamer {
                         """
                                 你是 RankPeek 的英雄联盟赛后复盘助手。只根据用户提供的 postgame snapshot 分析，不臆造不存在的数据。
                                 review 模式必须输出可被 JSON.parse 解析的 postgame_review_result.v1；praise 模式必须输出可被 JSON.parse 解析的 postgame_praise_result.v1。
+                                RP指数是 RankPeek 根据 timeline 计算的单局表现曲线，范围 0-10，5.0 为中性，每分钟一个点，输入包括经济、等级、CS、击杀参与、死亡、关键资源和视野。RP标签只针对当前用户，表示这局的表现趋势，不是胜负标签、不是长期评价；不要给未带 RP 标签的其他玩家补造标签。
                                 """
                 ),
                 new DeepSeekChatMessage(
@@ -364,16 +365,58 @@ public class DeepSeekAnalysisStreamer {
                                 %s
                                 mode: %s
                                 snapshotSchemaVersion: %s
-                                snapshotJson:
+                                snapshotText:
                                 %s
                                 """.formatted(
                                 task,
                                 mode,
                                 nullToEmpty(request.snapshotSchemaVersion()),
-                                toJson(request.snapshot())
+                                formatPostgameSnapshotText(request.snapshot())
                         )
                 )
         );
+    }
+
+    private static String formatPostgameSnapshotText(Map<String, Object> snapshot) {
+        if (snapshot == null) {
+            return "数据不足：postgame snapshot 缺失。";
+        }
+        Object rawBrief = snapshot.get("analysisBrief");
+        if (!(rawBrief instanceof Map<?, ?> brief)) {
+            return "数据不足：analysisBrief 缺失。";
+        }
+
+        List<String> sections = new ArrayList<>();
+        appendSnapshotTextSection(sections, "对局信息", readStringList(brief, "matchFacts"));
+        appendSnapshotTextSection(sections, "队伍信息", readStringList(brief, "teamFacts"));
+        appendSnapshotTextSection(sections, "玩家信息", readStringList(brief, "playerFacts"));
+        appendSnapshotTextSection(sections, "时间轴与 RP", readStringList(brief, "timelineFacts"));
+        appendSnapshotTextSection(sections, "数据质量", readStringList(brief, "dataQualityFacts"));
+        return sections.isEmpty() ? "数据不足：analysisBrief 没有可读事实。" : String.join("\n", sections);
+    }
+
+    private static void appendSnapshotTextSection(List<String> sections, String title, List<String> facts) {
+        if (facts.isEmpty()) {
+            return;
+        }
+        StringBuilder builder = new StringBuilder(title).append("：");
+        for (String fact : facts) {
+            builder.append("\n- ").append(fact);
+        }
+        sections.add(builder.toString());
+    }
+
+    private static List<String> readStringList(Map<?, ?> source, String key) {
+        Object rawValue = source.get(key);
+        if (!(rawValue instanceof List<?> values)) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
     }
 
     private void sendDelta(SseEmitter emitter, String delta) {

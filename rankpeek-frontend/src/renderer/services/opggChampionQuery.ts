@@ -137,7 +137,18 @@ function findCurrentPlayer(sessionData: SessionData): SessionSummoner | null {
     if (bySummonerId) return bySummonerId
   }
 
-  return players[0] || null
+  const currentGameName = normalizeKey(sessionData.currentSummoner?.gameName).toLowerCase()
+  const currentTagLine = normalizeKey(sessionData.currentSummoner?.tagLine).toLowerCase()
+  if (currentGameName) {
+    const byName = players.find(player => {
+      const playerGameName = normalizeKey(player.summoner?.gameName).toLowerCase()
+      const playerTagLine = normalizeKey(player.summoner?.tagLine).toLowerCase()
+      return playerGameName === currentGameName && (!currentTagLine || playerTagLine === currentTagLine)
+    })
+    if (byName) return byName
+  }
+
+  return null
 }
 
 function readChampionId(player: SessionSummoner | null): number | null {
