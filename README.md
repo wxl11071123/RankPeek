@@ -1,64 +1,73 @@
 # RankPeek
 
-[简体中文说明](README.zh-CN.md)
+[简体中文](README.zh-CN.md)
 
-RankPeek is a desktop scouting tool for League of Legends that helps you read the lobby before the game starts.
+RankPeek is a Windows desktop companion for League of Legends. It reads the local League Client, keeps a local match cache, and combines that with RankPeek cloud services for account, credits, OP.GG-style champion data, and AI analysis.
 
-It pulls data from the local League Client (LCU) and turns it into fast player lookup, recent match summaries, teammate and opponent tags, and live session scouting.
+The current development model is:
 
-## Why RankPeek
+- `rankpeek-frontend`: Electron + Vue 3 desktop app.
+- `rankpeek-backend`: local Windows agent on `127.0.0.1:8080` for LCU, SGP, assets, match history, and local cache workflows.
+- `rankpeek-server`: cloud service. The frontend uses `https://api.rankpeek.cn` by default. Do not start this locally unless you are working on cloud-server code.
 
-- Check a summoner's recent form without leaving the desktop app.
-- Read teammate and opponent signals during champion select.
-- Surface lightweight tags such as streaks, carry patterns, weak links, and champion comfort picks.
-- Open match details on demand instead of waiting for every game card to pre-load.
+## Current Features
 
-## Feature Highlights
+### Desktop Scouting
 
-### Lobby scouting
+- Current account, rank, recent form, and local status on the home page.
+- Champion-select and in-game session views for teammates and opponents.
+- Automatic app navigation for gameflow phases, without old queue/pick/ban automation features.
+- Local SQLite persistence for match records, match details, AI reports, and cache hydration.
 
-- Live player cards for the current session
-- Solo queue and flex rank visibility
-- Compact player tags designed for fast pre-game reading
-- Clear handling for private history, empty history, and fetch errors
+### Match History And Details
 
-### Match history
+- My match history and summoner lookup views.
+- Lazy-loaded match detail panels.
+- Team overview, rune/build details, charts, and timeline-backed detail tabs.
+- Ranked-only RP Index view when timeline and complete matchup data are available.
 
-- Recent matches with team rosters derived directly from match history data
-- Lazy-loaded match detail panels for better page speed
-- Teammate and opponent summary tags visible from the history page
-- Dedicated detail modal for deeper stats
+### RP Index
 
-### Player profiling
+RP Index is RankPeek's timeline-based single-match performance signal for ranked Solo/Duo and Flex games.
 
-- Summoner overview with recent trends
-- Best partner and tough opponent highlights
-- Summary tags for fast scanning
-- Full tag analysis view for deeper inspection
+- It uses economy, level, CS, kill participation, deaths, key objectives, and vision.
+- It is only generated when the match is ranked and the required timeline/detail data is available.
+- The match detail page shows the RP curve and final RP score.
+- AI snapshots use compact RP facts to avoid sending unnecessary token-heavy timeline data.
 
-### Automation
+### AI Analysis
 
-- Auto accept
-- Auto queue
-- Auto pick / ban helpers
-- Settings-driven toggles for repetitive client actions
+AI features are served through `rankpeek-server` and require a RankPeek account when the cloud server is using the real AI provider.
 
-> [!WARNING]
-> RankPeek strongly recommends that users do not enable automation features such as auto pick / ban, auto accept, or auto queue.
-> Any automation against the League client may increase account risk.
-> Any bans, restrictions, warnings, or other negative consequences caused by using this software are the sole responsibility of the user.
+- Pregame analysis for current lobby/team context.
+- Postgame review.
+- Postgame praise mode.
+- Electronic Coach: recent 20 ranked games data analysis, focused on RP, 15-minute matchup economy, kill participation, champion/role samples, and per-match facts.
+- Token usage and DeepSeek usage metadata are handled through the server path for later cost tracking.
 
-## How It Works
+### OP.GG Window
 
-RankPeek is a Windows desktop application built with:
+- Standalone OP.GG-style champion page inside Electron.
+- Champion list and champion detail views.
+- Rank, queue, region, role, and champion filters.
+- One-time auto jump on OP.GG page entry, plus a user-champion-selection jump during champion select.
+- Cloud-backed OP.GG champion data through `rankpeek-server`.
 
-- `Electron + Vue 3 + TypeScript` for the desktop UI
-- `Spring Boot + Java 21` for the local backend
-- `LCU HTTP + WebSocket` access for League client data
+### RankPeek Account And Credits
 
-The core experience is LCU-first. That means the app does not need a Riot public API key for its main scouting workflow, but it also respects the limits of what the local client can expose.
+- Login, registration email code, password reset, and session refresh.
+- Credit balance and ledger endpoints.
+- AI requests are authenticated and billable when real AI is enabled on the server.
+
+## Safety Position
+
+RankPeek is not an automation product. Old auto queue, auto accept, auto pick, and auto ban UI paths are intentionally not part of the current desktop app.
+
+Any feature that controls the League client should be treated as high-risk and reviewed separately. Users are responsible for any account consequences caused by client automation.
 
 ## Requirements
+
+For normal desktop development:
 
 - Windows 10 or Windows 11
 - A running League of Legends client
@@ -66,27 +75,37 @@ The core experience is LCU-first. That means the app does not need a Riot public
 - Java 21
 - Maven 3.9+
 
-For native packaging, you will also need:
+For native installer packaging:
 
 - GraalVM JDK 21
 - Visual Studio Build Tools with C++ support
+- A valid `GRAALVM_HOME` path in `build.bat`
 
-## Quick Start
+For cloud-server development:
 
-### 1. Start the backend
+- Java 21
+- Maven 3.9+
+- PostgreSQL only for production-like server runs; tests use H2
+
+## Quick Start: Desktop Development
+
+Normal client work uses the local `rankpeek-backend` plus the Electron frontend. The cloud server is already configured through `https://api.rankpeek.cn`.
+
+### 1. Start the local backend agent
 
 ```powershell
 .\scripts\dev-backend.bat
 ```
 
-The backend runs on `http://127.0.0.1:8080`.
+This starts `rankpeek-backend` on `http://127.0.0.1:8080` and sets:
 
-The development script sets `RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev`,
-so local development does not reuse or damage the packaged app cache under
-`%APPDATA%\RankPeek`. Use the default `%APPDATA%\RankPeek` data directory only
-when you explicitly need to reproduce a user production-cache issue.
+```text
+RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev
+```
 
-### 2. Start the desktop app in development mode
+That keeps development cache separate from a packaged app's production data.
+
+### 2. Start Electron
 
 ```powershell
 cd rankpeek-frontend
@@ -94,23 +113,44 @@ npm install
 npm run electron:dev
 ```
 
-This starts the Vite dev server and opens the Electron shell for live UI iteration.
+`electron:dev` builds the Electron main/preload bundles, starts Vite, and opens the desktop shell. In development mode, Electron expects the local backend agent to already be running on port `8080`.
 
-## Build a Release
+## Cloud Server Development
 
-For a full Windows release build with the native backend:
+Only start `rankpeek-server` locally when changing server endpoints, AI streaming, auth, credits, OP.GG proxying, admin tooling, or deployment code.
 
 ```powershell
-.\build.bat
+cd rankpeek-server
+mvn spring-boot:run
 ```
 
-Expected outputs:
+The default local-dev server listens on:
 
-- `rankpeek-backend/target/rankpeek-native.exe`
-- `rankpeek-frontend/release/RankPeek Setup <version>.exe`
-- `rankpeek-frontend/release/win-unpacked/`
+```text
+http://localhost:18080
+```
 
-If you only want to build the frontend package:
+To point the frontend at a local server instead of production:
+
+```powershell
+cd rankpeek-frontend
+$env:VITE_RANKPEEK_SERVER_BASE_URL = "http://localhost:18080"
+npm run electron:dev
+```
+
+More server details live in [rankpeek-server/README.md](rankpeek-server/README.md).
+
+## Build
+
+### Frontend bundles
+
+```powershell
+cd rankpeek-frontend
+npm install
+npm run build
+```
+
+### Electron installer
 
 ```powershell
 cd rankpeek-frontend
@@ -118,26 +158,85 @@ npm install
 npm run electron:build
 ```
 
+The Electron package expects a native local backend at:
+
+```text
+rankpeek-backend/target/rankpeek-native.exe
+```
+
+### Full Windows installer script
+
+```powershell
+.\build.bat
+```
+
+This script builds the native `rankpeek-backend` binary and then runs the Electron build. It is Windows-specific and currently expects `GRAALVM_HOME` to be adjusted for the local machine.
+
+### Cloud server jar
+
+```powershell
+cd rankpeek-server
+mvn -B -DskipTests package
+```
+
+CI also builds and uploads `rankpeek-server/target/rankpeek-server-0.1.0.jar`.
+
+## Test Commands
+
+Frontend targeted tests are plain Node test files:
+
+```powershell
+cd rankpeek-frontend
+node --test src/renderer/services/rankpeekServerClient.test.ts
+npm run build:renderer
+```
+
+Local backend tests:
+
+```powershell
+cd rankpeek-backend
+mvn test
+```
+
+Cloud server tests:
+
+```powershell
+cd rankpeek-server
+mvn test
+```
+
+Automation-removal guard:
+
+```powershell
+node scripts/check-no-automation.mjs
+```
+
 ## Project Layout
 
 ```text
-rankpeek-frontend/   Electron + Vue desktop client
-rankpeek-backend/    Spring Boot local service layer
-build.bat                  One-click native Windows build script
-docs/                      Design and planning notes
+rankpeek-frontend/              Electron + Vue desktop app
+rankpeek-backend/               Local Windows agent for LCU, SGP, assets, and cache
+rankpeek-server/                Cloud server for auth, credits, AI, OP.GG data, admin, and deployment
+rankpeek-server/deploy/ubuntu/  Production deployment scripts and templates
+docs/                           Planning, deployment, and product notes
+scripts/                        Development and repository guard scripts
+build.bat                       Windows native-backend + Electron packaging helper
 ```
 
-## Development Notes
+## Data And Privacy Boundaries
 
-- The repository is branded as `RankPeek`, while some internal folder names still use the older workspace naming.
-- Match history and session pages are optimized around summary tags first, with full details loaded only when needed.
-- Private match history is handled as a first-class state instead of being treated as missing data.
+- The local backend talks to the local League Client and SGP-compatible match sources for the desktop experience.
+- The cloud server handles RankPeek account, credits, AI requests, OP.GG champion data, and admin APIs.
+- The cloud server should not receive LCU tokens, SGP tokens, raw local cache databases, or unnecessary private match payloads.
+- AI input snapshots are intentionally compact and natural-language oriented to reduce cost and avoid sending raw game payloads.
 
 ## Known Limits
 
-- RankPeek is LCU-only for core match and lobby data.
-- If the League client does not expose certain private history details, the app can only degrade gracefully instead of bypassing that limit.
-- The app is currently Windows-first.
+- RankPeek is Windows-first.
+- The League client must be running for LCU-backed features.
+- Some history, timeline, or rune/build data may be unavailable when Riot/LCU/SGP sources do not expose it.
+- RP Index is limited to ranked 420/440 matches with usable timeline and complete matchup data.
+- AI features depend on the RankPeek cloud server, account status, credits, and provider availability.
 
 ## License
 
