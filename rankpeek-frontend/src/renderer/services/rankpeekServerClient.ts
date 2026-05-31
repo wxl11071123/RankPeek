@@ -1,21 +1,20 @@
-export const DEFAULT_RANKPEEK_SERVER_BASE_URL = 'https://api.rankpeek.cn'
-export const RANKPEEK_SERVER_BASE_URL = normalizeRankPeekServerBaseUrl(
-  import.meta.env?.VITE_RANKPEEK_SERVER_BASE_URL
-)
-export const RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT = '/api/server/diagnostics'
+import {
+  RANKPEEK_LOCAL_SERVICE_BASE_URL,
+  normalizeRankPeekLocalServiceBaseUrl
+} from './rankpeekLocalServiceClient.ts'
 
-const RANKPEEK_SERVER_UNAVAILABLE_MESSAGE = 'rankpeek-server 暂不可用，请确认 Ubuntu/WSL 服务已启动'
+export const DEFAULT_RANKPEEK_SERVER_BASE_URL = 'http://127.0.0.1:8080'
+export const RANKPEEK_SERVER_BASE_URL = RANKPEEK_LOCAL_SERVICE_BASE_URL
+export const RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT = '/api/v1/system/identity'
 
-export function normalizeRankPeekServerBaseUrl(value: string | undefined): string {
-  const trimmed = value?.trim()
-  if (!trimmed) {
-    return DEFAULT_RANKPEEK_SERVER_BASE_URL
-  }
-  return trimmed.replace(/\/+$/, '')
-}
+const RANKPEEK_SERVER_UNAVAILABLE_MESSAGE = 'rankpeek local backend unavailable; confirm 127.0.0.1:8080 is running.'
+
+export const normalizeRankPeekServerBaseUrl = normalizeRankPeekLocalServiceBaseUrl
 
 interface RankPeekServerDiagnosticsResponse {
   success?: boolean
+  code?: number
+  message?: string
   data?: {
     service?: string
     mode?: string
@@ -28,6 +27,8 @@ interface RankPeekServerDiagnosticsResponse {
 
 interface RankPeekServerApiResponse<T> {
   success?: boolean
+  code?: number
+  message?: string
   data?: T
   error?: {
     message?: string
@@ -145,21 +146,24 @@ export async function checkRankPeekServerDiagnostics(): Promise<RankPeekServerDi
     })
 
     if (!response.ok) {
-      return { available: false, message: `${RANKPEEK_SERVER_UNAVAILABLE_MESSAGE}（HTTP ${response.status}）` }
+      return { available: false, message: `${RANKPEEK_SERVER_UNAVAILABLE_MESSAGE} (HTTP ${response.status})` }
     }
 
     const payload = await parseDiagnosticsResponse(response)
-    if (payload.success === false) {
-      return { available: false, message: payload.error?.message || RANKPEEK_SERVER_UNAVAILABLE_MESSAGE }
+    if (payload.success === false || (payload.code !== undefined && payload.code !== 200)) {
+      return {
+        available: false,
+        message: payload.error?.message || payload.message || RANKPEEK_SERVER_UNAVAILABLE_MESSAGE
+      }
     }
-    if (payload.success !== true || !payload.data) {
+    if (!payload.data) {
       return { available: false, message: RANKPEEK_SERVER_UNAVAILABLE_MESSAGE }
     }
 
     return {
       available: true,
-      service: payload.data.service || 'rankpeek-server',
-      mode: payload.data.mode || 'unknown',
+      service: payload.data.service || 'rankpeek-backend',
+      mode: payload.data.mode || 'local',
       version: payload.data.version || 'unknown'
     }
   } catch {
@@ -188,7 +192,7 @@ export function getLatestChampionMeta(championId: number, tierScope: string): Pr
     return championMetaCache.get(cacheKey) as Promise<CnChampionMeta | null>
   }
 
-  const endpoint = `/api/cn-meta/champions/${encodeURIComponent(String(championId))}/latest?tierScope=${encodeURIComponent(normalizedTier)}`
+  const endpoint = `/api/v1/cn-meta/champions/${encodeURIComponent(String(championId))}/latest?tierScope=${encodeURIComponent(normalizedTier)}`
   const request = fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers: { Accept: 'application/json' }
@@ -229,14 +233,14 @@ export async function getOpggChampionDetail(query: OpggChampionDetailRequest): P
   if (query.tier) params.set('tier', query.tier)
   if (query.position) params.set('position', query.position)
 
-  const endpoint = `/api/opgg/champions/${encodeURIComponent(String(query.championId))}/detail?${params.toString()}`
+  const endpoint = `/api/v1/opgg/champions/${encodeURIComponent(String(query.championId))}/detail?${params.toString()}`
   const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
   const payload = await parseServerJson<OpggChampionDetail>(response)
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.error?.message || `OP.GG detail request failed: HTTP ${response.status}`)
+  if (!response.ok || payload.success === false || (payload.code !== undefined && payload.code !== 200)) {
+    throw new Error(payload.error?.message || payload.message || `OP.GG detail request failed: HTTP ${response.status}`)
   }
   return payload.data || null
 }
@@ -251,14 +255,14 @@ export async function getOpggChampionList(query: OpggChampionListRequest): Promi
   params.set('region', query.region)
   params.set('tier', query.tier || 'all')
 
-  const endpoint = `/api/opgg/champions?${params.toString()}`
+  const endpoint = `/api/v1/opgg/champions?${params.toString()}`
   const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
   const payload = await parseServerJson<OpggChampionList>(response)
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.error?.message || `OP.GG champion list request failed: HTTP ${response.status}`)
+  if (!response.ok || payload.success === false || (payload.code !== undefined && payload.code !== 200)) {
+    throw new Error(payload.error?.message || payload.message || `OP.GG champion list request failed: HTTP ${response.status}`)
   }
   return payload.data || null
 }

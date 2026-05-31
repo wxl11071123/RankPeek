@@ -11,38 +11,30 @@ import {
   RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
 } from './rankpeekServerClient.ts'
 
-test('uses the production HTTPS rankpeek-server endpoint by default', () => {
-  assert.equal(RANKPEEK_SERVER_BASE_URL, 'https://api.rankpeek.cn')
+test('uses the local backend endpoint by default', () => {
+  assert.equal(RANKPEEK_SERVER_BASE_URL, 'http://127.0.0.1:8080')
 })
 
-test('normalizes configured rankpeek-server base URLs', () => {
-  assert.equal(normalizeRankPeekServerBaseUrl(' http://127.0.0.1:18080/ '), 'http://127.0.0.1:18080')
-  assert.equal(normalizeRankPeekServerBaseUrl('https://api.rankpeek.cn///'), 'https://api.rankpeek.cn')
-  assert.equal(normalizeRankPeekServerBaseUrl(''), 'https://api.rankpeek.cn')
+test('normalizes configured local backend base URLs', () => {
+  assert.equal(normalizeRankPeekServerBaseUrl(' http://127.0.0.1:8080/ '), 'http://127.0.0.1:8080')
+  assert.equal(normalizeRankPeekServerBaseUrl('http://localhost:8080///'), 'http://localhost:8080')
+  assert.equal(normalizeRankPeekServerBaseUrl(''), 'http://127.0.0.1:8080')
 })
 
-test('checks rankpeek-server diagnostics through the configured server endpoint', async () => {
+test('checks local backend diagnostics through the configured endpoint', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init })
     return new Response(JSON.stringify({
-      success: true,
+      code: 200,
+      message: 'success',
       data: {
-        status: 'ok',
-        service: 'rankpeek-server',
-        mode: 'prod',
-        version: '0.1.0',
-        database: {
-          status: 'ok',
-          productName: 'PostgreSQL',
-          productVersion: '16.13'
-        },
-        flyway: {
-          status: 'ok',
-          currentVersion: '4',
-          appliedCount: 4
-        }
+        pid: 1234,
+        localDataRoot: 'C:/Users/example/AppData/Local/RankPeek-dev',
+        cacheDatabasePath: 'C:/Users/example/AppData/Local/RankPeek-dev/cache',
+        startedAt: '2026-05-31T00:00:00Z',
+        instanceId: 'dev'
       },
       error: null
     }), {
@@ -56,9 +48,9 @@ test('checks rankpeek-server diagnostics through the configured server endpoint'
 
     assert.deepEqual(result, {
       available: true,
-      service: 'rankpeek-server',
-      mode: 'prod',
-      version: '0.1.0'
+      service: 'rankpeek-backend',
+      mode: 'local',
+      version: 'unknown'
     })
     assert.equal(calls.length, 1)
     assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`)
@@ -78,8 +70,8 @@ test('diagnostics check returns unavailable instead of throwing', async () => {
     const result = await checkRankPeekServerDiagnostics()
 
     assert.equal(result.available, false)
-    assert.match(result.available ? '' : result.message, /rankpeek-server/)
-    assert.match(result.available ? '' : result.message, /Ubuntu\/WSL/)
+    assert.match(result.available ? '' : result.message, /rankpeek local backend/)
+    assert.match(result.available ? '' : result.message, /127\.0\.0\.1:8080/)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -96,13 +88,13 @@ test('diagnostics check treats invalid diagnostics payloads as unavailable', asy
     const result = await checkRankPeekServerDiagnostics()
 
     assert.equal(result.available, false)
-    assert.match(result.available ? '' : result.message, /rankpeek-server/)
+    assert.match(result.available ? '' : result.message, /rankpeek local backend/)
   } finally {
     globalThis.fetch = originalFetch
   }
 })
 
-test('server AI services use the shared rankpeek-server base URL', () => {
+test('server AI services still use the shared compatibility base URL during migration', () => {
   for (const relativePath of [
     './gamingAiServerSync.ts',
     './gamingAiServerStream.ts',
@@ -150,7 +142,7 @@ test('does not keep empty 101 champion meta responses in cache', async () => {
   }
 })
 
-test('fetches OP.GG champion detail through rankpeek-server with encoded filters', async () => {
+test('fetches OP.GG champion detail through local backend with encoded filters', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -194,7 +186,7 @@ test('fetches OP.GG champion detail through rankpeek-server with encoded filters
     assert.equal(detail?.stats.winRate, 0.51)
     assert.deepEqual(detail?.summonerSpells[0]?.ids, [4, 12])
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/opgg/champions/103/detail?mode=ranked&region=kr&tier=emerald_plus&position=mid`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/v1/opgg/champions/103/detail?mode=ranked&region=kr&tier=emerald_plus&position=mid`)
     assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch
@@ -228,7 +220,7 @@ test('OP.GG champion detail failures throw and do not return fake data', async (
   }
 })
 
-test('fetches OP.GG champion list through rankpeek-server without selecting a champion', async () => {
+test('fetches OP.GG champion list through local backend without selecting a champion', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -276,7 +268,7 @@ test('fetches OP.GG champion list through rankpeek-server without selecting a ch
     assert.equal(list?.items[0]?.championId, 103)
     assert.equal(list?.items[0]?.positions[0]?.counters[0]?.championId, 238)
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/opgg/champions?mode=ranked&region=kr&tier=emerald_plus`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/v1/opgg/champions?mode=ranked&region=kr&tier=emerald_plus`)
     assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch
