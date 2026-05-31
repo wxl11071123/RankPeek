@@ -694,7 +694,7 @@ git commit -m "feat(backend): add OpenAI-compatible AI streaming client"
 - Reference: `rankpeek-server/src/main/java/io/rankpeek/server/analysis/DeepSeekAnalysisStreamer.java`
 - Reference: `rankpeek-server/src/main/java/io/rankpeek/server/analysis/AnalysisController.java`
 
-- [ ] **Step 1: Write endpoint tests**
+- [x] **Step 1: Write endpoint tests**
 
 `LocalAiControllerTest` must assert:
 
@@ -704,7 +704,7 @@ git commit -m "feat(backend): add OpenAI-compatible AI streaming client"
 - Missing provider settings returns a local user-facing error code `AI_PROVIDER_NOT_CONFIGURED`.
 - Successful stream emits `start`, at least one `delta`, `usage`, and `done`.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 cd rankpeek-backend
@@ -713,7 +713,7 @@ mvn -Dtest=LocalAiControllerTest,LocalAiRunRepositoryTest test
 
 Expected: FAIL because local endpoints and tables do not exist.
 
-- [ ] **Step 3: Add local AI run schema**
+- [x] **Step 3: Add local AI run schema**
 
 Add `ai_analysis_runs` to `LocalCacheSchemaInitializer`:
 
@@ -754,7 +754,7 @@ jdbcTemplate.execute("""
         """);
 ```
 
-- [ ] **Step 4: Port request records**
+- [x] **Step 4: Port request records**
 
 Copy the shapes of server request records into local backend package `io.rankpeek.ai`:
 
@@ -765,7 +765,7 @@ Copy the shapes of server request records into local backend package `io.rankpee
 
 Keep JSON field names identical to current frontend payloads.
 
-- [ ] **Step 5: Port streamer behavior**
+- [x] **Step 5: Port streamer behavior**
 
 Adapt the useful parts of `DeepSeekAnalysisStreamer` into `LocalAiAnalysisStreamer`:
 
@@ -776,7 +776,7 @@ Adapt the useful parts of `DeepSeekAnalysisStreamer` into `LocalAiAnalysisStream
 - Keep coach summary JSON validation strict.
 - Emit frontend-compatible SSE events.
 
-- [ ] **Step 6: Implement run persistence**
+- [x] **Step 6: Implement run persistence**
 
 `LocalAiRunRepository` must:
 
@@ -786,7 +786,7 @@ Adapt the useful parts of `DeepSeekAnalysisStreamer` into `LocalAiAnalysisStream
 - List by endpoint/status with limit/offset.
 - Fetch by id.
 
-- [ ] **Step 7: Run backend AI tests**
+- [x] **Step 7: Run backend AI tests**
 
 ```powershell
 cd rankpeek-backend
@@ -795,7 +795,7 @@ mvn -Dtest=LocalAiControllerTest,LocalAiRunRepositoryTest,OpenAiCompatibleChatCl
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add rankpeek-backend/src/main/java/io/rankpeek/cache/LocalCacheSchemaInitializer.java rankpeek-backend/src/main/java/io/rankpeek/ai rankpeek-backend/src/test/java/io/rankpeek/ai

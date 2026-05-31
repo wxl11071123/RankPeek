@@ -60,6 +60,19 @@ public class AiProviderSettingsService {
                 .orElseGet(this::defaultSettings);
     }
 
+    StoredAiProviderSettings requireRunnableSettings() {
+        StoredAiProviderSettings settings = repository.findDefault()
+                .orElseThrow(() -> new LocalAiConfigurationException("Please configure AI provider and API key first."));
+        if (!settings.enabled()
+                || isBlank(settings.providerId())
+                || isBlank(settings.baseUrl())
+                || isBlank(settings.model())
+                || isBlank(settings.apiKeyEncrypted())) {
+            throw new LocalAiConfigurationException("Please configure AI provider and API key first.");
+        }
+        return settings;
+    }
+
     public AiProviderSettings saveSettings(AiProviderSettingsSaveRequest request) {
         StoredAiProviderSettings existing = repository.findDefault().orElse(null);
         String providerId = normalizeProviderId(request.providerId());
