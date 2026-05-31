@@ -15,9 +15,11 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 @Component
@@ -48,6 +50,40 @@ public class OpenAiCompatibleChatClient {
             Consumer<AiTokenUsage> onUsage
     ) {
         stream(options, messages, onDelta, onUsage, true);
+    }
+
+    public List<String> listModels(ChatOptions options) {
+        ChatOptions normalized = options.normalized();
+        if (normalized.apiKey().isBlank()) {
+            throw new AiProviderException("AI provider API key is not configured");
+        }
+
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(normalized.connectTimeout())
+                .build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(normalized.modelsUrl()))
+                .timeout(normalized.readTimeout())
+                .header("Authorization", "Bearer " + normalized.apiKey())
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AiProviderException("AI provider models request was interrupted", exception);
+        } catch (HttpTimeoutException exception) {
+            throw new AiProviderException("AI provider models request timed out", exception);
+        } catch (IOException exception) {
+            throw new AiProviderException("AI provider models request failed", exception);
+        }
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new AiProviderException("AI provider models request failed: HTTP " + response.statusCode());
+        }
+        return parseModelList(response.body());
     }
 
     private void stream(
@@ -104,8 +140,7 @@ public class OpenAiCompatibleChatClient {
         body.put("model", options.model());
         body.put("stream", true);
         body.put("stream_options", Map.of("include_usage", true));
-        body.put("max_tokens", options.maxTokens());
-        body.put("temperature", options.temperature());
+        applyProviderModeOptions(body, options, jsonObjectResponse);
         if (jsonObjectResponse) {
             body.put("response_format", Map.of("type", "json_object"));
         }
@@ -119,6 +154,34 @@ public class OpenAiCompatibleChatClient {
             return objectMapper.writeValueAsString(body);
         } catch (JsonProcessingException exception) {
             throw new AiProviderException("AI provider request body serialization failed", exception);
+        }
+    }
+
+    private void applyProviderModeOptions(Map<String, Object> body, ChatOptions options, boolean jsonObjectResponse) {
+        switch (options.providerId()) {
+            case "deepseek" -> applyThinkingBody(body, options.deepThinkingEnabled());
+            case "qwen" -> {
+                body.put("enable_thinking", jsonObjectResponse ? false : options.deepThinkingEnabled());
+                if (options.webSearchEnabled()) {
+                    body.put("enable_search", true);
+                }
+            }
+            case "mimo" -> applyThinkingBody(body, options.deepThinkingEnabled());
+            case "glm" -> {
+                applyThinkingBody(body, options.deepThinkingEnabled());
+                if (options.webSearchEnabled()) {
+                    body.put("tools", List.of(Map.of("type", "web_search")));
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void applyThinkingBody(Map<String, Object> body, boolean enabled) {
+        body.put("thinking", Map.of("type", enabled ? "enabled" : "disabled"));
+        if (enabled) {
+            body.put("reasoning_effort", "high");
         }
     }
 
@@ -214,6 +277,38 @@ public class OpenAiCompatibleChatClient {
         return value.canConvertToLong() ? value.asLong() : 0L;
     }
 
+    private List<String> parseModelList(String body) {
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            Set<String> models = new LinkedHashSet<>();
+            collectModelIds(root.path("data"), models);
+            collectModelIds(root.path("models"), models);
+            return List.copyOf(models);
+        } catch (JsonProcessingException exception) {
+            throw new AiProviderException("AI provider models response is not valid JSON", exception);
+        }
+    }
+
+    private void collectModelIds(JsonNode node, Set<String> models) {
+        if (!node.isArray()) {
+            return;
+        }
+        for (JsonNode item : node) {
+            String model = "";
+            if (item.isTextual()) {
+                model = item.asText();
+            } else {
+                JsonNode id = item.path("id");
+                if (id.isTextual()) {
+                    model = id.asText();
+                }
+            }
+            if (!model.isBlank()) {
+                models.add(model.trim());
+            }
+        }
+    }
+
     public record ChatOptions(
             String providerId,
             String baseUrl,
@@ -221,8 +316,8 @@ public class OpenAiCompatibleChatClient {
             String apiKey,
             Duration connectTimeout,
             Duration readTimeout,
-            int maxTokens,
-            Double temperature,
+            boolean webSearchEnabled,
+            boolean deepThinkingEnabled,
             boolean jsonObjectResponse
     ) {
         private ChatOptions normalized() {
@@ -233,14 +328,18 @@ public class OpenAiCompatibleChatClient {
                     apiKey == null ? "" : apiKey.trim(),
                     connectTimeout == null ? DEFAULT_CONNECT_TIMEOUT : connectTimeout,
                     readTimeout == null ? DEFAULT_READ_TIMEOUT : readTimeout,
-                    maxTokens > 0 ? maxTokens : 4096,
-                    temperature == null ? 0.4d : temperature,
+                    webSearchEnabled,
+                    deepThinkingEnabled,
                     jsonObjectResponse
             );
         }
 
         private String chatCompletionsUrl() {
             return baseUrl + "/chat/completions";
+        }
+
+        private String modelsUrl() {
+            return baseUrl + "/models";
         }
 
         private static String normalizeBaseUrl(String value) {

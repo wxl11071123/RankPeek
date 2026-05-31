@@ -15,11 +15,7 @@ test('getLocalCostSummary calls local cost summary endpoint', async () => {
       data: {
         from: '2026-05-01',
         to: '2026-05-31',
-        aiCostCny: 0.12,
-        manualCostCny: 9.9,
-        totalCostCny: 10.02,
-        eventCount: 3,
-        manualItemCount: 1
+        totalCostCny: 0.12
       }
     }), {
       status: 200,
@@ -31,7 +27,7 @@ test('getLocalCostSummary calls local cost summary endpoint', async () => {
     const summary = await getLocalCostSummary()
 
     assert.equal(calls[0], `${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/costs/summary`)
-    assert.equal(summary.totalCostCny, 10.02)
+    assert.equal(summary.totalCostCny, 0.12)
   } finally {
     globalThis.fetch = originalFetch
   }

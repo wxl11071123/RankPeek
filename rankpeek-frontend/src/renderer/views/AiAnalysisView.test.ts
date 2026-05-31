@@ -29,10 +29,14 @@ test('AI report center uses local provider and cost clients', () => {
   assert.match(source, /localCostSummary/)
   assert.match(source, /recentAiCostEvents/)
   assert.match(source, /refreshLocalAiOverview/)
-  assert.match(source, /aiAnalysis\.providerStatusTitle/)
+  assert.match(source, /aiAnalysis\.providerEnabled/)
   assert.match(source, /aiAnalysis\.costSummaryTitle/)
   assert.match(source, /aiAnalysis\.recentRunsTitle/)
-  assert.match(source, /aiAnalysis\.manualCostShortcut/)
+  assert.doesNotMatch(source, /providerStatusTitle|provider:\s*localAiSettings\.value\.providerId/)
+  assert.match(source, /\.league-account-showcase\s*\{[\s\S]*border-top:/)
+  assert.doesNotMatch(source, /\.league-account-showcase\s*\{[\s\S]*border-bottom:/)
+  assert.doesNotMatch(source, /manualCostShortcut|openManualCostShortcut|costManual|manualCostCny/)
+  assert.doesNotMatch(source, /cost-mini-row|aiAnalysis\.costAi|aiAnalysis\.costTotal|aiCostCny/)
 
   assert.doesNotMatch(source, oldAccountClientPattern)
   assert.doesNotMatch(source, /RankPeekAuthSession|RankPeekCreditLedgerEntry/)
@@ -62,22 +66,31 @@ test('AI report center local cost copy exists in both locales', () => {
   const enUS = readRendererFile('i18n/locales/en-US.ts')
 
   for (const key of [
-    'aiAnalysis.providerStatusTitle',
     'aiAnalysis.providerEnabled',
     'aiAnalysis.providerDisabled',
     'aiAnalysis.providerConfigureAction',
     'aiAnalysis.costSummaryTitle',
     'aiAnalysis.costToday',
     'aiAnalysis.costMonth',
-    'aiAnalysis.costAi',
-    'aiAnalysis.costManual',
-    'aiAnalysis.costTotal',
     'aiAnalysis.recentRunsTitle',
     'aiAnalysis.recentRunsEmpty',
-    'aiAnalysis.manualCostShortcut',
     'aiAnalysis.localCostUnavailable'
   ]) {
     assert.ok(zhCN.includes(`'${key}'`), `zh-CN should include ${key}`)
     assert.ok(enUS.includes(`'${key}'`), `en-US should include ${key}`)
   }
+  for (const removedKey of [
+    'aiAnalysis.providerStatusTitle',
+    'aiAnalysis.costManual',
+    'aiAnalysis.manualCostShortcut',
+    'aiAnalysis.costAi',
+    'aiAnalysis.costTotal'
+  ]) {
+    assert.equal(zhCN.includes(`'${removedKey}'`), false, `zh-CN should not include ${removedKey}`)
+    assert.equal(enUS.includes(`'${removedKey}'`), false, `en-US should not include ${removedKey}`)
+  }
+  assert.match(zhCN, /'aiAnalysis\.providerEnabled': '模型：\{model\}'/)
+  assert.match(enUS, /'aiAnalysis\.providerEnabled': 'Model: \{model\}'/)
+  assert.equal(zhCN.includes('手动成本'), false, 'zh-CN should not mention manual costs')
+  assert.equal(enUS.includes('Manual Cost'), false, 'en-US should not mention manual costs')
 })

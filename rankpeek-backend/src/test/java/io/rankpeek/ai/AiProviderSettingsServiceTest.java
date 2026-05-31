@@ -51,9 +51,27 @@ class AiProviderSettingsServiceTest {
                 "model",
                 "api_key_encrypted",
                 "api_key_masked",
-                "temperature",
-                "max_tokens",
+                "selected_api_key_id",
+                "web_search_enabled",
+                "deep_thinking_enabled",
                 "pricing_raw_json",
+                "updated_at"
+        );
+        assertThat(columns).doesNotContain("temperature", "max_tokens");
+
+        List<String> keyColumns = jdbcTemplate.queryForList("""
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'ai_provider_keys'
+                """, String.class);
+        assertThat(keyColumns).contains(
+                "id",
+                "provider_id",
+                "base_url",
+                "name",
+                "api_key_encrypted",
+                "api_key_masked",
+                "created_at",
                 "updated_at"
         );
     }
@@ -66,27 +84,26 @@ class AiProviderSettingsServiceTest {
         assertThat(settings.providerId()).isEqualTo("deepseek");
         assertThat(settings.baseUrl()).isEqualTo("https://api.deepseek.com");
         assertThat(settings.model()).isEqualTo("deepseek-v4-flash");
+        assertThat(settings.apiKeyId()).isNull();
         assertThat(settings.apiKeySaved()).isFalse();
         assertThat(settings.apiKeyMasked()).isNull();
-        assertThat(settings.temperature()).isEqualTo(0.4d);
-        assertThat(settings.maxTokens()).isEqualTo(4096);
-        assertThat(settings.pricing().currency()).isEqualTo("CNY");
-        assertThat(settings.pricing().inputCacheHitCnyPerMillionTokens()).isEqualByComparingTo("0.02");
-        assertThat(settings.pricing().inputCacheMissCnyPerMillionTokens()).isEqualByComparingTo("1");
-        assertThat(settings.pricing().outputCnyPerMillionTokens()).isEqualByComparingTo("2");
+        assertThat(settings.webSearchEnabled()).isFalse();
+        assertThat(settings.deepThinkingEnabled()).isFalse();
+        assertThat(settings.pricing()).isNull();
     }
 
     @Test
-    void saveSettings_normalizesBaseUrlMasksApiKeyAndPersistsPricing() {
+    void saveSettings_normalizesBaseUrlMasksApiKeyPersistsModesAndOptionalPricing() {
         AiProviderSettings settings = service.saveSettings(new AiProviderSettingsSaveRequest(
                 true,
                 "deepseek",
                 " https://api.deepseek.com/// ",
                 "deepseek-v4-pro",
                 "sk-1234567890abcdef",
+                null,
                 true,
-                0.7d,
-                2048,
+                true,
+                true,
                 new AiProviderPricing(
                         "CNY",
                         new BigDecimal("0.025"),
@@ -98,10 +115,11 @@ class AiProviderSettingsServiceTest {
         assertThat(settings.enabled()).isTrue();
         assertThat(settings.baseUrl()).isEqualTo("https://api.deepseek.com");
         assertThat(settings.model()).isEqualTo("deepseek-v4-pro");
+        assertThat(settings.apiKeyId()).isNull();
         assertThat(settings.apiKeySaved()).isTrue();
-        assertThat(settings.apiKeyMasked()).isEqualTo("sk-...cdef");
-        assertThat(settings.temperature()).isEqualTo(0.7d);
-        assertThat(settings.maxTokens()).isEqualTo(2048);
+        assertThat(settings.apiKeyMasked()).isEqualTo("sk-****cdef");
+        assertThat(settings.webSearchEnabled()).isTrue();
+        assertThat(settings.deepThinkingEnabled()).isTrue();
         assertThat(settings.pricing().inputCacheHitCnyPerMillionTokens()).isEqualByComparingTo("0.025");
 
         String storedKey = jdbcTemplate.queryForObject(
@@ -109,7 +127,30 @@ class AiProviderSettingsServiceTest {
                 String.class
         );
         assertThat(storedKey).isEqualTo("sk-1234567890abcdef");
-        assertThat(service.getSettings().apiKeyMasked()).isEqualTo("sk-...cdef");
+        assertThat(service.getSettings().apiKeyMasked()).isEqualTo("sk-****cdef");
+    }
+
+    @Test
+    void saveSettings_prefillsDomesticProviderBaseUrlAndKeepsBlankPricing() {
+        AiProviderSettings settings = service.saveSettings(new AiProviderSettingsSaveRequest(
+                true,
+                "qwen",
+                "   ",
+                "qwen-plus",
+                "sk-qwen",
+                null,
+                true,
+                true,
+                false,
+                null
+        ));
+
+        assertThat(settings.providerId()).isEqualTo("qwen");
+        assertThat(settings.baseUrl()).isEqualTo("https://dashscope.aliyuncs.com/compatible-mode/v1");
+        assertThat(settings.webSearchEnabled()).isTrue();
+        assertThat(settings.deepThinkingEnabled()).isFalse();
+        assertThat(settings.pricing()).isNull();
+        assertThat(service.getSettings().pricing()).isNull();
     }
 
     @Test
@@ -120,9 +161,10 @@ class AiProviderSettingsServiceTest {
                 "https://api.deepseek.com",
                 " ",
                 "sk-test",
+                null,
                 true,
-                0.4d,
-                4096,
+                false,
+                false,
                 null
         ))).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("model");
@@ -134,7 +176,8 @@ class AiProviderSettingsServiceTest {
                 "deepseek",
                 "https://api.deepseek.com",
                 "deepseek-v4-flash",
-                ""
+                "",
+                null
         ));
 
         assertThat(response.configured()).isFalse();
@@ -151,9 +194,10 @@ class AiProviderSettingsServiceTest {
                 "https://api.deepseek.com",
                 "deepseek-v4-flash",
                 "sk-saved-secret",
+                null,
                 true,
-                0.4d,
-                4096,
+                false,
+                false,
                 null
         ));
         OpenAiCompatibleChatClient chatClient = mock(OpenAiCompatibleChatClient.class);
@@ -161,7 +205,7 @@ class AiProviderSettingsServiceTest {
         doAnswer(invocation -> {
             options.set(invocation.getArgument(0));
             return null;
-        }).when(chatClient).streamChat(any(OpenAiCompatibleChatClient.ChatOptions.class), anyList(), any(), any());
+        }).when(chatClient).streamJsonChat(any(OpenAiCompatibleChatClient.ChatOptions.class), anyList(), any(), any());
         service = new AiProviderSettingsService(
                 new AiProviderSettingsRepository(jdbcTemplate),
                 chatClient
@@ -171,7 +215,8 @@ class AiProviderSettingsServiceTest {
                 "custom-openai-compatible",
                 " https://provider.example/v1/// ",
                 "free-model",
-                ""
+                "",
+                null
         ));
 
         assertThat(response.configured()).isTrue();
@@ -181,5 +226,210 @@ class AiProviderSettingsServiceTest {
         assertThat(options.get().baseUrl()).isEqualTo("https://provider.example/v1");
         assertThat(options.get().model()).isEqualTo("free-model");
         assertThat(options.get().apiKey()).isEqualTo("sk-saved-secret");
+        assertThat(options.get().webSearchEnabled()).isFalse();
+        assertThat(options.get().deepThinkingEnabled()).isFalse();
+    }
+
+    @Test
+    void listModels_usesUnsavedBaseUrlAndFallsBackToSavedApiKey() {
+        service.saveSettings(new AiProviderSettingsSaveRequest(
+                true,
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "sk-saved-secret",
+                null,
+                true,
+                false,
+                false,
+                null
+        ));
+        OpenAiCompatibleChatClient chatClient = mock(OpenAiCompatibleChatClient.class);
+        AtomicReference<OpenAiCompatibleChatClient.ChatOptions> options = new AtomicReference<>();
+        doAnswer(invocation -> {
+            options.set(invocation.getArgument(0));
+            return List.of("free-model-a", "free-model-b");
+        }).when(chatClient).listModels(any(OpenAiCompatibleChatClient.ChatOptions.class));
+        service = new AiProviderSettingsService(
+                new AiProviderSettingsRepository(jdbcTemplate),
+                chatClient
+        );
+
+        AiProviderModelsResponse response = service.listModels(new AiProviderModelsRequest(
+                "custom-openai-compatible",
+                " https://provider.example/v1/// ",
+                "",
+                null
+        ));
+
+        assertThat(response.models()).containsExactly("free-model-a", "free-model-b");
+        assertThat(options.get().providerId()).isEqualTo("custom-openai-compatible");
+        assertThat(options.get().baseUrl()).isEqualTo("https://provider.example/v1");
+        assertThat(options.get().model()).isEqualTo("models");
+        assertThat(options.get().apiKey()).isEqualTo("sk-saved-secret");
+    }
+
+    @Test
+    void saveApiKey_usesDefaultProviderNameWhenNameIsBlankMasksKeyAndAllowsDuplicateNames() {
+        AiProviderKey first = service.saveApiKey(new AiProviderKeySaveRequest(
+                "deepseek",
+                " https://api.deepseek.com/// ",
+                " ",
+                "sk-1234567890abcdef"
+        ));
+        AiProviderKey second = service.saveApiKey(new AiProviderKeySaveRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                first.name(),
+                "sk-abcdef1234567890"
+        ));
+
+        assertThat(first.id()).isNotBlank();
+        assertThat(first.providerId()).isEqualTo("deepseek");
+        assertThat(first.baseUrl()).isEqualTo("https://api.deepseek.com");
+        assertThat(first.name()).isEqualTo("DeepSeek-sk-****cdef");
+        assertThat(first.apiKeyMasked()).isEqualTo("sk-****cdef");
+        assertThat(second.name()).isEqualTo(first.name());
+
+        List<AiProviderKey> keys = service.listApiKeys("deepseek", "https://api.deepseek.com");
+        assertThat(keys).extracting(AiProviderKey::id).containsExactlyInAnyOrder(first.id(), second.id());
+    }
+
+    @Test
+    void saveSettings_canSelectStoredApiKeyByIdWithoutRawKeyInRequest() {
+        AiProviderKey key = service.saveApiKey(new AiProviderKeySaveRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                "RankPeek primary",
+                "sk-selected-secret"
+        ));
+
+        AiProviderSettings settings = service.saveSettings(new AiProviderSettingsSaveRequest(
+                true,
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "",
+                key.id(),
+                false,
+                false,
+                false,
+                null
+        ));
+
+        assertThat(settings.apiKeyId()).isEqualTo(key.id());
+        assertThat(settings.apiKeyMasked()).isEqualTo("sk-****cret");
+
+        String storedKey = jdbcTemplate.queryForObject(
+                "SELECT api_key_encrypted FROM ai_provider_settings WHERE id = 'default'",
+                String.class
+        );
+        assertThat(storedKey).isEqualTo("sk-selected-secret");
+    }
+
+    @Test
+    void listModels_usesSelectedStoredApiKeyId() {
+        AiProviderKey key = service.saveApiKey(new AiProviderKeySaveRequest(
+                "custom-openai-compatible",
+                "https://provider.example/v1",
+                "free key",
+                "sk-selected-model-key"
+        ));
+        OpenAiCompatibleChatClient chatClient = mock(OpenAiCompatibleChatClient.class);
+        AtomicReference<OpenAiCompatibleChatClient.ChatOptions> options = new AtomicReference<>();
+        doAnswer(invocation -> {
+            options.set(invocation.getArgument(0));
+            return List.of("free-model-a");
+        }).when(chatClient).listModels(any(OpenAiCompatibleChatClient.ChatOptions.class));
+        service = new AiProviderSettingsService(
+                new AiProviderSettingsRepository(jdbcTemplate),
+                chatClient
+        );
+
+        AiProviderModelsResponse response = service.listModels(new AiProviderModelsRequest(
+                "custom-openai-compatible",
+                "https://provider.example/v1",
+                "",
+                key.id()
+        ));
+
+        assertThat(response.models()).containsExactly("free-model-a");
+        assertThat(options.get().apiKey()).isEqualTo("sk-selected-model-key");
+    }
+
+    @Test
+    void deleteApiKey_removesStoredKeyAndClearsDefaultSettingsWhenSelected() {
+        AiProviderKey key = service.saveApiKey(new AiProviderKeySaveRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                "RankPeek primary",
+                "sk-selected-secret"
+        ));
+        service.saveSettings(new AiProviderSettingsSaveRequest(
+                true,
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "",
+                key.id(),
+                false,
+                false,
+                false,
+                null
+        ));
+
+        service.deleteApiKey(key.id());
+
+        assertThat(service.listApiKeys("deepseek", "https://api.deepseek.com")).isEmpty();
+        AiProviderSettings settings = service.getSettings();
+        assertThat(settings.apiKeyId()).isNull();
+        assertThat(settings.apiKeySaved()).isFalse();
+        assertThat(settings.apiKeyMasked()).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT api_key_encrypted FROM ai_provider_settings WHERE id = 'default'",
+                String.class
+        )).isNull();
+    }
+
+    @Test
+    void deleteApiKey_keepsDefaultSettingsWhenDeletingUnselectedKey() {
+        AiProviderKey selected = service.saveApiKey(new AiProviderKeySaveRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                "Selected",
+                "sk-selected-secret"
+        ));
+        AiProviderKey unused = service.saveApiKey(new AiProviderKeySaveRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                "Unused",
+                "sk-unused-secret"
+        ));
+        service.saveSettings(new AiProviderSettingsSaveRequest(
+                true,
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "",
+                selected.id(),
+                false,
+                false,
+                false,
+                null
+        ));
+
+        service.deleteApiKey(unused.id());
+
+        assertThat(service.listApiKeys("deepseek", "https://api.deepseek.com"))
+                .extracting(AiProviderKey::id)
+                .containsExactly(selected.id());
+        AiProviderSettings settings = service.getSettings();
+        assertThat(settings.apiKeyId()).isEqualTo(selected.id());
+        assertThat(settings.apiKeySaved()).isTrue();
+        assertThat(settings.apiKeyMasked()).isEqualTo("sk-****cret");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT api_key_encrypted FROM ai_provider_settings WHERE id = 'default'",
+                String.class
+        )).isEqualTo("sk-selected-secret");
     }
 }

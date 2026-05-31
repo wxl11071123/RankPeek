@@ -7,8 +7,9 @@ record StoredAiProviderSettings(
         String model,
         String apiKeyEncrypted,
         String apiKeyMasked,
-        Double temperature,
-        int maxTokens,
+        String selectedApiKeyId,
+        boolean webSearchEnabled,
+        boolean deepThinkingEnabled,
         String pricingRawJson,
         long updatedAt
 ) {

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('./index.html', import.meta.url), 'utf8')
 
-test('content security policy allows production and local rankpeek-server requests', () => {
-  assert.match(source, /connect-src[^"]*https:\/\/api\.rankpeek\.cn/)
+test('content security policy allows only local desktop backend requests', () => {
+  assert.match(source, /connect-src[^"]*http:\/\/127\.0\.0\.1:8080/)
   assert.match(source, /connect-src[^"]*http:\/\/127\.0\.0\.1:18080/)
+  assert.doesNotMatch(source, /connect-src[^"]*https:\/\/api\.rankpeek\.cn/)
 })

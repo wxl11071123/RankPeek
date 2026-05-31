@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiClient } from '@/api/httpClient'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from '@/i18n'
@@ -10,10 +10,17 @@ import {
   extractCacheClearErrorMessage
 } from '@/services/cacheClearFeedback'
 import {
+  LOCAL_AI_PROVIDER_PRESETS,
+  deleteLocalAiProviderApiKey,
+  formatLocalAiProviderApiKeyLabel,
+  getLocalAiProviderApiKeys,
   getLocalAiProviders,
   getLocalAiSettings,
+  refreshLocalAiProviderModels,
+  saveLocalAiProviderApiKey,
   saveLocalAiSettings,
   testLocalAiProviderSettings,
+  type LocalAiProviderApiKey,
   type LocalAiPricing,
   type LocalAiProviderProfile,
   type LocalAiSettings,
@@ -27,9 +34,15 @@ import brandSymbolWhite from '@/assets/branding/rankpeek-symbol-white.png'
 import brandEyeBlack from '@/assets/branding/rankpeek-eye-black.png'
 import brandEyeWhite from '@/assets/branding/rankpeek-eye-white.png'
 
-type PricingMode = 'preset' | 'custom'
+interface AiPricingFormState {
+  currency: string
+  inputCacheHitCnyPerMillionTokens: string
+  inputCacheMissCnyPerMillionTokens: string
+  outputCnyPerMillionTokens: string
+}
+
 interface AiProviderFormState extends Omit<SaveLocalAiSettingsRequest, 'pricing'> {
-  pricing: LocalAiPricing
+  pricing: AiPricingFormState
 }
 
 const themeStore = useThemeStore()
@@ -41,22 +54,34 @@ const matchModeOptions = ref<GameModeOption[]>([])
 const savingMatchSettings = ref(false)
 const clearingUserCacheMode = ref<CacheClearMode | null>(null)
 const checkingLocalServer = ref(false)
-const localAiProviderProfiles = ref<LocalAiProviderProfile[]>([])
+const localAiProviderProfiles = ref<LocalAiProviderProfile[]>(
+  LOCAL_AI_PROVIDER_PRESETS.map(provider => ({ ...provider, models: [...provider.models] }))
+)
 const localAiSettings = ref<LocalAiSettings | null>(null)
 const loadingAiSettings = ref(false)
 const savingAiSettings = ref(false)
 const testingAiConnection = ref(false)
+const loadingAiModels = ref(false)
+const loadingAiApiKeys = ref(false)
+const savingApiKey = ref(false)
+const deletingApiKey = ref(false)
+const aiProviderModelOptions = ref<string[]>([])
+const localAiApiKeys = ref<LocalAiProviderApiKey[]>([])
+const selectedApiKeyId = ref('')
 const aiProviderStatusMessage = ref('')
-const apiKeyInput = ref('')
-const saveApiKey = ref(false)
-const pricingMode = ref<PricingMode>('preset')
+const apiKeyDialogOpen = ref(false)
+const newApiKeyInput = ref('')
+const newApiKeyNameInput = ref('')
+let aiModelRefreshTimer: number | null = null
+let lastAutoModelRefreshKey = ''
+let aiKeyListTimer: number | null = null
 
-const defaultAiPricing = {
+const emptyAiPricing = (): AiPricingFormState => ({
   currency: 'CNY',
-  inputCacheHitCnyPerMillionTokens: 0.02,
-  inputCacheMissCnyPerMillionTokens: 1,
-  outputCnyPerMillionTokens: 2
-}
+  inputCacheHitCnyPerMillionTokens: '',
+  inputCacheMissCnyPerMillionTokens: '',
+  outputCnyPerMillionTokens: ''
+})
 
 const aiProviderForm = reactive<AiProviderFormState>({
   enabled: true,
@@ -64,10 +89,10 @@ const aiProviderForm = reactive<AiProviderFormState>({
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-v4-flash',
   apiKey: '',
-  saveApiKey: false,
-  temperature: 0.4,
-  maxTokens: 4096,
-  pricing: { ...defaultAiPricing }
+  apiKeyId: null,
+  webSearchEnabled: false,
+  deepThinkingEnabled: false,
+  pricing: emptyAiPricing()
 })
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
@@ -91,14 +116,49 @@ const selectedProviderProfile = computed(() =>
   localAiProviderProfiles.value.find(provider => provider.id === aiProviderForm.providerId) ?? null
 )
 
-const aiSavedKeyLabel = computed(() => {
-  if (!localAiSettings.value?.apiKeySaved) {
-    return t('settings.aiNoSavedKey')
+const selectedProviderApiKeyUrl = computed(() => selectedProviderProfile.value?.apiKeyUrl?.trim() || '')
+
+const selectedProviderSupportsWebSearch = computed(() =>
+  selectedProviderProfile.value?.supportsWebSearch ?? true
+)
+
+const selectedProviderSupportsDeepThinking = computed(() =>
+  selectedProviderProfile.value?.supportsDeepThinking ?? true
+)
+
+const modelSelectOptions = computed(() => {
+  const options = [...aiProviderModelOptions.value]
+  const currentModel = aiProviderForm.model.trim()
+  if (currentModel && options.length > 0 && !options.includes(currentModel)) {
+    return [currentModel, ...options]
   }
-  return localAiSettings.value.apiKeyMasked
-    ? t('settings.aiSavedKey', { key: localAiSettings.value.apiKeyMasked })
-    : t('settings.aiSavedKey', { key: 'saved' })
+  return options
 })
+
+const selectedApiKey = computed(() =>
+  localAiApiKeys.value.find(key => key.id === selectedApiKeyId.value) ?? null
+)
+
+function toggleAiProviderEnabled() {
+  if (loadingAiSettings.value) {
+    return
+  }
+  aiProviderForm.enabled = !aiProviderForm.enabled
+}
+
+function toggleAiProviderWebSearch() {
+  if (!selectedProviderSupportsWebSearch.value) {
+    return
+  }
+  aiProviderForm.webSearchEnabled = !aiProviderForm.webSearchEnabled
+}
+
+function toggleAiProviderDeepThinking() {
+  if (!selectedProviderSupportsDeepThinking.value) {
+    return
+  }
+  aiProviderForm.deepThinkingEnabled = !aiProviderForm.deepThinkingEnabled
+}
 
 if (window.electronAPI) {
   window.electronAPI.getVersion().then(version => {
@@ -110,6 +170,16 @@ onMounted(() => {
   void loadUserSettings()
   void loadLocalAiProviderSettings()
 })
+
+watch(
+  () => [aiProviderForm.providerId, aiProviderForm.baseUrl, selectedApiKeyId.value] as const,
+  () => scheduleAutoRefreshAiProviderModels()
+)
+
+watch(
+  () => [aiProviderForm.providerId, aiProviderForm.baseUrl] as const,
+  () => scheduleLoadAiApiKeys()
+)
 
 async function loadUserSettings() {
   try {
@@ -137,6 +207,7 @@ async function loadLocalAiProviderSettings() {
     ])
     localAiProviderProfiles.value = providers
     applyLocalAiSettings(settings)
+    await loadAiApiKeys(settings.apiKeyId ?? '')
   } catch (error) {
     console.error('Failed to load local AI settings', error)
     aiProviderStatusMessage.value = t('settings.aiSettingsUnavailable')
@@ -151,12 +222,12 @@ function applyLocalAiSettings(settings: LocalAiSettings) {
   aiProviderForm.providerId = settings.providerId
   aiProviderForm.baseUrl = settings.baseUrl
   aiProviderForm.model = settings.model
-  aiProviderForm.temperature = settings.temperature
-  aiProviderForm.maxTokens = settings.maxTokens
-  aiProviderForm.pricing = settings.pricing ? { ...settings.pricing } : { ...defaultAiPricing }
-  apiKeyInput.value = ''
-  saveApiKey.value = false
-  pricingMode.value = settings.pricing ? 'custom' : 'preset'
+  aiProviderForm.apiKeyId = settings.apiKeyId ?? null
+  selectedApiKeyId.value = settings.apiKeyId ?? ''
+  aiProviderForm.webSearchEnabled = settings.webSearchEnabled
+  aiProviderForm.deepThinkingEnabled = settings.deepThinkingEnabled
+  aiProviderForm.pricing = pricingToForm(settings.pricing)
+  resetNewApiKeyForm()
 }
 
 function applyProviderDefaults() {
@@ -165,11 +236,16 @@ function applyProviderDefaults() {
     return
   }
   aiProviderForm.baseUrl = provider.defaultBaseUrl || aiProviderForm.baseUrl
-  aiProviderForm.model = provider.models[0] || aiProviderForm.model
-  if (provider.id === 'deepseek') {
-    aiProviderForm.pricing = { ...defaultAiPricing }
-    pricingMode.value = 'preset'
-  }
+  aiProviderForm.model = ''
+  aiProviderForm.apiKeyId = null
+  selectedApiKeyId.value = ''
+  resetNewApiKeyForm()
+  setAiProviderModelOptions([])
+  aiProviderForm.webSearchEnabled = aiProviderForm.webSearchEnabled && provider.supportsWebSearch
+  aiProviderForm.deepThinkingEnabled = aiProviderForm.deepThinkingEnabled && provider.supportsDeepThinking
+  aiProviderForm.pricing = emptyAiPricing()
+  scheduleLoadAiApiKeys()
+  scheduleAutoRefreshAiProviderModels()
 }
 
 async function saveAiProviderSettings(showAlert = true): Promise<boolean> {
@@ -216,18 +292,258 @@ async function testLocalAiProviderConnection() {
   }
 }
 
+async function loadAiApiKeys(preferredKeyId = selectedApiKeyId.value) {
+  const baseUrl = aiProviderForm.baseUrl.trim()
+  if (!baseUrl) {
+    localAiApiKeys.value = []
+    selectedApiKeyId.value = ''
+    aiProviderForm.apiKeyId = null
+    return
+  }
+
+  loadingAiApiKeys.value = true
+  try {
+    const keys = await getLocalAiProviderApiKeys(aiProviderForm.providerId, baseUrl)
+    localAiApiKeys.value = keys
+    const preferred = preferredKeyId && keys.some(key => key.id === preferredKeyId)
+      ? preferredKeyId
+      : ''
+    selectedApiKeyId.value = preferred
+    aiProviderForm.apiKeyId = preferred || null
+  } catch (error) {
+    console.error('Failed to load local AI provider keys', error)
+    localAiApiKeys.value = []
+    selectedApiKeyId.value = ''
+    aiProviderForm.apiKeyId = null
+  } finally {
+    loadingAiApiKeys.value = false
+  }
+}
+
+function scheduleLoadAiApiKeys() {
+  if (loadingAiSettings.value) {
+    return
+  }
+  if (aiKeyListTimer !== null) {
+    window.clearTimeout(aiKeyListTimer)
+  }
+  aiKeyListTimer = window.setTimeout(() => {
+    void loadAiApiKeys()
+  }, 400)
+}
+
+function handleSavedApiKeyChange() {
+  aiProviderForm.apiKeyId = selectedApiKeyId.value || null
+  scheduleAutoRefreshAiProviderModels()
+}
+
+function openAddApiKeyDialog() {
+  resetNewApiKeyForm()
+  apiKeyDialogOpen.value = true
+}
+
+function closeAddApiKeyDialog() {
+  if (savingApiKey.value) {
+    return
+  }
+  apiKeyDialogOpen.value = false
+  resetNewApiKeyForm()
+}
+
+function resetNewApiKeyForm() {
+  newApiKeyInput.value = ''
+  newApiKeyNameInput.value = ''
+}
+
+async function saveAiProviderApiKey() {
+  const rawKey = newApiKeyInput.value.trim()
+  if (!rawKey) {
+    aiProviderStatusMessage.value = t('settings.aiApiKeyRequired')
+    return
+  }
+  savingApiKey.value = true
+  aiProviderStatusMessage.value = ''
+  try {
+    const key = await saveLocalAiProviderApiKey({
+      providerId: aiProviderForm.providerId,
+      baseUrl: aiProviderForm.baseUrl,
+      name: newApiKeyNameInput.value,
+      apiKey: rawKey
+    })
+    await loadAiApiKeys(key.id)
+    selectedApiKeyId.value = key.id
+    aiProviderForm.apiKeyId = key.id
+    apiKeyDialogOpen.value = false
+    resetNewApiKeyForm()
+    aiProviderStatusMessage.value = t('settings.aiApiKeySaved')
+    scheduleAutoRefreshAiProviderModels()
+  } catch (error) {
+    console.error('Failed to save local AI provider key', error)
+    aiProviderStatusMessage.value = error instanceof Error && error.message
+      ? error.message
+      : t('settings.aiSettingsUnavailable')
+  } finally {
+    savingApiKey.value = false
+  }
+}
+
+async function deleteAiProviderApiKey() {
+  const keyId = selectedApiKeyId.value
+  if (!keyId) {
+    return
+  }
+  const keyLabel = selectedApiKey.value
+    ? formatLocalAiProviderApiKeyLabel(selectedApiKey.value)
+    : keyId
+  if (!window.confirm(t('settings.aiDeleteApiKeyConfirm', { name: keyLabel }))) {
+    return
+  }
+
+  deletingApiKey.value = true
+  aiProviderStatusMessage.value = ''
+  try {
+    await deleteLocalAiProviderApiKey(keyId)
+    selectedApiKeyId.value = ''
+    aiProviderForm.apiKeyId = null
+    localAiApiKeys.value = localAiApiKeys.value.filter(key => key.id !== keyId)
+    await loadAiApiKeys('')
+    aiProviderStatusMessage.value = t('settings.aiApiKeyDeleted')
+  } catch (error) {
+    console.error('Failed to delete local AI provider key', error)
+    aiProviderStatusMessage.value = error instanceof Error && error.message
+      ? error.message
+      : t('settings.aiSettingsUnavailable')
+  } finally {
+    deletingApiKey.value = false
+  }
+}
+
+async function refreshAiProviderModels(options: { silent?: boolean } = {}) {
+  if (!aiProviderForm.baseUrl.trim()) {
+    if (!options.silent) {
+      aiProviderStatusMessage.value = t('settings.aiModelsUnavailable')
+    }
+    return
+  }
+
+  loadingAiModels.value = true
+  if (!options.silent) {
+    aiProviderStatusMessage.value = ''
+  }
+
+  try {
+    const models = await refreshLocalAiProviderModels(buildAiProviderModelsRequest())
+    setAiProviderModelOptions(models)
+    if (!aiProviderForm.model && models[0]) {
+      aiProviderForm.model = models[0]
+    }
+    if (!options.silent) {
+      aiProviderStatusMessage.value = t('settings.aiModelsLoaded')
+    }
+  } catch (error) {
+    console.error('Failed to refresh local AI provider models', error)
+    if (!options.silent) {
+      aiProviderStatusMessage.value = t('settings.aiModelsUnavailable')
+    }
+  } finally {
+    loadingAiModels.value = false
+  }
+}
+
+function scheduleAutoRefreshAiProviderModels() {
+  if (loadingAiSettings.value) {
+    return
+  }
+  const baseUrl = aiProviderForm.baseUrl.trim()
+  if (!baseUrl || !selectedApiKeyId.value) {
+    return
+  }
+
+  const refreshKey = `${aiProviderForm.providerId}|${baseUrl}|${selectedApiKeyId.value}`
+  if (refreshKey === lastAutoModelRefreshKey) {
+    return
+  }
+  if (aiModelRefreshTimer !== null) {
+    window.clearTimeout(aiModelRefreshTimer)
+  }
+  aiModelRefreshTimer = window.setTimeout(() => {
+    lastAutoModelRefreshKey = refreshKey
+    void refreshAiProviderModels({ silent: true })
+  }, 600)
+}
+
+function buildAiProviderModelsRequest() {
+  return {
+    providerId: aiProviderForm.providerId,
+    baseUrl: aiProviderForm.baseUrl,
+    apiKey: '',
+    apiKeyId: selectedApiKeyId.value || null
+  }
+}
+
+function setAiProviderModelOptions(models: string[]) {
+  const unique = new Set<string>()
+  for (const model of models) {
+    const normalized = model.trim()
+    if (normalized) {
+      unique.add(normalized)
+    }
+  }
+  aiProviderModelOptions.value = Array.from(unique)
+}
+
 function buildAiProviderRequest(): SaveLocalAiSettingsRequest {
   return {
     enabled: aiProviderForm.enabled,
     providerId: aiProviderForm.providerId,
     baseUrl: aiProviderForm.baseUrl,
     model: aiProviderForm.model,
-    apiKey: apiKeyInput.value,
-    saveApiKey: saveApiKey.value,
-    temperature: aiProviderForm.temperature,
-    maxTokens: aiProviderForm.maxTokens,
-    pricing: pricingMode.value === 'custom' ? aiProviderForm.pricing : { ...defaultAiPricing }
+    apiKey: '',
+    apiKeyId: selectedApiKeyId.value || null,
+    webSearchEnabled: aiProviderForm.webSearchEnabled && selectedProviderSupportsWebSearch.value,
+    deepThinkingEnabled: aiProviderForm.deepThinkingEnabled && selectedProviderSupportsDeepThinking.value,
+    pricing: buildAiPricingPayload()
   }
+}
+
+function pricingToForm(pricing?: LocalAiPricing | null): AiPricingFormState {
+  if (!pricing) {
+    return emptyAiPricing()
+  }
+  return {
+    currency: pricing.currency || 'CNY',
+    inputCacheHitCnyPerMillionTokens: formatOptionalPrice(pricing.inputCacheHitCnyPerMillionTokens),
+    inputCacheMissCnyPerMillionTokens: formatOptionalPrice(pricing.inputCacheMissCnyPerMillionTokens),
+    outputCnyPerMillionTokens: formatOptionalPrice(pricing.outputCnyPerMillionTokens)
+  }
+}
+
+function buildAiPricingPayload(): LocalAiPricing | null {
+  const inputCacheHit = parseOptionalPrice(aiProviderForm.pricing.inputCacheHitCnyPerMillionTokens)
+  const inputCacheMiss = parseOptionalPrice(aiProviderForm.pricing.inputCacheMissCnyPerMillionTokens)
+  const output = parseOptionalPrice(aiProviderForm.pricing.outputCnyPerMillionTokens)
+  if (inputCacheHit === null && inputCacheMiss === null && output === null) {
+    return null
+  }
+  return {
+    currency: aiProviderForm.pricing.currency || 'CNY',
+    inputCacheHitCnyPerMillionTokens: inputCacheHit,
+    inputCacheMissCnyPerMillionTokens: inputCacheMiss,
+    outputCnyPerMillionTokens: output
+  }
+}
+
+function parseOptionalPrice(value: string): number | null {
+  const normalized = value.trim()
+  if (!normalized) {
+    return null
+  }
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+function formatOptionalPrice(value?: number | null): string {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
 }
 
 function buildAiProviderTestRequest() {
@@ -235,7 +551,8 @@ function buildAiProviderTestRequest() {
     providerId: aiProviderForm.providerId,
     baseUrl: aiProviderForm.baseUrl,
     model: aiProviderForm.model,
-    apiKey: apiKeyInput.value
+    apiKey: '',
+    apiKeyId: selectedApiKeyId.value || null
   }
 }
 
@@ -341,25 +658,38 @@ async function openExternal(url: string) {
           <h2>{{ t('settings.aiProviderTitle') }}</h2>
           <p>{{ t('settings.aiProviderDescription') }}</p>
         </div>
-        <button
-          class="secondary-btn compact"
-          type="button"
-          :disabled="checkingLocalServer"
-          @click="checkLocalRankPeekServer"
-        >
-          {{ checkingLocalServer ? t('settings.checkingLocalServer') : t('settings.checkLocalServer') }}
-        </button>
+        <div class="ai-provider-header-actions">
+          <button
+            class="settings-switch"
+            type="button"
+            role="switch"
+            :aria-checked="aiProviderForm.enabled"
+            :class="{ active: aiProviderForm.enabled }"
+            :disabled="loadingAiSettings"
+            @click="toggleAiProviderEnabled"
+          >
+            <span class="switch-track">
+              <span class="switch-thumb"></span>
+            </span>
+            <span class="switch-label">{{ t('settings.aiEnabled') }}</span>
+          </button>
+          <button
+            class="secondary-btn compact"
+            type="button"
+            :disabled="checkingLocalServer"
+            @click="checkLocalRankPeekServer"
+          >
+            {{ checkingLocalServer ? t('settings.checkingLocalServer') : t('settings.checkLocalServer') }}
+          </button>
+        </div>
       </div>
 
       <form class="ai-provider-form" @submit.prevent="saveAiProviderSettings()">
-        <label class="toggle-row">
-          <input v-model="aiProviderForm.enabled" type="checkbox">
-          <span>{{ t('settings.aiEnabled') }}</span>
-        </label>
-
         <div class="form-grid">
           <label class="form-field">
-            <span>{{ t('settings.aiProviderSelect') }}</span>
+            <span class="field-label-row">
+              <span>{{ t('settings.aiProviderSelect') }}</span>
+            </span>
             <select
               v-model="aiProviderForm.providerId"
               class="select-input"
@@ -373,26 +703,43 @@ async function openExternal(url: string) {
               >
                 {{ provider.label }}
               </option>
-              <option value="custom-openai-compatible">Custom OpenAI Compatible</option>
             </select>
           </label>
 
-          <label class="form-field">
-            <span>{{ t('settings.aiModel') }}</span>
-            <input
-              v-model.trim="aiProviderForm.model"
-              class="text-input"
-              list="ai-model-options"
-              type="text"
+          <div class="form-field">
+            <span class="field-label-row">
+              <span>{{ t('settings.aiModel') }}</span>
+              <button
+                class="inline-action-btn"
+                type="button"
+                :disabled="loadingAiModels || loadingAiSettings || !aiProviderForm.baseUrl.trim()"
+                @click="refreshAiProviderModels()"
+              >
+                {{ loadingAiModels ? t('settings.aiRefreshingModels') : t('settings.aiRefreshModels') }}
+              </button>
+            </span>
+            <select
+              v-if="modelSelectOptions.length"
+              v-model="aiProviderForm.model"
+              :aria-label="t('settings.aiModel')"
+              class="select-input"
             >
-            <datalist id="ai-model-options">
               <option
-                v-for="model in selectedProviderProfile?.models ?? []"
+                v-for="model in modelSelectOptions"
                 :key="model"
                 :value="model"
-              />
-            </datalist>
-          </label>
+              >
+                {{ model }}
+              </option>
+            </select>
+            <input
+              v-else
+              v-model.trim="aiProviderForm.model"
+              :aria-label="t('settings.aiModel')"
+              class="text-input"
+              type="text"
+            >
+          </div>
 
           <label class="form-field wide">
             <span>{{ t('settings.aiBaseUrl') }}</span>
@@ -403,106 +750,127 @@ async function openExternal(url: string) {
             >
           </label>
 
-          <label class="form-field">
-            <span>{{ t('settings.aiApiKey') }}</span>
-            <input
-              v-model="apiKeyInput"
-              autocomplete="off"
-              class="text-input"
-              :placeholder="t('settings.aiApiKeyPlaceholder')"
-              type="password"
-            >
-          </label>
-
-          <div class="form-field saved-key">
-            <span>{{ t('settings.aiSavedKeyLabel') }}</span>
-            <strong>{{ aiSavedKeyLabel }}</strong>
+          <div class="form-field wide api-key-field">
+            <span class="field-label-row api-key-label-row">
+              <span>{{ t('settings.aiApiKey') }}</span>
+              <button
+                class="inline-action-btn"
+                type="button"
+                :disabled="loadingAiSettings || !aiProviderForm.baseUrl.trim()"
+                @click="openAddApiKeyDialog"
+              >
+                {{ t('settings.aiAddApiKey') }}
+              </button>
+              <a
+                v-if="selectedProviderApiKeyUrl"
+                class="api-key-link"
+                :href="selectedProviderApiKeyUrl"
+                rel="noreferrer"
+                target="_blank"
+              >
+                {{ t('settings.aiApiKeyOpenPage') }}
+              </a>
+            </span>
+            <div class="saved-key-row">
+              <select
+                v-model="selectedApiKeyId"
+                :aria-label="t('settings.aiSavedKeySelect')"
+                class="select-input"
+                :disabled="loadingAiApiKeys || !localAiApiKeys.length"
+                @change="handleSavedApiKeyChange"
+              >
+                <option value="">
+                  {{ localAiApiKeys.length ? t('settings.aiNoSavedKey') : t('settings.aiNoSavedKeyPrompt') }}
+                </option>
+                <option
+                  v-for="key in localAiApiKeys"
+                  :key="key.id"
+                  :value="key.id"
+                >
+                  {{ formatLocalAiProviderApiKeyLabel(key) }}
+                </option>
+              </select>
+              <button
+                class="secondary-btn compact danger-btn"
+                type="button"
+                :disabled="deletingApiKey || !selectedApiKeyId"
+                @click="deleteAiProviderApiKey"
+              >
+                {{ deletingApiKey ? t('settings.aiDeletingApiKey') : t('settings.aiDeleteApiKey') }}
+              </button>
+            </div>
           </div>
 
-          <label class="toggle-row">
-            <input v-model="saveApiKey" type="checkbox">
-            <span>{{ t('settings.aiSaveApiKey') }}</span>
-          </label>
-
-          <label class="form-field">
-            <span>{{ t('settings.aiTemperature') }}</span>
-            <input
-              v-model.number="aiProviderForm.temperature"
-              class="text-input"
-              max="2"
-              min="0"
-              step="0.1"
-              type="number"
+          <div class="switch-field">
+            <button
+              class="settings-switch"
+              type="button"
+              role="switch"
+              :aria-checked="aiProviderForm.webSearchEnabled"
+              :class="{ active: aiProviderForm.webSearchEnabled }"
+              :disabled="!selectedProviderSupportsWebSearch"
+              @click="toggleAiProviderWebSearch"
             >
-          </label>
+              <span class="switch-track">
+                <span class="switch-thumb"></span>
+              </span>
+              <span class="switch-label">{{ t('settings.aiWebSearchEnabled') }}</span>
+            </button>
+          </div>
 
-          <label class="form-field">
-            <span>{{ t('settings.aiMaxTokens') }}</span>
-            <input
-              v-model.number="aiProviderForm.maxTokens"
-              class="text-input"
-              min="256"
-              step="256"
-              type="number"
+          <div class="switch-field">
+            <button
+              class="settings-switch"
+              type="button"
+              role="switch"
+              :aria-checked="aiProviderForm.deepThinkingEnabled"
+              :class="{ active: aiProviderForm.deepThinkingEnabled }"
+              :disabled="!selectedProviderSupportsDeepThinking"
+              @click="toggleAiProviderDeepThinking"
             >
-          </label>
+              <span class="switch-track">
+                <span class="switch-thumb"></span>
+              </span>
+              <span class="switch-label">{{ t('settings.aiDeepThinkingEnabled') }}</span>
+            </button>
+          </div>
         </div>
+
+        <p class="ai-json-mode-notice">
+          {{ t('settings.aiJsonModeRequiredNotice') }}
+        </p>
 
         <div class="pricing-panel">
           <div class="pricing-header">
-            <span>{{ t('settings.aiPricingMode') }}</span>
-            <div class="segmented-control">
-              <button
-                class="segment-button"
-                type="button"
-                :class="{ active: pricingMode === 'preset' }"
-                @click="pricingMode = 'preset'"
-              >
-                {{ t('settings.aiPricingPreset') }}
-              </button>
-              <button
-                class="segment-button"
-                type="button"
-                :class="{ active: pricingMode === 'custom' }"
-                @click="pricingMode = 'custom'"
-              >
-                {{ t('settings.aiPricingCustom') }}
-              </button>
-            </div>
+            <span>{{ t('settings.aiPricingTitle') }}</span>
           </div>
 
           <div class="form-grid compact-grid">
             <label class="form-field">
               <span>{{ t('settings.aiInputCacheHitPrice') }}</span>
               <input
-                v-model.number="aiProviderForm.pricing.inputCacheHitCnyPerMillionTokens"
+                v-model.trim="aiProviderForm.pricing.inputCacheHitCnyPerMillionTokens"
                 class="text-input"
-                min="0"
-                step="0.001"
-                type="number"
-                :disabled="pricingMode === 'preset'"
+                inputmode="decimal"
+                type="text"
               >
             </label>
             <label class="form-field">
               <span>{{ t('settings.aiInputCacheMissPrice') }}</span>
               <input
-                v-model.number="aiProviderForm.pricing.inputCacheMissCnyPerMillionTokens"
+                v-model.trim="aiProviderForm.pricing.inputCacheMissCnyPerMillionTokens"
                 class="text-input"
-                min="0"
-                step="0.001"
-                type="number"
-                :disabled="pricingMode === 'preset'"
+                inputmode="decimal"
+                type="text"
               >
             </label>
             <label class="form-field">
               <span>{{ t('settings.aiOutputPrice') }}</span>
               <input
-                v-model.number="aiProviderForm.pricing.outputCnyPerMillionTokens"
+                v-model.trim="aiProviderForm.pricing.outputCnyPerMillionTokens"
                 class="text-input"
-                min="0"
-                step="0.001"
-                type="number"
-                :disabled="pricingMode === 'preset'"
+                inputmode="decimal"
+                type="text"
               >
             </label>
           </div>
@@ -686,13 +1054,87 @@ async function openExternal(url: string) {
         </div>
       </div>
     </section>
+
+    <div
+      v-if="apiKeyDialogOpen"
+      class="settings-modal-overlay"
+      @click.self="closeAddApiKeyDialog"
+    >
+      <section
+        class="settings-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-api-key-title"
+      >
+        <header class="settings-modal-header">
+          <h2 id="add-api-key-title">{{ t('settings.aiAddApiKeyTitle') }}</h2>
+        </header>
+
+        <div class="settings-modal-form">
+          <label class="form-field">
+            <span>{{ t('settings.aiApiKeyName') }}</span>
+            <input
+              v-model.trim="newApiKeyNameInput"
+              class="text-input"
+              :placeholder="t('settings.aiApiKeyNamePlaceholder')"
+              type="text"
+            >
+          </label>
+
+          <label class="form-field">
+            <span>{{ t('settings.aiApiKey') }}</span>
+            <input
+              v-model="newApiKeyInput"
+              autocomplete="off"
+              class="text-input"
+              :placeholder="t('settings.aiApiKeyPlaceholder')"
+              type="password"
+            >
+          </label>
+        </div>
+
+        <footer class="settings-modal-actions">
+          <button
+            class="secondary-btn"
+            type="button"
+            :disabled="savingApiKey"
+            @click="closeAddApiKeyDialog"
+          >
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            class="primary-btn"
+            type="button"
+            :disabled="savingApiKey || !newApiKeyInput.trim() || !aiProviderForm.baseUrl.trim()"
+            @click="saveAiProviderApiKey"
+          >
+            {{ savingApiKey ? t('settings.aiSavingApiKey') : t('settings.aiSaveApiKeyAction') }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .settings-view {
+  --settings-switch-track-off: rgba(23, 23, 25, 0.98);
+  --settings-switch-track-on: rgba(33, 196, 255, 0.78);
+  --settings-switch-track-border: var(--border-color);
+  --settings-switch-thumb-color: #9eabb8;
+  --settings-switch-thumb-active: #dbeeff;
+  --settings-switch-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
   max-width: 880px;
   margin: 0 auto;
+}
+
+:global([data-theme="light"] .settings-view) {
+  --settings-switch-track-off: rgba(245, 245, 247, 0.98);
+  --settings-switch-track-on: rgba(41, 151, 255, 0.46);
+  --settings-switch-track-border: var(--border-color);
+  --settings-switch-thumb-color: #fffaf0;
+  --settings-switch-thumb-active: #ffffff;
+  --settings-switch-thumb-shadow: 0 1px 2px rgba(90, 70, 20, 0.2);
 }
 
 .page-header {
@@ -744,6 +1186,14 @@ async function openExternal(url: string) {
   margin-bottom: 18px;
 }
 
+.ai-provider-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
 .ai-provider-header h2,
 .setting-copy h3,
 .app-info h3 {
@@ -788,31 +1238,151 @@ async function openExternal(url: string) {
   grid-column: 1 / -1;
 }
 
-.saved-key strong {
-  min-height: 40px;
+.field-label-row {
+  min-height: 26px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.api-key-label-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.api-key-label-row > span,
+.api-key-label-row .inline-action-btn,
+.api-key-link {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.api-key-link {
+  color: var(--accent-color);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.api-key-link:hover {
+  text-decoration: underline;
+}
+
+.saved-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.inline-action-btn {
+  min-height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: 13px;
-  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
 }
 
-.toggle-row {
+.inline-action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.switch-field {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 650;
+  min-width: 0;
 }
 
-.toggle-row input {
-  width: 16px;
-  height: 16px;
+.settings-switch {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.24s ease, opacity 0.24s ease;
+}
+
+.switch-label {
+  white-space: nowrap;
+}
+
+.settings-switch:hover:not(:disabled),
+.settings-switch:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.14), 0 0 16px rgba(var(--accent-rgb), 0.16);
+  outline: none;
+}
+
+.settings-switch:active:not(:disabled) {
+  background: var(--input-bg);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.settings-switch.active {
+  border-color: var(--border-subtle);
+}
+
+.settings-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.switch-track {
+  width: 54px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--settings-switch-track-border);
+  border-radius: 999px;
+  background: var(--settings-switch-track-off);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.switch-thumb {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 999px;
+  background: var(--settings-switch-thumb-color);
+  box-shadow: var(--settings-switch-thumb-shadow);
+  transform: translateX(0);
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.settings-switch:hover:not(:disabled) .switch-track,
+.settings-switch:focus-visible .switch-track {
+  border-color: rgba(var(--accent-rgb), 0.44);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.settings-switch.active .switch-track {
+  background: var(--settings-switch-track-on);
+  border-color: var(--settings-switch-track-border);
+}
+
+.settings-switch.active .switch-thumb {
+  transform: translateX(24px);
+  background: var(--settings-switch-thumb-active);
 }
 
 .pricing-panel {
@@ -820,6 +1390,13 @@ async function openExternal(url: string) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-tertiary);
+}
+
+.ai-json-mode-notice {
+  margin: -2px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .pricing-header {
@@ -970,6 +1547,11 @@ async function openExternal(url: string) {
   color: var(--text-primary);
 }
 
+.danger-btn {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
 .compact {
   min-width: 88px;
   padding-inline: 16px;
@@ -985,6 +1567,53 @@ async function openExternal(url: string) {
 .about-section {
   margin-top: 8px;
   margin-bottom: 0;
+}
+
+.settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.settings-modal-panel {
+  width: min(100%, 460px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.settings-modal-header {
+  padding: 20px 22px 12px;
+}
+
+.settings-modal-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.settings-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 22px 18px;
+}
+
+.settings-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 22px 20px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .about-card {
@@ -1207,6 +1836,11 @@ async function openExternal(url: string) {
   }
 
   .setting-control {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ai-provider-header-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
   }

@@ -31,8 +31,9 @@ The packaged desktop app is local-first:
 - Pregame analysis for current lobby and team context.
 - Postgame review and praise mode.
 - Electronic Coach analysis for recent ranked games.
-- User-owned AI provider configuration in Settings: provider, base URL, model, API key, temperature, max tokens, and pricing.
-- OpenAI-compatible provider path for DeepSeek, SiliconFlow, OpenRouter, and custom compatible services.
+- User-owned AI provider configuration in Settings: provider, base URL, model, API key, API key setup link, web-search/deep-thinking toggles, and optional user-entered pricing.
+- Model choices are refreshed from the provider's `/models` endpoint after the user enters Base URL + API key; failed refreshes still allow manual model entry.
+- OpenAI-compatible provider presets for DeepSeek, Qwen, MiniMax, MiMo, GLM, plus custom compatible services.
 - Local run history, token usage, cache-hit/cache-miss accounting, and cost estimates.
 
 ### OP.GG And CN Meta Data
@@ -45,8 +46,7 @@ The packaged desktop app is local-first:
 ### Local Cost Ledger
 
 - AI costs are recorded locally from provider token usage when usage is available.
-- DeepSeek Mainland pricing is used as the default preset.
-- Manual one-time, monthly, and yearly costs can be entered locally for more accurate total cost tracking.
+- AI cost rates are optional user-entered values; blank rates are treated as unknown cost.
 - No RankPeek account, registration, recharge, credit balance, or hosted billing flow is required.
 
 ## Safety Position
@@ -206,7 +206,7 @@ build.bat                       Windows native-backend + Electron packaging help
 - The local backend reads the local League Client and match-related sources for the desktop experience.
 - AI provider credentials are user-owned and configured locally.
 - AI snapshots are intentionally compact and natural-language oriented to reduce cost and avoid sending raw game payloads.
-- Local AI runs, token usage, OP.GG cache, CN meta cache, and manual cost records are stored in the local backend database.
+- Local AI runs, token usage, OP.GG cache, CN meta cache, and cost records are stored in the local backend database.
 - The packaged desktop app must not require account registration, email verification, recharge, credits, or the legacy cloud server.
 
 ## Known Limits

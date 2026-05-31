@@ -8,6 +8,8 @@ public record AiProviderProfile(
         String dialect,
         String defaultBaseUrl,
         List<String> models,
-        boolean supportsPromptCacheUsage
+        String apiKeyUrl,
+        boolean supportsWebSearch,
+        boolean supportsDeepThinking
 ) {
 }

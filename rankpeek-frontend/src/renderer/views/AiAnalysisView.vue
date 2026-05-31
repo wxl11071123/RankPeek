@@ -41,8 +41,6 @@ const SAVED_POSTGAME_REPLAY_MAX_STEPS = 140
 
 const gameStore = useGameStore()
 const router = useRouter()
-// Future server AI final results should be saved through saveServerAiFinalResultToLocal()
-// and will appear in the existing local history list.
 
 const analysisResults = ref<LocalAiAnalysisDisplayResult[]>([])
 const selectedPostgameResult = ref<LocalAiAnalysisDisplayResult | null>(null)
@@ -102,7 +100,6 @@ const localProviderStatusLabel = computed(() => {
     return t('aiAnalysis.providerDisabled')
   }
   return t('aiAnalysis.providerEnabled', {
-    provider: localAiSettings.value.providerId,
     model: localAiSettings.value.model
   })
 })
@@ -544,10 +541,6 @@ function formatDateKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
-function openManualCostShortcut() {
-  void router.push({ name: 'Settings' })
-}
-
 async function prepareAnalysisInputSnapshot() {
   const puuid = accountPuuid.value
   const requestId = ++prepareRequestId
@@ -637,7 +630,6 @@ async function refreshLocalAnalysisResults() {
 
       <div class="status-card local-provider-card">
         <div class="provider-status-row">
-          <span>{{ t('aiAnalysis.providerStatusTitle') }}</span>
           <strong>{{ localProviderStatusLabel }}</strong>
         </div>
         <div class="account-showcase-item league-account-showcase">
@@ -651,14 +643,6 @@ async function refreshLocalAnalysisResults() {
           <span v-else class="account-avatar-placeholder">{{ accountInitial }}</span>
           <span class="league-account-name">{{ accountStatusLabel }}</span>
         </div>
-        <div class="cost-mini-row">
-          <span>{{ t('aiAnalysis.costToday') }}</span>
-          <strong>{{ todayCostTotalLabel }}</strong>
-        </div>
-        <div class="cost-mini-row">
-          <span>{{ t('aiAnalysis.costMonth') }}</span>
-          <strong>{{ monthCostTotalLabel }}</strong>
-        </div>
       </div>
     </section>
 
@@ -667,13 +651,6 @@ async function refreshLocalAnalysisResults() {
     <section class="local-cost-section">
       <div class="section-heading billing-heading">
         <span>{{ t('aiAnalysis.costSummaryTitle') }}</span>
-        <button
-          class="balance-recharge-button"
-          type="button"
-          @click="openManualCostShortcut"
-        >
-          {{ t('aiAnalysis.manualCostShortcut') }}
-        </button>
       </div>
 
       <div class="billing-card">
@@ -692,18 +669,6 @@ async function refreshLocalAnalysisResults() {
           <div class="billing-summary-item">
             <span>{{ t('aiAnalysis.costMonth') }}</span>
             <strong>{{ monthCostTotalLabel }}</strong>
-          </div>
-          <div class="billing-summary-item">
-            <span>{{ t('aiAnalysis.costAi') }}</span>
-            <strong>{{ formatCny(localCostSummary?.aiCostCny ?? 0) }}</strong>
-          </div>
-          <div class="billing-summary-item">
-            <span>{{ t('aiAnalysis.costManual') }}</span>
-            <strong>{{ formatCny(localCostSummary?.manualCostCny ?? 0) }}</strong>
-          </div>
-          <div class="billing-summary-item">
-            <span>{{ t('aiAnalysis.costTotal') }}</span>
-            <strong>{{ formatCny(localCostSummary?.totalCostCny ?? 0) }}</strong>
           </div>
         </div>
 
@@ -1001,7 +966,6 @@ async function refreshLocalAnalysisResults() {
   gap: 10px;
   padding: 12px 0;
   border-top: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
 }
 
 .league-account-name {

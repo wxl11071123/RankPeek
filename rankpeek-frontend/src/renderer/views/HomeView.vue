@@ -196,7 +196,7 @@ const AI_COACH_LOCAL_SAVE_ERROR_NOTICE = '电子教练报告保存失败，请�
 const AI_COACH_PREPARING_NOTICE = '正在准备最近 20 局排位数据...'
 const AI_COACH_GENERATING_NOTICE = '正在调用电子教练 AI...'
 const AI_COACH_GENERATED_NOTICE = '电子教练报告已生成。'
-const AI_COACH_SERVER_ERROR_NOTICE = '电子教练 AI 调用失败，请确认 rankpeek-server 已连接真实 AI 服务。'
+const AI_COACH_SERVER_ERROR_NOTICE = '电子教练 AI 调用失败，请确认本地 AI 配置可用。'
 const AI_COACH_PARTIAL_TIMELINE_NOTICE = '部分对局时间线拉取失败，报告数据质量可能较低。'
 
 const AI_COACH_SNAPSHOT_INTEGRITY_FAILED_NOTICE = '电子教练数据校验失败，请刷新战绩后重试'

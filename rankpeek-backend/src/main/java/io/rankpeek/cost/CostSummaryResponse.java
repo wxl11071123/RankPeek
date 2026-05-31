@@ -6,8 +6,6 @@ import java.time.LocalDate;
 public record CostSummaryResponse(
         LocalDate from,
         LocalDate to,
-        BigDecimal aiCostCny,
-        BigDecimal manualCostCny,
         BigDecimal totalCostCny
 ) {
 }

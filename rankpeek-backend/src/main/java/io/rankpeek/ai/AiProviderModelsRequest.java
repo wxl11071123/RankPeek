@@ -1,9 +1,8 @@
 package io.rankpeek.ai;
 
-public record AiProviderTestRequest(
+public record AiProviderModelsRequest(
         String providerId,
         String baseUrl,
-        String model,
         String apiKey,
         String apiKeyId
 ) {
