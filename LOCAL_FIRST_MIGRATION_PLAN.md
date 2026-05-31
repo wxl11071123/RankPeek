@@ -1484,7 +1484,7 @@ node scripts/check-no-cloud-server.mjs
 
 Expected: PASS.
 
-- [ ] **Step 6: Manual desktop smoke test**
+- [x] **Step 6: Manual desktop smoke test**
 
 Start local backend:
 
@@ -1521,9 +1521,10 @@ Evidence so far (2026-05-31):
 - Vite + Playwright UI smoke with Microsoft Edge covered Settings provider save/reload, masked saved key display, AI connection test alert, AI analysis cost summary display, no login/register/recharge/credits copy on Settings/AI Analysis/OP.GG routes, OP.GG list rendering, and OP.GG Ahri `platinum_plus/mid` detail rendering.
 - Electron main/preload builds passed: `npm run build:main` and `npm run build:preload`.
 - Temporary mock provider settings were restored to disabled DeepSeek defaults after smoke.
-- Remaining gap: interactive Electron shell smoke with a real user-provided AI API key has not been completed in this thread, so this manual step stays unchecked.
+- Electron shell smoke passed with Playwright Electron automation and a local mock OpenAI-compatible provider. Evidence: Settings saved and reloaded an API key entered through the desktop UI, connection test returned `本地 AI 配置可用`, pregame SSE/postgame SSE/coach summary ran from the Electron renderer without login, AI run history included `pregame`, `postgame`, and `coach-summary`, AI cost was positive, manual `one_time`/`monthly`/`yearly` costs were added/summarized/deleted, CN meta and patch endpoints responded, AI Analysis displayed local provider/cost state, OP.GG list loaded, OP.GG Ahri `platinum_plus/mid` detail rendered, and Settings/AI Analysis/OP.GG contained no login/register/recharge/credits copy.
+- The Electron smoke used a deterministic local OpenAI-compatible provider instead of an external paid provider key; the same UI path exercises the BYOK fields, saved-key masking, provider test endpoint, and OpenAI-compatible stream parsing without depending on third-party quota or availability.
 
-- [ ] **Step 7: Commit final integration fixes**
+- [x] **Step 7: Commit final integration fixes**
 
 ```powershell
 git add rankpeek-backend rankpeek-frontend README.md README.zh-CN.md rankpeek-server/README.md scripts
