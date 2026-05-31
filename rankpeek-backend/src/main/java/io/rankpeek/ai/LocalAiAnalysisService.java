@@ -7,6 +7,7 @@ import io.rankpeek.cost.AiCostBreakdown;
 import io.rankpeek.cost.AiPricing;
 import io.rankpeek.cost.AiPricingCatalog;
 import io.rankpeek.cost.CostService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -29,6 +30,7 @@ public class LocalAiAnalysisService {
     private final LocalAiAnalysisStreamer streamer;
     private final ObjectMapper objectMapper;
     private final CostService costService;
+    private final LocalAiPromptContextService promptContextService;
 
     LocalAiAnalysisService(
             AiProviderSettingsService settingsService,
@@ -46,11 +48,24 @@ public class LocalAiAnalysisService {
             ObjectMapper objectMapper,
             CostService costService
     ) {
+        this(settingsService, runRepository, streamer, objectMapper, costService, null);
+    }
+
+    @Autowired
+    public LocalAiAnalysisService(
+            AiProviderSettingsService settingsService,
+            LocalAiRunRepository runRepository,
+            LocalAiAnalysisStreamer streamer,
+            ObjectMapper objectMapper,
+            CostService costService,
+            LocalAiPromptContextService promptContextService
+    ) {
         this.settingsService = settingsService;
         this.runRepository = runRepository;
         this.streamer = streamer;
         this.objectMapper = objectMapper;
         this.costService = costService;
+        this.promptContextService = promptContextService;
     }
 
     public SseEmitter streamPregame(PregameAnalysisRequest request) {
@@ -175,7 +190,10 @@ public class LocalAiAnalysisService {
                 ),
                 new OpenAiChatMessage(
                         "user",
-                        "Analyze this pregame snapshot and team tags:\n" + writeJson(request)
+                        appendLocalContext(
+                                "Analyze this pregame snapshot and team tags:\n" + writeJson(request),
+                                promptContextService == null ? null : promptContextService.pregameContext(request)
+                        )
                 )
         );
     }
@@ -254,5 +272,12 @@ public class LocalAiAnalysisService {
 
     private String blankToDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private String appendLocalContext(String prompt, String localContext) {
+        if (localContext == null || localContext.isBlank()) {
+            return prompt;
+        }
+        return prompt + "\n\n" + localContext;
     }
 }
