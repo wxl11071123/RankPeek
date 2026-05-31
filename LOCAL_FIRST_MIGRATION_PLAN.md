@@ -1517,7 +1517,11 @@ Evidence so far (2026-05-31):
 
 - Automated local-first verification passed after the AI provider test endpoint was added: `rankpeek-backend mvn test` (421 tests), `rankpeek-server mvn test` (206 tests), renderer Node tests (594 tests), `npm run build:renderer`, and both guard scripts.
 - An earlier isolated backend smoke on port `18081` covered identity, provider/settings, costs/manual costs, CN meta, and patch endpoints.
-- Remaining gap: interactive Electron smoke with a real user-provided AI API key has not been completed in this thread, so this manual step stays unchecked.
+- Local API smoke on port `8080` with a mock OpenAI-compatible provider covered AI settings save/reload, `/api/v1/ai/test`, pregame SSE, postgame SSE, coach summary, AI run history, AI cost summary, manual one-time cost add/summarize/delete, CN meta latest, patch current/changes, and OP.GG list/detail. OP.GG `platinum_plus` list had one upstream timeout during smoke, then `ranked/all` list returned 172 rows and Ahri `platinum_plus/mid` detail returned 200.
+- Vite + Playwright UI smoke with Microsoft Edge covered Settings provider save/reload, masked saved key display, AI connection test alert, AI analysis cost summary display, no login/register/recharge/credits copy on Settings/AI Analysis/OP.GG routes, OP.GG list rendering, and OP.GG Ahri `platinum_plus/mid` detail rendering.
+- Electron main/preload builds passed: `npm run build:main` and `npm run build:preload`.
+- Temporary mock provider settings were restored to disabled DeepSeek defaults after smoke.
+- Remaining gap: interactive Electron shell smoke with a real user-provided AI API key has not been completed in this thread, so this manual step stays unchecked.
 
 - [ ] **Step 7: Commit final integration fixes**
 
