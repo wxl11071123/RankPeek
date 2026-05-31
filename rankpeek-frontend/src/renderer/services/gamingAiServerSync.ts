@@ -1,5 +1,5 @@
 import type { GamingAiInputPlayer, GamingAiInputSnapshot, GamingAiTeamSnapshot } from './gamingAiInputSnapshot.ts'
-import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
+import { RANKPEEK_LOCAL_SERVICE_BASE_URL } from './rankpeekLocalServiceClient.ts'
 
 export const RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT = '/api/analysis/pregame/mock'
 
@@ -72,7 +72,7 @@ export async function submitGamingAiInputSnapshotToServer(
   options.signal?.addEventListener('abort', abortFromOuterSignal, { once: true })
 
   try {
-    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT}`, {
+    const response = await fetch(`${RANKPEEK_LOCAL_SERVICE_BASE_URL}${RANKPEEK_SERVER_PREGAME_MOCK_ENDPOINT}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(createPregameMockRequestFromSnapshot(snapshot)),

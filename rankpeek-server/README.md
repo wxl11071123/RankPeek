@@ -1,16 +1,19 @@
 # rankpeek-server
 
-`rankpeek-server` is the first cloud-server foundation module for RankPeek. It is separate from `rankpeek-backend`.
+`rankpeek-server` is the legacy/reference cloud service for RankPeek. It is separate from `rankpeek-backend`.
+
+`rankpeek-server` is no longer required for the packaged desktop app. It remains in the repository as reference code for AI prompts, OP.GG data, CN meta sync, and previous admin tooling.
 
 ## Positioning
 
-- `rankpeek-server` is the future Linux cloud service for account, credits, AI, patch knowledge, CN meta snapshots, LPL snapshots, and playstyle cards.
-- `rankpeek-backend` remains the Windows local agent for LCU, SGP, local cache, match history, and Electron SQLite flows.
-- This module does not replace, refactor, or call the stable local backend chain.
+- The packaged desktop app should use `rankpeek-backend` as its only service boundary.
+- `rankpeek-server` is kept buildable as reference code for the previous account, credits, AI, patch knowledge, CN meta snapshots, LPL snapshots, playstyle cards, admin, and deployment flows.
+- New desktop behavior should be implemented in `rankpeek-backend` and `rankpeek-frontend`, not by adding a dependency on this legacy service.
+- This module does not replace, refactor, or call the local backend chain.
 
 ## Current Scope
 
-This phase implements a server data, auth, admin, credits, CN meta sync, and mock-first AI foundation:
+This legacy module contains server data, auth, admin, credits, CN meta sync, and mock-first AI foundations:
 
 - Spring Boot 3.x application on Java 21.
 - Default local-dev port `18080`.

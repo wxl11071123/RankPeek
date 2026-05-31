@@ -2,62 +2,52 @@
 
 [简体中文](README.zh-CN.md)
 
-RankPeek is a Windows desktop companion for League of Legends. It reads the local League Client, keeps a local match cache, and combines that with RankPeek cloud services for account, credits, OP.GG-style champion data, and AI analysis.
+RankPeek is a Windows desktop companion for League of Legends. It reads the local League Client through a local backend, keeps local caches, and lets users configure their own AI provider for analysis.
 
-The current development model is:
+The packaged desktop app is local-first:
 
 - `rankpeek-frontend`: Electron + Vue 3 desktop app.
-- `rankpeek-backend`: local Windows agent on `127.0.0.1:8080` for LCU, SGP, assets, match history, and local cache workflows.
-- `rankpeek-server`: cloud service. The frontend uses `https://api.rankpeek.cn` by default. Do not start this locally unless you are working on cloud-server code.
+- `rankpeek-backend`: local Windows service on `127.0.0.1:8080` for LCU, SGP, assets, match history, AI, OP.GG data, CN meta data, and local cost ledgers.
+- `rankpeek-server`: legacy/reference cloud service. It is no longer required for normal desktop development or packaged desktop builds.
 
 ## Current Features
 
 ### Desktop Scouting
 
-- Current account, rank, recent form, and local status on the home page.
-- Champion-select and in-game session views for teammates and opponents.
-- Automatic app navigation for gameflow phases, without old queue/pick/ban automation features.
-- Local SQLite persistence for match records, match details, AI reports, and cache hydration.
+- Current account, rank, recent form, and local service status on the home page.
+- Champion-select and in-game views for teammates and opponents.
+- Automatic app navigation for gameflow phases, without old queue, accept, pick, or ban automation.
+- Local persistence for match records, match details, AI reports, OP.GG cache, CN meta cache, and cost records.
 
-### Match History And Details
+### Match History And RP Index
 
 - My match history and summoner lookup views.
-- Lazy-loaded match detail panels.
-- Team overview, rune/build details, charts, and timeline-backed detail tabs.
-- Ranked-only RP Index view when timeline and complete matchup data are available.
+- Lazy-loaded match detail panels with team overview, rune/build details, charts, and timeline-backed detail tabs.
+- RP Index for ranked Solo/Duo and Flex games when timeline and matchup data are available.
+- Compact AI snapshots built from match facts instead of raw oversized payloads.
 
-### RP Index
+### Local AI Analysis
 
-RP Index is RankPeek's timeline-based single-match performance signal for ranked Solo/Duo and Flex games.
+- Pregame analysis for current lobby and team context.
+- Postgame review and praise mode.
+- Electronic Coach analysis for recent ranked games.
+- User-owned AI provider configuration in Settings: provider, base URL, model, API key, temperature, max tokens, and pricing.
+- OpenAI-compatible provider path for DeepSeek, SiliconFlow, OpenRouter, and custom compatible services.
+- Local run history, token usage, cache-hit/cache-miss accounting, and cost estimates.
 
-- It uses economy, level, CS, kill participation, deaths, key objectives, and vision.
-- It is only generated when the match is ranked and the required timeline/detail data is available.
-- The match detail page shows the RP curve and final RP score.
-- AI snapshots use compact RP facts to avoid sending unnecessary token-heavy timeline data.
-
-### AI Analysis
-
-AI features are served through `rankpeek-server` and require a RankPeek account when the cloud server is using the real AI provider.
-
-- Pregame analysis for current lobby/team context.
-- Postgame review.
-- Postgame praise mode.
-- Electronic Coach: recent 20 ranked games data analysis, focused on RP, 15-minute matchup economy, kill participation, champion/role samples, and per-match facts.
-- Token usage and DeepSeek usage metadata are handled through the server path for later cost tracking.
-
-### OP.GG Window
+### OP.GG And CN Meta Data
 
 - Standalone OP.GG-style champion page inside Electron.
-- Champion list and champion detail views.
-- Rank, queue, region, role, and champion filters.
-- One-time auto jump on OP.GG page entry, plus a user-champion-selection jump during champion select.
-- Cloud-backed OP.GG champion data through `rankpeek-server`.
+- Champion list and champion detail views with rank, queue, region, role, and champion filters.
+- Local backend proxy/cache for OP.GG data to avoid renderer CORS and centralize throttling.
+- Local backend storage/sync endpoints for CN meta, patch, LPL, and prompt-context data.
 
-### RankPeek Account And Credits
+### Local Cost Ledger
 
-- Login, registration email code, password reset, and session refresh.
-- Credit balance and ledger endpoints.
-- AI requests are authenticated and billable when real AI is enabled on the server.
+- AI costs are recorded locally from provider token usage when usage is available.
+- DeepSeek Mainland pricing is used as the default preset.
+- Manual one-time, monthly, and yearly costs can be entered locally for more accurate total cost tracking.
+- No RankPeek account, registration, recharge, credit balance, or hosted billing flow is required.
 
 ## Safety Position
 
@@ -81,29 +71,33 @@ For native installer packaging:
 - Visual Studio Build Tools with C++ support
 - A valid `GRAALVM_HOME` path in `build.bat`
 
-For cloud-server development:
+For AI analysis:
 
-- Java 21
-- Maven 3.9+
-- PostgreSQL only for production-like server runs; tests use H2
+- A user-provided OpenAI-compatible API key, or a provider/test mode that does not require one.
 
 ## Quick Start: Desktop Development
 
-Normal client work uses the local `rankpeek-backend` plus the Electron frontend. The cloud server is already configured through `https://api.rankpeek.cn`.
+Normal desktop work uses only the local backend plus the Electron frontend.
 
-### 1. Start the local backend agent
+### 1. Start The Local Backend
 
 ```powershell
 .\scripts\dev-backend.bat
 ```
 
-This starts `rankpeek-backend` on `http://127.0.0.1:8080` and sets:
+This starts `rankpeek-backend` on:
+
+```text
+http://127.0.0.1:8080
+```
+
+It also sets:
 
 ```text
 RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev
 ```
 
-That keeps development cache separate from a packaged app's production data.
+That keeps development cache separate from packaged app data.
 
 ### 2. Start Electron
 
@@ -113,36 +107,28 @@ npm install
 npm run electron:dev
 ```
 
-`electron:dev` builds the Electron main/preload bundles, starts Vite, and opens the desktop shell. In development mode, Electron expects the local backend agent to already be running on port `8080`.
+`electron:dev` builds the Electron main/preload bundles, starts Vite, and opens the desktop shell. In development mode, Electron expects the local backend to already be running on port `8080`.
 
-## Cloud Server Development
+### 3. Configure AI
 
-Only start `rankpeek-server` locally when changing server endpoints, AI streaming, auth, credits, OP.GG proxying, admin tooling, or deployment code.
+Open Settings in the desktop app and configure an AI provider. Keys are stored locally by the local backend and are not sent to RankPeek cloud services.
+
+## Legacy Cloud Server
+
+`rankpeek-server` is no longer required for the packaged desktop app. It remains in the repository as reference code for AI prompts, OP.GG data, CN meta sync, and previous admin tooling.
+
+Only start it when you intentionally work on the legacy/reference service:
 
 ```powershell
 cd rankpeek-server
 mvn spring-boot:run
 ```
 
-The default local-dev server listens on:
-
-```text
-http://localhost:18080
-```
-
-To point the frontend at a local server instead of production:
-
-```powershell
-cd rankpeek-frontend
-$env:VITE_RANKPEEK_SERVER_BASE_URL = "http://localhost:18080"
-npm run electron:dev
-```
-
-More server details live in [rankpeek-server/README.md](rankpeek-server/README.md).
+More details live in [rankpeek-server/README.md](rankpeek-server/README.md).
 
 ## Build
 
-### Frontend bundles
+### Frontend Bundles
 
 ```powershell
 cd rankpeek-frontend
@@ -150,7 +136,7 @@ npm install
 npm run build
 ```
 
-### Electron installer
+### Electron Installer
 
 ```powershell
 cd rankpeek-frontend
@@ -164,30 +150,21 @@ The Electron package expects a native local backend at:
 rankpeek-backend/target/rankpeek-native.exe
 ```
 
-### Full Windows installer script
+### Full Windows Installer Script
 
 ```powershell
 .\build.bat
 ```
 
-This script builds the native `rankpeek-backend` binary and then runs the Electron build. It is Windows-specific and currently expects `GRAALVM_HOME` to be adjusted for the local machine.
-
-### Cloud server jar
-
-```powershell
-cd rankpeek-server
-mvn -B -DskipTests package
-```
-
-CI also builds and uploads `rankpeek-server/target/rankpeek-server-0.1.0.jar`.
+This script runs repository guards, builds the native `rankpeek-backend` binary, and then runs the Electron build. It is Windows-specific and expects `GRAALVM_HOME` to be adjusted for the local machine.
 
 ## Test Commands
 
-Frontend targeted tests are plain Node test files:
+Frontend targeted tests:
 
 ```powershell
 cd rankpeek-frontend
-node --test src/renderer/services/rankpeekServerClient.test.ts
+node --test src/renderer/services/*.test.ts
 npm run build:renderer
 ```
 
@@ -198,26 +175,27 @@ cd rankpeek-backend
 mvn test
 ```
 
-Cloud server tests:
+Legacy server reference tests:
 
 ```powershell
 cd rankpeek-server
 mvn test
 ```
 
-Automation-removal guard:
+Repository guards:
 
 ```powershell
 node scripts/check-no-automation.mjs
+node scripts/check-no-cloud-server.mjs
 ```
 
 ## Project Layout
 
 ```text
 rankpeek-frontend/              Electron + Vue desktop app
-rankpeek-backend/               Local Windows agent for LCU, SGP, assets, and cache
-rankpeek-server/                Cloud server for auth, credits, AI, OP.GG data, admin, and deployment
-rankpeek-server/deploy/ubuntu/  Production deployment scripts and templates
+rankpeek-backend/               Local Windows service for LCU, SGP, AI, OP.GG, CN meta, costs, and cache
+rankpeek-server/                Legacy/reference cloud service, not required by packaged desktop builds
+rankpeek-server/deploy/ubuntu/  Legacy production deployment scripts and templates
 docs/                           Planning, deployment, and product notes
 scripts/                        Development and repository guard scripts
 build.bat                       Windows native-backend + Electron packaging helper
@@ -225,18 +203,19 @@ build.bat                       Windows native-backend + Electron packaging help
 
 ## Data And Privacy Boundaries
 
-- The local backend talks to the local League Client and SGP-compatible match sources for the desktop experience.
-- The cloud server handles RankPeek account, credits, AI requests, OP.GG champion data, and admin APIs.
-- The cloud server should not receive LCU tokens, SGP tokens, raw local cache databases, or unnecessary private match payloads.
-- AI input snapshots are intentionally compact and natural-language oriented to reduce cost and avoid sending raw game payloads.
+- The local backend reads the local League Client and match-related sources for the desktop experience.
+- AI provider credentials are user-owned and configured locally.
+- AI snapshots are intentionally compact and natural-language oriented to reduce cost and avoid sending raw game payloads.
+- Local AI runs, token usage, OP.GG cache, CN meta cache, and manual cost records are stored in the local backend database.
+- The packaged desktop app must not require account registration, email verification, recharge, credits, or the legacy cloud server.
 
 ## Known Limits
 
 - RankPeek is Windows-first.
 - The League client must be running for LCU-backed features.
-- Some history, timeline, or rune/build data may be unavailable when Riot/LCU/SGP sources do not expose it.
+- Some history, timeline, rune/build, OP.GG, or CN meta data may be unavailable when upstream sources do not expose it.
 - RP Index is limited to ranked 420/440 matches with usable timeline and complete matchup data.
-- AI features depend on the RankPeek cloud server, account status, credits, and provider availability.
+- AI quality, latency, usage metadata, and cost visibility depend on the user-selected provider.
 
 ## License
 

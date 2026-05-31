@@ -9,7 +9,7 @@ import {
   getOpggChampionDetail,
   getOpggChampionList,
   normalizeRankPeekServerBaseUrl,
-  RANKPEEK_SERVER_BASE_URL,
+  RANKPEEK_DATA_API_BASE_URL,
   RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
 } from './rankpeekServerClient.ts'
 
@@ -29,7 +29,7 @@ function listRendererTextFiles(directoryPath: string): string[] {
 }
 
 test('uses the local backend endpoint by default', () => {
-  assert.equal(RANKPEEK_SERVER_BASE_URL, 'http://127.0.0.1:8080')
+  assert.equal(RANKPEEK_DATA_API_BASE_URL, 'http://127.0.0.1:8080')
 })
 
 test('normalizes configured local backend base URLs', () => {
@@ -70,7 +70,7 @@ test('checks local backend diagnostics through the configured endpoint', async (
       version: 'unknown'
     })
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_DATA_API_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`)
     assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch
@@ -207,7 +207,7 @@ test('fetches OP.GG champion detail through local backend with encoded filters',
     assert.equal(detail?.stats.winRate, 0.51)
     assert.deepEqual(detail?.summonerSpells[0]?.ids, [4, 12])
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/v1/opgg/champions/103/detail?mode=ranked&region=kr&tier=emerald_plus&position=mid`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_DATA_API_BASE_URL}/api/v1/opgg/champions/103/detail?mode=ranked&region=kr&tier=emerald_plus&position=mid`)
     assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch
@@ -289,7 +289,7 @@ test('fetches OP.GG champion list through local backend without selecting a cham
     assert.equal(list?.items[0]?.championId, 103)
     assert.equal(list?.items[0]?.positions[0]?.counters[0]?.championId, 238)
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}/api/v1/opgg/champions?mode=ranked&region=kr&tier=emerald_plus`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_DATA_API_BASE_URL}/api/v1/opgg/champions?mode=ranked&region=kr&tier=emerald_plus`)
     assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch

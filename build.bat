@@ -2,7 +2,7 @@
 setlocal EnableDelayedExpansion
 
 echo ========================================
-echo   RankPeek Build Script (Native Image)
+echo   RankPeek Local-First Desktop Build
 echo ========================================
 echo.
 
@@ -18,7 +18,7 @@ set "GRAALVM_HOME=D:\graalvm-jdk-21.0.10+8.1"
 set "JAVA_HOME=%GRAALVM_HOME%"
 set "PATH=%GRAALVM_HOME%\bin;%PATH%"
 
-echo [1/4] Checking environment...
+echo [1/5] Checking environment...
 
 if not exist "%GRAALVM_HOME%\bin\java.exe" (
     echo ERROR: GraalVM not found
@@ -47,7 +47,7 @@ echo    Node.js: OK
 echo [OK] Environment check passed
 echo.
 
-echo [2/4] Initializing MSVC environment...
+echo [2/5] Initializing MSVC environment...
 
 set "VCVARS_FOUND=0"
 
@@ -77,7 +77,27 @@ if "%VCVARS_FOUND%"=="0" (
 )
 echo.
 
-echo [3/4] Compiling Native Image...
+echo [3/5] Running repository guards...
+cd /d "%ROOT_DIR%"
+
+call node "%ROOT_DIR%scripts\check-no-automation.mjs"
+if %errorlevel% neq 0 (
+    echo ERROR: Automation-removal guard failed
+    pause
+    exit /b 1
+)
+
+call node "%ROOT_DIR%scripts\check-no-cloud-server.mjs"
+if %errorlevel% neq 0 (
+    echo ERROR: Cloud-server dependency guard failed
+    pause
+    exit /b 1
+)
+
+echo [OK] Repository guards passed
+echo.
+
+echo [4/5] Compiling Native Image...
 cd /d "%BACKEND_DIR%"
 
 call mvn clean package -Pnative -DskipTests
@@ -106,7 +126,7 @@ set /a "NATIVE_SIZE_MB=%NATIVE_SIZE_BYTES%/1024/1024"
 echo [OK] Native Image compiled (Size: %NATIVE_SIZE_MB% MB)
 echo.
 
-echo [4/4] Building frontend...
+echo [5/5] Building frontend...
 cd /d "%FRONTEND_DIR%"
 
 if not exist "node_modules" (

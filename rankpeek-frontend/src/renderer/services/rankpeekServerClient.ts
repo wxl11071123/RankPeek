@@ -3,8 +3,7 @@ import {
   normalizeRankPeekLocalServiceBaseUrl
 } from './rankpeekLocalServiceClient.ts'
 
-export const DEFAULT_RANKPEEK_SERVER_BASE_URL = 'http://127.0.0.1:8080'
-export const RANKPEEK_SERVER_BASE_URL = RANKPEEK_LOCAL_SERVICE_BASE_URL
+export const RANKPEEK_DATA_API_BASE_URL = RANKPEEK_LOCAL_SERVICE_BASE_URL
 export const RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT = '/api/v1/system/identity'
 
 const RANKPEEK_SERVER_UNAVAILABLE_MESSAGE = 'rankpeek local backend unavailable; confirm 127.0.0.1:8080 is running.'
@@ -140,7 +139,7 @@ export type RankPeekServerDiagnosticsCheck =
 
 export async function checkRankPeekServerDiagnostics(): Promise<RankPeekServerDiagnosticsCheck> {
   try {
-    const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`, {
+    const response = await fetch(`${RANKPEEK_DATA_API_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`, {
       method: 'GET',
       headers: { Accept: 'application/json' }
     })
@@ -193,7 +192,7 @@ export function getLatestChampionMeta(championId: number, tierScope: string): Pr
   }
 
   const endpoint = `/api/v1/cn-meta/champions/${encodeURIComponent(String(championId))}/latest?tierScope=${encodeURIComponent(normalizedTier)}`
-  const request = fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
+  const request = fetch(`${RANKPEEK_DATA_API_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
@@ -234,7 +233,7 @@ export async function getOpggChampionDetail(query: OpggChampionDetailRequest): P
   if (query.position) params.set('position', query.position)
 
   const endpoint = `/api/v1/opgg/champions/${encodeURIComponent(String(query.championId))}/detail?${params.toString()}`
-  const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${RANKPEEK_DATA_API_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
@@ -256,7 +255,7 @@ export async function getOpggChampionList(query: OpggChampionListRequest): Promi
   params.set('tier', query.tier || 'all')
 
   const endpoint = `/api/v1/opgg/champions?${params.toString()}`
-  const response = await fetch(`${RANKPEEK_SERVER_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${RANKPEEK_DATA_API_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
