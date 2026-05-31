@@ -15,14 +15,15 @@ import {
   type AiAnalysisInputSnapshot
 } from '@/services/aiAnalysisInputSnapshot'
 import {
-  getStoredRankPeekAuthSession,
-  type RankPeekAuthSession
-} from '@/services/rankpeekAuthClient'
+  getLocalAiSettings,
+  type LocalAiSettings
+} from '@/services/localAiProviderClient'
 import {
-  getRankPeekCreditBalance,
-  getRankPeekCreditLedger,
-  type RankPeekCreditLedgerEntry
-} from '@/services/rankpeekCreditsClient'
+  getLocalCostEvents,
+  getLocalCostSummary,
+  type LocalCostEvent,
+  type LocalCostSummary
+} from '@/services/localCostClient'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 type ReportTypeFilter = 'all' | 'pregame' | 'postgame' | 'praise' | 'coach'
@@ -57,17 +58,17 @@ const preparingInput = ref(false)
 const preparationUnavailable = ref(false)
 const preparationError = ref<string | null>(null)
 const selectedReportType = ref<ReportTypeFilter>('all')
-const rankpeekAuthSession = ref<RankPeekAuthSession | null>(getStoredRankPeekAuthSession())
-const rankpeekCreditBalance = ref<number | null>(null)
-const rankpeekCreditLedgerEntries = ref<RankPeekCreditLedgerEntry[]>([])
-const rankpeekCreditLedgerLoading = ref(false)
-const rankpeekCreditLedgerError = ref<string | null>(null)
+const localAiSettings = ref<LocalAiSettings | null>(null)
+const todayLocalCostSummary = ref<LocalCostSummary | null>(null)
+const localCostSummary = ref<LocalCostSummary | null>(null)
+const recentAiCostEvents = ref<LocalCostEvent[]>([])
+const localOverviewLoading = ref(false)
+const localOverviewError = ref<string | null>(null)
 let loadRequestId = 0
 let prepareRequestId = 0
-let creditBalanceRequestId = 0
-let creditLedgerRequestId = 0
+let overviewRequestId = 0
 let championIdByNamePromise: Promise<Record<string, number>> | null = null
-let selectedPostgameReplayTimer: ReturnType<typeof window.setTimeout> | null = null
+let selectedPostgameReplayTimer: number | null = null
 
 const currentSummoner = computed(() => gameStore.currentSummoner)
 const accountPuuid = computed(() => currentSummoner.value?.puuid ?? '')
@@ -96,8 +97,17 @@ const selectedPostgameModalRosterPlayers = computed(() => {
   return selectedPostgameRun.value?.rosterPlayers ?? []
 })
 const accountStatusLabel = computed(() => currentSummonerName.value || t('aiAnalysis.noAccountStatus'))
-const rankpeekAccountLabel = computed(() => rankpeekAuthSession.value?.user.email ?? t('aiAnalysis.rankpeekAccountGuest'))
-const rankpeekBalanceLabel = computed(() => t('aiAnalysis.pointsBalance', { count: rankpeekCreditBalance.value ?? 0 }))
+const localProviderStatusLabel = computed(() => {
+  if (!localAiSettings.value?.enabled) {
+    return t('aiAnalysis.providerDisabled')
+  }
+  return t('aiAnalysis.providerEnabled', {
+    provider: localAiSettings.value.providerId,
+    model: localAiSettings.value.model
+  })
+})
+const todayCostTotalLabel = computed(() => formatCny(todayLocalCostSummary.value?.totalCostCny ?? 0))
+const monthCostTotalLabel = computed(() => formatCny(localCostSummary.value?.totalCostCny ?? 0))
 const currentSummonerProfileIconUrl = computed(() => {
   const summoner = currentSummoner.value
   return summoner?.profileIconId ? getProfileIconUrl(summoner.profileIconId) : ''
@@ -141,77 +151,63 @@ watch(
     prepareRequestId += 1
     closeReportDetail()
     resetPreparedSnapshot()
+    void prepareAnalysisInputSnapshot()
     void refreshLocalAnalysisResults()
   },
   { immediate: true }
 )
 
 onMounted(() => {
-  refreshRankPeekAccountState()
+  refreshLocalAiOverview()
   window.addEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
-  window.addEventListener('focus', refreshRankPeekAccountState)
+  window.addEventListener('focus', refreshLocalAiOverview)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('rankpeek:ai-analysis-result-saved', handleLocalAiAnalysisResultSaved)
-  window.removeEventListener('focus', refreshRankPeekAccountState)
+  window.removeEventListener('focus', refreshLocalAiOverview)
   stopSavedPostgameReplay()
 })
 
-function refreshRankPeekAccountState() {
-  rankpeekAuthSession.value = getStoredRankPeekAuthSession()
-  void loadRankPeekCreditBalance()
-  void loadRankPeekCreditLedger()
-}
-
-async function loadRankPeekCreditBalance() {
-  const session = rankpeekAuthSession.value
-  const requestId = ++creditBalanceRequestId
-
-  if (!session) {
-    rankpeekCreditBalance.value = null
-    return
-  }
-
-  const result = await getRankPeekCreditBalance(session.accessToken)
-  if (requestId !== creditBalanceRequestId) {
-    return
-  }
-
-  if (result.ok) {
-    rankpeekCreditBalance.value = result.balance
-  }
-}
-
-async function loadRankPeekCreditLedger() {
-  const session = rankpeekAuthSession.value
-  const requestId = ++creditLedgerRequestId
-  rankpeekCreditLedgerError.value = null
-
-  if (!session) {
-    rankpeekCreditLedgerEntries.value = []
-    rankpeekCreditLedgerLoading.value = false
-    return
-  }
-
-  rankpeekCreditLedgerLoading.value = true
-  const result = await getRankPeekCreditLedger(session.accessToken)
-  if (requestId !== creditLedgerRequestId) {
-    return
-  }
-
-  if (result.ok) {
-    rankpeekCreditLedgerEntries.value = result.entries
-  } else {
-    rankpeekCreditLedgerEntries.value = []
-    rankpeekCreditLedgerError.value = t('aiAnalysis.billingUnavailable')
-  }
-  rankpeekCreditLedgerLoading.value = false
-}
-
 function handleLocalAiAnalysisResultSaved() {
-  refreshRankPeekAccountState()
+  refreshLocalAiOverview()
   void refreshLocalAnalysisResults()
+}
+
+async function refreshLocalAiOverview() {
+  const requestId = ++overviewRequestId
+  localOverviewLoading.value = true
+  localOverviewError.value = null
+
+  try {
+    const today = formatDateKey(new Date())
+    const monthStart = formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+    const [settings, todaySummary, monthSummary, costEvents] = await Promise.all([
+      getLocalAiSettings(),
+      getLocalCostSummary({ from: today, to: today }),
+      getLocalCostSummary({ from: monthStart, to: today }),
+      getLocalCostEvents({ type: 'ai_analysis', limit: 6, offset: 0 })
+    ])
+
+    if (requestId !== overviewRequestId) {
+      return
+    }
+
+    localAiSettings.value = settings
+    todayLocalCostSummary.value = todaySummary
+    localCostSummary.value = monthSummary
+    recentAiCostEvents.value = costEvents
+  } catch (error) {
+    if (requestId !== overviewRequestId) {
+      return
+    }
+    console.warn('Failed to load local AI overview:', error)
+    localOverviewError.value = t('aiAnalysis.localCostUnavailable')
+  } finally {
+    if (requestId === overviewRequestId) {
+      localOverviewLoading.value = false
+    }
+  }
 }
 
 function resetPreparedSnapshot() {
@@ -512,44 +508,21 @@ function normalizePositiveInteger(value: unknown): number | null {
   return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null
 }
 
-function getCreditLedgerEntryTitle(entry: RankPeekCreditLedgerEntry) {
-  switch (entry.type) {
-    case 'AI_CHARGE':
-      return t('aiAnalysis.billingAiCharge')
-    case 'AI_REFUND':
-      return t('aiAnalysis.billingAiRefund')
-    case 'ADMIN_ADJUSTMENT':
-      return entry.amount >= 0
-        ? t('aiAnalysis.billingAdminCredit')
-        : t('aiAnalysis.billingAdminDebit')
-    default:
-      return t('aiAnalysis.billingAdjustment')
-  }
+function formatCostEventTitle(event: LocalCostEvent) {
+  return [event.source, event.model].filter(Boolean).join(' / ') || t('aiAnalysis.recentRunsTitle')
 }
 
-function getCreditLedgerEntryReason(entry: RankPeekCreditLedgerEntry) {
-  const reason = entry.reason?.trim()
-  if (!reason || reason === 'AI analysis charge' || reason === 'AI analysis refund') {
-    return ''
-  }
-  return reason
+function formatCostEventAmount(event: LocalCostEvent) {
+  return formatCny(event.amountCny ?? 0)
 }
 
-function formatCreditLedgerAmount(amount: number) {
-  const sign = amount > 0 ? '+' : amount < 0 ? '-' : ''
-  return t('aiAnalysis.billingPointsDelta', {
-    sign,
-    count: Math.abs(amount)
-  })
-}
-
-function formatCreditLedgerDate(value: string | null | undefined) {
+function formatCostEventDate(value: number | null | undefined) {
   if (!value) {
     return t('common.none')
   }
-  const timestamp = Date.parse(value)
+  const timestamp = value > 10_000_000_000 ? value : value * 1000
   if (Number.isNaN(timestamp)) {
-    return value
+    return t('common.none')
   }
 
   return new Date(timestamp).toLocaleString([], {
@@ -558,6 +531,21 @@ function formatCreditLedgerDate(value: string | null | undefined) {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+function formatCny(value: number) {
+  return `¥${Number(value || 0).toFixed(value >= 1 ? 2 : 6)}`
+}
+
+function formatDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function openManualCostShortcut() {
+  void router.push({ name: 'Settings' })
 }
 
 async function prepareAnalysisInputSnapshot() {
@@ -647,9 +635,10 @@ async function refreshLocalAnalysisResults() {
         <p>{{ t('aiAnalysis.subtitle') }}</p>
       </div>
 
-      <div class="status-card account-showcase-card">
-        <div class="account-showcase-item rankpeek-account-value">
-          {{ rankpeekAccountLabel }}
+      <div class="status-card local-provider-card">
+        <div class="provider-status-row">
+          <span>{{ t('aiAnalysis.providerStatusTitle') }}</span>
+          <strong>{{ localProviderStatusLabel }}</strong>
         </div>
         <div class="account-showcase-item league-account-showcase">
           <img
@@ -662,62 +651,83 @@ async function refreshLocalAnalysisResults() {
           <span v-else class="account-avatar-placeholder">{{ accountInitial }}</span>
           <span class="league-account-name">{{ accountStatusLabel }}</span>
         </div>
-        <div class="account-showcase-item balance-row">
-          <span class="balance-showcase">{{ rankpeekBalanceLabel }}</span>
-          <button class="balance-recharge-button" type="button">{{ t('aiAnalysis.pointsAction') }}</button>
+        <div class="cost-mini-row">
+          <span>{{ t('aiAnalysis.costToday') }}</span>
+          <strong>{{ todayCostTotalLabel }}</strong>
+        </div>
+        <div class="cost-mini-row">
+          <span>{{ t('aiAnalysis.costMonth') }}</span>
+          <strong>{{ monthCostTotalLabel }}</strong>
         </div>
       </div>
     </section>
 
     <p v-if="placeholderNotice" class="notice-line">{{ placeholderNotice }}</p>
 
-    <section class="ai-billing-section">
+    <section class="local-cost-section">
       <div class="section-heading billing-heading">
-        <span>{{ t('aiAnalysis.billingTitle') }}</span>
-        <small>{{ rankpeekAccountLabel }}</small>
+        <span>{{ t('aiAnalysis.costSummaryTitle') }}</span>
+        <button
+          class="balance-recharge-button"
+          type="button"
+          @click="openManualCostShortcut"
+        >
+          {{ t('aiAnalysis.manualCostShortcut') }}
+        </button>
       </div>
 
       <div class="billing-card">
-        <p class="billing-description">{{ t('aiAnalysis.billingDescription') }}</p>
+        <p v-if="localOverviewError" class="billing-state warning">
+          {{ localOverviewError }}
+        </p>
+        <p v-else-if="localOverviewLoading" class="billing-state">
+          {{ t('aiAnalysis.billingLoading') }}
+        </p>
 
         <div class="billing-summary-grid">
           <div class="billing-summary-item">
-            <span>{{ t('aiAnalysis.billingCurrentBalance') }}</span>
-            <strong>{{ rankpeekBalanceLabel }}</strong>
+            <span>{{ t('aiAnalysis.costToday') }}</span>
+            <strong>{{ todayCostTotalLabel }}</strong>
           </div>
           <div class="billing-summary-item">
-            <span>{{ t('aiAnalysis.billingAccount') }}</span>
-            <strong>{{ rankpeekAccountLabel }}</strong>
+            <span>{{ t('aiAnalysis.costMonth') }}</span>
+            <strong>{{ monthCostTotalLabel }}</strong>
+          </div>
+          <div class="billing-summary-item">
+            <span>{{ t('aiAnalysis.costAi') }}</span>
+            <strong>{{ formatCny(localCostSummary?.aiCostCny ?? 0) }}</strong>
+          </div>
+          <div class="billing-summary-item">
+            <span>{{ t('aiAnalysis.costManual') }}</span>
+            <strong>{{ formatCny(localCostSummary?.manualCostCny ?? 0) }}</strong>
+          </div>
+          <div class="billing-summary-item">
+            <span>{{ t('aiAnalysis.costTotal') }}</span>
+            <strong>{{ formatCny(localCostSummary?.totalCostCny ?? 0) }}</strong>
           </div>
         </div>
 
-        <div v-if="!rankpeekAuthSession" class="billing-state">
-          {{ t('aiAnalysis.billingLoginRequired') }}
+        <div class="section-heading recent-runs-heading">
+          <span>{{ t('aiAnalysis.recentRunsTitle') }}</span>
         </div>
-        <div v-else-if="rankpeekCreditLedgerLoading" class="billing-state">
-          {{ t('aiAnalysis.billingLoading') }}
-        </div>
-        <div v-else-if="rankpeekCreditLedgerError" class="billing-state warning">
-          {{ rankpeekCreditLedgerError || t('aiAnalysis.billingUnavailable') }}
-        </div>
-        <div v-else-if="rankpeekCreditLedgerEntries.length === 0" class="billing-state">
-          {{ t('aiAnalysis.billingEmpty') }}
+
+        <div v-if="recentAiCostEvents.length === 0" class="billing-state">
+          {{ t('aiAnalysis.recentRunsEmpty') }}
         </div>
         <div v-else class="billing-ledger-list">
           <article
-            v-for="entry in rankpeekCreditLedgerEntries"
-            :key="entry.id ?? `${entry.type}-${entry.createdAt}-${entry.balanceAfter}`"
-            class="billing-ledger-entry"
-            :class="{ credit: entry.amount > 0, debit: entry.amount < 0 }"
+            v-for="entry in recentAiCostEvents"
+            :key="entry.id"
+            class="billing-ledger-entry debit"
           >
             <div class="billing-ledger-main">
-              <strong>{{ getCreditLedgerEntryTitle(entry) }}</strong>
-              <span v-if="getCreditLedgerEntryReason(entry)">{{ getCreditLedgerEntryReason(entry) }}</span>
-              <time>{{ formatCreditLedgerDate(entry.createdAt) }}</time>
+              <strong>{{ formatCostEventTitle(entry) }}</strong>
+              <span>{{ entry.provider || 'local' }}</span>
+              <time>{{ formatCostEventDate(entry.createdAt) }}</time>
             </div>
             <div class="billing-ledger-numbers">
-              <strong>{{ formatCreditLedgerAmount(entry.amount) }}</strong>
-              <span>{{ t('aiAnalysis.billingBalanceAfter', { count: entry.balanceAfter }) }}</span>
+              <strong>{{ formatCostEventAmount(entry) }}</strong>
+              <span>{{ entry.quantity ?? 0 }} tokens</span>
             </div>
           </article>
         </div>

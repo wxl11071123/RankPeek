@@ -143,7 +143,7 @@ test('player card fetches cached exact-tier 101 meta only for current champion s
   assert.match(serverClient, /export interface CnChampionMeta/)
   assert.match(serverClient, /const championMetaCache = new Map<string, Promise<CnChampionMeta \| null>>\(\)/)
   assert.match(serverClient, /getLatestChampionMeta\(championId: number, tierScope: string\)/)
-  assert.match(serverClient, /\/api\/cn-meta\/champions\/\$\{encodeURIComponent\(String\(championId\)\)\}\/latest\?tierScope=/)
+  assert.match(serverClient, /\/api\/v1\/cn-meta\/champions\/\$\{encodeURIComponent\(String\(championId\)\)\}\/latest\?tierScope=/)
   assert.match(serverClient, /championMetaCache\.has\(cacheKey\)/)
 
   assert.match(source, /import \{ getLatestChampionMeta, type CnChampionMeta \} from '@\/services\/rankpeekServerClient'/)

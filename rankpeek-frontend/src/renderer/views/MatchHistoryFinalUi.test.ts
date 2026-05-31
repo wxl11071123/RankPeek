@@ -2,8 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+function readSource(url: URL) {
+  return readFileSync(url, 'utf8').replace(/\r\n/g, '\n')
+}
+
 function extractRule(source: string, selector: string) {
-  const start = source.indexOf(selector)
+  const styleStart = source.indexOf('<style')
+  const start = source.indexOf(selector, styleStart === -1 ? 0 : styleStart)
   assert.notEqual(start, -1, `${selector} should exist`)
 
   const open = source.indexOf('{', start)
@@ -27,7 +32,7 @@ function extractRule(source: string, selector: string) {
 }
 
 test('match history floating top bar owns the title, filters, and refresh action', () => {
-  const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const source = readSource(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url))
 
   assert.match(source, /<h1>\{\{ panelTitle \}\}<\/h1>/)
   assert.match(source, /const panelTitle = computed\(\(\) =>/)
@@ -46,8 +51,8 @@ test('match history floating top bar owns the title, filters, and refresh action
 })
 
 test('match history top bar uses fixed performant styling', () => {
-  const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
-  const cardSource = readFileSync(new URL('../components/match-history/MatchHistoryCard.vue', import.meta.url), 'utf8')
+  const source = readSource(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url))
+  const cardSource = readSource(new URL('../components/match-history/MatchHistoryCard.vue', import.meta.url))
   const pageShellRule = extractRule(source, '.page-shell {')
   const pageControlsRule = extractRule(source, '.page-controls')
   const filtersRule = extractRule(source, '.filters')
@@ -62,9 +67,9 @@ test('match history top bar uses fixed performant styling', () => {
   assert.doesNotMatch(source, /page-shell-liquid/)
   assert.match(source, /<div[\s\S]*ref="matchHistoryViewRef"[\s\S]*class="match-history-view">/)
   assert.match(source, /const matchHistoryViewRef = ref<HTMLElement \| null>\(null\)/)
-  assert.match(source, /function getSurfaceGlowElements\(\)[\s\S]*matchHistoryViewRef\.value\?\.querySelectorAll<HTMLElement>\('\.surface-glow'\)/)
-  assert.match(source, /function updateNearbySurfaceGlowAtPoint\(clientX: number, clientY: number\)[\s\S]*getSurfaceGlowElements\(\)\.forEach\(element => \{[\s\S]*applyGlowElement\(element, clientX, clientY\)/)
-  assert.match(source, /function scheduleNearbySurfaceGlow\(event: PointerEvent\)[\s\S]*window\.requestAnimationFrame/)
+  assert.match(source, /function getWindowProximityGlowElements\(\)[\s\S]*matchHistoryViewRef\.value\?\.querySelectorAll<HTMLElement>\(WINDOW_PROXIMITY_GLOW_SELECTOR\)/)
+  assert.match(source, /function updateWindowProximityGlowAtPoint\(clientX: number, clientY: number\)[\s\S]*getWindowProximityGlowElements\(\)\.forEach\(element => \{[\s\S]*applyGlowElement\(element, clientX, clientY\)/)
+  assert.match(source, /function scheduleWindowProximityGlow\(event: PointerEvent\)[\s\S]*window\.requestAnimationFrame/)
   assert.match(source, /window\.addEventListener\('pointermove', handleWindowPointerMove, \{ passive: true \}\)/)
   assert.match(source, /window\.removeEventListener\('pointermove', handleWindowPointerMove\)/)
   assert.match(extractRule(source, '.match-history-view'), /gap:\s*22px/)
@@ -105,7 +110,7 @@ test('match history top bar uses fixed performant styling', () => {
 })
 
 test('match history select filters have an activated hover glow state', () => {
-  const source = readFileSync(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url), 'utf8')
+  const source = readSource(new URL('../components/summoner/SummonerMatchHistoryPanel.vue', import.meta.url))
   const filterControlRule = extractRule(source, '.filter-control {')
   const filterControlHoverRule = extractRule(source, '.filter-control:hover,\n.filter-control:focus-within')
   const filterControlActiveRule = extractRule(source, '.filter-control:focus-within,\n.filter-control:active')
@@ -136,7 +141,7 @@ test('match history select filters have an activated hover glow state', () => {
 })
 
 test('match history overview gives stats priority while compacting rank information', () => {
-  const source = readFileSync(new URL('../components/summoner/SummonerOverviewPanel.vue', import.meta.url), 'utf8')
+  const source = readSource(new URL('../components/summoner/SummonerOverviewPanel.vue', import.meta.url))
   const overviewRule = extractRule(source, '.overview-panel')
   const rankRule = extractRule(source, '.rank-section {')
   const rankItemRule = extractRule(source, '.rank-item')
