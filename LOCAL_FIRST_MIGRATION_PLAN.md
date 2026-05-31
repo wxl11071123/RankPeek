@@ -566,7 +566,7 @@ git commit -m "feat(backend): add local AI provider settings"
 - Create: `rankpeek-backend/src/main/java/io/rankpeek/ai/AiProviderException.java`
 - Create: `rankpeek-backend/src/test/java/io/rankpeek/ai/OpenAiCompatibleChatClientTest.java`
 
-- [ ] **Step 1: Write streaming parser tests**
+- [x] **Step 1: Write streaming parser tests**
 
 Use JDK `com.sun.net.httpserver.HttpServer` in `OpenAiCompatibleChatClientTest`. The fake server returns:
 
@@ -592,7 +592,7 @@ completionTokens=3
 totalTokens=13
 ```
 
-- [ ] **Step 2: Run the failing test**
+- [x] **Step 2: Run the failing test**
 
 ```powershell
 cd rankpeek-backend
@@ -601,7 +601,7 @@ mvn -Dtest=OpenAiCompatibleChatClientTest test
 
 Expected: FAIL because the client does not exist.
 
-- [ ] **Step 3: Add request/usage records**
+- [x] **Step 3: Add request/usage records**
 
 Create:
 
@@ -641,7 +641,7 @@ public class AiProviderException extends RuntimeException {
 }
 ```
 
-- [ ] **Step 4: Implement client**
+- [x] **Step 4: Implement client**
 
 `OpenAiCompatibleChatClient` must:
 
@@ -657,7 +657,7 @@ public class AiProviderException extends RuntimeException {
 - Extract usage fields using OpenAI/DeepSeek-compatible field names.
 - Derive `promptCacheMissTokens = max(0, promptTokens - promptCacheHitTokens)` when the provider omits miss tokens.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```powershell
 cd rankpeek-backend
@@ -666,7 +666,7 @@ mvn -Dtest=OpenAiCompatibleChatClientTest test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add rankpeek-backend/src/main/java/io/rankpeek/ai/OpenAiCompatibleChatClient.java rankpeek-backend/src/main/java/io/rankpeek/ai/OpenAiChatMessage.java rankpeek-backend/src/main/java/io/rankpeek/ai/AiTokenUsage.java rankpeek-backend/src/main/java/io/rankpeek/ai/AiProviderException.java rankpeek-backend/src/test/java/io/rankpeek/ai/OpenAiCompatibleChatClientTest.java
