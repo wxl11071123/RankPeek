@@ -1,0 +1,14 @@
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #080b10;
+}
+
+.blank-site {
+  min-height: 100vh;
+}
