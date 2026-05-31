@@ -2,6 +2,7 @@ package io.rankpeek.ai;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ public class AiProviderSettingsService {
     private final AiProviderSettingsRepository repository;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public AiProviderSettingsService(AiProviderSettingsRepository repository) {
         this(repository, new ObjectMapper());
     }
