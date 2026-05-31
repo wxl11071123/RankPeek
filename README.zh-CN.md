@@ -31,8 +31,9 @@ RankPeek 是一款面向《英雄联盟》的 Windows 桌面工具。它通过�
 - 赛前分析当前大厅和队伍上下文。
 - 赛后复盘和夸夸模式。
 - 电子教练分析近期排位数据。
-- 在设置页配置用户自己的 AI provider：provider、base URL、模型、API key、temperature、max tokens 和价格。
-- OpenAI-compatible 路径可用于 DeepSeek、SiliconFlow、OpenRouter 以及其他兼容服务。
+- 在设置页配置用户自己的 AI provider：provider、base URL、模型、API key、开通页面链接、联网/深度思考开关和可选自填价格。
+- 用户填写 Base URL + API key 后，会从 provider 的 `/models` 接口刷新模型候选；刷新失败时仍可手动填写模型。
+- OpenAI-compatible 预设可用于 DeepSeek、Qwen、MiniMax、MiMo（小米）、GLM，以及自定义兼容服务。
 - 本地记录 AI 运行历史、token usage、缓存命中/未命中和成本估算。
 
 ### OP.GG 与国服 Meta 数据
@@ -45,8 +46,7 @@ RankPeek 是一款面向《英雄联盟》的 Windows 桌面工具。它通过�
 ### 本地成本流水
 
 - 当 provider 返回 token usage 时，AI 成本会自动本地记录。
-- 默认价格口径使用 DeepSeek 大陆价格。
-- 用户可以手动录入一次性、月费和年费成本，便于统计真实总成本。
+- AI 成本单价由用户可选自填；留空时成本记为未知。
 - 桌面应用不再需要 RankPeek 账号、注册、充值、点数余额或托管计费流程。
 
 ## 安全边界
@@ -206,7 +206,7 @@ build.bat                       Windows 原生 backend + Electron 打包辅助�
 - 本地 backend 负责读取本机 League Client 和战绩相关来源。
 - AI provider 凭据由用户自己提供并在本地配置。
 - AI snapshot 会尽量压缩成自然语言事实，降低成本，也避免发送原始大对象。
-- AI 运行记录、token usage、OP.GG 缓存、国服 meta 缓存和手动成本记录都存储在本地 backend 数据库。
+- AI 运行记录、token usage、OP.GG 缓存、国服 meta 缓存和成本记录都存储在本地 backend 数据库。
 - 打包桌面应用不应要求注册账号、邮箱验证、充值、点数或历史云端服务。
 
 ## 已知限制

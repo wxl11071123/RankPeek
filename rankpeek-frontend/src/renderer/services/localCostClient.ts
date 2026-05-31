@@ -6,11 +6,7 @@ import {
 export interface LocalCostSummary {
   from: string
   to: string
-  aiCostCny: number
-  manualCostCny: number
   totalCostCny: number
-  eventCount: number
-  manualItemCount: number
 }
 
 export interface LocalCostEvent {
@@ -24,29 +20,6 @@ export interface LocalCostEvent {
   quantity?: number | null
   metadataRawJson?: string | null
   createdAt: number
-}
-
-export interface LocalManualCostItem {
-  id: number
-  label: string
-  category: string
-  amountCny: number
-  cadence: 'one_time' | 'monthly' | 'yearly'
-  effectiveDate: string
-  note?: string | null
-  active: boolean
-  createdAt: number
-  updatedAt: number
-}
-
-export interface LocalManualCostRequest {
-  label: string
-  category: string
-  amountCny: number
-  cadence: 'one_time' | 'monthly' | 'yearly'
-  effectiveDate: string
-  note?: string | null
-  active?: boolean
 }
 
 export async function getLocalCostSummary(params: { from?: string; to?: string } = {}): Promise<LocalCostSummary> {
@@ -69,28 +42,6 @@ export async function getLocalCostEvents(params: {
     throw new Error(readLocalApiErrorMessage(payload.error?.message))
   }
   return payload.data?.events ?? []
-}
-
-export async function getLocalManualCosts(): Promise<LocalManualCostItem[]> {
-  const response = await fetch(`${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/costs/manual`)
-  const payload = await parseLocalJson<{ items?: LocalManualCostItem[] }>(response)
-  if (!response.ok || payload.success === false) {
-    throw new Error(readLocalApiErrorMessage(payload.error?.message))
-  }
-  return payload.data?.items ?? []
-}
-
-export async function createLocalManualCost(request: LocalManualCostRequest): Promise<LocalManualCostItem> {
-  const response = await fetch(`${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/costs/manual`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
-  })
-  const payload = await parseLocalJson<LocalManualCostItem>(response)
-  if (!response.ok || payload.success === false || !payload.data) {
-    throw new Error(readLocalApiErrorMessage(payload.error?.message))
-  }
-  return payload.data
 }
 
 function toQueryString(params: Record<string, string | number | undefined>): string {

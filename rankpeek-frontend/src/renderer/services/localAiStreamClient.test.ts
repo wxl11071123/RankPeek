@@ -103,3 +103,28 @@ test('streamLocalPostgameAi maps missing provider configuration to friendly text
     globalThis.fetch = originalFetch
   }
 })
+
+test('streamLocalPostgameAi does not estimate DeepSeek pricing for other providers', async () => {
+  const originalFetch = globalThis.fetch
+  const costs: unknown[] = []
+
+  globalThis.fetch = (async () => streamResponse(
+    'event: usage\ndata: {"provider":"qwen","model":"qwen-plus","promptTokens":1000,"completionTokens":200,"totalTokens":1200,"promptCacheHitTokens":0,"promptCacheMissTokens":1000}\n\n'
+      + 'event: done\ndata: {"type":"done"}\n\n'
+  )) as typeof fetch
+
+  try {
+    const result = await streamLocalPostgameAi({
+      mode: 'review',
+      snapshotSchemaVersion: 'postgame.v1',
+      snapshot: {}
+    }, {
+      onUsage: usage => costs.push(usage.cost)
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(costs, [null])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

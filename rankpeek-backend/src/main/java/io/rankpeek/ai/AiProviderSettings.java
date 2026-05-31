@@ -5,10 +5,11 @@ public record AiProviderSettings(
         String providerId,
         String baseUrl,
         String model,
+        String apiKeyId,
         boolean apiKeySaved,
         String apiKeyMasked,
-        Double temperature,
-        int maxTokens,
+        boolean webSearchEnabled,
+        boolean deepThinkingEnabled,
         AiProviderPricing pricing
 ) {
 }

@@ -6,9 +6,10 @@ public record AiProviderSettingsSaveRequest(
         String baseUrl,
         String model,
         String apiKey,
+        String apiKeyId,
         boolean saveApiKey,
-        Double temperature,
-        int maxTokens,
+        boolean webSearchEnabled,
+        boolean deepThinkingEnabled,
         AiProviderPricing pricing
 ) {
 }

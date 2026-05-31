@@ -15,7 +15,11 @@ import {
   type PostgameAiTokenUsage
 } from '@/services/postgameAiServerStream'
 import { savePostgameAiRunResultToLocal } from '@/services/postgameAiRunPersistence'
-import type { PostgameAiReviewRosterPlayer } from '@/services/postgameAiStructuredResult'
+import {
+  parsePostgameAiPraiseResult,
+  parsePostgameAiStructuredResult,
+  type PostgameAiReviewRosterPlayer
+} from '@/services/postgameAiStructuredResult'
 import { buildPostgameAiReviewRosterPlayers } from '@/services/postgameAiReviewRoster'
 import type {
   DragonType,
@@ -858,7 +862,6 @@ async function startPostgameAiAnalysis(): Promise<void> {
     }
 
     const result = await streamPostgameAiAnalysis(request, {
-      onSection: title => appendPostgameAiStreamText(`\n${title}\n`),
       onDelta: text => appendPostgameAiStreamText(text),
       onError: message => {
         postgameAiStreamError.value = message
@@ -893,7 +896,7 @@ async function startPostgameAiAnalysis(): Promise<void> {
     }
   } catch (error) {
     if (!abortController.signal.aborted) {
-      postgameAiStreamError.value = error instanceof Error ? error.message : 'rankpeek-server 暂不可用'
+      postgameAiStreamError.value = error instanceof Error ? error.message : '本地 AI 暂不可用'
       postgameAiStreamState.value = 'failed'
     }
   } finally {
@@ -907,6 +910,9 @@ async function saveCompletedPostgameAiAnalysis(params: SaveCompletedPostgameAiAn
   const { snapshot, mode, championNamesById } = params
   const rawOutputText = postgameAiStreamText.value.trim()
   if (!rawOutputText) {
+    return
+  }
+  if (!isPostgameAiStructuredOutputValid(mode, rawOutputText)) {
     return
   }
 
@@ -924,6 +930,12 @@ async function saveCompletedPostgameAiAnalysis(params: SaveCompletedPostgameAiAn
   if (!saveResult.success) {
     console.warn('Failed to save postgame AI run result:', saveResult.error)
   }
+}
+
+function isPostgameAiStructuredOutputValid(mode: PostgameAiAnalysisMode, rawOutputText: string): boolean {
+  return mode === 'praise'
+    ? parsePostgameAiPraiseResult(rawOutputText).ok
+    : parsePostgameAiStructuredResult(rawOutputText).ok
 }
 
 function resolvePostgameAiAccountPuuid(): string {

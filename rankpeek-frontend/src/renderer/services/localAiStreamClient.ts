@@ -58,7 +58,7 @@ export interface LocalPostgameTokenUsage {
   totalTokens: number
   promptCacheHitTokens: number
   promptCacheMissTokens: number
-  cost: LocalPostgameTokenCostEstimate
+  cost: LocalPostgameTokenCostEstimate | null
 }
 
 export type LocalPostgameStreamEvent =
@@ -589,7 +589,9 @@ function readTokenUsage(payload: unknown): LocalPostgameTokenUsage | null {
 
   return {
     ...rawUsage,
-    cost: estimateLocalPostgameAiTokenCostCny(rawUsage)
+    cost: rawUsage.provider.trim().toLowerCase() === 'deepseek'
+      ? estimateLocalPostgameAiTokenCostCny(rawUsage)
+      : null
   }
 }
 

@@ -390,6 +390,7 @@ test('postgame AI start handler builds and streams only after the modal start ac
   assert.doesNotMatch(startBlock, /buildPostgameAiInputSnapshot\(\{[\s\S]*mode: postgameAiModalMode\.value/)
   assert.match(startBlock, /createPostgameAiStreamRequest\(snapshot,\s*mode\)/)
   assert.match(startBlock, /streamPostgameAiAnalysis\(/)
+  assert.doesNotMatch(startBlock, /onSection:\s*title => appendPostgameAiStreamText/)
   assert.match(startBlock, /onUsage: usage => \{[\s\S]*postgameAiStreamUsage\.value = usage[\s\S]*\}/)
   assert.match(startBlock, /let postgameAiSaveStarted = false/)
   assert.match(startBlock, /const saveCompletedStreamOnce = \(\): Promise<void> =>/)
@@ -408,6 +409,7 @@ test('postgame AI completion saves raw output and usage without persisting snaps
 
   assert.match(saveBlock, /const rawOutputText = postgameAiStreamText\.value\.trim\(\)/)
   assert.match(saveBlock, /if \(!rawOutputText\) \{[\s\S]*return/)
+  assert.match(saveBlock, /isPostgameAiStructuredOutputValid\(mode,\s*rawOutputText\)/)
   assert.match(saveBlock, /savePostgameAiRunResultToLocal\(\{[\s\S]*accountPuuid: resolvePostgameAiAccountPuuid\(\)[\s\S]*mode[\s\S]*rawOutputText[\s\S]*usage: postgameAiStreamUsage\.value[\s\S]*snapshot[\s\S]*matchHistory: props\.matchHistory[\s\S]*championNamesById[\s\S]*rosterPlayers: postgameAiReviewRosterPlayers\.value/)
   assert.match(saveBlock, /if \(!saveResult\.success\) \{[\s\S]*console\.warn/)
   assert.doesNotMatch(saveBlock, /analysisBrief|snapshot\.analysisBrief|JSON\.stringify\(snapshot/)

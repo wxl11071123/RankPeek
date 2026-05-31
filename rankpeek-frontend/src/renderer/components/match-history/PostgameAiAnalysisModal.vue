@@ -279,7 +279,7 @@ onBeforeUnmount(() => {
             class="postgame-ai-analysis-error"
             role="alert"
           >
-            {{ streamError || 'rankpeek-server 暂不可用' }}
+            {{ streamError || '本地 AI 暂不可用' }}
           </section>
 
           <section
@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
             class="postgame-ai-analysis-placeholder"
           >
             <span class="postgame-ai-analysis-eyebrow">AI 数据闭环</span>
-            <p>点击开始后才会构建本局 snapshot 并发送到 rankpeek-server。</p>
+            <p>点击开始后才会构建本局 snapshot 并发送到本地 AI。</p>
           </section>
 
           <button
