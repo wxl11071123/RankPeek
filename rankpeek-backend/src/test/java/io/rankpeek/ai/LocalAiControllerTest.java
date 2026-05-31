@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
+import io.rankpeek.cost.AiCostCalculator;
+import io.rankpeek.cost.CostRepository;
+import io.rankpeek.cost.CostService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,7 @@ class LocalAiControllerTest {
     private JdbcTemplate jdbcTemplate;
     private AiProviderSettingsService settingsService;
     private LocalAiRunRepository runRepository;
+    private CostRepository costRepository;
     private MockMvc mockMvc;
     private HttpServer aiServer;
     private AtomicInteger aiRequestCount;
@@ -57,11 +61,13 @@ class LocalAiControllerTest {
         AiProviderSettingsRepository settingsRepository = new AiProviderSettingsRepository(jdbcTemplate);
         settingsService = new AiProviderSettingsService(settingsRepository);
         runRepository = new LocalAiRunRepository(jdbcTemplate);
+        costRepository = new CostRepository(jdbcTemplate, objectMapper);
         LocalAiAnalysisService service = new LocalAiAnalysisService(
                 settingsService,
                 runRepository,
                 new LocalAiAnalysisStreamer(new OpenAiCompatibleChatClient(objectMapper), objectMapper),
-                objectMapper
+                objectMapper,
+                new CostService(costRepository, new AiCostCalculator())
         );
         mockMvc = MockMvcBuilders.standaloneSetup(new LocalAiController(service)).build();
     }
@@ -126,6 +132,15 @@ class LocalAiControllerTest {
 
         assertThat(aiRequestCount.get()).isEqualTo(1);
         assertThat(runRepository.list("pregame", "succeeded", 20, 0)).hasSize(1);
+        assertThat(runRepository.list("pregame", "succeeded", 20, 0).getFirst().totalCny())
+                .isPositive();
+        assertThat(costRepository.listEvents("ai_analysis", 20, 0))
+                .hasSize(1)
+                .first()
+                .satisfies(event -> {
+                    assertThat(event.source()).isEqualTo("pregame");
+                    assertThat(event.amountCny()).isPositive();
+                });
     }
 
     @Test

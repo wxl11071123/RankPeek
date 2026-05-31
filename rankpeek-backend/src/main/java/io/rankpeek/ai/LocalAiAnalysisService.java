@@ -3,9 +3,14 @@ package io.rankpeek.ai;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.rankpeek.cost.AiCostBreakdown;
+import io.rankpeek.cost.AiPricing;
+import io.rankpeek.cost.AiPricingCatalog;
+import io.rankpeek.cost.CostService;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -23,17 +28,29 @@ public class LocalAiAnalysisService {
     private final LocalAiRunRepository runRepository;
     private final LocalAiAnalysisStreamer streamer;
     private final ObjectMapper objectMapper;
+    private final CostService costService;
 
-    public LocalAiAnalysisService(
+    LocalAiAnalysisService(
             AiProviderSettingsService settingsService,
             LocalAiRunRepository runRepository,
             LocalAiAnalysisStreamer streamer,
             ObjectMapper objectMapper
     ) {
+        this(settingsService, runRepository, streamer, objectMapper, null);
+    }
+
+    public LocalAiAnalysisService(
+            AiProviderSettingsService settingsService,
+            LocalAiRunRepository runRepository,
+            LocalAiAnalysisStreamer streamer,
+            ObjectMapper objectMapper,
+            CostService costService
+    ) {
         this.settingsService = settingsService;
         this.runRepository = runRepository;
         this.streamer = streamer;
         this.objectMapper = objectMapper;
+        this.costService = costService;
     }
 
     public SseEmitter streamPregame(PregameAnalysisRequest request) {
@@ -64,6 +81,7 @@ public class LocalAiAnalysisService {
             );
             Map<String, Object> report = parseJsonObject(result.text());
             runRepository.markSucceeded(runId, writeJson(report), result.usage());
+            recordCostIfAvailable(runId, "coach-summary", settings, result.usage());
             return new CoachSummaryAnalysisResponse(report, result.usage());
         } catch (Exception exception) {
             runRepository.markFailed(runId, errorCode(exception), exception.getMessage());
@@ -115,6 +133,7 @@ public class LocalAiAnalysisService {
             LocalAiAnalysisStreamer.StreamResult result =
                     streamer.streamToEmitter(emitter, settings, messages, sectionTitle);
             runRepository.markSucceeded(runId, result.text(), result.usage());
+            recordCostIfAvailable(runId, endpoint, settings, result.usage());
             emitter.complete();
         } catch (LocalAiConfigurationException exception) {
             if (runId != null) {
@@ -128,6 +147,23 @@ public class LocalAiAnalysisService {
             }
             streamer.sendError(emitter, errorCode(exception), exception.getMessage());
             emitter.complete();
+        }
+    }
+
+    private void recordCostIfAvailable(
+            long runId,
+            String endpoint,
+            StoredAiProviderSettings settings,
+            AiTokenUsage usage
+    ) {
+        if (costService == null || usage == null) {
+            return;
+        }
+        try {
+            AiCostBreakdown cost = costService.recordAiAnalysis(runId, endpoint, usage, pricingForSettings(settings));
+            runRepository.updateCost(runId, cost);
+        } catch (Exception ignored) {
+            // Cost tracking should never make an otherwise successful local AI response fail.
         }
     }
 
@@ -172,6 +208,32 @@ public class LocalAiAnalysisService {
         } catch (JsonProcessingException exception) {
             throw new AiProviderException("Local AI JSON response is invalid", exception);
         }
+    }
+
+    private AiPricing pricingForSettings(StoredAiProviderSettings settings) {
+        if (settings.pricingRawJson() != null && !settings.pricingRawJson().isBlank()) {
+            try {
+                AiProviderPricing pricing = objectMapper.readValue(settings.pricingRawJson(), AiProviderPricing.class);
+                return new AiPricing(
+                        settings.providerId(),
+                        settings.model(),
+                        blankToDefault(pricing.currency(), "CNY"),
+                        nonNegative(pricing.inputCacheHitCnyPerMillionTokens()),
+                        nonNegative(pricing.inputCacheMissCnyPerMillionTokens()),
+                        nonNegative(pricing.outputCnyPerMillionTokens())
+                );
+            } catch (JsonProcessingException ignored) {
+                // Fall back to the catalog below.
+            }
+        }
+        return AiPricingCatalog.forModel(settings.providerId(), settings.model()).orElse(null);
+    }
+
+    private BigDecimal nonNegative(BigDecimal value) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO;
+        }
+        return value;
     }
 
     private String sha256(String value) {

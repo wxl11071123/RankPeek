@@ -823,7 +823,7 @@ git commit -m "feat(backend): serve AI analysis from local backend"
 - Create: `rankpeek-backend/src/test/java/io/rankpeek/cost/CostControllerTest.java`
 - Reference: `rankpeek-server/src/main/java/io/rankpeek/server/cost/*`
 
-- [ ] **Step 1: Write pricing tests**
+- [x] **Step 1: Write pricing tests**
 
 `AiCostCalculatorTest` must assert:
 
@@ -834,7 +834,7 @@ custom pricing: input hit 0, input miss 2, output 8 uses the same per-million fo
 unknown pricing: totalCny is null and usage is still recorded
 ```
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 cd rankpeek-backend
@@ -843,7 +843,7 @@ mvn -Dtest=AiCostCalculatorTest,CostControllerTest test
 
 Expected: FAIL because cost package and tables do not exist.
 
-- [ ] **Step 3: Add cost tables**
+- [x] **Step 3: Add cost tables**
 
 Add:
 
@@ -879,7 +879,7 @@ jdbcTemplate.execute("""
         """);
 ```
 
-- [ ] **Step 4: Port cost calculator**
+- [x] **Step 4: Port cost calculator**
 
 Adapt server cost classes into local backend:
 
@@ -889,7 +889,7 @@ Adapt server cost classes into local backend:
 
 Keep exact DeepSeek Mainland rates listed in Product Decisions.
 
-- [ ] **Step 5: Record AI cost after usage**
+- [x] **Step 5: Record AI cost after usage**
 
 In `LocalAiAnalysisService`, after successful usage parsing:
 
@@ -898,7 +898,7 @@ In `LocalAiAnalysisService`, after successful usage parsing:
 - Insert one `cost_events` row with `event_type='ai_analysis'`.
 - Store usage and cost details in `metadata_raw_json`.
 
-- [ ] **Step 6: Add manual cost endpoints**
+- [x] **Step 6: Add manual cost endpoints**
 
 `CostController` exposes:
 
@@ -915,7 +915,7 @@ Recurring cost math:
 - `monthly`: counted once per month overlapping the requested range.
 - `yearly`: counted as `amountCny / 12` in monthly summaries and once per year in yearly summaries.
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ```powershell
 cd rankpeek-backend
@@ -924,7 +924,7 @@ mvn -Dtest=AiCostCalculatorTest,CostControllerTest,LocalAiControllerTest test
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add rankpeek-backend/src/main/java/io/rankpeek/cache/LocalCacheSchemaInitializer.java rankpeek-backend/src/main/java/io/rankpeek/cost rankpeek-backend/src/main/java/io/rankpeek/ai rankpeek-backend/src/test/java/io/rankpeek/cost rankpeek-backend/src/test/java/io/rankpeek/ai

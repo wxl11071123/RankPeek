@@ -5,6 +5,8 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import io.rankpeek.cost.AiCostBreakdown;
+
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -110,6 +112,27 @@ public class LocalAiRunRepository {
                 id);
     }
 
+    public void updateCost(long id, AiCostBreakdown cost) {
+        if (cost == null || cost.totalCny() == null) {
+            return;
+        }
+        jdbcTemplate.update("""
+                UPDATE ai_analysis_runs
+                SET input_cache_hit_cny = ?,
+                    input_cache_miss_cny = ?,
+                    output_cny = ?,
+                    total_cny = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                zeroIfNull(cost.inputCacheHitCny()),
+                zeroIfNull(cost.inputCacheMissCny()),
+                zeroIfNull(cost.outputCny()),
+                cost.totalCny(),
+                System.currentTimeMillis(),
+                id);
+    }
+
     public Optional<LocalAiRun> findById(long id) {
         return jdbcTemplate.query("""
                 SELECT *
@@ -163,6 +186,10 @@ public class LocalAiRunRepository {
 
     private BigDecimal readBigDecimal(ResultSet rs, String columnName) throws SQLException {
         BigDecimal value = rs.getBigDecimal(columnName);
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private BigDecimal zeroIfNull(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
 }
