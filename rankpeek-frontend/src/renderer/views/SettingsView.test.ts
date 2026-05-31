@@ -5,8 +5,9 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('./SettingsView.vue', import.meta.url), 'utf8')
 const zh = readFileSync(new URL('../i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
 const en = readFileSync(new URL('../i18n/locales/en-US.ts', import.meta.url), 'utf8')
+const oldAuthClientPattern = new RegExp(['rankpeek', 'AuthClient'].join(''))
 
-test('settings page replaces RankPeek account UI with local AI provider configuration', () => {
+test('settings page uses local AI provider configuration', () => {
   assert.match(source, /getLocalAiProviders/)
   assert.match(source, /getLocalAiSettings/)
   assert.match(source, /saveLocalAiSettings/)
@@ -28,7 +29,7 @@ test('settings page replaces RankPeek account UI with local AI provider configur
   assert.match(source, /settings\.aiTestConnection/)
   assert.match(source, /settings\.aiSavedKey/)
 
-  assert.doesNotMatch(source, /rankpeekAuthClient/)
+  assert.doesNotMatch(source, oldAuthClientPattern)
   assert.doesNotMatch(source, /loginRankPeekAccount|registerRankPeekAccount|requestRankPeekRegisterEmailCode|requestRankPeekPasswordReset/)
   assert.doesNotMatch(source, /authModalOpen|auth-form|authVerificationCode|handleLogout/)
   assert.doesNotMatch(source, /settings\.accountTitle|settings\.login|settings\.logout/)

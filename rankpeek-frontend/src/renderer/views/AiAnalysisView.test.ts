@@ -3,6 +3,12 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 
 const viewUrl = new URL('./AiAnalysisView.vue', import.meta.url)
+const oldAccountClientPattern = new RegExp(['rankpeek', '(Auth|Credits)Client'].join(''))
+const oldPointCopyPattern = new RegExp([
+  ['points', 'Balance'].join(''),
+  ['points', 'Action'].join(''),
+  ['billing', 'PointsDelta'].join('')
+].join('|'))
 
 function readRendererFile(path: string) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
@@ -13,7 +19,7 @@ function readViewSource() {
   return readFileSync(viewUrl, 'utf8')
 }
 
-test('AI report center uses local provider and cost clients instead of account credits', () => {
+test('AI report center uses local provider and cost clients', () => {
   const source = readViewSource()
 
   assert.match(source, /getLocalAiSettings/)
@@ -28,10 +34,10 @@ test('AI report center uses local provider and cost clients instead of account c
   assert.match(source, /aiAnalysis\.recentRunsTitle/)
   assert.match(source, /aiAnalysis\.manualCostShortcut/)
 
-  assert.doesNotMatch(source, /rankpeekAuthClient|rankpeekCreditsClient/)
+  assert.doesNotMatch(source, oldAccountClientPattern)
   assert.doesNotMatch(source, /RankPeekAuthSession|RankPeekCreditLedgerEntry/)
   assert.doesNotMatch(source, /getRankPeekCreditBalance|getRankPeekCreditLedger/)
-  assert.doesNotMatch(source, /pointsBalance|pointsAction|billingPointsDelta/)
+  assert.doesNotMatch(source, oldPointCopyPattern)
 })
 
 test('AI report center keeps account-scoped local history and read-only postgame detail', () => {

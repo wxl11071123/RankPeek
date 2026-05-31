@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { extname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   checkRankPeekServerDiagnostics,
   getLatestChampionMeta,
@@ -10,6 +12,21 @@ import {
   RANKPEEK_SERVER_BASE_URL,
   RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
 } from './rankpeekServerClient.ts'
+
+const rendererRootPath = fileURLToPath(new URL('..', import.meta.url))
+const textFileExtensions = new Set(['.js', '.json', '.mjs', '.ts', '.tsx', '.vue'])
+
+function listRendererTextFiles(directoryPath: string): string[] {
+  return readdirSync(directoryPath)
+    .flatMap((entryName) => {
+      const entryPath = join(directoryPath, entryName)
+      const stats = statSync(entryPath)
+      if (stats.isDirectory()) {
+        return listRendererTextFiles(entryPath)
+      }
+      return textFileExtensions.has(extname(entryPath)) ? [entryPath] : []
+    })
+}
 
 test('uses the local backend endpoint by default', () => {
   assert.equal(RANKPEEK_SERVER_BASE_URL, 'http://127.0.0.1:8080')
@@ -94,15 +111,19 @@ test('diagnostics check treats invalid diagnostics payloads as unavailable', asy
   }
 })
 
-test('server AI services still use the shared compatibility base URL during migration', () => {
-  for (const relativePath of [
-    './gamingAiServerSync.ts',
-    './gamingAiServerStream.ts',
-    './postgameAiServerStream.ts'
-  ]) {
-    const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
-    assert.match(source, /from '\.\/rankpeekServerClient\.ts'/)
-    assert.doesNotMatch(source, /export const RANKPEEK_SERVER_BASE_URL =/)
+test('renderer source no longer keeps cloud account, credit, or API host references', () => {
+  const forbiddenPatterns = [
+    new RegExp(['rankpeek', 'AuthClient'].join('')),
+    new RegExp(['rankpeek', 'CreditsClient'].join('')),
+    new RegExp(['api', 'rankpeek', 'cn'].join('\\.'))
+  ]
+
+  for (const filePath of listRendererTextFiles(rendererRootPath)) {
+    const source = readFileSync(filePath, 'utf8')
+    const label = relative(rendererRootPath, filePath)
+    for (const pattern of forbiddenPatterns) {
+      assert.doesNotMatch(source, pattern, `${label} should not match ${pattern}`)
+    }
   }
 })
 
