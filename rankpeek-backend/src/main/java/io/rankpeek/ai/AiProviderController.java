@@ -2,6 +2,7 @@ package io.rankpeek.ai;
 
 import io.rankpeek.model.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,5 +33,10 @@ public class AiProviderController {
     @PutMapping("/settings")
     public ApiResponse<AiProviderSettings> save(@RequestBody AiProviderSettingsSaveRequest request) {
         return ApiResponse.success(service.saveSettings(request));
+    }
+
+    @PostMapping("/test")
+    public ApiResponse<AiProviderTestResponse> test(@RequestBody AiProviderTestRequest request) {
+        return ApiResponse.success(service.testProvider(request));
     }
 }

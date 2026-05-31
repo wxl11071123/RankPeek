@@ -8,9 +8,14 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 class AiProviderSettingsServiceTest {
 
@@ -121,5 +126,60 @@ class AiProviderSettingsServiceTest {
                 null
         ))).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("model");
+    }
+
+    @Test
+    void testProvider_returnsNotConfiguredWhenApiKeyIsMissing() {
+        AiProviderTestResponse response = service.testProvider(new AiProviderTestRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                ""
+        ));
+
+        assertThat(response.configured()).isFalse();
+        assertThat(response.providerId()).isEqualTo("deepseek");
+        assertThat(response.model()).isEqualTo("deepseek-v4-flash");
+        assertThat(response.message()).contains("configure AI provider");
+    }
+
+    @Test
+    void testProvider_usesUnsavedRequestValuesWithSavedApiKey() {
+        service.saveSettings(new AiProviderSettingsSaveRequest(
+                true,
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "sk-saved-secret",
+                true,
+                0.4d,
+                4096,
+                null
+        ));
+        OpenAiCompatibleChatClient chatClient = mock(OpenAiCompatibleChatClient.class);
+        AtomicReference<OpenAiCompatibleChatClient.ChatOptions> options = new AtomicReference<>();
+        doAnswer(invocation -> {
+            options.set(invocation.getArgument(0));
+            return null;
+        }).when(chatClient).streamChat(any(OpenAiCompatibleChatClient.ChatOptions.class), anyList(), any(), any());
+        service = new AiProviderSettingsService(
+                new AiProviderSettingsRepository(jdbcTemplate),
+                chatClient
+        );
+
+        AiProviderTestResponse response = service.testProvider(new AiProviderTestRequest(
+                "custom-openai-compatible",
+                " https://provider.example/v1/// ",
+                "free-model",
+                ""
+        ));
+
+        assertThat(response.configured()).isTrue();
+        assertThat(response.providerId()).isEqualTo("custom-openai-compatible");
+        assertThat(response.model()).isEqualTo("free-model");
+        assertThat(response.message()).contains("succeeded");
+        assertThat(options.get().baseUrl()).isEqualTo("https://provider.example/v1");
+        assertThat(options.get().model()).isEqualTo("free-model");
+        assertThat(options.get().apiKey()).isEqualTo("sk-saved-secret");
     }
 }

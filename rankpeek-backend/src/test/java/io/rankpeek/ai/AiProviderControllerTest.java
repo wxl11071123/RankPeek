@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -109,6 +110,32 @@ class AiProviderControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.enabled").value(true))
                 .andExpect(jsonPath("$.data.apiKeyMasked").value("sk-...cret"))
+                .andExpect(jsonPath("$.data.apiKey").doesNotExist());
+    }
+
+    @Test
+    void testProvider_delegatesToServiceAndReturnsConnectionResult() throws Exception {
+        AiProviderTestRequest request = new AiProviderTestRequest(
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "sk-unsaved-test"
+        );
+        when(service.testProvider(any(AiProviderTestRequest.class))).thenReturn(new AiProviderTestResponse(
+                true,
+                "deepseek",
+                "deepseek-v4-flash",
+                "AI provider connection succeeded."
+        ));
+
+        mockMvc.perform(post("/api/v1/ai/test")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.configured").value(true))
+                .andExpect(jsonPath("$.data.providerId").value("deepseek"))
+                .andExpect(jsonPath("$.data.model").value("deepseek-v4-flash"))
                 .andExpect(jsonPath("$.data.apiKey").doesNotExist());
     }
 }

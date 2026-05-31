@@ -13,6 +13,7 @@ import {
   getLocalAiProviders,
   getLocalAiSettings,
   saveLocalAiSettings,
+  testLocalAiProviderSettings,
   type LocalAiPricing,
   type LocalAiProviderProfile,
   type LocalAiSettings,
@@ -197,10 +198,17 @@ async function saveAiProviderSettings(showAlert = true): Promise<boolean> {
 
 async function testLocalAiProviderConnection() {
   testingAiConnection.value = true
+  aiProviderStatusMessage.value = ''
   try {
-    const saved = await saveAiProviderSettings(false)
-    aiProviderStatusMessage.value = saved
+    const result = await testLocalAiProviderSettings(buildAiProviderTestRequest())
+    aiProviderStatusMessage.value = result.configured
       ? t('settings.aiConnectionReady')
+      : result.message || t('settings.aiSettingsUnavailable')
+    window.alert(aiProviderStatusMessage.value)
+  } catch (error) {
+    console.error('Failed to test local AI provider', error)
+    aiProviderStatusMessage.value = error instanceof Error && error.message
+      ? error.message
       : t('settings.aiSettingsUnavailable')
     window.alert(aiProviderStatusMessage.value)
   } finally {
@@ -219,6 +227,15 @@ function buildAiProviderRequest(): SaveLocalAiSettingsRequest {
     temperature: aiProviderForm.temperature,
     maxTokens: aiProviderForm.maxTokens,
     pricing: pricingMode.value === 'custom' ? aiProviderForm.pricing : { ...defaultAiPricing }
+  }
+}
+
+function buildAiProviderTestRequest() {
+  return {
+    providerId: aiProviderForm.providerId,
+    baseUrl: aiProviderForm.baseUrl,
+    model: aiProviderForm.model,
+    apiKey: apiKeyInput.value
   }
 }
 

@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 
@@ -17,18 +18,36 @@ public class AiProviderSettingsService {
     private static final String DEFAULT_MODEL = "deepseek-v4-flash";
     private static final double DEFAULT_TEMPERATURE = 0.4d;
     private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final String CONFIGURATION_REQUIRED_MESSAGE = "Please configure AI provider and API key first.";
 
     private final AiProviderSettingsRepository repository;
     private final ObjectMapper objectMapper;
+    private final OpenAiCompatibleChatClient chatClient;
 
     @Autowired
-    public AiProviderSettingsService(AiProviderSettingsRepository repository) {
-        this(repository, new ObjectMapper());
+    public AiProviderSettingsService(
+            AiProviderSettingsRepository repository,
+            OpenAiCompatibleChatClient chatClient
+    ) {
+        this(repository, new ObjectMapper(), chatClient);
+    }
+
+    AiProviderSettingsService(AiProviderSettingsRepository repository) {
+        this(repository, new ObjectMapper(), null);
     }
 
     AiProviderSettingsService(AiProviderSettingsRepository repository, ObjectMapper objectMapper) {
+        this(repository, objectMapper, null);
+    }
+
+    AiProviderSettingsService(
+            AiProviderSettingsRepository repository,
+            ObjectMapper objectMapper,
+            OpenAiCompatibleChatClient chatClient
+    ) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.chatClient = chatClient;
     }
 
     public static List<AiProviderProfile> defaultProviderProfiles() {
@@ -100,6 +119,92 @@ public class AiProviderSettingsService {
         return toPublicSettings(stored);
     }
 
+    public AiProviderTestResponse testProvider(AiProviderTestRequest request) {
+        AiProviderTestConfiguration configuration = resolveTestConfiguration(request);
+        if (!configuration.configured()) {
+            return new AiProviderTestResponse(
+                    false,
+                    configuration.providerId(),
+                    configuration.model(),
+                    CONFIGURATION_REQUIRED_MESSAGE
+            );
+        }
+
+        try {
+            effectiveChatClient().streamChat(
+                    new OpenAiCompatibleChatClient.ChatOptions(
+                            configuration.providerId(),
+                            configuration.baseUrl(),
+                            configuration.model(),
+                            configuration.apiKey(),
+                            Duration.ofSeconds(5),
+                            Duration.ofSeconds(15),
+                            32,
+                            0d,
+                            false
+                    ),
+                    List.of(
+                            new OpenAiChatMessage(
+                                    "system",
+                                    "You are RankPeek's AI provider connection tester. Reply with ok."
+                            ),
+                            new OpenAiChatMessage("user", "Reply with ok.")
+                    ),
+                    ignored -> {
+                    },
+                    ignored -> {
+                    }
+            );
+            return new AiProviderTestResponse(
+                    true,
+                    configuration.providerId(),
+                    configuration.model(),
+                    "AI provider connection succeeded."
+            );
+        } catch (AiProviderException | IllegalArgumentException exception) {
+            return new AiProviderTestResponse(
+                    false,
+                    configuration.providerId(),
+                    configuration.model(),
+                    exception.getMessage()
+            );
+        }
+    }
+
+    private AiProviderTestConfiguration resolveTestConfiguration(AiProviderTestRequest request) {
+        StoredAiProviderSettings existing = repository.findDefault().orElse(null);
+        String providerId = normalizeProviderId(firstNonBlank(
+                request == null ? null : request.providerId(),
+                existing == null ? null : existing.providerId(),
+                DEFAULT_PROVIDER_ID
+        ));
+        String baseUrl = normalizeBaseUrlForTest(firstNonBlank(
+                request == null ? null : request.baseUrl(),
+                existing == null ? null : existing.baseUrl(),
+                "deepseek".equals(providerId) ? DEFAULT_BASE_URL : ""
+        ));
+        String model = blankToDefault(firstNonBlank(
+                request == null ? null : request.model(),
+                existing == null ? null : existing.model(),
+                DEFAULT_MODEL
+        ), DEFAULT_MODEL);
+        String apiKey = trimToEmpty(firstNonBlank(
+                request == null ? null : request.apiKey(),
+                existing == null ? null : existing.apiKeyEncrypted()
+        ));
+        return new AiProviderTestConfiguration(
+                providerId,
+                baseUrl,
+                model,
+                apiKey,
+                !baseUrl.isBlank() && !model.isBlank() && !apiKey.isBlank()
+        );
+    }
+
+    private OpenAiCompatibleChatClient effectiveChatClient() {
+        return chatClient == null ? new OpenAiCompatibleChatClient(objectMapper) : chatClient;
+    }
+
     private AiProviderSettings defaultSettings() {
         return new AiProviderSettings(
                 false,
@@ -139,6 +244,14 @@ public class AiProviderSettingsService {
         }
         if (enabled && normalized.isBlank()) {
             throw new IllegalArgumentException("baseUrl is required when AI is enabled");
+        }
+        return normalized;
+    }
+
+    private String normalizeBaseUrlForTest(String baseUrl) {
+        String normalized = trimToEmpty(baseUrl);
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;
     }
@@ -252,10 +365,28 @@ public class AiProviderSettingsService {
         return value == null ? "" : value.trim();
     }
 
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (!isBlank(value)) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
     private record ApiKeyStorage(String rawKey, String maskedKey) {
+    }
+
+    private record AiProviderTestConfiguration(
+            String providerId,
+            String baseUrl,
+            String model,
+            String apiKey,
+            boolean configured
+    ) {
     }
 }

@@ -1089,7 +1089,7 @@ git commit -m "feat(frontend): configure and use local AI providers"
 - Delete: `rankpeek-frontend/src/renderer/services/rankpeekCreditsClient.test.ts`
 - Modify: all remaining files found by `rg -n "rankpeekAuth|rankpeekCredits|RankPeek account|credits|login|register" rankpeek-frontend/src/renderer`
 
-- [ ] **Step 1: Search remaining auth/credit references**
+- [x] **Step 1: Search remaining auth/credit references**
 
 Run:
 
@@ -1099,11 +1099,11 @@ rg -n "rankpeekAuth|rankpeekCredits|RANKPEEK_AUTH|RANKPEEK_CREDITS|RankPeek acco
 
 Expected before deletion: only planned files from Tasks 6 and 7 appear.
 
-- [ ] **Step 2: Delete auth and credits clients**
+- [x] **Step 2: Delete auth and credits clients**
 
 Remove the four files listed above.
 
-- [ ] **Step 3: Remove stale tests and copy**
+- [x] **Step 3: Remove stale tests and copy**
 
 Update tests that asserted auth/credit UI. Replace with assertions that no renderer file imports `rankpeekAuthClient` or `rankpeekCreditsClient`.
 
@@ -1113,7 +1113,7 @@ Add this assertion to a frontend guard test:
 assert.doesNotMatch(source, /rankpeekAuthClient|rankpeekCreditsClient|api\.rankpeek\.cn/)
 ```
 
-- [ ] **Step 4: Run frontend guard search**
+- [x] **Step 4: Run frontend guard search**
 
 ```powershell
 rg -n "rankpeekAuth|rankpeekCredits|api.rankpeek.cn|https://api.rankpeek.cn" rankpeek-frontend/src rankpeek-frontend/package.json
@@ -1121,7 +1121,7 @@ rg -n "rankpeekAuth|rankpeekCredits|api.rankpeek.cn|https://api.rankpeek.cn" ran
 
 Expected: no output.
 
-- [ ] **Step 5: Run frontend tests and build**
+- [x] **Step 5: Run frontend tests and build**
 
 ```powershell
 cd rankpeek-frontend
@@ -1131,7 +1131,7 @@ npm run build:renderer
 
 Expected: PASS. Vite may still print existing chunk warnings; build must exit 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add rankpeek-frontend/src/renderer
@@ -1168,7 +1168,7 @@ git commit -m "refactor(frontend): remove account and credits flows"
 - Create: `rankpeek-backend/src/test/java/io/rankpeek/opgg/OpggChampionCacheRepositoryTest.java`
 - Reference: `rankpeek-server/src/main/java/io/rankpeek/server/opgg/*`
 
-- [ ] **Step 1: Write cache repository tests**
+- [x] **Step 1: Write cache repository tests**
 
 `OpggChampionCacheRepositoryTest` must verify:
 
@@ -1177,7 +1177,7 @@ git commit -m "refactor(frontend): remove account and credits flows"
 - saving champion detail can be read by champion/mode/region/tier/position
 - expired cache is ignored
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 cd rankpeek-backend
@@ -1186,7 +1186,7 @@ mvn -Dtest=OpggChampionCacheRepositoryTest,OpggChampionControllerTest test
 
 Expected: FAIL because local OP.GG package does not exist.
 
-- [ ] **Step 3: Add OP.GG cache tables**
+- [x] **Step 3: Add OP.GG cache tables**
 
 Add:
 
@@ -1218,7 +1218,7 @@ jdbcTemplate.execute("""
         """);
 ```
 
-- [ ] **Step 4: Copy and adapt server OP.GG classes**
+- [x] **Step 4: Copy and adapt server OP.GG classes**
 
 Copy the server OP.GG classes listed in Files into `io.rankpeek.opgg`. Replace package names and imports. Replace server `ApiResponse` with local `io.rankpeek.model.ApiResponse`.
 
@@ -1228,7 +1228,7 @@ Controller mappings become:
 @RequestMapping("/api/v1/opgg")
 ```
 
-- [ ] **Step 5: Add local throttling behavior**
+- [x] **Step 5: Add local throttling behavior**
 
 `OpggChampionService` must:
 
@@ -1237,7 +1237,7 @@ Controller mappings become:
 - Return stale cache when the network call fails and stale data exists.
 - Throw a user-facing error only when no usable cache exists.
 
-- [ ] **Step 6: Update frontend OP.GG endpoint expectations**
+- [x] **Step 6: Update frontend OP.GG endpoint expectations**
 
 Update `rankpeekServerClient.test.ts` so:
 
@@ -1248,7 +1248,7 @@ Update `rankpeekServerClient.test.ts` so:
 
 are expected.
 
-- [ ] **Step 7: Run OP.GG tests**
+- [x] **Step 7: Run OP.GG tests**
 
 ```powershell
 cd rankpeek-backend
@@ -1260,7 +1260,7 @@ node --test src/renderer/views/OpggWindowView.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add rankpeek-backend/src/main/java/io/rankpeek/cache/LocalCacheSchemaInitializer.java rankpeek-backend/src/main/java/io/rankpeek/opgg rankpeek-backend/src/test/java/io/rankpeek/opgg rankpeek-frontend/src/renderer/services/rankpeekServerClient.ts rankpeek-frontend/src/renderer/services/rankpeekServerClient.test.ts rankpeek-frontend/src/renderer/views/OpggWindowView.vue rankpeek-frontend/src/renderer/views/OpggWindowView.test.ts
@@ -1300,7 +1300,7 @@ git commit -m "feat(backend): serve OP.GG data from local backend"
 - Reference: `rankpeek-server/src/main/java/io/rankpeek/server/patch/*`
 - Reference: `rankpeek-server/src/main/java/io/rankpeek/server/esports/*`
 
-- [ ] **Step 1: Write CN meta tests**
+- [x] **Step 1: Write CN meta tests**
 
 Tests must assert:
 
@@ -1309,7 +1309,7 @@ Tests must assert:
 - sync job records status, row count, started time, finished time, and error message
 - failed sync keeps previous usable data
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 cd rankpeek-backend
@@ -1318,7 +1318,7 @@ mvn -Dtest=CnMeta*Test test
 
 Expected: FAIL because local CN meta package does not exist.
 
-- [ ] **Step 3: Add local CN meta tables**
+- [x] **Step 3: Add local CN meta tables**
 
 Add tables equivalent to the server migrations used by CN meta, patch, and LPL data. Required local tables:
 
@@ -1333,7 +1333,7 @@ playstyle_cards
 
 Each table must have `updated_at BIGINT`. Sync job rows must have `status`, `started_at`, `finished_at`, `row_count`, and `error_message`.
 
-- [ ] **Step 4: Copy and adapt CN meta, patch, and LPL classes**
+- [x] **Step 4: Copy and adapt CN meta, patch, and LPL classes**
 
 Copy the referenced server classes into local backend packages. Replace:
 
@@ -1350,11 +1350,11 @@ Controller mappings become:
 /api/v1/esports/lpl
 ```
 
-- [ ] **Step 5: Wire prompt context to local data**
+- [x] **Step 5: Wire prompt context to local data**
 
 When Task 4 AI prompt context needs CN meta, patch notes, LPL notes, or playstyle cards, make `LocalAiAnalysisService` read from local repositories. If data is missing, the prompt should include a compact "local data unavailable" note instead of failing the AI request.
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 ```powershell
 cd rankpeek-backend
@@ -1365,7 +1365,7 @@ node --test src/renderer/services/rankpeekServerClient.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add rankpeek-backend/src/main/java/io/rankpeek/cache/LocalCacheSchemaInitializer.java rankpeek-backend/src/main/java/io/rankpeek/cnmeta rankpeek-backend/src/main/java/io/rankpeek/patch rankpeek-backend/src/main/java/io/rankpeek/esports rankpeek-backend/src/test/java/io/rankpeek/cnmeta rankpeek-frontend/src/renderer/services/rankpeekServerClient.ts rankpeek-frontend/src/renderer/services/rankpeekServerClient.test.ts
@@ -1383,7 +1383,7 @@ git commit -m "feat(backend): serve CN meta and prompt context locally"
 - Modify: `build.bat`
 - Modify: `scripts/check-no-automation.mjs` if cloud URLs need a guard
 
-- [ ] **Step 1: Update root README**
+- [x] **Step 1: Update root README**
 
 Change the product description from cloud-backed account product to local-first desktop product:
 
@@ -1393,7 +1393,7 @@ RankPeek is a Windows desktop companion for League of Legends. It reads the loca
 
 Remove RankPeek account, credits, and cloud server requirements from normal desktop development.
 
-- [ ] **Step 2: Update cloud server README**
+- [x] **Step 2: Update cloud server README**
 
 Mark `rankpeek-server` as reference/legacy cloud service:
 
@@ -1401,7 +1401,7 @@ Mark `rankpeek-server` as reference/legacy cloud service:
 rankpeek-server is no longer required for the packaged desktop app. It remains in the repository as reference code for AI prompts, OP.GG data, CN meta sync, and previous admin tooling.
 ```
 
-- [ ] **Step 3: Add cloud URL guard**
+- [x] **Step 3: Add cloud URL guard**
 
 Extend `scripts/check-no-automation.mjs` or create `scripts/check-no-cloud-server.mjs` to fail when shipping frontend code contains:
 
@@ -1414,7 +1414,7 @@ rankpeekCreditsClient
 
 Allow references inside `rankpeek-server`, docs, and this plan.
 
-- [ ] **Step 4: Run docs and guard checks**
+- [x] **Step 4: Run docs and guard checks**
 
 ```powershell
 node scripts/check-no-automation.mjs
@@ -1423,7 +1423,7 @@ node scripts/check-no-cloud-server.mjs
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add README.md README.zh-CN.md rankpeek-server/README.md scripts
@@ -1437,7 +1437,7 @@ git commit -m "docs: document local-first desktop architecture"
 **Files:**
 - No planned code files. This task verifies the integrated migration.
 
-- [ ] **Step 1: Run backend tests**
+- [x] **Step 1: Run backend tests**
 
 ```powershell
 cd rankpeek-backend
@@ -1446,7 +1446,7 @@ mvn test
 
 Expected: PASS.
 
-- [ ] **Step 2: Run server reference tests**
+- [x] **Step 2: Run server reference tests**
 
 ```powershell
 cd rankpeek-server
@@ -1455,7 +1455,7 @@ mvn test
 
 Expected: PASS until a later branch intentionally removes or archives server code.
 
-- [ ] **Step 3: Run frontend targeted tests**
+- [x] **Step 3: Run frontend targeted tests**
 
 ```powershell
 cd rankpeek-frontend
@@ -1466,7 +1466,7 @@ node --test src/renderer/components/**/*.test.ts
 
 Expected: PASS. If PowerShell glob expansion does not match nested component tests, run the failing subset by exact file paths from `rg --files rankpeek-frontend/src/renderer -g "*.test.ts"`.
 
-- [ ] **Step 4: Run frontend build**
+- [x] **Step 4: Run frontend build**
 
 ```powershell
 cd rankpeek-frontend
@@ -1475,7 +1475,7 @@ npm run build:renderer
 
 Expected: PASS. Existing Vite chunk warnings are acceptable only if exit code is 0 and no new cloud/auth import errors appear.
 
-- [ ] **Step 5: Run guards**
+- [x] **Step 5: Run guards**
 
 ```powershell
 node scripts/check-no-automation.mjs
@@ -1512,6 +1512,12 @@ Verify:
 - OP.GG champion list and detail load from local backend.
 - CN meta latest endpoint returns data or a clear local-data-unavailable state.
 - No UI asks for registration, login, email verification, password reset, recharge, or credits.
+
+Evidence so far (2026-05-31):
+
+- Automated local-first verification passed after the AI provider test endpoint was added: `rankpeek-backend mvn test` (421 tests), `rankpeek-server mvn test` (206 tests), renderer Node tests (594 tests), `npm run build:renderer`, and both guard scripts.
+- An earlier isolated backend smoke on port `18081` covered identity, provider/settings, costs/manual costs, CN meta, and patch endpoints.
+- Remaining gap: interactive Electron smoke with a real user-provided AI API key has not been completed in this thread, so this manual step stays unchecked.
 
 - [ ] **Step 7: Commit final integration fixes**
 

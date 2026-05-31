@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   getLocalAiSettings,
-  saveLocalAiSettings
+  saveLocalAiSettings,
+  testLocalAiProviderSettings
 } from './localAiProviderClient.ts'
 import { RANKPEEK_LOCAL_SERVICE_BASE_URL } from './rankpeekLocalServiceClient.ts'
 
@@ -92,6 +93,46 @@ test('saveLocalAiSettings uses PUT on local AI settings endpoint', async () => {
     assert.deepEqual(calls[0]?.init?.headers, { 'Content-Type': 'application/json' })
     assert.equal(JSON.parse(String(calls[0]?.init?.body)).providerId, 'custom-openai-compatible')
     assert.equal(settings.model, 'free-model')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('testLocalAiProviderSettings posts unsaved provider values to local test endpoint', async () => {
+  const originalFetch = globalThis.fetch
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      code: 200,
+      message: 'success',
+      data: {
+        configured: true,
+        providerId: 'custom-openai-compatible',
+        model: 'free-model',
+        message: 'AI provider connection succeeded.'
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await testLocalAiProviderSettings({
+      providerId: 'custom-openai-compatible',
+      baseUrl: 'https://provider.example/v1',
+      model: 'free-model',
+      apiKey: 'sk-unsaved-test'
+    })
+
+    assert.equal(calls[0]?.url, `${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/ai/test`)
+    assert.equal(calls[0]?.init?.method, 'POST')
+    assert.deepEqual(calls[0]?.init?.headers, { 'Content-Type': 'application/json' })
+    assert.equal(JSON.parse(String(calls[0]?.init?.body)).apiKey, 'sk-unsaved-test')
+    assert.equal(result.configured, true)
+    assert.equal(result.providerId, 'custom-openai-compatible')
   } finally {
     globalThis.fetch = originalFetch
   }
