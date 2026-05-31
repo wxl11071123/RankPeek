@@ -296,6 +296,32 @@ public class LocalCacheSchemaInitializer {
                     updated_at BIGINT
                 )
                 """);
+
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS opgg_champion_list_cache (
+                    cache_key VARCHAR(255) PRIMARY KEY,
+                    mode VARCHAR(64),
+                    region VARCHAR(64),
+                    tier VARCHAR(128),
+                    raw_json CLOB,
+                    fetched_at BIGINT,
+                    expires_at BIGINT
+                )
+                """);
+
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS opgg_champion_detail_cache (
+                    cache_key VARCHAR(255) PRIMARY KEY,
+                    champion_id INT,
+                    mode VARCHAR(64),
+                    region VARCHAR(64),
+                    tier VARCHAR(128),
+                    position VARCHAR(64),
+                    raw_json CLOB,
+                    fetched_at BIGINT,
+                    expires_at BIGINT
+                )
+                """);
     }
 
     private void migrateTables() {
@@ -359,6 +385,22 @@ public class LocalCacheSchemaInitializer {
         addColumnIfMissing("manual_cost_items", "active BOOLEAN");
         addColumnIfMissing("manual_cost_items", "created_at BIGINT");
         addColumnIfMissing("manual_cost_items", "updated_at BIGINT");
+        addColumnIfMissing("opgg_champion_list_cache", "cache_key VARCHAR(255)");
+        addColumnIfMissing("opgg_champion_list_cache", "mode VARCHAR(64)");
+        addColumnIfMissing("opgg_champion_list_cache", "region VARCHAR(64)");
+        addColumnIfMissing("opgg_champion_list_cache", "tier VARCHAR(128)");
+        addColumnIfMissing("opgg_champion_list_cache", "raw_json CLOB");
+        addColumnIfMissing("opgg_champion_list_cache", "fetched_at BIGINT");
+        addColumnIfMissing("opgg_champion_list_cache", "expires_at BIGINT");
+        addColumnIfMissing("opgg_champion_detail_cache", "cache_key VARCHAR(255)");
+        addColumnIfMissing("opgg_champion_detail_cache", "champion_id INT");
+        addColumnIfMissing("opgg_champion_detail_cache", "mode VARCHAR(64)");
+        addColumnIfMissing("opgg_champion_detail_cache", "region VARCHAR(64)");
+        addColumnIfMissing("opgg_champion_detail_cache", "tier VARCHAR(128)");
+        addColumnIfMissing("opgg_champion_detail_cache", "position VARCHAR(64)");
+        addColumnIfMissing("opgg_champion_detail_cache", "raw_json CLOB");
+        addColumnIfMissing("opgg_champion_detail_cache", "fetched_at BIGINT");
+        addColumnIfMissing("opgg_champion_detail_cache", "expires_at BIGINT");
     }
 
     private void addColumnIfMissing(String tableName, String columnDefinition) {
@@ -393,6 +435,14 @@ public class LocalCacheSchemaInitializer {
         jdbcTemplate.execute("""
                 CREATE INDEX IF NOT EXISTS idx_cost_events_recent
                 ON cost_events(created_at DESC)
+                """);
+        jdbcTemplate.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opgg_champion_list_lookup
+                ON opgg_champion_list_cache(mode, region, tier, expires_at DESC)
+                """);
+        jdbcTemplate.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opgg_champion_detail_lookup
+                ON opgg_champion_detail_cache(champion_id, mode, region, tier, position, expires_at DESC)
                 """);
     }
 }

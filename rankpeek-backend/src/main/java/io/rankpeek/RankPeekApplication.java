@@ -4,9 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.boot.context.event.ApplicationFailedEvent;
 import org.springframework.boot.web.server.PortInUseException;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.net.BindException;
 
@@ -14,7 +16,9 @@ import java.net.BindException;
  * RankPeek backend entry point.
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 @EnableAsync
+@EnableScheduling
 public class RankPeekApplication {
 
     private static final Logger log = LoggerFactory.getLogger(RankPeekApplication.class);
