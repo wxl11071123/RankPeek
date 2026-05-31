@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiClient } from '@/api/httpClient'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from '@/i18n'
@@ -10,16 +10,14 @@ import {
   extractCacheClearErrorMessage
 } from '@/services/cacheClearFeedback'
 import {
-  clearStoredRankPeekAuthSession,
-  getStoredRankPeekAuthSession,
-  loginRankPeekAccount,
-  logoutRankPeekAccount,
-  registerRankPeekAccount,
-  requestRankPeekRegisterEmailCode,
-  requestRankPeekPasswordReset,
-  storeRankPeekAuthSession,
-  type RankPeekAuthSession
-} from '@/services/rankpeekAuthClient'
+  getLocalAiProviders,
+  getLocalAiSettings,
+  saveLocalAiSettings,
+  type LocalAiPricing,
+  type LocalAiProviderProfile,
+  type LocalAiSettings,
+  type SaveLocalAiSettingsRequest
+} from '@/services/localAiProviderClient'
 import { checkRankPeekServerDiagnostics } from '@/services/rankpeekServerClient'
 import { clearFrontendTransientCache } from '@/utils/frontendCache'
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from '@/utils/matchPreferences'
@@ -28,9 +26,13 @@ import brandSymbolWhite from '@/assets/branding/rankpeek-symbol-white.png'
 import brandEyeBlack from '@/assets/branding/rankpeek-eye-black.png'
 import brandEyeWhite from '@/assets/branding/rankpeek-eye-white.png'
 
+type PricingMode = 'preset' | 'custom'
+interface AiProviderFormState extends Omit<SaveLocalAiSettingsRequest, 'pricing'> {
+  pricing: LocalAiPricing
+}
+
 const themeStore = useThemeStore()
 const { t } = useI18n()
-type AuthMode = 'login' | 'register' | 'forgotPassword'
 
 const appVersion = ref('1.0.0')
 const defaultMatchQueueMode = ref(0)
@@ -38,19 +40,34 @@ const matchModeOptions = ref<GameModeOption[]>([])
 const savingMatchSettings = ref(false)
 const clearingUserCacheMode = ref<CacheClearMode | null>(null)
 const checkingLocalServer = ref(false)
-const authSession = ref<RankPeekAuthSession | null>(getStoredRankPeekAuthSession())
-const authModalOpen = ref(false)
-const authMode = ref<AuthMode>('login')
-const authEmail = ref('')
-const authPassword = ref('')
-const authPasswordConfirm = ref('')
-const authVerificationCode = ref('')
-const showAuthPassword = ref(false)
-const showAuthPasswordConfirm = ref(false)
-const authBusy = ref(false)
-const authVerificationBusy = ref(false)
-const authError = ref('')
-const authInfo = ref('')
+const localAiProviderProfiles = ref<LocalAiProviderProfile[]>([])
+const localAiSettings = ref<LocalAiSettings | null>(null)
+const loadingAiSettings = ref(false)
+const savingAiSettings = ref(false)
+const testingAiConnection = ref(false)
+const aiProviderStatusMessage = ref('')
+const apiKeyInput = ref('')
+const saveApiKey = ref(false)
+const pricingMode = ref<PricingMode>('preset')
+
+const defaultAiPricing = {
+  currency: 'CNY',
+  inputCacheHitCnyPerMillionTokens: 0.02,
+  inputCacheMissCnyPerMillionTokens: 1,
+  outputCnyPerMillionTokens: 2
+}
+
+const aiProviderForm = reactive<AiProviderFormState>({
+  enabled: true,
+  providerId: 'deepseek',
+  baseUrl: 'https://api.deepseek.com',
+  model: 'deepseek-v4-flash',
+  apiKey: '',
+  saveApiKey: false,
+  temperature: 0.4,
+  maxTokens: 4096,
+  pricing: { ...defaultAiPricing }
+})
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
 const githubIssuesUrl = 'https://github.com/wxl11071123/rankpeek/issues'
@@ -69,31 +86,18 @@ const aboutShowcaseSrc = computed(() =>
   themeStore.theme === 'dark' ? brandEyeBlack : brandEyeWhite
 )
 
-const signedInUser = computed(() => authSession.value?.user ?? null)
-
-const authModalTitle = computed(() => {
-  if (authMode.value === 'login') {
-    return t('settings.authLoginTitle')
-  }
-  if (authMode.value === 'register') {
-    return t('settings.authRegisterTitle')
-  }
-  return t('settings.authForgotTitle')
-})
-
-const authSubmitLabel = computed(() => {
-  if (authMode.value === 'login') {
-    return t('settings.authSubmitLogin')
-  }
-  if (authMode.value === 'register') {
-    return t('settings.authSubmitRegister')
-  }
-  return t('settings.authSubmitForgotPassword')
-})
-
-const authPasswordAutocomplete = computed(() =>
-  authMode.value === 'login' ? 'current-password' : 'new-password'
+const selectedProviderProfile = computed(() =>
+  localAiProviderProfiles.value.find(provider => provider.id === aiProviderForm.providerId) ?? null
 )
+
+const aiSavedKeyLabel = computed(() => {
+  if (!localAiSettings.value?.apiKeySaved) {
+    return t('settings.aiNoSavedKey')
+  }
+  return localAiSettings.value.apiKeyMasked
+    ? t('settings.aiSavedKey', { key: localAiSettings.value.apiKeyMasked })
+    : t('settings.aiSavedKey', { key: 'saved' })
+})
 
 if (window.electronAPI) {
   window.electronAPI.getVersion().then(version => {
@@ -101,7 +105,12 @@ if (window.electronAPI) {
   })
 }
 
-onMounted(async () => {
+onMounted(() => {
+  void loadUserSettings()
+  void loadLocalAiProviderSettings()
+})
+
+async function loadUserSettings() {
   try {
     const [config, modes, savedDefaultQueueMode] = await Promise.all([
       apiClient.getConfig(),
@@ -114,135 +123,102 @@ onMounted(async () => {
   } catch (error) {
     console.error('Failed to load settings', error)
   }
-})
-
-function openAuthModal(mode: AuthMode) {
-  authMode.value = mode
-  authEmail.value = signedInUser.value?.email ?? ''
-  authPassword.value = ''
-  authPasswordConfirm.value = ''
-  authVerificationCode.value = ''
-  showAuthPassword.value = false
-  showAuthPasswordConfirm.value = false
-  authError.value = ''
-  authInfo.value = ''
-  authModalOpen.value = true
 }
 
-function closeAuthModal() {
-  if (authBusy.value || authVerificationBusy.value) {
-    return
-  }
-
-  authModalOpen.value = false
-  authError.value = ''
-  authInfo.value = ''
-}
-
-function switchAuthMode(mode: AuthMode) {
-  authMode.value = mode
-  authError.value = ''
-  authInfo.value = ''
-  authPassword.value = ''
-  authPasswordConfirm.value = ''
-  authVerificationCode.value = ''
-  showAuthPassword.value = false
-  showAuthPasswordConfirm.value = false
-}
-
-async function submitAuthForm() {
-  if (!authEmail.value || (authMode.value !== 'forgotPassword' && !authPassword.value)) {
-    authError.value = t('settings.authRequiredFields')
-    return
-  }
-
-  if (authMode.value === 'register' && authPassword.value !== authPasswordConfirm.value) {
-    authError.value = t('settings.authPasswordMismatch')
-    return
-  }
-
-  if (authMode.value === 'register' && !authVerificationCode.value.trim()) {
-    authError.value = t('settings.authVerificationCodeRequired')
-    return
-  }
-
-  authBusy.value = true
-  authError.value = ''
-  authInfo.value = ''
+async function loadLocalAiProviderSettings() {
+  loadingAiSettings.value = true
+  aiProviderStatusMessage.value = ''
 
   try {
-    if (authMode.value === 'forgotPassword') {
-      const result = await requestRankPeekPasswordReset({ email: authEmail.value })
-      if (!result.ok) {
-        authError.value = result.message
-        return
-      }
-
-      authInfo.value = t('settings.authResetRequestSent')
-      return
-    }
-
-    const result = authMode.value === 'login'
-      ? await loginRankPeekAccount({
-        email: authEmail.value,
-        password: authPassword.value
-      })
-      : await registerRankPeekAccount({
-        email: authEmail.value,
-        password: authPassword.value,
-        verificationCode: authVerificationCode.value
-      })
-
-    if (!result.ok) {
-      authError.value = result.message || (
-        authMode.value === 'login' ? t('settings.authLoginFailed') : t('settings.authRegisterFailed')
-      )
-      return
-    }
-
-    storeRankPeekAuthSession(result.session)
-    authSession.value = result.session
-    authModalOpen.value = false
-    authPassword.value = ''
-    authPasswordConfirm.value = ''
-    authVerificationCode.value = ''
+    const [providers, settings] = await Promise.all([
+      getLocalAiProviders(),
+      getLocalAiSettings()
+    ])
+    localAiProviderProfiles.value = providers
+    applyLocalAiSettings(settings)
+  } catch (error) {
+    console.error('Failed to load local AI settings', error)
+    aiProviderStatusMessage.value = t('settings.aiSettingsUnavailable')
   } finally {
-    authBusy.value = false
+    loadingAiSettings.value = false
   }
 }
 
-async function sendRegisterEmailCode() {
-  if (!authEmail.value) {
-    authError.value = t('settings.authRequiredFields')
+function applyLocalAiSettings(settings: LocalAiSettings) {
+  localAiSettings.value = settings
+  aiProviderForm.enabled = settings.enabled
+  aiProviderForm.providerId = settings.providerId
+  aiProviderForm.baseUrl = settings.baseUrl
+  aiProviderForm.model = settings.model
+  aiProviderForm.temperature = settings.temperature
+  aiProviderForm.maxTokens = settings.maxTokens
+  aiProviderForm.pricing = settings.pricing ? { ...settings.pricing } : { ...defaultAiPricing }
+  apiKeyInput.value = ''
+  saveApiKey.value = false
+  pricingMode.value = settings.pricing ? 'custom' : 'preset'
+}
+
+function applyProviderDefaults() {
+  const provider = selectedProviderProfile.value
+  if (!provider) {
     return
   }
-
-  authVerificationBusy.value = true
-  authError.value = ''
-  authInfo.value = ''
-
-  try {
-    const result = await requestRankPeekRegisterEmailCode({ email: authEmail.value })
-    if (!result.ok) {
-      authError.value = result.message
-      return
-    }
-
-    const minutes = Math.max(1, Math.ceil(result.expiresInSeconds / 60))
-    authInfo.value = t('settings.authVerificationCodeSent', { minutes })
-  } finally {
-    authVerificationBusy.value = false
+  aiProviderForm.baseUrl = provider.defaultBaseUrl || aiProviderForm.baseUrl
+  aiProviderForm.model = provider.models[0] || aiProviderForm.model
+  if (provider.id === 'deepseek') {
+    aiProviderForm.pricing = { ...defaultAiPricing }
+    pricingMode.value = 'preset'
   }
 }
 
-async function handleLogout() {
-  const refreshToken = authSession.value?.refreshToken
-  clearStoredRankPeekAuthSession()
-  authSession.value = null
+async function saveAiProviderSettings(showAlert = true): Promise<boolean> {
+  savingAiSettings.value = true
+  aiProviderStatusMessage.value = ''
 
-  const result = await logoutRankPeekAccount(refreshToken)
-  if (!result.ok) {
-    console.warn('Failed to revoke RankPeek refresh token:', result.message)
+  try {
+    const settings = await saveLocalAiSettings(buildAiProviderRequest())
+    applyLocalAiSettings(settings)
+    aiProviderStatusMessage.value = t('settings.aiSettingsSaved')
+    if (showAlert) {
+      window.alert(t('settings.aiSettingsSaved'))
+    }
+    return true
+  } catch (error) {
+    console.error('Failed to save local AI settings', error)
+    aiProviderStatusMessage.value = t('settings.aiSettingsUnavailable')
+    if (showAlert) {
+      window.alert(t('settings.aiSettingsUnavailable'))
+    }
+    return false
+  } finally {
+    savingAiSettings.value = false
+  }
+}
+
+async function testLocalAiProviderConnection() {
+  testingAiConnection.value = true
+  try {
+    const saved = await saveAiProviderSettings(false)
+    aiProviderStatusMessage.value = saved
+      ? t('settings.aiConnectionReady')
+      : t('settings.aiSettingsUnavailable')
+    window.alert(aiProviderStatusMessage.value)
+  } finally {
+    testingAiConnection.value = false
+  }
+}
+
+function buildAiProviderRequest(): SaveLocalAiSettingsRequest {
+  return {
+    enabled: aiProviderForm.enabled,
+    providerId: aiProviderForm.providerId,
+    baseUrl: aiProviderForm.baseUrl,
+    model: aiProviderForm.model,
+    apiKey: apiKeyInput.value,
+    saveApiKey: saveApiKey.value,
+    temperature: aiProviderForm.temperature,
+    maxTokens: aiProviderForm.maxTokens,
+    pricing: pricingMode.value === 'custom' ? aiProviderForm.pricing : { ...defaultAiPricing }
   }
 }
 
@@ -310,7 +286,7 @@ async function clearUserCache(mode: CacheClearMode) {
   } catch (error) {
     console.error('Failed to clear cache', error)
     const message = extractCacheClearErrorMessage(error)
-    window.alert(message ? `${t('settings.clearCacheFailed')}：${message}` : t('settings.clearCacheFailed'))
+    window.alert(message ? `${t('settings.clearCacheFailed')}: ${message}` : t('settings.clearCacheFailed'))
   } finally {
     clearingUserCacheMode.value = null
   }
@@ -342,44 +318,14 @@ async function openExternal(url: string) {
       <p>{{ t('settings.subtitle') }}</p>
     </header>
 
-    <section class="account-card">
-      <div class="account-copy">
-        <h2>{{ t('settings.accountTitle') }}</h2>
-        <p
-          v-if="signedInUser"
-          class="account-status"
-        >
-          {{ t('settings.signedInAs', { email: signedInUser.email }) }}
-        </p>
-        <p v-else>
-          {{ t('settings.accountDescription') }}
-        </p>
-        <p
-          v-if="signedInUser"
-          class="account-role"
-        >
-          {{ t('settings.accountRole', { role: signedInUser.role }) }}
-        </p>
-      </div>
-      <div class="account-actions">
+    <section class="ai-provider-card">
+      <div class="ai-provider-header">
+        <div>
+          <h2>{{ t('settings.aiProviderTitle') }}</h2>
+          <p>{{ t('settings.aiProviderDescription') }}</p>
+        </div>
         <button
-          v-if="!signedInUser"
-          class="primary-btn"
-          type="button"
-          @click="openAuthModal('login')"
-        >
-          {{ t('settings.login') }}
-        </button>
-        <button
-          v-else
-          class="secondary-btn"
-          type="button"
-          @click="handleLogout"
-        >
-          {{ t('settings.logout') }}
-        </button>
-        <button
-          class="secondary-btn"
+          class="secondary-btn compact"
           type="button"
           :disabled="checkingLocalServer"
           @click="checkLocalRankPeekServer"
@@ -387,209 +333,187 @@ async function openExternal(url: string) {
           {{ checkingLocalServer ? t('settings.checkingLocalServer') : t('settings.checkLocalServer') }}
         </button>
       </div>
-    </section>
 
-    <div
-      v-if="authModalOpen"
-      class="auth-modal-overlay"
-      @click.self="closeAuthModal"
-    >
-      <section
-        class="auth-modal"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="authModalTitle"
-      >
-        <header class="auth-modal-header">
-          <h2>{{ authModalTitle }}</h2>
-          <button
-            class="auth-close-btn"
-            type="button"
-            :disabled="authBusy || authVerificationBusy"
-            :aria-label="t('common.cancel')"
-            @click="closeAuthModal"
-          >
-            X
-          </button>
-        </header>
+      <form class="ai-provider-form" @submit.prevent="saveAiProviderSettings()">
+        <label class="toggle-row">
+          <input v-model="aiProviderForm.enabled" type="checkbox">
+          <span>{{ t('settings.aiEnabled') }}</span>
+        </label>
 
-        <form
-          class="auth-form"
-          @submit.prevent="submitAuthForm"
-        >
-          <label class="auth-field">
-            <span>{{ t('settings.authEmail') }}</span>
+        <div class="form-grid">
+          <label class="form-field">
+            <span>{{ t('settings.aiProviderSelect') }}</span>
+            <select
+              v-model="aiProviderForm.providerId"
+              class="select-input"
+              :disabled="loadingAiSettings"
+              @change="applyProviderDefaults"
+            >
+              <option
+                v-for="provider in localAiProviderProfiles"
+                :key="provider.id"
+                :value="provider.id"
+              >
+                {{ provider.label }}
+              </option>
+              <option value="custom-openai-compatible">Custom OpenAI Compatible</option>
+            </select>
+          </label>
+
+          <label class="form-field">
+            <span>{{ t('settings.aiModel') }}</span>
             <input
-              v-model.trim="authEmail"
-              autocomplete="email"
-              name="email"
-              type="email"
+              v-model.trim="aiProviderForm.model"
+              class="text-input"
+              list="ai-model-options"
+              type="text"
+            >
+            <datalist id="ai-model-options">
+              <option
+                v-for="model in selectedProviderProfile?.models ?? []"
+                :key="model"
+                :value="model"
+              />
+            </datalist>
+          </label>
+
+          <label class="form-field wide">
+            <span>{{ t('settings.aiBaseUrl') }}</span>
+            <input
+              v-model.trim="aiProviderForm.baseUrl"
+              class="text-input"
+              type="url"
             >
           </label>
 
-          <label
-            v-if="authMode !== 'forgotPassword'"
-            class="auth-field"
-          >
-            <span>{{ t('settings.authPassword') }}</span>
-            <span class="auth-password-control">
-              <input
-                v-model="authPassword"
-                :autocomplete="authPasswordAutocomplete"
-                name="password"
-                :type="showAuthPassword ? 'text' : 'password'"
-              >
-              <button
-                class="auth-password-toggle"
-                type="button"
-                :aria-label="showAuthPassword ? t('settings.authPasswordHide') : t('settings.authPasswordShow')"
-                @click="showAuthPassword = !showAuthPassword"
-              >
-                <svg
-                  v-if="!showAuthPassword"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="3"
-                  />
-                </svg>
-                <svg
-                  v-else
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path d="M3 3l18 18" />
-                  <path d="M2 12s3.5-6 10-6c1.2 0 2.3.2 3.3.6" />
-                  <path d="M21.1 13.9C19.7 16 16.6 18 12 18c-1.2 0-2.3-.2-3.3-.6" />
-                </svg>
-              </button>
-            </span>
+          <label class="form-field">
+            <span>{{ t('settings.aiApiKey') }}</span>
+            <input
+              v-model="apiKeyInput"
+              autocomplete="off"
+              class="text-input"
+              :placeholder="t('settings.aiApiKeyPlaceholder')"
+              type="password"
+            >
           </label>
 
-          <label
-            v-if="authMode === 'register'"
-            class="auth-field"
-          >
-            <span>{{ t('settings.authPasswordConfirm') }}</span>
-            <span class="auth-password-control">
-              <input
-                v-model="authPasswordConfirm"
-                autocomplete="new-password"
-                name="passwordConfirm"
-                :type="showAuthPasswordConfirm ? 'text' : 'password'"
-              >
-              <button
-                class="auth-password-toggle"
-                type="button"
-                :aria-label="showAuthPasswordConfirm ? t('settings.authPasswordHide') : t('settings.authPasswordShow')"
-                @click="showAuthPasswordConfirm = !showAuthPasswordConfirm"
-              >
-                <svg
-                  v-if="!showAuthPasswordConfirm"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="3"
-                  />
-                </svg>
-                <svg
-                  v-else
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path d="M3 3l18 18" />
-                  <path d="M2 12s3.5-6 10-6c1.2 0 2.3.2 3.3.6" />
-                  <path d="M21.1 13.9C19.7 16 16.6 18 12 18c-1.2 0-2.3-.2-3.3-.6" />
-                </svg>
-              </button>
-            </span>
+          <div class="form-field saved-key">
+            <span>{{ t('settings.aiSavedKeyLabel') }}</span>
+            <strong>{{ aiSavedKeyLabel }}</strong>
+          </div>
+
+          <label class="toggle-row">
+            <input v-model="saveApiKey" type="checkbox">
+            <span>{{ t('settings.aiSaveApiKey') }}</span>
           </label>
 
-          <label
-            v-if="authMode === 'register'"
-            class="auth-field"
-          >
-            <span>{{ t('settings.authVerificationCode') }}</span>
-            <span class="auth-code-control">
-              <input
-                v-model.trim="authVerificationCode"
-                autocomplete="one-time-code"
-                inputmode="numeric"
-                name="verificationCode"
-                type="text"
-              >
-              <button
-                class="secondary-btn auth-code-btn"
-                type="button"
-                :disabled="authBusy || authVerificationBusy"
-                @click="sendRegisterEmailCode"
-              >
-                {{ authVerificationBusy ? t('settings.authSendingVerificationCode') : t('settings.authSendVerificationCode') }}
-              </button>
-            </span>
+          <label class="form-field">
+            <span>{{ t('settings.aiTemperature') }}</span>
+            <input
+              v-model.number="aiProviderForm.temperature"
+              class="text-input"
+              max="2"
+              min="0"
+              step="0.1"
+              type="number"
+            >
           </label>
 
-          <p
-            v-if="authError"
-            class="auth-error"
-          >
-            {{ authError }}
-          </p>
-          <p
-            v-if="authInfo"
-            class="auth-info"
-          >
-            {{ authInfo }}
-          </p>
+          <label class="form-field">
+            <span>{{ t('settings.aiMaxTokens') }}</span>
+            <input
+              v-model.number="aiProviderForm.maxTokens"
+              class="text-input"
+              min="256"
+              step="256"
+              type="number"
+            >
+          </label>
+        </div>
 
+        <div class="pricing-panel">
+          <div class="pricing-header">
+            <span>{{ t('settings.aiPricingMode') }}</span>
+            <div class="segmented-control">
+              <button
+                class="segment-button"
+                type="button"
+                :class="{ active: pricingMode === 'preset' }"
+                @click="pricingMode = 'preset'"
+              >
+                {{ t('settings.aiPricingPreset') }}
+              </button>
+              <button
+                class="segment-button"
+                type="button"
+                :class="{ active: pricingMode === 'custom' }"
+                @click="pricingMode = 'custom'"
+              >
+                {{ t('settings.aiPricingCustom') }}
+              </button>
+            </div>
+          </div>
+
+          <div class="form-grid compact-grid">
+            <label class="form-field">
+              <span>{{ t('settings.aiInputCacheHitPrice') }}</span>
+              <input
+                v-model.number="aiProviderForm.pricing.inputCacheHitCnyPerMillionTokens"
+                class="text-input"
+                min="0"
+                step="0.001"
+                type="number"
+                :disabled="pricingMode === 'preset'"
+              >
+            </label>
+            <label class="form-field">
+              <span>{{ t('settings.aiInputCacheMissPrice') }}</span>
+              <input
+                v-model.number="aiProviderForm.pricing.inputCacheMissCnyPerMillionTokens"
+                class="text-input"
+                min="0"
+                step="0.001"
+                type="number"
+                :disabled="pricingMode === 'preset'"
+              >
+            </label>
+            <label class="form-field">
+              <span>{{ t('settings.aiOutputPrice') }}</span>
+              <input
+                v-model.number="aiProviderForm.pricing.outputCnyPerMillionTokens"
+                class="text-input"
+                min="0"
+                step="0.001"
+                type="number"
+                :disabled="pricingMode === 'preset'"
+              >
+            </label>
+          </div>
+        </div>
+
+        <p v-if="aiProviderStatusMessage" class="status-message">
+          {{ aiProviderStatusMessage }}
+        </p>
+
+        <div class="form-actions">
           <button
-            class="primary-btn auth-submit"
+            class="primary-btn"
             type="submit"
-            :disabled="authBusy || authVerificationBusy"
+            :disabled="savingAiSettings || loadingAiSettings"
           >
-            {{ authBusy ? t('settings.saving') : authSubmitLabel }}
-          </button>
-        </form>
-
-        <div class="auth-switch">
-          <button
-            v-if="authMode === 'login'"
-            class="auth-link-btn"
-            type="button"
-            :disabled="authBusy || authVerificationBusy"
-            @click="switchAuthMode('forgotPassword')"
-          >
-            {{ t('settings.authForgotPassword') }}
+            {{ savingAiSettings ? t('settings.saving') : t('settings.aiSaveProvider') }}
           </button>
           <button
-            v-if="authMode === 'login'"
-            class="auth-link-btn"
+            class="secondary-btn"
             type="button"
-            :disabled="authBusy || authVerificationBusy"
-            @click="switchAuthMode('register')"
+            :disabled="testingAiConnection || savingAiSettings || loadingAiSettings"
+            @click="testLocalAiProviderConnection"
           >
-            {{ t('settings.authSwitchToRegister') }}
-          </button>
-          <button
-            v-else
-            class="auth-link-btn"
-            type="button"
-            :disabled="authBusy || authVerificationBusy"
-            @click="switchAuthMode('login')"
-          >
-            {{ t('settings.authSwitchToLogin') }}
+            {{ testingAiConnection ? t('settings.checkingLocalServer') : t('settings.aiTestConnection') }}
           </button>
         </div>
-      </section>
-    </div>
+      </form>
+    </section>
 
     <section class="settings-section essentials-section">
       <h2>{{ t('settings.commonSettings') }}</h2>
@@ -634,42 +558,22 @@ async function openExternal(url: string) {
             role="group"
             :aria-label="t('settings.clearCacheUser')"
           >
-            <span class="cache-clear-tooltip-anchor">
-              <button
-                class="secondary-btn compact"
-                type="button"
-                aria-describedby="normal-cache-clear-tooltip"
-                :disabled="clearingUserCacheMode !== null"
-                @click="clearUserCache('normal')"
-              >
-                {{ clearingUserCacheMode === 'normal' ? t('settings.clearingCache') : t('settings.normalClearCacheAction') }}
-              </button>
-              <span
-                id="normal-cache-clear-tooltip"
-                class="cache-clear-tooltip"
-                role="tooltip"
-              >
-                {{ t('settings.normalClearCacheTooltip') }}
-              </span>
-            </span>
-            <span class="cache-clear-tooltip-anchor">
-              <button
-                class="secondary-btn compact"
-                type="button"
-                aria-describedby="deep-cache-clear-tooltip"
-                :disabled="clearingUserCacheMode !== null"
-                @click="clearUserCache('deep')"
-              >
-                {{ clearingUserCacheMode === 'deep' ? t('settings.clearingCache') : t('settings.deepClearCacheAction') }}
-              </button>
-              <span
-                id="deep-cache-clear-tooltip"
-                class="cache-clear-tooltip"
-                role="tooltip"
-              >
-                {{ t('settings.deepClearCacheTooltip') }}
-              </span>
-            </span>
+            <button
+              class="secondary-btn compact"
+              type="button"
+              :disabled="clearingUserCacheMode !== null"
+              @click="clearUserCache('normal')"
+            >
+              {{ clearingUserCacheMode === 'normal' ? t('settings.clearingCache') : t('settings.normalClearCacheAction') }}
+            </button>
+            <button
+              class="secondary-btn compact"
+              type="button"
+              :disabled="clearingUserCacheMode !== null"
+              @click="clearUserCache('deep')"
+            >
+              {{ clearingUserCacheMode === 'deep' ? t('settings.clearingCache') : t('settings.deepClearCacheAction') }}
+            </button>
           </div>
         </article>
 
@@ -770,7 +674,7 @@ async function openExternal(url: string) {
 
 <style scoped>
 .settings-view {
-  max-width: 720px;
+  max-width: 880px;
   margin: 0 auto;
 }
 
@@ -787,13 +691,17 @@ async function openExternal(url: string) {
   letter-spacing: 0;
 }
 
-.page-header p {
-  margin: 0;
+.page-header p,
+.ai-provider-header p,
+.setting-copy p,
+.app-info p {
+  margin: 6px 0 0;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.account-card,
+.ai-provider-card,
 .settings-list,
 .about-card {
   background: var(--bg-secondary);
@@ -801,23 +709,25 @@ async function openExternal(url: string) {
   border-radius: var(--radius-lg);
 }
 
-.account-card {
+.ai-provider-card {
+  padding: 22px 24px;
+  margin-bottom: 30px;
+}
+
+.ai-provider-header,
+.form-actions,
+.pricing-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  padding: 22px 24px;
-  margin-bottom: 30px;
-  box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(var(--accent-rgb), 0.04);
+  gap: 16px;
 }
 
-.account-copy {
-  min-width: 0;
+.ai-provider-header {
+  margin-bottom: 18px;
 }
 
-.account-copy h2,
+.ai-provider-header h2,
 .setting-copy h3,
 .app-info h3 {
   margin: 0;
@@ -827,101 +737,29 @@ async function openExternal(url: string) {
   letter-spacing: 0;
 }
 
-.account-copy h2 {
+.ai-provider-header h2 {
   font-size: 20px;
 }
 
-.account-copy p,
-.setting-copy p,
-.app-info p {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.account-status {
-  color: var(--text-primary);
-  font-weight: 650;
-}
-
-.account-role {
-  color: var(--text-tertiary);
-}
-
-.account-actions {
-  display: flex;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-
-.auth-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(2, 6, 23, 0.58);
-}
-
-.auth-modal {
-  box-sizing: border-box;
-  width: min(100%, 420px);
-  padding: 22px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.34);
-}
-
-.auth-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.auth-modal-header h2 {
-  margin: 0;
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.auth-close-btn,
-.auth-link-btn {
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.auth-close-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 750;
-}
-
-.auth-close-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.auth-form {
+.ai-provider-form {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
-.auth-field {
+.compact-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-field {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 7px;
   color: var(--text-secondary);
@@ -929,125 +767,86 @@ async function openExternal(url: string) {
   font-weight: 650;
 }
 
-.auth-field input {
-  box-sizing: border-box;
-  width: 100%;
-  height: 42px;
+.form-field.wide {
+  grid-column: 1 / -1;
+}
+
+.saved-key strong {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
   padding: 0 12px;
-  border: 1px solid var(--input-border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--input-bg);
+  background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: 14px;
-  outline: none;
-}
-
-.auth-password-control {
-  position: relative;
-  display: block;
-}
-
-.auth-password-control input {
-  padding-right: 44px;
-}
-
-.auth-code-control {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.auth-code-btn {
-  min-width: 108px;
-  height: 42px;
-  padding: 0 12px;
   font-size: 13px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-.auth-password-toggle {
-  position: absolute;
-  top: 50%;
-  right: 6px;
+.toggle-row {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-  transform: translateY(-50%);
-  cursor: pointer;
-}
-
-.auth-password-toggle:hover {
-  background: var(--bg-hover);
+  gap: 9px;
   color: var(--text-primary);
-}
-
-.auth-password-toggle svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.auth-field input:focus {
-  border-color: var(--input-focus-border);
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.18),
-    0 0 16px rgba(var(--accent-rgb), 0.18);
-}
-
-.auth-error {
-  margin: 0;
-  color: #ef4444;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.auth-info {
-  margin: 0;
-  color: #5eead4;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.auth-submit {
-  width: 100%;
-}
-
-.auth-switch {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-top: 14px;
-}
-
-.auth-link-btn {
-  padding: 6px 8px;
   font-size: 13px;
   font-weight: 650;
 }
 
-.auth-link-btn:hover:not(:disabled) {
-  color: var(--accent-color);
+.toggle-row input {
+  width: 16px;
+  height: 16px;
 }
 
-@media (max-width: 480px) {
-  .auth-code-control {
-    grid-template-columns: 1fr;
-  }
+.pricing-panel {
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
 
-  .auth-code-btn {
-    width: 100%;
-  }
+.pricing-header {
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.segmented-control,
+.theme-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
+.segment-button,
+.theme-option {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.segment-button.active,
+.theme-option.active {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.status-message {
+  margin: 0;
+  color: var(--accent-color);
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .settings-section {
@@ -1104,69 +903,11 @@ async function openExternal(url: string) {
   min-width: min(100%, 360px);
 }
 
-.cache-clear-control {
-  align-items: center;
-}
-
-.cache-clear-tooltip-anchor {
-  position: relative;
-  display: inline-flex;
-}
-
-.cache-clear-tooltip {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  z-index: var(--z-tooltip);
+.select-input,
+.text-input {
   box-sizing: border-box;
-  width: 260px;
-  max-width: min(260px, calc(100vw - 32px));
-  padding: 10px 12px;
-  border: 1px solid rgba(var(--accent-rgb), 0.26);
-  border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.96);
-  color: rgba(255, 255, 255, 0.88);
-  box-shadow:
-    0 14px 28px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(255, 255, 255, 0.04);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.45;
-  text-align: left;
-  white-space: normal;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition:
-    opacity 0.14s ease,
-    transform 0.14s ease,
-    visibility 0.14s ease;
-}
-
-.cache-clear-tooltip::after {
-  content: "";
-  position: absolute;
-  right: 18px;
-  bottom: -6px;
-  width: 10px;
-  height: 10px;
-  border-right: 1px solid rgba(var(--accent-rgb), 0.26);
-  border-bottom: 1px solid rgba(var(--accent-rgb), 0.26);
-  background: rgba(15, 23, 42, 0.96);
-  transform: rotate(45deg);
-}
-
-.cache-clear-tooltip-anchor:hover .cache-clear-tooltip,
-.cache-clear-tooltip-anchor:focus-within .cache-clear-tooltip {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-}
-
-.select-input {
-  box-sizing: border-box;
-  min-width: 210px;
+  width: 100%;
+  min-width: 0;
   height: 40px;
   padding: 0 12px;
   border: 1px solid var(--input-border);
@@ -1176,13 +917,10 @@ async function openExternal(url: string) {
   font-size: 13px;
   font-weight: 600;
   outline: none;
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
 }
 
-.select-input:focus {
+.select-input:focus,
+.text-input:focus {
   border-color: var(--input-focus-border);
   box-shadow:
     0 0 0 1px rgba(var(--accent-rgb), 0.18),
@@ -1190,8 +928,7 @@ async function openExternal(url: string) {
 }
 
 .primary-btn,
-.secondary-btn,
-.theme-option {
+.secondary-btn {
   box-sizing: border-box;
   min-height: 40px;
   border: 1px solid transparent;
@@ -1200,12 +937,6 @@ async function openExternal(url: string) {
   font-weight: 650;
   letter-spacing: 0;
   cursor: pointer;
-  transition:
-    border-color 0.18s ease,
-    background 0.18s ease,
-    box-shadow 0.2s ease,
-    color 0.18s ease,
-    opacity 0.18s ease;
 }
 
 .primary-btn {
@@ -1215,23 +946,11 @@ async function openExternal(url: string) {
   box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.22);
 }
 
-.primary-btn:hover:not(:disabled) {
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.16),
-    0 0 18px rgba(var(--accent-rgb), 0.3);
-}
-
 .secondary-btn {
   padding: 0 18px;
   border-color: var(--border-subtle);
   background: var(--bg-tertiary);
   color: var(--text-primary);
-}
-
-.secondary-btn:hover:not(:disabled) {
-  border-color: rgba(var(--accent-rgb), 0.38);
-  background: var(--bg-hover);
-  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.16);
 }
 
 .compact {
@@ -1240,36 +959,10 @@ async function openExternal(url: string) {
 }
 
 .primary-btn:disabled,
-.secondary-btn:disabled {
+.secondary-btn:disabled,
+.text-input:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.theme-toggle {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-}
-
-.theme-option {
-  min-width: 68px;
-  padding: 0 14px;
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.theme-option:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.theme-option.active {
-  background: var(--accent-color);
-  color: #fff;
-  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.24);
 }
 
 .about-section {
@@ -1295,10 +988,6 @@ async function openExternal(url: string) {
   padding: 12px;
   border-radius: 28px;
   overflow: hidden;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
 }
 
 .app-logo img {
@@ -1348,10 +1037,6 @@ async function openExternal(url: string) {
   overflow: hidden;
   isolation: isolate;
   pointer-events: none;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
 }
 
 .showcase-backdrop {
@@ -1435,24 +1120,16 @@ async function openExternal(url: string) {
 .about-card.theme-dark .app-showcase {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 247, 250, 0.92));
   border-color: rgba(15, 23, 42, 0.08);
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
 }
 
 .about-card.theme-light .app-logo,
 .about-card.theme-light .app-showcase {
   background: linear-gradient(180deg, #05070f, #0d1220);
   border-color: rgba(148, 163, 184, 0.18);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 18px 36px rgba(2, 6, 23, 0.14);
 }
 
-.about-card.theme-dark .showcase-track {
-  color: rgba(15, 23, 42, 0.15);
-}
-
-.about-card.theme-dark .showcase-center-mark::before {
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0));
+.about-card.theme-light .showcase-track {
+  color: rgba(241, 245, 249, 0.13);
 }
 
 .about-card.theme-light .showcase-backdrop::after {
@@ -1465,8 +1142,8 @@ async function openExternal(url: string) {
   );
 }
 
-.about-card.theme-light .showcase-track {
-  color: rgba(241, 245, 249, 0.13);
+.about-card.theme-dark .showcase-center-mark::before {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0));
 }
 
 .about-card.theme-light .showcase-center-mark::before {
@@ -1494,37 +1171,32 @@ async function openExternal(url: string) {
 }
 
 @media (max-width: 760px) {
-  .account-card,
-  .setting-row {
+  .ai-provider-header,
+  .setting-row,
+  .form-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .account-actions,
+  .form-grid,
+  .compact-grid {
+    grid-template-columns: 1fr;
+  }
+
   .setting-control,
   .match-mode-control,
   .theme-toggle {
     width: 100%;
   }
 
-  .account-actions,
   .setting-control {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
 
-  .select-input {
-    min-width: 0;
-    flex: 1 1 180px;
-  }
-
   .primary-btn,
   .secondary-btn {
     flex: 1 1 120px;
-  }
-
-  .theme-option {
-    flex: 1;
   }
 
   .about-card {
@@ -1533,10 +1205,6 @@ async function openExternal(url: string) {
 
   .app-showcase {
     grid-column: 1 / -1;
-  }
-
-  .about-links {
-    justify-content: flex-start;
   }
 }
 </style>

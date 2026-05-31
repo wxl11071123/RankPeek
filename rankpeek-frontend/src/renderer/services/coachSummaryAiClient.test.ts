@@ -2,38 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   generateCoachSummaryReport,
-  RANKPEEK_SERVER_COACH_SUMMARY_ENDPOINT
+  RANKPEEK_LOCAL_COACH_SUMMARY_ENDPOINT
 } from './coachSummaryAiClient.ts'
-import { RANKPEEK_SERVER_BASE_URL } from './rankpeekServerClient.ts'
-import { storeRankPeekAuthSession } from './rankpeekAuthClient.ts'
-
-class MemoryStorage {
-  private values = new Map<string, string>()
-
-  getItem(key: string) {
-    return this.values.get(key) ?? null
-  }
-
-  setItem(key: string, value: string) {
-    this.values.set(key, value)
-  }
-
-  removeItem(key: string) {
-    this.values.delete(key)
-  }
-}
+import { RANKPEEK_LOCAL_SERVICE_BASE_URL } from './rankpeekLocalServiceClient.ts'
 
 const report = {
   schemaVersion: 'coach_summary_report.v1',
   analysisType: 'coach_summary',
   inputHash: 'coach-hash-1',
-  title: '资源团前先站稳',
-  summary: '最近20局显示资源团前死亡偏多。',
+  title: 'Resource setup',
+  summary: 'Recent games need tighter setup.',
   verdict: {
-    label: '中期资源处理需要收紧',
+    label: 'Mid-game setup needs work',
     score: 72,
     confidence: 'medium',
-    summary: '你有稳定的英雄池和可用的节奏点，但资源刷新前的死亡会把优势送回去。'
+    summary: 'Stable champion pool with fixable objective setup mistakes.'
   },
   keyFindings: [],
   trainingPlan: [],
@@ -41,15 +24,28 @@ const report = {
   chartBlocks: [],
   warnings: [],
   metadata: {
-    modelName: 'deepseek-v4-flash',
-    promptVersion: 'coach_summary.prompt.v2',
+        modelName: 'deepseek-v4-flash',
+        promptVersion: 'coach_summary.prompt.v3',
     generatedAt: '2026-05-25T00:00:00.000Z',
     snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
     dataQualityConfidence: 'medium'
   }
 }
 
-test('generateCoachSummaryReport posts prompt payload to rankpeek-server', async () => {
+function createCoachSummaryParams() {
+  return {
+    inputHash: 'coach-hash-1',
+    snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
+    dataQualityConfidence: 'medium' as const,
+    promptPayload: {
+      promptVersion: 'coach_summary.prompt.v3' as const,
+      systemPrompt: 'system prompt',
+      userPrompt: '{"currentSnapshotText":"recent games"}'
+    }
+  }
+}
+
+test('generateCoachSummaryReport posts prompt payload to local backend without Authorization', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -73,239 +69,68 @@ test('generateCoachSummaryReport posts prompt payload to rankpeek-server', async
   }) as typeof fetch
 
   try {
-    const result = await generateCoachSummaryReport({
-      accessToken: 'access-token',
-      inputHash: 'coach-hash-1',
-      snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
-      dataQualityConfidence: 'medium',
-      promptPayload: {
-        promptVersion: 'coach_summary.prompt.v2',
-        systemPrompt: 'system prompt',
-        userPrompt: '{"currentSnapshotText":"最近20局走势"}'
-      }
-    })
+    const result = await generateCoachSummaryReport(createCoachSummaryParams())
 
     assert.equal(result.ok, true)
-    assert.equal(result.ok && result.report.title, '资源团前先站稳')
+    assert.equal(result.ok && result.report.title, 'Resource setup')
     assert.equal(result.ok && result.usage?.totalTokens, 150)
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_SERVER_BASE_URL}${RANKPEEK_SERVER_COACH_SUMMARY_ENDPOINT}`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_LOCAL_SERVICE_BASE_URL}${RANKPEEK_LOCAL_COACH_SUMMARY_ENDPOINT}`)
     assert.equal(calls[0]?.init.method, 'POST')
-    assert.deepEqual(calls[0]?.init.headers, {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer access-token',
-      'X-RankPeek-Idempotency-Key': 'coach-summary:coach-hash-1'
-    })
+    assert.deepEqual(calls[0]?.init.headers, { 'Content-Type': 'application/json' })
     const body = JSON.parse(String(calls[0]?.init.body))
     assert.equal(body.inputHash, 'coach-hash-1')
     assert.equal(body.snapshotSchemaVersion, 'coach_summary_input_snapshot.v2')
-    assert.equal(body.promptVersion, 'coach_summary.prompt.v2')
+    assert.equal(body.promptVersion, 'coach_summary.prompt.v3')
     assert.equal(body.dataQualityConfidence, 'medium')
     assert.equal(body.systemPrompt, 'system prompt')
-    assert.match(body.userPrompt, /最近20局走势/)
+    assert.match(body.userPrompt, /recent games/)
   } finally {
     globalThis.fetch = originalFetch
   }
 })
 
-test('generateCoachSummaryReport returns a failed result for server errors', async () => {
+test('generateCoachSummaryReport maps missing provider configuration to friendly text', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async () => new Response(JSON.stringify({
     success: false,
     error: {
-      code: 'AI_SERVER_DISABLED',
-      message: 'DeepSeek AI is not enabled'
+      code: 'AI_PROVIDER_NOT_CONFIGURED',
+      message: 'Please configure AI provider and API key first.'
     }
   }), {
-    status: 200,
+    status: 400,
     headers: { 'Content-Type': 'application/json' }
   })) as typeof fetch
 
   try {
-    const result = await generateCoachSummaryReport({
-      accessToken: 'access-token',
-      inputHash: 'coach-hash-1',
-      snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
-      dataQualityConfidence: 'medium',
-      promptPayload: {
-        promptVersion: 'coach_summary.prompt.v2',
-        systemPrompt: 'system prompt',
-        userPrompt: '{}'
-      }
-    })
+    const result = await generateCoachSummaryReport(createCoachSummaryParams())
 
     assert.equal(result.ok, false)
-    assert.equal(result.ok ? '' : result.message, '请求无法完成，请稍后再试。')
+    assert.equal(result.ok ? '' : result.message, '请先在设置里配置 AI 服务商和 API Key。')
   } finally {
     globalThis.fetch = originalFetch
   }
 })
 
-test('generateCoachSummaryReport fails before fetch when no auth token is available', async () => {
-  const originalFetch = globalThis.fetch
-  let called = false
-  globalThis.fetch = (async () => {
-    called = true
-    return new Response('{}')
-  }) as typeof fetch
-
-  try {
-    const result = await generateCoachSummaryReport({
-      inputHash: 'coach-hash-1',
-      snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
-      dataQualityConfidence: 'medium',
-      promptPayload: {
-        promptVersion: 'coach_summary.prompt.v2',
-        systemPrompt: 'system prompt',
-        userPrompt: '{}'
-      }
-    })
-
-    assert.equal(result.ok, false)
-    assert.equal(result.ok ? '' : result.message, '请先登录 RankPeek 账号后再使用 AI 分析。')
-    assert.equal(called, false)
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test('generateCoachSummaryReport maps credit errors to user-facing text instead of HTTP codes', async () => {
-  const originalLocalStorage = globalThis.localStorage
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: new MemoryStorage(),
-    configurable: true
-  })
-  storeRankPeekAuthSession({
-    user: {
-      id: 1,
-      email: 'admin@rankpeek.local',
-      displayName: 'RankPeek Admin',
-      role: 'ADMIN',
-      status: 'ACTIVE'
-    },
-    accessToken: 'access-token',
-    refreshToken: 'refresh-token',
-    expiresInSeconds: 3600
-  })
-
+test('generateCoachSummaryReport returns a failed result for local backend errors', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async () => new Response(JSON.stringify({
     success: false,
-    data: null,
     error: {
-      code: 'INSUFFICIENT_CREDITS',
-      message: 'Credit balance is insufficient'
+      code: 'AI_PROVIDER_ERROR',
+      message: 'provider failed'
     }
   }), {
-    status: 402,
+    status: 502,
     headers: { 'Content-Type': 'application/json' }
   })) as typeof fetch
 
   try {
-    const result = await generateCoachSummaryReport({
-      inputHash: 'coach-hash-1',
-      snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
-      dataQualityConfidence: 'medium',
-      promptPayload: {
-        promptVersion: 'coach_summary.prompt.v2',
-        systemPrompt: 'system prompt',
-        userPrompt: '{}'
-      }
-    })
+    const result = await generateCoachSummaryReport(createCoachSummaryParams())
 
     assert.equal(result.ok, false)
-    assert.equal(result.ok ? '' : result.message, 'AI 分析次数不足，请充值后再试。')
   } finally {
     globalThis.fetch = originalFetch
-    Object.defineProperty(globalThis, 'localStorage', {
-      value: originalLocalStorage,
-      configurable: true
-    })
-  }
-})
-
-test('generateCoachSummaryReport refreshes an expired stored access token and retries once', async () => {
-  const originalLocalStorage = globalThis.localStorage
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: new MemoryStorage(),
-    configurable: true
-  })
-  storeRankPeekAuthSession({
-    user: {
-      id: 1,
-      email: 'admin@rankpeek.local',
-      displayName: 'RankPeek Admin',
-      role: 'ADMIN',
-      status: 'ACTIVE'
-    },
-    accessToken: 'expired-access-token',
-    refreshToken: 'refresh-token',
-    expiresInSeconds: 3600
-  })
-
-  const calls: Array<{ url: string; init: RequestInit }> = []
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(url), init: init ?? {} })
-    if (calls.length === 1) {
-      return new Response(JSON.stringify({
-        success: false,
-        data: null,
-        error: {
-          code: 'ACCESS_TOKEN_INVALID',
-          message: 'Invalid or expired access token'
-        }
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      })
-    }
-    if (calls.length === 2) {
-      return new Response(JSON.stringify({
-        success: true,
-        data: {
-          accessToken: 'rotated-access-token',
-          refreshToken: 'rotated-refresh-token',
-          expiresInSeconds: 3600
-        },
-        error: null
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      })
-    }
-    return new Response(JSON.stringify({
-      success: true,
-      data: { report },
-      error: null
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  }) as typeof fetch
-
-  try {
-    const result = await generateCoachSummaryReport({
-      inputHash: 'coach-hash-1',
-      snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
-      dataQualityConfidence: 'medium',
-      promptPayload: {
-        promptVersion: 'coach_summary.prompt.v2',
-        systemPrompt: 'system prompt',
-        userPrompt: '{}'
-      }
-    })
-
-    assert.equal(result.ok, true)
-    assert.equal(calls.length, 3)
-    assert.equal(calls[0]?.init.headers?.['Authorization' as keyof HeadersInit], 'Bearer expired-access-token')
-    assert.match(calls[1]?.url ?? '', /\/api\/auth\/refresh$/)
-    assert.equal(calls[2]?.init.headers?.['Authorization' as keyof HeadersInit], 'Bearer rotated-access-token')
-  } finally {
-    globalThis.fetch = originalFetch
-    Object.defineProperty(globalThis, 'localStorage', {
-      value: originalLocalStorage,
-      configurable: true
-    })
   }
 })

@@ -953,7 +953,7 @@ git commit -m "feat(backend): track local AI and manual costs"
 - Modify: `rankpeek-frontend/src/renderer/views/AiAnalysisView.vue`
 - Modify: `rankpeek-frontend/src/renderer/views/AiAnalysisView.test.ts`
 
-- [ ] **Step 1: Write client tests**
+- [x] **Step 1: Write client tests**
 
 Tests must assert:
 
@@ -963,7 +963,7 @@ Tests must assert:
 - `localAiStreamClient.streamLocalPostgameAi()` calls `/api/v1/ai/postgame/stream` without `Authorization`.
 - `localCostClient.getLocalCostSummary()` calls `/api/v1/costs/summary`.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 cd rankpeek-frontend
@@ -974,7 +974,7 @@ node --test src/renderer/services/localCostClient.test.ts
 
 Expected: FAIL because clients do not exist.
 
-- [ ] **Step 3: Implement provider client**
+- [x] **Step 3: Implement provider client**
 
 `localAiProviderClient.ts` exports:
 
@@ -999,7 +999,7 @@ export interface SaveLocalAiSettingsRequest extends Omit<LocalAiSettings, 'apiKe
 
 Use `RANKPEEK_LOCAL_SERVICE_BASE_URL` and `parseLocalJson`.
 
-- [ ] **Step 4: Implement shared stream client**
+- [x] **Step 4: Implement shared stream client**
 
 `localAiStreamClient.ts` must contain the SSE/NDJSON parser currently duplicated in `gamingAiServerStream.ts` and `postgameAiServerStream.ts`. Export two functions:
 
@@ -1014,7 +1014,7 @@ Both functions must omit auth headers and surface provider configuration errors 
 请先在设置里配置 AI 服务商和 API Key。
 ```
 
-- [ ] **Step 5: Redirect existing AI service exports**
+- [x] **Step 5: Redirect existing AI service exports**
 
 Keep existing public function names to reduce component churn:
 
@@ -1022,7 +1022,7 @@ Keep existing public function names to reduce component churn:
 - `streamPostgameAiAnalysis()` delegates to `streamLocalPostgameAi()`.
 - `generateCoachSummaryReport()` calls `/api/v1/ai/coach-summary` without auth.
 
-- [ ] **Step 6: Replace settings account UI**
+- [x] **Step 6: Replace settings account UI**
 
 In `SettingsView.vue`, remove:
 
@@ -1046,7 +1046,7 @@ Add:
 - "test connection" button
 - masked saved key display
 
-- [ ] **Step 7: Replace AI analysis billing UI**
+- [x] **Step 7: Replace AI analysis billing UI**
 
 In `AiAnalysisView.vue`, remove account and credits sections. Add:
 
@@ -1055,7 +1055,7 @@ In `AiAnalysisView.vue`, remove account and credits sections. Add:
 - cost summary for today/current month
 - manual cost entry shortcut
 
-- [ ] **Step 8: Run frontend AI tests**
+- [x] **Step 8: Run frontend AI tests**
 
 ```powershell
 cd rankpeek-frontend
@@ -1071,7 +1071,7 @@ node --test src/renderer/views/AiAnalysisView.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add rankpeek-frontend/src/renderer/services rankpeek-frontend/src/renderer/views/SettingsView.vue rankpeek-frontend/src/renderer/views/SettingsView.test.ts rankpeek-frontend/src/renderer/views/AiAnalysisView.vue rankpeek-frontend/src/renderer/views/AiAnalysisView.test.ts
