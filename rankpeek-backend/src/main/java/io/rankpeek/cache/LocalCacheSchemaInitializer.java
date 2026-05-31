@@ -224,6 +224,22 @@ public class LocalCacheSchemaInitializer {
                     updated_at BIGINT
                 )
                 """);
+
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS ai_provider_settings (
+                    id VARCHAR(64) PRIMARY KEY,
+                    enabled BOOLEAN,
+                    provider_id VARCHAR(128),
+                    base_url VARCHAR(1000),
+                    model VARCHAR(255),
+                    api_key_encrypted CLOB,
+                    api_key_masked VARCHAR(128),
+                    temperature DOUBLE,
+                    max_tokens INT,
+                    pricing_raw_json CLOB,
+                    updated_at BIGINT
+                )
+                """);
     }
 
     private void migrateTables() {
@@ -239,6 +255,16 @@ public class LocalCacheSchemaInitializer {
         addColumnIfMissing("match_data_scope_cache", "schema_version INT DEFAULT 1");
         addColumnIfMissing("match_data_scope_cache", "last_error VARCHAR(2000)");
         addColumnIfMissing("match_data_scope_cache", "updated_at BIGINT");
+        addColumnIfMissing("ai_provider_settings", "enabled BOOLEAN");
+        addColumnIfMissing("ai_provider_settings", "provider_id VARCHAR(128)");
+        addColumnIfMissing("ai_provider_settings", "base_url VARCHAR(1000)");
+        addColumnIfMissing("ai_provider_settings", "model VARCHAR(255)");
+        addColumnIfMissing("ai_provider_settings", "api_key_encrypted CLOB");
+        addColumnIfMissing("ai_provider_settings", "api_key_masked VARCHAR(128)");
+        addColumnIfMissing("ai_provider_settings", "temperature DOUBLE");
+        addColumnIfMissing("ai_provider_settings", "max_tokens INT");
+        addColumnIfMissing("ai_provider_settings", "pricing_raw_json CLOB");
+        addColumnIfMissing("ai_provider_settings", "updated_at BIGINT");
     }
 
     private void addColumnIfMissing(String tableName, String columnDefinition) {

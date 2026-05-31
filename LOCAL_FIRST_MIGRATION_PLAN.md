@@ -410,7 +410,7 @@ git commit -m "refactor(frontend): route cloud data clients to local service"
 - Create: `rankpeek-backend/src/test/java/io/rankpeek/ai/AiProviderSettingsServiceTest.java`
 - Create: `rankpeek-backend/src/test/java/io/rankpeek/ai/AiProviderControllerTest.java`
 
-- [ ] **Step 1: Write schema tests for AI settings**
+- [x] **Step 1: Write schema tests for AI settings**
 
 Add a backend test that instantiates `LocalCacheSchemaInitializer`, runs schema creation, and verifies `ai_provider_settings` exists with columns:
 
@@ -428,7 +428,7 @@ pricing_raw_json CLOB
 updated_at BIGINT
 ```
 
-- [ ] **Step 2: Run the failing backend test**
+- [x] **Step 2: Run the failing backend test**
 
 Run:
 
@@ -439,7 +439,7 @@ mvn -Dtest=AiProviderSettingsServiceTest test
 
 Expected: FAIL because the table and service do not exist.
 
-- [ ] **Step 3: Add AI settings schema**
+- [x] **Step 3: Add AI settings schema**
 
 In `LocalCacheSchemaInitializer.createTables()`, add:
 
@@ -463,7 +463,7 @@ jdbcTemplate.execute("""
 
 In `migrateTables()`, add `ADD COLUMN IF NOT EXISTS` calls for each column above.
 
-- [ ] **Step 4: Add provider records**
+- [x] **Step 4: Add provider records**
 
 Create `AiProviderProfile`:
 
@@ -502,11 +502,11 @@ public record AiProviderSettings(
 }
 ```
 
-- [ ] **Step 5: Implement repository upsert and read**
+- [x] **Step 5: Implement repository upsert and read**
 
 `AiProviderSettingsRepository` must use `JdbcTemplate` and a single row id `default`. Reads return an empty optional when no settings exist. Saves use H2 `MERGE INTO ai_provider_settings KEY(id) VALUES (...)`.
 
-- [ ] **Step 6: Implement service defaults**
+- [x] **Step 6: Implement service defaults**
 
 `AiProviderSettingsService` must:
 
@@ -516,7 +516,7 @@ public record AiProviderSettings(
 - Mask keys as first 3 characters plus last 4 characters for values longer than 8 characters.
 - Never return raw API keys from public responses.
 
-- [ ] **Step 7: Add controller**
+- [x] **Step 7: Add controller**
 
 `AiProviderController` exposes:
 
@@ -537,7 +537,7 @@ class AiProviderController {
 
 Use the existing local backend `io.rankpeek.model.ApiResponse`.
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run:
 
@@ -548,7 +548,7 @@ mvn -Dtest=AiProviderSettingsServiceTest,AiProviderControllerTest test
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add rankpeek-backend/src/main/java/io/rankpeek/cache/LocalCacheSchemaInitializer.java rankpeek-backend/src/main/java/io/rankpeek/ai rankpeek-backend/src/test/java/io/rankpeek/ai
