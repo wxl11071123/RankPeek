@@ -39,6 +39,20 @@
               </div>
             </div>
             <button
+              class="pregame-auto-analysis-toggle control-glow"
+              type="button"
+              :class="{ active: isPregameAutoAnalysisEnabled('teammate') }"
+              :title="PREGAME_AUTO_ANALYSIS_TOOLTIP"
+              :aria-pressed="isPregameAutoAnalysisEnabled('teammate')"
+              aria-label="自动赛前分析"
+              @click="togglePregameAutoAnalysis('teammate')"
+            >
+              <span class="pregame-auto-analysis-toggle-track" aria-hidden="true">
+                <span class="pregame-auto-analysis-toggle-knob"></span>
+              </span>
+              <span class="pregame-auto-analysis-toggle-text">自动分析</span>
+            </button>
+            <button
               class="team-analysis-btn team-analysis-btn-blue control-glow"
               type="button"
               :title="getGamingAiButtonTitle('teammate')"
@@ -84,6 +98,20 @@
                 <h2>{{ t('gaming.redTeam') }} {{ redTeamCount }}/5</h2>
               </div>
             </div>
+            <button
+              class="pregame-auto-analysis-toggle control-glow"
+              type="button"
+              :class="{ active: isPregameAutoAnalysisEnabled('opponent') }"
+              :title="PREGAME_AUTO_ANALYSIS_TOOLTIP"
+              :aria-pressed="isPregameAutoAnalysisEnabled('opponent')"
+              aria-label="自动赛前分析"
+              @click="togglePregameAutoAnalysis('opponent')"
+            >
+              <span class="pregame-auto-analysis-toggle-track" aria-hidden="true">
+                <span class="pregame-auto-analysis-toggle-knob"></span>
+              </span>
+              <span class="pregame-auto-analysis-toggle-text">自动分析</span>
+            </button>
             <button
               class="team-analysis-btn team-analysis-btn-red control-glow"
               type="button"
@@ -175,6 +203,9 @@ const CONTROL_GLOW_RANGE = 96
 const SURFACE_GLOW_RANGE = 220
 const EDGE_GLOW_MIN = 0.03
 const PAGE_GLOW_SELECTOR = '.surface-glow, .control-glow'
+const PREGAME_AUTO_ANALYSIS_TOOLTIP = '每局排位自动分析对局'
+const PREGAME_AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.gaming.pregameAutoAnalysis'
+const PREGAME_AUTO_ANALYSIS_MODES: GamingAiAnalysisMode[] = ['teammate', 'opponent']
 
 const gamingViewRef = ref<HTMLElement | null>(null)
 
@@ -210,7 +241,19 @@ const maxRetries = 3
 const failCount = ref(0)
 const maxFailCount = 10
 const isRefreshPaused = ref(false)
+const pregameAutoAnalysisEnabled = ref<Record<GamingAiAnalysisMode, boolean>>({
+  teammate: false,
+  opponent: false
+})
 let autoResumeTimer: ReturnType<typeof setTimeout> | null = null
+const lastPregameAutoAnalysisAttemptKeys: Record<GamingAiAnalysisMode, string> = {
+  teammate: '',
+  opponent: ''
+}
+const pregameAutoAnalysisInFlight: Record<GamingAiAnalysisMode, boolean> = {
+  teammate: false,
+  opponent: false
+}
 
 const hasActiveSession = computed(() => {
   const phase = sessionData.value.phase
@@ -425,6 +468,64 @@ function canStartGamingAiInlineAnalysis(mode: GamingAiAnalysisMode): boolean {
   })
 }
 
+function buildPregameAutoAnalysisAccountKey(): string {
+  const summoner = sessionData.value.currentSummoner || currentSummoner.value
+  const puuid = summoner?.puuid?.trim()
+  if (puuid) {
+    return puuid
+  }
+
+  const gameName = summoner?.gameName?.trim()
+  const tagLine = summoner?.tagLine?.trim()
+  if (gameName) {
+    return `${gameName}#${tagLine || ''}`
+  }
+
+  return 'default'
+}
+
+function buildPregameAutoAnalysisStorageKey(mode: GamingAiAnalysisMode): string {
+  return `${PREGAME_AUTO_ANALYSIS_STORAGE_PREFIX}.${buildPregameAutoAnalysisAccountKey()}.${mode}`
+}
+
+function isPregameAutoAnalysisEnabled(mode: GamingAiAnalysisMode): boolean {
+  return pregameAutoAnalysisEnabled.value[mode] === true
+}
+
+function loadPregameAutoAnalysisSetting() {
+  try {
+    pregameAutoAnalysisEnabled.value = {
+      teammate: window.localStorage.getItem(buildPregameAutoAnalysisStorageKey('teammate')) === '1',
+      opponent: window.localStorage.getItem(buildPregameAutoAnalysisStorageKey('opponent')) === '1'
+    }
+  } catch {
+    pregameAutoAnalysisEnabled.value = {
+      teammate: false,
+      opponent: false
+    }
+  }
+}
+
+function savePregameAutoAnalysisSetting(mode: GamingAiAnalysisMode) {
+  try {
+    window.localStorage.setItem(buildPregameAutoAnalysisStorageKey(mode), isPregameAutoAnalysisEnabled(mode) ? '1' : '0')
+  } catch (error) {
+    console.warn('Failed to save pregame auto analysis setting', error)
+  }
+}
+
+function togglePregameAutoAnalysis(mode: GamingAiAnalysisMode) {
+  pregameAutoAnalysisEnabled.value = {
+    ...pregameAutoAnalysisEnabled.value,
+    [mode]: !isPregameAutoAnalysisEnabled(mode)
+  }
+  lastPregameAutoAnalysisAttemptKeys[mode] = ''
+  savePregameAutoAnalysisSetting(mode)
+  if (isPregameAutoAnalysisEnabled(mode)) {
+    void maybeStartPregameAutoAnalysis(mode)
+  }
+}
+
 function getGamingAiButtonText(mode: GamingAiAnalysisMode): string {
   if (isGamingAiInlineModeBusy(mode)) {
     return '分析中...'
@@ -450,6 +551,15 @@ function buildGamingAiInlineRequestKey(mode: GamingAiAnalysisMode): string {
   const playerKeys = getGamingAiModePlayers(mode).map(getGamingAiPlayerCacheKey).join('|')
   const requestKey = [mode, gamingAiQueueLabel.value, String(sessionData.value.queueId || 0), playerKeys].join('::')
   return requestKey
+}
+
+function buildPregameAutoAnalysisAttemptKey(mode: GamingAiAnalysisMode): string {
+  return [
+    buildPregameAutoAnalysisStorageKey(mode),
+    sessionData.value.sessionKey || sessionData.value.matchId || String(sessionData.value.gameId || ''),
+    gamingAiQueueLabel.value,
+    buildGamingAiInlineRequestKey(mode)
+  ].join('::')
 }
 
 function getGamingAiPlayerCacheKey(player: SessionSummoner): string {
@@ -567,6 +677,34 @@ async function startGamingAiInlineAnalysis(mode: GamingAiAnalysisMode) {
   }
 
   completeGamingAiInlineRun(mode, requestId, controller)
+}
+
+async function maybeStartPregameAutoAnalysis(mode: GamingAiAnalysisMode) {
+  if (!isPregameAutoAnalysisEnabled(mode) || pregameAutoAnalysisInFlight[mode]) {
+    return
+  }
+  if (!canStartGamingAiInlineAnalysis(mode)) {
+    return
+  }
+
+  const requestKey = buildGamingAiInlineRequestKey(mode)
+  const state = getGamingAiModeState(mode)
+  if (state.requestKey === requestKey && (Object.keys(state.playerInsights).length > 0 || Object.keys(state.playerVerdicts).length > 0)) {
+    return
+  }
+
+  const attemptKey = buildPregameAutoAnalysisAttemptKey(mode)
+  if (lastPregameAutoAnalysisAttemptKeys[mode] === attemptKey) {
+    return
+  }
+
+  lastPregameAutoAnalysisAttemptKeys[mode] = attemptKey
+  pregameAutoAnalysisInFlight[mode] = true
+  try {
+    await startGamingAiInlineAnalysis(mode)
+  } finally {
+    pregameAutoAnalysisInFlight[mode] = false
+  }
 }
 
 function getGamingAiInlinePlayerInsight(
@@ -870,10 +1008,28 @@ watch(
     gamingAiQueueLabel.value,
     buildGamingAiInlineRequestKey('teammate'),
     buildGamingAiInlineRequestKey('opponent'),
+    gamingAiInlineState.teammate.streamState,
+    gamingAiInlineState.opponent.streamState,
     isGamingAiInlineCacheAvailable('teammate') ? 'teammate-ready' : 'teammate-unavailable',
     isGamingAiInlineCacheAvailable('opponent') ? 'opponent-ready' : 'opponent-unavailable'
   ].join('||'),
-  syncGamingAiInlineCacheWithSession,
+  () => {
+    syncGamingAiInlineCacheWithSession()
+    void maybeStartPregameAutoAnalysis('teammate')
+    void maybeStartPregameAutoAnalysis('opponent')
+  },
+  { immediate: true }
+)
+
+watch(
+  buildPregameAutoAnalysisAccountKey,
+  () => {
+    loadPregameAutoAnalysisSetting()
+    for (const mode of PREGAME_AUTO_ANALYSIS_MODES) {
+      lastPregameAutoAnalysisAttemptKeys[mode] = ''
+      void maybeStartPregameAutoAnalysis(mode)
+    }
+  },
   { immediate: true }
 )
 
@@ -1299,6 +1455,140 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pregame-auto-analysis-toggle {
+  flex: 0 0 auto;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 108px;
+  min-height: 32px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.36);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.pregame-auto-analysis-toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 58%);
+  pointer-events: none;
+}
+
+.pregame-auto-analysis-toggle-track {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.pregame-auto-analysis-toggle:hover,
+.pregame-auto-analysis-toggle:focus-visible {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+  box-shadow: var(--gaming-control-hover-shadow), var(--gaming-control-edge-shadow);
+  outline: none;
+}
+
+.pregame-auto-analysis-toggle.active {
+  border-color: rgba(56, 189, 248, 0.62);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.86), rgba(34, 211, 238, 0.72));
+}
+
+.pregame-auto-analysis-toggle.active .pregame-auto-analysis-toggle-track {
+  background: rgba(14, 116, 144, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(224, 247, 255, 0.26);
+}
+
+.pregame-auto-analysis-toggle.active:hover,
+.pregame-auto-analysis-toggle.active:focus-visible {
+  border-color: transparent;
+  background: var(--gaming-control-bg-hover-local);
+}
+
+.pregame-auto-analysis-toggle.control-glow[data-near-glow='true']:not(:hover):not(:focus-visible) {
+  box-shadow: var(--gaming-control-edge-shadow);
+}
+
+.pregame-auto-analysis-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+  transform: translateX(0);
+  transition:
+    background var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.pregame-auto-analysis-toggle.active .pregame-auto-analysis-toggle-knob {
+  background: #e0f7ff;
+  box-shadow: 0 2px 10px rgba(8, 47, 73, 0.38);
+  transform: translateX(16px);
+}
+
+.pregame-auto-analysis-toggle-text {
+  position: relative;
+  z-index: 1;
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.pregame-auto-analysis-toggle.active .pregame-auto-analysis-toggle-text,
+.pregame-auto-analysis-toggle:hover .pregame-auto-analysis-toggle-text,
+.pregame-auto-analysis-toggle:focus-visible .pregame-auto-analysis-toggle-text {
+  color: #e6f5ff;
+}
+
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle) {
+  border-color: rgba(86, 109, 134, 0.2);
+  background: rgba(226, 232, 240, 0.72);
+}
+
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle-track) {
+  background: rgba(148, 163, 184, 0.34);
+}
+
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle.active) {
+  border-color: rgba(14, 116, 144, 0.38);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.78), rgba(34, 211, 238, 0.64));
+}
+
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle-text) {
+  color: #3c5871;
+}
+
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle.active .pregame-auto-analysis-toggle-text),
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle:hover .pregame-auto-analysis-toggle-text),
+:global([data-theme="light"] .gaming-view .pregame-auto-analysis-toggle:focus-visible .pregame-auto-analysis-toggle-text) {
+  color: #17324a;
 }
 
 .team-analysis-btn {

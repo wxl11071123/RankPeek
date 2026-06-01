@@ -29,7 +29,7 @@
           class="opgg-filter-input"
           type="search"
           aria-label="搜索英雄"
-          placeholder="搜索英雄"
+          placeholder="搜索英雄（支持外号、昵称）"
           @input="handleSearchInput"
         />
         <select
@@ -827,7 +827,7 @@ function normalizeMode(value: unknown): OpggMode {
 .opgg-filter-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 96px 64px 86px 82px 68px;
+  grid-template-columns: minmax(96px, 210px) 64px 86px 82px 68px;
   gap: 4px;
   align-items: center;
 }
