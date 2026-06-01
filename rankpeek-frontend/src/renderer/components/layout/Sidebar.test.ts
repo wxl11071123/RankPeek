@@ -38,6 +38,7 @@ test('sidebar uses standalone branding artwork and line icons', () => {
   assert.doesNotMatch(source, /src="\/icon\.png"/)
   assert.match(source, /<img class="sidebar-logo" :src="sidebarLogo" alt="" aria-hidden="true" \/>/)
   assert.match(source, /\.sidebar-logo\s*{[\s\S]*width:\s*36px;[\s\S]*height:\s*36px;/)
+  assert.match(source, /\.sidebar-logo\s*{[\s\S]*border-radius:\s*8px;/)
   assert.match(source, /\.sidebar-logo\s*{[\s\S]*object-fit:\s*contain;/)
   assert.doesNotMatch(source, /\.sidebar-logo\s*{[\s\S]*mix-blend-mode:/)
   assert.doesNotMatch(source, /:global\(\[data-theme="(?:dark|light)"\]\s+\.sidebar-logo\)/)
@@ -163,8 +164,8 @@ test('new requested sidebar icons are current-color linear svg files', () => {
   }
 
   const gear = readFileSync(resolve(iconRoot, 'nav-gear-five.svg'), 'utf8')
-  assert.match(gear, /data-icon-name="round-gear"/)
-  assert.match(gear, /<circle cx="12" cy="12" r="5\.7" \/>/)
-  assert.match(gear, /<circle cx="12" cy="12" r="2\.35" \/>/)
-  assert.match(gear, /M12 3v3M12 18v3M3 12h3M18 12h3/)
+  assert.match(gear, /data-icon-name="settings-gear"/)
+  assert.match(gear, /<path d="M12\.22 2h-\.44/)
+  assert.match(gear, /V20a2 2 0 0 0 2 2h\.44/)
+  assert.match(gear, /<circle cx="12" cy="12" r="3" \/>/)
 })

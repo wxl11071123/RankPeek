@@ -64,6 +64,7 @@ test('OP.GG window does not expose aram mayhem in manual filters', () => {
 test('OP.GG champion search includes common Chinese nicknames beyond the official title', () => {
   const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
 
+  assert.match(source, /placeholder="搜索英雄（支持外号、昵称）"/)
   assert.match(source, /championOptionMatchesSearch/)
   assert.match(source, /from '@\/utils\/championSearchAliases'/)
 })
@@ -155,7 +156,7 @@ test('OP.GG window keeps the filter toolbar compact on a single minimum-width ro
 
   assert.match(source, /\.opgg-window-view \{[\s\S]*min-width:\s*720px/)
   assert.match(source, /\.opgg-toolbar \{[\s\S]*grid-template-columns:\s*auto minmax\(396px,\s*1fr\) auto/)
-  assert.match(source, /\.opgg-filter-row \{[\s\S]*grid-template-columns:\s*96px 64px 86px 82px 68px/)
+  assert.match(source, /\.opgg-filter-row \{[\s\S]*grid-template-columns:\s*minmax\(96px,\s*210px\) 64px 86px 82px 68px/)
   assert.match(source, /\.opgg-toolbar-actions \{[\s\S]*flex-wrap:\s*nowrap/)
   assert.match(source, /\.opgg-filter-input,[\s\S]*\.opgg-filter-select \{[\s\S]*height:\s*30px/)
   assert.match(source, /\.opgg-follow-btn,[\s\S]*\.opgg-refresh-btn,[\s\S]*\.opgg-toolbar-back-btn \{[\s\S]*min-height:\s*30px[\s\S]*padding:\s*0 8px/)

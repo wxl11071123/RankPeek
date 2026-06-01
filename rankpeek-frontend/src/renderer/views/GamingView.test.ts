@@ -378,6 +378,40 @@ test('gaming AI analysis buttons run inline teammate and opponent analysis on th
   assert.match(source, /:ai-error="getGamingAiInlinePlayerError\('opponent', player\)"/)
 })
 
+test('pregame auto analysis toggles are labeled and trigger teammate or opponent independently once per lineup', () => {
+  const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const toggleMatches = source.match(/class="pregame-auto-analysis-toggle control-glow"/g) || []
+  const autoBlock = source.slice(
+    source.indexOf('function maybeStartPregameAutoAnalysis'),
+    source.indexOf('function getGamingAiInlinePlayerInsight')
+  )
+
+  assert.equal(toggleMatches.length, 2)
+  assert.match(source, /const PREGAME_AUTO_ANALYSIS_TOOLTIP = '每局排位自动分析对局'/)
+  assert.match(source, /const PREGAME_AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek\.gaming\.pregameAutoAnalysis'/)
+  assert.match(source, /const PREGAME_AUTO_ANALYSIS_MODES: GamingAiAnalysisMode\[\] = \['teammate', 'opponent'\]/)
+  assert.match(source, /:title="PREGAME_AUTO_ANALYSIS_TOOLTIP"/)
+  assert.match(source, /aria-label="自动赛前分析"/)
+  assert.match(source, /<span class="pregame-auto-analysis-toggle-text">自动分析<\/span>/)
+  assert.match(source, /:aria-pressed="isPregameAutoAnalysisEnabled\('teammate'\)"/)
+  assert.match(source, /:aria-pressed="isPregameAutoAnalysisEnabled\('opponent'\)"/)
+  assert.match(source, /@click="togglePregameAutoAnalysis\('teammate'\)"/)
+  assert.match(source, /@click="togglePregameAutoAnalysis\('opponent'\)"/)
+  assert.match(source, /function buildPregameAutoAnalysisStorageKey\(mode: GamingAiAnalysisMode\): string/)
+  assert.match(source, /window\.localStorage\.getItem\(buildPregameAutoAnalysisStorageKey\('teammate'\)\)/)
+  assert.match(source, /window\.localStorage\.getItem\(buildPregameAutoAnalysisStorageKey\('opponent'\)\)/)
+  assert.match(source, /window\.localStorage\.setItem\(buildPregameAutoAnalysisStorageKey\(mode\), isPregameAutoAnalysisEnabled\(mode\) \? '1' : '0'\)/)
+  assert.match(source, /function buildPregameAutoAnalysisAttemptKey\(mode: GamingAiAnalysisMode\): string/)
+  assert.match(autoBlock, /if \(!isPregameAutoAnalysisEnabled\(mode\) \|\| pregameAutoAnalysisInFlight\[mode\]\) \{/)
+  assert.match(autoBlock, /canStartGamingAiInlineAnalysis\(mode\)/)
+  assert.match(autoBlock, /lastPregameAutoAnalysisAttemptKeys\[mode\] = attemptKey/)
+  assert.match(autoBlock, /await startGamingAiInlineAnalysis\(mode\)/)
+  assert.doesNotMatch(autoBlock, /Promise\.all/)
+  assert.match(source, /maybeStartPregameAutoAnalysis\('teammate'\)/)
+  assert.match(source, /maybeStartPregameAutoAnalysis\('opponent'\)/)
+  assert.match(source, /\.pregame-auto-analysis-toggle\s*\{/)
+})
+
 test('gaming AI analysis streams directly into persistent inline state', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
   const fetchSessionBlock = source.slice(
@@ -432,7 +466,7 @@ test('gaming AI inline cache survives page unmounts and clears only when lineup 
   assert.match(source, /clearGamingAiInlineMode\('teammate'\)/)
   assert.match(source, /if \(!isGamingAiInlineCacheAvailable\('opponent'\) \|\| gamingAiInlineState\.opponent\.requestKey !== opponentRequestKey\) \{/)
   assert.match(source, /clearGamingAiInlineMode\('opponent'\)/)
-  assert.match(source, /watch\(\s*\(\) => \[[\s\S]*buildGamingAiInlineRequestKey\('teammate'\)[\s\S]*buildGamingAiInlineRequestKey\('opponent'\)[\s\S]*\]\.join\('\|\|'\),[\s\S]*syncGamingAiInlineCacheWithSession,[\s\S]*\{ immediate: true \}/)
+  assert.match(source, /watch\(\s*\(\) => \[[\s\S]*buildGamingAiInlineRequestKey\('teammate'\)[\s\S]*buildGamingAiInlineRequestKey\('opponent'\)[\s\S]*\]\.join\('\|\|'\),[\s\S]*syncGamingAiInlineCacheWithSession\(\)[\s\S]*maybeStartPregameAutoAnalysis\('teammate'\)[\s\S]*maybeStartPregameAutoAnalysis\('opponent'\)[\s\S]*\{ immediate: true \}/)
   assert.doesNotMatch(unmountBlock, /clearGamingAiInlineMode|cancelGamingAiInlineRun/)
 })
 

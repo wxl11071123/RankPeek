@@ -151,6 +151,7 @@ function navigateTo(path: string) {
   height: 36px;
   flex: 0 0 36px;
   display: block;
+  border-radius: 8px;
   object-fit: contain;
 }
 

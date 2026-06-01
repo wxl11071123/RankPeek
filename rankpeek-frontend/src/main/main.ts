@@ -439,7 +439,6 @@ function createSplashWindow() {
     frame: false,
     transparent: false,
     backgroundColor: '#000000',
-    alwaysOnTop: true,
     resizable: false,
     show: false,
     minimizable: false,
@@ -460,12 +459,25 @@ function createSplashWindow() {
   })
 
   splashWindow.once('ready-to-show', () => {
-    splashWindow?.show()
+    if (splashWindow) {
+      showSplashWindowOnceOnTop(splashWindow)
+    }
   })
 
   splashWindow.on('closed', () => {
     splashWindow = null
   })
+}
+
+function showSplashWindowOnceOnTop(window: BrowserWindow) {
+  if (window.isDestroyed()) {
+    return
+  }
+
+  window.setAlwaysOnTop(true)
+  window.show()
+  window.focus()
+  window.setAlwaysOnTop(false)
 }
 
 function closeSplashWindow() {
