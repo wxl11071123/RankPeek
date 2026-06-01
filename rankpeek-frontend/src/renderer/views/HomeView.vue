@@ -13,7 +13,6 @@ import {
   saveFortuneRecord
 } from '@/utils/homeInsights'
 import {
-  buildCoachSummaryReportCardTitle,
   buildCoachSummaryReportOverview,
   prepareCoachSummaryGeneration
 } from '@/services/coachSummaryInputSnapshot'
@@ -188,7 +187,6 @@ const DIVISION_CN_MAP: Record<string, string> = {
 
 const UNRANKED_TIER_VALUES = new Set(['', 'unranked', 'none', 'null', 'undefined', '无', '未设置', '未定级'])
 const AUTO_ANALYSIS_STORAGE_PREFIX = 'rankpeek.home.aiCoachAutoAnalysis'
-const AI_COACH_NOTICE = 'AI 分析功能即将接入，敬请期待'
 const AI_COACH_ACCOUNT_MISSING_NOTICE = '当前账号未识别，请先连接并刷新客户端账号。'
 const AI_COACH_LOCAL_DATA_ERROR_NOTICE = '本地数据暂不可用，无法准备电子教练数据。'
 const AI_COACH_LOCAL_SAVE_ERROR_NOTICE = '电子教练报告保存失败，请稍后重试。'
@@ -502,8 +500,6 @@ async function openCoachReport(report: HomeCoachReport | null, index: number) {
       openCoachReportModal(DEV_COACH_SUMMARY_REPORT_PREVIEW, { preview: true })
       return
     }
-
-    showCoachNotice()
     return
   }
 
@@ -673,10 +669,21 @@ async function runAnalysis() {
         return
       }
 
+      const localOverview = buildCoachSummaryReportOverview(result.snapshot)
+      const aiOverview = aiResult.report.overview
       const reportWithLocalOverview = {
         ...aiResult.report,
-        overview: buildCoachSummaryReportOverview(result.snapshot),
-        cardTitle: aiResult.report.cardTitle || buildCoachSummaryReportCardTitle(result.snapshot)
+        overview: {
+          ...aiOverview,
+          ...localOverview,
+          summary: aiOverview?.summary || aiResult.report.summary
+        },
+        metadata: {
+          ...aiResult.report.metadata,
+          generatedInputAt: result.snapshot.metadata.generatedInputAt,
+          latestMatchTimestamp: result.snapshot.metadata.latestMatchTimestamp,
+          latestMatchRef: result.snapshot.metadata.latestMatchRef
+        }
       }
       const parsed = parseCoachSummaryReportOutput(JSON.stringify(reportWithLocalOverview))
       if (parsed.status !== 'parsed' || !parsed.report) {
@@ -796,7 +803,7 @@ function toggleAutoAnalysis() {
     void maybeRunAutoAnalysis('toggle', { force: true })
     return
   }
-  showCoachNotice()
+  clearCoachNotice()
 }
 
 async function handleRefreshAccount() {
@@ -842,13 +849,18 @@ function clearFortuneTimer() {
   }
 }
 
-function showCoachNotice(message = AI_COACH_NOTICE) {
+function showCoachNotice(message: string) {
   coachNotice.value = message
   clearCoachNoticeTimer()
   coachNoticeTimer = window.setTimeout(() => {
     coachNotice.value = ''
     coachNoticeTimer = null
   }, 2600)
+}
+
+function clearCoachNotice() {
+  clearCoachNoticeTimer()
+  coachNotice.value = ''
 }
 
 function setCoachProgressNotice(message: string) {

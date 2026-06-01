@@ -126,6 +126,14 @@ const selectedProviderSupportsDeepThinking = computed(() =>
   selectedProviderProfile.value?.supportsDeepThinking ?? true
 )
 
+const isCustomAiProvider = computed(() =>
+  aiProviderForm.providerId === 'custom-openai-compatible'
+)
+
+const shouldShowAiFeatureUsageNotice = computed(() =>
+  aiProviderForm.webSearchEnabled || aiProviderForm.deepThinkingEnabled
+)
+
 const modelSelectOptions = computed(() => {
   const options = [...aiProviderModelOptions.value]
   const currentModel = aiProviderForm.model.trim()
@@ -836,9 +844,17 @@ async function openExternal(url: string) {
           </div>
         </div>
 
-        <p class="ai-json-mode-notice">
-          {{ t('settings.aiJsonModeRequiredNotice') }}
-        </p>
+        <div class="ai-provider-notices">
+          <p v-if="isCustomAiProvider" class="ai-provider-notice">
+            {{ t('settings.aiJsonModeRequiredNotice') }}
+          </p>
+          <p v-if="shouldShowAiFeatureUsageNotice" class="ai-provider-notice warning">
+            {{ t('settings.aiFeatureUsageNotice') }}
+          </p>
+          <p class="ai-provider-notice">
+            {{ t('settings.aiWebSearchStructuredOutputNotice') }}
+          </p>
+        </div>
 
         <div class="pricing-panel">
           <div class="pricing-header">
@@ -1392,11 +1408,21 @@ async function openExternal(url: string) {
   background: var(--bg-tertiary);
 }
 
-.ai-json-mode-notice {
+.ai-provider-notices {
+  display: grid;
+  gap: 4px;
   margin: -2px 0 0;
+}
+
+.ai-provider-notice {
+  margin: 0;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.ai-provider-notice.warning {
+  color: var(--accent-gold);
 }
 
 .pricing-header {

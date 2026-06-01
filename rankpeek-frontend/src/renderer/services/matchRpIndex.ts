@@ -114,6 +114,22 @@ interface LaneTeamExpectation {
 }
 
 type ObjectiveKind = 'dragon' | 'elder' | 'baron' | 'herald' | 'voidgrub'
+type RpTrendShape = 'rising' | 'falling' | 'roller_coaster' | 'flat'
+
+interface RpTrendSummary {
+  early: number
+  middle: number
+  late: number
+  final: number
+  peak: number
+  trough: number
+  range: number
+  totalAverage: number
+  earlyToMiddle: number
+  middleToLate: number
+  earlyToLate: number
+  phaseRange: number
+}
 
 const BLUE_TEAM_ID = 100
 const RED_TEAM_ID = 200
@@ -136,6 +152,10 @@ const TEAM_SHARE_DEADZONE = 0.03
 const TEAM_GOLD_SHARE_TOLERANCE = 0.08
 const TEAM_CS_SHARE_TOLERANCE = 0.1
 const LOW_EFFECTIVE_PARTICIPATION_MAX_PENALTY = 1.8
+const TREND_PHASE_NOISE = 0.45
+const TREND_DIRECTION_DELTA = 0.9
+const TREND_REVERSAL_DELTA = 1
+const TREND_REVERSAL_PHASE_RANGE = 1.5
 const LANE_GROWTH_BASELINES: Record<ParticipantLane, GrowthBaseline> = {
   top: { goldPerMinute: 385, csPerMinute: 6.8, levelPerMinute: 0.47 },
   jungle: { goldPerMinute: 365, csPerMinute: 5.6, levelPerMinute: 0.46 },
@@ -297,7 +317,7 @@ function createPlayerIndex(params: {
   )
   const finalScore = adjustedPoints.at(-1)?.score ?? 5
   const trendLabel = trendLabelParticipantId === participantId
-    ? createTrendLabel(adjustedPoints, participant.stats?.win ?? null)
+    ? createRpTrendLabel(adjustedPoints, participant.stats?.win ?? null)
     : undefined
 
   return {
@@ -891,67 +911,139 @@ function classifyObjectiveEvent(event: TimelineEvent): { kind: ObjectiveKind; we
   return null
 }
 
-function createTrendLabel(points: RpIndexPoint[], win: boolean | null): RpTrendLabel {
+export function createRpTrendLabel(points: RpIndexPoint[], win: boolean | null): RpTrendLabel {
   const values = points.filter(point => point.minute > 0).map(point => point.score)
   if (!values.length) {
     return win === false ? '整局被压得很难展开' : '稳稳当当不掉线'
   }
 
-  const [early, middle, late] = splitIntoThirds(values).map(average)
-  const final = values.at(-1) ?? late
-  const peak = Math.max(...values)
-  const trough = Math.min(...values)
-  const range = peak - trough
-  const earlyToLate = late - early
-  const totalAverage = average(values)
+  const trend = summarizeRpTrend(values)
+  const shape = classifyRpTrendShape(trend)
 
   if (win === false) {
-    if (final >= 6 || totalAverage >= 5.8) {
-      return '人打得不差，局没站到这边'
-    }
-    if (trough <= 4.2 && late >= 5.3) {
-      return '被打下去还能再抬回来'
-    }
-    if (earlyToLate >= 1.1) {
-      return early <= 4.6 ? '启动慢，但后面找回来了' : '逆风里一直在撑'
-    }
-    if (early >= 5.7 && late <= early - 1) {
-      return '前面打得好，后面没续上'
-    }
-    if (range >= 2) {
+    if (shape === 'roller_coaster') {
       return '过山车式发挥'
     }
-    if (final <= 4.2 && early <= 5 && middle <= 5 && late <= 5) {
+    if (shape === 'falling') {
+      return trend.early >= 5.7 ? '前面打得好，后面没续上' : '整局被压得很难展开'
+    }
+    if (shape === 'rising') {
+      return trend.early <= 4.6 ? '启动慢，但后面找回来了' : '逆风里一直在撑'
+    }
+    if (trend.final >= 6 || trend.totalAverage >= 5.8) {
+      return '人打得不差，局没站到这边'
+    }
+    if (trend.trough <= 4.2 && trend.late >= 5.3) {
+      return '被打下去还能再抬回来'
+    }
+    if (trend.final <= 4.2 && trend.early <= 5 && trend.middle <= 5 && trend.late <= 5) {
       return '整局被压得很难展开'
     }
     return '逆风里一直在撑'
   }
 
-  if (final >= 7 && early >= 6.2 && middle >= 6.2 && late >= 6.2) {
+  if (trend.final >= 7 && trend.early >= 6.2 && trend.middle >= 6.2 && trend.late >= 6.2) {
     return '一路压着打到结束'
   }
-  if (peak >= 8.5 && totalAverage >= 6.6) {
-    return '这局个人表现很顶'
-  }
-  if (early <= 4.8 && late >= 6.2) {
-    return '启动慢，但后面找回来了'
-  }
-  if (earlyToLate >= 1.2 && late >= 6.3) {
-    return '关键阶段站出来接管'
-  }
-  if (early >= 6.2 && late >= 5.6) {
-    return '队伍节奏发动机'
-  }
-  if (earlyToLate >= 1) {
-    return '后程发力越打越猛'
-  }
-  if (range >= 2) {
+  if (shape === 'roller_coaster') {
     return '过山车式发挥'
   }
-  if (final <= 5.7 && totalAverage <= 5.8) {
+  if (trend.peak >= 8.5 && trend.totalAverage >= 6.6) {
+    return '这局个人表现很顶'
+  }
+  if (shape === 'rising') {
+    if (trend.early <= 4.8) {
+      return '启动慢，但后面找回来了'
+    }
+    return trend.late >= 6.3 ? '关键阶段站出来接管' : '后程发力越打越猛'
+  }
+  if (shape === 'falling') {
+    if (trend.early >= 6.2 && trend.late >= 5.6) {
+      return '队伍节奏发动机'
+    }
+    return '前面打得好，后面没续上'
+  }
+  if (trend.trough <= 4.2 && trend.late >= 5.8) {
+    return '被打下去还能再抬回来'
+  }
+  if (trend.early >= 6.2 && trend.late >= 5.6) {
+    return '队伍节奏发动机'
+  }
+  if (trend.final <= 5.7 && trend.totalAverage <= 5.8) {
     return '为团队节奏做了牺牲'
   }
   return '稳稳当当不掉线'
+}
+
+function summarizeRpTrend(values: number[]): RpTrendSummary {
+  const [early, middle, late] = splitIntoThirds(values).map(average)
+  const final = values.at(-1) ?? late
+  const peak = Math.max(...values)
+  const trough = Math.min(...values)
+  const earlyToMiddle = middle - early
+  const middleToLate = late - middle
+  const earlyToLate = late - early
+  return {
+    early,
+    middle,
+    late,
+    final,
+    peak,
+    trough,
+    range: peak - trough,
+    totalAverage: average(values),
+    earlyToMiddle,
+    middleToLate,
+    earlyToLate,
+    phaseRange: Math.max(early, middle, late) - Math.min(early, middle, late)
+  }
+}
+
+function classifyRpTrendShape(trend: RpTrendSummary): RpTrendShape {
+  const earlyToMiddleDirection = normalizeTrendDirection(trend.earlyToMiddle)
+  const middleToLateDirection = normalizeTrendDirection(trend.middleToLate)
+  const hasStrongReversal = earlyToMiddleDirection !== 0
+    && middleToLateDirection !== 0
+    && earlyToMiddleDirection !== middleToLateDirection
+    && Math.abs(trend.earlyToMiddle) >= TREND_REVERSAL_DELTA
+    && Math.abs(trend.middleToLate) >= TREND_REVERSAL_DELTA
+    && trend.phaseRange >= TREND_REVERSAL_PHASE_RANGE
+    && trend.range >= 2
+  if (hasStrongReversal) {
+    return 'roller_coaster'
+  }
+
+  if (
+    trend.earlyToLate >= TREND_DIRECTION_DELTA
+    && earlyToMiddleDirection >= 0
+    && middleToLateDirection >= 0
+  ) {
+    return 'rising'
+  }
+  if (
+    trend.earlyToLate <= -TREND_DIRECTION_DELTA
+    && earlyToMiddleDirection <= 0
+    && middleToLateDirection <= 0
+  ) {
+    return 'falling'
+  }
+  if (trend.earlyToLate >= TREND_DIRECTION_DELTA && trend.middleToLate >= -TREND_PHASE_NOISE) {
+    return 'rising'
+  }
+  if (trend.earlyToLate <= -TREND_DIRECTION_DELTA && trend.middleToLate <= TREND_PHASE_NOISE) {
+    return 'falling'
+  }
+  return 'flat'
+}
+
+function normalizeTrendDirection(delta: number): -1 | 0 | 1 {
+  if (delta >= TREND_PHASE_NOISE) {
+    return 1
+  }
+  if (delta <= -TREND_PHASE_NOISE) {
+    return -1
+  }
+  return 0
 }
 
 function splitIntoThirds(values: number[]): [number[], number[], number[]] {

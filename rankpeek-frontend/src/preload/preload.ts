@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AiAnalysisDeleteOptions,
+  AiAnalysisDeleteResult,
   AiAnalysisListOptions,
   AiMemoryExportResult,
   AiMemoryStats,
@@ -77,6 +79,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     findAnalysisByInputHash: (inputHash: string) => (
       ipcRenderer.invoke('db:ai:findByInputHash', inputHash) as Promise<DatabaseResult<AiAnalysisResult | null>>
+    ),
+    deleteAnalysisResultsByAccount: (accountPuuid: string, options?: AiAnalysisDeleteOptions) => (
+      ipcRenderer.invoke('db:ai:deleteByAccount', { accountPuuid, options }) as Promise<DatabaseResult<AiAnalysisDeleteResult>>
     ),
     getAiMemoryStats: (accountPuuid: string) => (
       ipcRenderer.invoke('db:ai:getMemoryStats', accountPuuid) as Promise<DatabaseResult<AiMemoryStats>>

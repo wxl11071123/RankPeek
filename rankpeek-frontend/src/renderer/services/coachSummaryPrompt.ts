@@ -1,6 +1,6 @@
 import type { CoachSummaryDataQuality, CoachSummaryInputSnapshot } from './coachSummaryInputSnapshot'
 
-export const COACH_SUMMARY_PROMPT_VERSION = 'coach_summary.prompt.v3' as const
+export const COACH_SUMMARY_PROMPT_VERSION = 'coach_summary.prompt.v4' as const
 export const COACH_SUMMARY_REPORT_SCHEMA_VERSION = 'coach_summary_report.v1' as const
 
 export interface CoachSummaryPromptPayload {
@@ -29,8 +29,8 @@ const SYSTEM_PROMPT_LINES = [
   '顶层必须包含这些字段：title、summary、verdict、keyFindings、trainingPlan、championAdvice、chartBlocks、warnings、finalSummary。不要把报告包在 report/result/data 字段里。',
   'verdict 必须是对象，至少包含 label、score、confidence、summary；confidence 只能是 high、medium、low。',
   `metadata.promptVersion 必须是 ${COACH_SUMMARY_PROMPT_VERSION}。`,
-  'summary、verdict.summary 和 finalSummary 都要用自然语言完整表达核心判断；长度由事实量决定，不要为了压缩而省略关键依据。',
-  'keyFindings 优先 2 条，样本不足或没有足够事实时才 1 条；trainingPlan 2-3 条；championAdvice 2-5 条。',
+  'summary、verdict.summary 和 finalSummary 都要用自然语言完整表达核心判断。',
+  'keyFindings、trainingPlan、championAdvice 的条目数量按事实量决定；事实不足时保留空数组或少写。',
   'keyFindings 不要写成编号清单、小标题清单或模板化体检报告。每条把事实和判断写进同一段；claim 写完整自然句，evidence 写清关键数据，reasoning 解释为什么重要，advice 只允许写数据观察方向，不要写玩法教学。',
   'keyFindings 每条必须包含 claim、evidence、reasoning、advice、confidence、evidenceRefs。'
 ] as const

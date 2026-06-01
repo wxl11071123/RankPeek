@@ -113,7 +113,7 @@ public class AiProviderSettingsService {
                 ),
                 new AiProviderProfile(
                         "custom-openai-compatible",
-                        "Custom OpenAI-compatible",
+                        "自定义厂商（OpenAI Key 兼容）",
                         "openai-compatible",
                         "",
                         List.of(),

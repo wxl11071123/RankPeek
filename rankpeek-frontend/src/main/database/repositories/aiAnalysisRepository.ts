@@ -1,6 +1,8 @@
 import type {
   AiMemoryExportPayload,
   AiMemoryStats,
+  AiAnalysisDeleteOptions,
+  AiAnalysisDeleteResult,
   AiAnalysisListOptions,
   AiAnalysisRepository,
   AiAnalysisResult,
@@ -104,6 +106,10 @@ export function createAiAnalysisRepository(connection: SqliteDatabase): AiAnalys
         .get(inputHash) as AiAnalysisResultRow | undefined
 
       return row ? mapAiAnalysisResultRow(row) : null
+    },
+
+    deleteAnalysisResultsByAccount(accountPuuid, options) {
+      return deleteAnalysisResults(connection, accountPuuid, options)
     },
 
     getMemoryStats(accountPuuid) {
@@ -228,6 +234,33 @@ function listAllAnalysisResults(connection: SqliteDatabase, accountPuuid: string
     .all({ accountPuuid }) as AiAnalysisResultRow[]
 
   return rows.map(mapAiAnalysisResultRow)
+}
+
+function deleteAnalysisResults(
+  connection: SqliteDatabase,
+  accountPuuid: string,
+  options: AiAnalysisDeleteOptions | undefined
+): AiAnalysisDeleteResult {
+  const conditions = ['account_puuid = @accountPuuid']
+  const parameters: Record<string, string | number> = { accountPuuid }
+  const analysisTypesClause = createInClause(
+    'analysis_type',
+    normalizeStringList(options?.analysisTypes),
+    'analysisTypeList',
+    parameters
+  )
+  if (analysisTypesClause === '0') {
+    return { deletedCount: 0 }
+  }
+  if (analysisTypesClause) {
+    conditions.push(analysisTypesClause)
+  }
+
+  const result = connection
+    .prepare(`DELETE FROM ai_analysis_results WHERE ${conditions.join(' AND ')}`)
+    .run(parameters)
+
+  return { deletedCount: result.changes }
 }
 
 function getMemoryStats(connection: SqliteDatabase, accountPuuid: string): AiMemoryStats {

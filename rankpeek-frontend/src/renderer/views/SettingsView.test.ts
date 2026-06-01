@@ -60,11 +60,18 @@ test('settings page uses local AI provider configuration', () => {
   assert.match(source, /settings\.aiDeepThinkingEnabled/)
   assert.match(source, /settings\.aiPricingTitle/)
   assert.match(source, /settings\.aiJsonModeRequiredNotice/)
+  assert.match(source, /settings\.aiFeatureUsageNotice/)
+  assert.match(source, /settings\.aiWebSearchStructuredOutputNotice/)
   assert.match(source, /settings\.aiTestConnection/)
   assert.match(source, /settings\.aiSavedKey/)
   assert.match(source, /selectedProviderApiKeyUrl/)
   assert.match(source, /webSearchEnabled/)
   assert.match(source, /deepThinkingEnabled/)
+  assert.match(source, /const isCustomAiProvider = computed/)
+  assert.match(source, /aiProviderForm\.providerId === 'custom-openai-compatible'/)
+  assert.match(source, /v-if="isCustomAiProvider"[\s\S]*settings\.aiJsonModeRequiredNotice/)
+  assert.match(source, /const shouldShowAiFeatureUsageNotice = computed/)
+  assert.match(source, /v-if="shouldShowAiFeatureUsageNotice"[\s\S]*settings\.aiFeatureUsageNotice/)
   assert.match(source, /<select[\s\S]*v-if="modelSelectOptions\.length"[\s\S]*v-model="aiProviderForm\.model"/)
   assert.match(source, /<input[\s\S]*v-else[\s\S]*v-model\.trim="aiProviderForm\.model"/)
   assert.match(source, /<select[\s\S]*v-model="selectedApiKeyId"[\s\S]*:disabled="loadingAiApiKeys \|\| !localAiApiKeys\.length"[\s\S]*v-for="key in localAiApiKeys"/)
@@ -176,6 +183,8 @@ test('settings local AI copy exists in both locales', () => {
     'settings.aiDeepThinkingEnabled',
     'settings.aiPricingTitle',
     'settings.aiJsonModeRequiredNotice',
+    'settings.aiFeatureUsageNotice',
+    'settings.aiWebSearchStructuredOutputNotice',
     'settings.aiInputCacheHitPrice',
     'settings.aiInputCacheMissPrice',
     'settings.aiOutputPrice',
@@ -199,7 +208,7 @@ test('settings local AI copy exists in both locales', () => {
     assert.equal(zh.includes(removedCopy), false, `zh-CN should not include ${removedCopy}`)
     assert.equal(en.includes(removedCopy), false, `en-US should not include ${removedCopy}`)
   }
-  assert.match(zh, /'settings\.aiApiKeyOpenPage': '服务商 API 官网'/)
+  assert.match(zh, /'settings\.aiApiKeyOpenPage': '点击跳转服务商 API 官网'/)
   assert.match(en, /'settings\.aiApiKeyOpenPage': 'Provider API site'/)
   assert.match(zh, /response_format=json_object/)
   assert.match(en, /response_format=json_object/)

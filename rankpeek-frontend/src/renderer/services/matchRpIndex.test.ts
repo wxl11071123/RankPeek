@@ -4,6 +4,7 @@ import type { GameDetail, GameParticipant, MatchTimeline, TimelineEvent, Timelin
 import {
   RP_TREND_LABELS,
   createMatchRpIndexModel,
+  createRpTrendLabel,
   formatRpScore
 } from './matchRpIndex.ts'
 
@@ -431,6 +432,44 @@ test('assigns a win-loss-aware trend label only to the requested participant', (
   assert.doesNotMatch(winner.trendLabel, /胜|败/)
 })
 
+test('labels a one-way low RP collapse as suppressed instead of roller coaster', () => {
+  const label = createRpTrendLabel(createRpTrendPoints([
+    5.0,
+    4.7,
+    4.4,
+    3.1,
+    2.9,
+    2.7,
+    2.6,
+    1.9,
+    1.3,
+    0.7,
+    1.0,
+    1.7
+  ]), false)
+
+  assert.equal(label, '整局被压得很难展开')
+})
+
+test('labels only real three-phase reversals as roller coaster', () => {
+  const label = createRpTrendLabel(createRpTrendPoints([
+    6.4,
+    6.7,
+    6.1,
+    6.3,
+    4.1,
+    4.0,
+    4.3,
+    4.2,
+    6.2,
+    6.5,
+    6.1,
+    6.4
+  ]), true)
+
+  assert.equal(label, '过山车式发挥')
+})
+
 function createDetail(options: {
   queueId?: number
   gameDuration?: number
@@ -585,5 +624,13 @@ function wardEvent(timestamp: number, eventType: 'WARD_PLACED' | 'WARD_KILL', pa
         eventType,
         timestamp,
         killerId: participantId
-      }
+    }
+}
+
+function createRpTrendPoints(scores: number[]) {
+  return scores.map((score, index) => ({
+    minute: index + 1,
+    timestamp: (index + 1) * 60_000,
+    score
+  }))
 }

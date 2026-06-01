@@ -1,14 +1,25 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import CoachSummaryChartBlock from '@/components/CoachSummaryChartBlock.vue'
 import { getChampionIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 import type {
   CoachSummaryKeyFinding,
   CoachSummaryHeroStat,
+  CoachSummaryRpTrendPoint,
   CoachSummaryReportV1
 } from '@/types/coachSummaryReport'
 
 const MAX_REPORT_CHARTS = 3
+const RP_CHART_WIDTH = 760
+const RP_CHART_HEIGHT = 280
+const RP_CHART_LEFT = 46
+const RP_CHART_RIGHT = 24
+const RP_CHART_TOP = 24
+const RP_CHART_BOTTOM = 42
+const RP_CHART_POINT_SIZE = 18
+const RP_CHART_POINT_RADIUS = RP_CHART_POINT_SIZE / 2
+const RP_CHART_POINT_HIT_RADIUS = 15
+const RP_CHART_GRID_VALUES = [10, 7.5, 5, 2.5, 0] as const
 const COACH_SUMMARY_HERO_ICON_FALLBACK_IDS = buildHeroIconFallbackIds([
   [43, ['Karma', '卡尔玛']],
   [59, ['Jarvan IV', '嘉文四世']],
@@ -30,6 +41,14 @@ const COACH_SUMMARY_HERO_ICON_FALLBACK_IDS = buildHeroIconFallbackIds([
 ])
 
 type ReportLoadState = 'loading' | 'ready' | 'missing' | 'unsupported' | 'invalid' | 'error'
+type OverviewChartKey = 'winRate' | 'rpIndex'
+type VisibleOverviewChartKey = OverviewChartKey | 'none'
+
+interface RpChartPoint extends CoachSummaryRpTrendPoint {
+  x: number
+  y: number
+  label: number
+}
 
 const props = withDefaults(defineProps<{
   report: CoachSummaryReportV1 | null
@@ -45,13 +64,60 @@ const props = withDefaults(defineProps<{
 })
 
 const overview = computed(() => props.report?.overview ?? null)
-const overviewSummary = computed(() => overview.value?.summary || props.report?.summary || '')
+const overviewSummary = computed(() => normalizeOverviewSummaryText(overview.value?.summary || props.report?.summary || ''))
 const heroStats = computed(() => (overview.value?.heroStats || []).slice(0, 5))
 const heroWinRateStats = computed(() => (
   heroStats.value
     .filter(hero => typeof hero.winRate === 'number')
     .slice(0, 5)
 ))
+const rpTrendPoints = computed(() => (
+  (overview.value?.rpTrend || [])
+    .filter(point => typeof point.score === 'number')
+    .slice(0, 20)
+))
+const activeOverviewChart = ref<'winRate' | 'rpIndex'>('winRate')
+const activeRpChartPoint = ref<RpChartPoint | null>(null)
+const canShowHeroWinRateChart = computed(() => heroWinRateStats.value.length > 0)
+const canShowRpTrendChart = computed(() => rpTrendPoints.value.length > 0)
+const showOverviewChartTabs = computed(() => canShowHeroWinRateChart.value && canShowRpTrendChart.value)
+const visibleOverviewChart = computed<VisibleOverviewChartKey>(() => {
+  if (activeOverviewChart.value === 'rpIndex' && canShowRpTrendChart.value) {
+    return 'rpIndex'
+  }
+  if (activeOverviewChart.value === 'winRate' && canShowHeroWinRateChart.value) {
+    return 'winRate'
+  }
+  if (canShowHeroWinRateChart.value) {
+    return 'winRate'
+  }
+  return canShowRpTrendChart.value ? 'rpIndex' : 'none'
+})
+const rpChartGridLines = computed(() => (
+  RP_CHART_GRID_VALUES.map(value => ({
+    value,
+    label: formatRpAxisValue(value),
+    y: rpScoreToY(value)
+  }))
+))
+const rpChartPoints = computed<RpChartPoint[]>(() => {
+  const points = rpTrendPoints.value
+  const denominator = Math.max(1, points.length - 1)
+  return points.map((point, index) => {
+    const x = points.length === 1
+      ? RP_CHART_LEFT + (RP_CHART_WIDTH - RP_CHART_LEFT - RP_CHART_RIGHT) / 2
+      : RP_CHART_LEFT + (index / denominator) * (RP_CHART_WIDTH - RP_CHART_LEFT - RP_CHART_RIGHT)
+    const score = clampRpScore(point.score)
+    return {
+      ...point,
+      score,
+      x,
+      y: rpScoreToY(score),
+      label: index + 1
+    }
+  })
+})
+const rpChartPolyline = computed(() => rpChartPoints.value.map(point => `${point.x},${point.y}`).join(' '))
 const winLossLabel = computed(() => {
   const wins = overview.value?.wins
   const losses = overview.value?.losses
@@ -79,7 +145,7 @@ const overviewCharts = computed(() => (
       .filter(chart => chart.placement === 'overview')
       .slice(0, Math.min(2, MAX_REPORT_CHARTS))
 ))
-const findings = computed(() => (props.report?.keyFindings || []).slice(0, 2))
+const findings = computed(() => props.report?.keyFindings || [])
 const closingSummary = computed(() =>
   props.report?.finalSummary ||
   props.report?.verdict.summary ||
@@ -95,6 +161,63 @@ function formatPercent(value?: number): string {
     return '-'
   }
   return `${Number.isInteger(value) ? value : Number(value.toFixed(1))}%`
+}
+
+function normalizeOverviewSummaryText(value: string): string {
+  const text = removeLocalOverallStateText(value.trim())
+  if (!text) {
+    return ''
+  }
+  const metrics = extractOverviewSummaryMetrics(text)
+  if (!metrics.length) {
+    return text
+  }
+  const sentences = text.split(/。+/).map(sentence => sentence.trim()).filter(Boolean)
+  const normalized = sentences
+    .map((sentence, index) => index === 0 ? sentence : removeRepeatedOverviewMetrics(sentence, metrics))
+    .filter(Boolean)
+  if (!normalized.length) {
+    return text
+  }
+  return `${normalized.join('。')}${text.endsWith('。') ? '。' : ''}`
+}
+
+function extractOverviewSummaryMetrics(text: string): string[] {
+  const firstSentence = text.split(/。+/)[0] || ''
+  return [
+    firstSentence.match(/\d+局\d+胜\d+负/)?.[0] || '',
+    firstSentence.match(/胜率\d+(?:\.\d+)?%/)?.[0] || '',
+    firstSentence.match(/平均RP\d+(?:\.\d+)?/)?.[0] || ''
+  ].filter(Boolean)
+}
+
+function removeRepeatedOverviewMetrics(sentence: string, metrics: string[]): string {
+  let result = sentence.trim()
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const metric of metrics) {
+      const escaped = escapeRegExp(metric)
+      const next = result
+        .replace(new RegExp(`^${escaped}[，；、\\s]*`), '')
+        .replace(new RegExp(`([，；、])${escaped}(?=[，；、]|$)`, 'g'), '$1')
+        .replace(/^[，；、\s]+/, '')
+        .replace(/[，；、\s]+$/, '')
+      if (next !== result) {
+        result = next
+        changed = true
+      }
+    }
+  }
+  return result
+}
+
+function removeLocalOverallStateText(value: string): string {
+  return value.replace(/，整体状态(?:很好|良好|稳定|波动|低迷)(?=。|；|，|$)/g, '')
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function formatRoleLabel(role: string): string {
@@ -118,6 +241,81 @@ function clampPercent(value?: number): number {
     return 0
   }
   return Math.max(0, Math.min(100, value))
+}
+
+function clampRpScore(value: number): number {
+  return Math.max(0, Math.min(10, value))
+}
+
+function rpScoreToY(value: number): number {
+  const clamped = clampRpScore(value)
+  return RP_CHART_TOP + (1 - clamped / 10) * (RP_CHART_HEIGHT - RP_CHART_TOP - RP_CHART_BOTTOM)
+}
+
+function formatRpScore(value: number): string {
+  return value.toFixed(1)
+}
+
+function formatRpAxisValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function formatRpResult(result?: CoachSummaryRpTrendPoint['result']): string {
+  if (result === 'win') {
+    return '胜利'
+  }
+  if (result === 'loss') {
+    return '失败'
+  }
+  return '未知结果'
+}
+
+function rpPointResultClass(point: CoachSummaryRpTrendPoint): string {
+  if (point.result === 'win') {
+    return 'result-win'
+  }
+  if (point.result === 'loss') {
+    return 'result-loss'
+  }
+  return 'result-unknown'
+}
+
+function formatRpHoverSummary(point: CoachSummaryRpTrendPoint): string {
+  const trendLabel = point.trendLabel ? `（${point.trendLabel}）` : ''
+  return `RP${formatRpScore(point.score)}${trendLabel} ${point.championDisplayName || '未知英雄'} · ${formatRpResult(point.result)} · ${formatRpKdaText(point)}`
+}
+
+function formatRpKdaText(point: CoachSummaryRpTrendPoint): string {
+  const raw = point.kdaText?.trim()
+  if (!raw) {
+    return 'K/D/A'
+  }
+  const match = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/)
+  if (match) {
+    return match[1].replace(/\D/g, '') + '/' + match[2].replace(/\D/g, '') + '/' + match[3].replace(/\D/g, '')
+  }
+  return raw.replace(/\s*\(\s*\d+(?:\.\d+)?\s*\)\s*$/, '')
+}
+
+function formatRpChartPointLabel(point: CoachSummaryRpTrendPoint): string {
+  return [
+    point.matchRef,
+    point.championDisplayName || '未知英雄',
+    `RP ${formatRpScore(point.score)}`,
+    formatRpResult(point.result),
+    formatRpKdaText(point),
+    point.trendLabel || ''
+  ]
+    .filter(Boolean)
+    .join('，')
+}
+
+function rpPointClipId(point: RpChartPoint): string {
+  return `coach-rp-point-${point.matchRef.replace(/[^a-zA-Z0-9_-]/g, '-')}-${point.label}`
+}
+
+function shouldShowRpXAxisLabel(point: RpChartPoint): boolean {
+  return point.label === 1 || point.label % 5 === 0 || point.label === rpChartPoints.value.length
 }
 
 function heroIcon(hero: CoachSummaryHeroStat): string {
@@ -215,8 +413,8 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
 
         <p class="section-summary ai-report-prose">{{ overviewSummary }}</p>
 
-        <div class="overview-layout">
-          <div class="overview-text-column">
+        <div class="overview-layout" :class="{ 'rp-index-layout': visibleOverviewChart === 'rpIndex' }">
+          <div v-if="visibleOverviewChart !== 'rpIndex'" class="overview-text-column">
             <div class="overview-facts" aria-label="概览关键数据">
               <div class="overview-fact-row overview-fact-row-split" aria-label="胜率">
                 <strong class="fact-main">{{ formatPercent(overview?.winRate) }}</strong>
@@ -252,8 +450,36 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
             </div>
           </div>
 
-          <figure v-if="heroWinRateStats.length" class="hero-win-rate-figure" aria-label="主玩英雄胜率">
-            <div class="hero-win-rate-chart" role="img" aria-label="主玩英雄胜率柱状图">
+          <figure
+            v-if="visibleOverviewChart !== 'none'"
+            class="hero-win-rate-figure"
+            :class="{ 'rp-index-wide': visibleOverviewChart === 'rpIndex' }"
+            :aria-label="visibleOverviewChart === 'rpIndex' ? '近 20 局 RP指数曲线' : '主玩英雄胜率'"
+          >
+            <div
+              v-if="showOverviewChartTabs || visibleOverviewChart === 'rpIndex'"
+              class="overview-chart-control-row"
+            >
+              <div v-if="visibleOverviewChart === 'rpIndex'" class="rp-index-hover-zone" aria-live="polite">
+                <div v-if="activeRpChartPoint" class="rp-index-hover-panel">
+                  <span>{{ formatRpHoverSummary(activeRpChartPoint) }}</span>
+                </div>
+              </div>
+              <div v-if="showOverviewChartTabs" class="overview-chart-tabs" aria-label="切换概览图表">
+                <button
+                  type="button"
+                  :class="{ active: visibleOverviewChart === 'winRate' }"
+                  @click="activeOverviewChart = 'winRate'"
+                >英雄胜率</button>
+                <button
+                  type="button"
+                  :class="{ active: visibleOverviewChart === 'rpIndex' }"
+                  @click="activeOverviewChart = 'rpIndex'"
+                >RP指数曲线</button>
+              </div>
+            </div>
+
+            <div v-if="visibleOverviewChart === 'winRate'" class="hero-win-rate-chart" role="img" aria-label="主玩英雄胜率柱状图">
               <div class="hero-win-rate-y-axis" aria-hidden="true">
                 <span>100%</span>
                 <span>75%</span>
@@ -300,6 +526,102 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div v-else-if="visibleOverviewChart === 'rpIndex'" class="rp-index-figure">
+              <div class="rp-index-chart" role="img" aria-label="近 20 局 RP指数曲线">
+                <svg viewBox="0 0 760 280" aria-hidden="true">
+                  <defs>
+                    <clipPath
+                      v-for="point in rpChartPoints"
+                      :id="rpPointClipId(point)"
+                      :key="`rp-clip-${point.matchRef}`"
+                      clipPathUnits="userSpaceOnUse"
+                    >
+                      <circle :cx="point.x" :cy="point.y" :r="RP_CHART_POINT_RADIUS" />
+                    </clipPath>
+                  </defs>
+                  <g v-for="line in rpChartGridLines" :key="`rp-grid-${line.label}`">
+                    <line
+                      :x1="RP_CHART_LEFT"
+                      :y1="line.y"
+                      :x2="RP_CHART_WIDTH - RP_CHART_RIGHT"
+                      :y2="line.y"
+                      class="rp-index-guide"
+                    />
+                    <text class="rp-index-y-label" x="8" :y="line.y + 4">{{ line.label }}</text>
+                  </g>
+                  <line
+                    :x1="RP_CHART_LEFT"
+                    :y1="RP_CHART_TOP"
+                    :x2="RP_CHART_LEFT"
+                    :y2="RP_CHART_HEIGHT - RP_CHART_BOTTOM"
+                    class="rp-index-axis"
+                  />
+                  <line
+                    :x1="RP_CHART_LEFT"
+                    :y1="RP_CHART_HEIGHT - RP_CHART_BOTTOM"
+                    :x2="RP_CHART_WIDTH - RP_CHART_RIGHT"
+                    :y2="RP_CHART_HEIGHT - RP_CHART_BOTTOM"
+                    class="rp-index-axis"
+                  />
+                  <polyline v-if="rpChartPoints.length > 1" class="rp-index-polyline" :points="rpChartPolyline" />
+                  <g
+                    v-for="point in rpChartPoints"
+                    :key="point.matchRef"
+                    class="rp-index-point"
+                    tabindex="0"
+                    :aria-label="formatRpChartPointLabel(point)"
+                    @mouseenter="activeRpChartPoint = point"
+                    @mouseleave="activeRpChartPoint = null"
+                    @focus="activeRpChartPoint = point"
+                    @blur="activeRpChartPoint = null"
+                  >
+                    <circle
+                      v-if="activeRpChartPoint?.matchRef === point.matchRef"
+                      class="rp-index-active-ring"
+                      :cx="point.x"
+                      :cy="point.y"
+                      :r="RP_CHART_POINT_RADIUS + 5"
+                    />
+                    <circle
+                      :class="['rp-index-point-ring', rpPointResultClass(point)]"
+                      :cx="point.x"
+                      :cy="point.y"
+                      :r="RP_CHART_POINT_RADIUS + 1"
+                    />
+                    <image
+                      v-if="point.championId"
+                      class="rp-index-avatar"
+                      :href="getChampionIconUrl(point.championId)"
+                      :x="point.x - RP_CHART_POINT_RADIUS"
+                      :y="point.y - RP_CHART_POINT_RADIUS"
+                      :width="RP_CHART_POINT_SIZE"
+                      :height="RP_CHART_POINT_SIZE"
+                      :clip-path="`url(#${rpPointClipId(point)})`"
+                      preserveAspectRatio="xMidYMid slice"
+                    />
+                    <circle
+                      v-else
+                      class="rp-index-dot"
+                      :cx="point.x"
+                      :cy="point.y"
+                      :r="RP_CHART_POINT_RADIUS - 2"
+                    />
+                    <circle class="rp-index-hit" :cx="point.x" :cy="point.y" :r="RP_CHART_POINT_HIT_RADIUS" />
+                  </g>
+                  <text
+                    v-for="point in rpChartPoints"
+                    v-show="shouldShowRpXAxisLabel(point)"
+                    :key="`rp-label-${point.matchRef}`"
+                    class="rp-index-x-label"
+                    :x="point.x"
+                    y="260"
+                  >
+                    {{ point.label }}
+                  </text>
+                </svg>
               </div>
             </div>
           </figure>
@@ -411,13 +733,6 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
   line-height: 1.65;
 }
 
-.section-summary {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 .paper-divider {
   position: relative;
   height: 18px;
@@ -470,6 +785,10 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
   align-items: stretch;
   margin-top: 16px;
   padding-bottom: var(--overview-bottom-gap);
+}
+
+.overview-layout.rp-index-layout {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .overview-text-column {
@@ -615,14 +934,66 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
 }
 
 .hero-win-rate-figure {
+  position: relative;
   min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
+  gap: 10px;
   margin: 0;
   padding-left: 18px;
   padding-bottom: var(--overview-bottom-gap);
   border-left: 1px solid var(--border-subtle);
+}
+
+.hero-win-rate-figure.rp-index-wide {
+  min-height: 390px;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.overview-chart-control-row {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.overview-chart-tabs {
+  width: fit-content;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.overview-chart-tabs button {
+  min-height: 36px;
+  padding: 0 17px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.overview-chart-tabs button:hover,
+.overview-chart-tabs button:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+.overview-chart-tabs button.active {
+  background: rgba(var(--accent-rgb), 0.72);
+  color: #f5faff;
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.16);
 }
 
 .hero-win-rate-chart {
@@ -790,6 +1161,150 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
   white-space: nowrap;
 }
 
+.rp-index-figure,
+.rp-index-chart {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.rp-index-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rp-index-chart {
+  position: relative;
+  min-height: 240px;
+}
+
+.rp-index-chart svg {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+}
+
+.hero-win-rate-figure.rp-index-wide .rp-index-chart,
+.hero-win-rate-figure.rp-index-wide .rp-index-chart svg {
+  min-height: 340px;
+}
+
+.rp-index-axis {
+  stroke: rgba(var(--accent-rgb), 0.82);
+  stroke-width: 1.6;
+}
+
+.rp-index-guide {
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1;
+}
+
+.rp-index-polyline {
+  fill: none;
+  stroke: #4d9dff;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rp-index-point {
+  outline: none;
+}
+
+.rp-index-point-ring {
+  fill: rgba(15, 23, 42, 0.9);
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1.2;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.24));
+}
+
+.rp-index-point-ring.result-win {
+  stroke: #4d9dff;
+  stroke-width: 1.8;
+}
+
+.rp-index-point-ring.result-loss {
+  stroke: #ff5c7a;
+  stroke-width: 1.8;
+}
+
+.rp-index-point-ring.result-unknown {
+  stroke: rgba(255, 255, 255, 0.28);
+}
+
+.rp-index-active-ring {
+  fill: none;
+  stroke: rgba(232, 221, 186, 0.72);
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 8px rgba(77, 157, 255, 0.32));
+}
+
+.rp-index-avatar {
+  pointer-events: none;
+}
+
+.rp-index-dot {
+  fill: #4d9dff;
+}
+
+.rp-index-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.rp-index-y-label,
+.rp-index-x-label {
+  fill: rgba(var(--accent-rgb), 0.82);
+  font-weight: 850;
+}
+
+.rp-index-y-label {
+  font-size: 12px;
+}
+
+.rp-index-x-label {
+  font-size: 12px;
+  text-anchor: middle;
+}
+
+.rp-index-hover-zone {
+  min-width: 0;
+  height: 42px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0;
+  pointer-events: none;
+}
+
+.rp-index-hover-panel {
+  position: static;
+  height: 42px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(14, 15, 19, 0.86);
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+}
+
+.rp-index-hover-panel span {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chart-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -828,6 +1343,8 @@ function normalizeHeroIconLookupKey(value: string | null | undefined): string {
   font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
   font-weight: 500;
   line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .finding-item strong.ai-report-prose,

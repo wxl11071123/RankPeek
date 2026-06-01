@@ -165,21 +165,12 @@ export interface CoachSummaryAnalysisBrief {
   schemaVersion: 'coach_summary_analysis_brief.v1'
   language: 'zh-CN'
   text: string
-  overallState: CoachSummaryOverallStateSummary
   overviewFacts: string[]
   trendFacts: string[]
   championFacts: string[]
   roleFacts: string[]
   matchFacts: string[]
   dataQualityFacts: string[]
-}
-
-export type CoachSummaryOverallState = 'excellent' | 'good' | 'stable' | 'volatile' | 'struggling'
-
-export interface CoachSummaryOverallStateSummary {
-  state: CoachSummaryOverallState
-  label: string
-  reasons: string[]
 }
 
 export interface CoachSummaryChampionDictionaryEntry {
@@ -536,6 +527,20 @@ export async function prepareCoachSummaryGeneration({
       message: '最近排位不足 20 局，暂时无法生成电子教练报告。',
       currentRankedMatchCount: rankedRecords.length,
       requiredRankedMatchCount: COACH_SUMMARY_REQUIRED_RANKED_MATCHES
+    }
+  }
+
+  const latestCoachSummary = await loadLatestCoachSummaryResult(database, normalizedPuuid)
+  if (latestCoachSummary) {
+    const newRankedMatchCountSinceLastReport = countNewRankedMatchesSinceLastReport(rankedRecords, latestCoachSummary)
+    if (newRankedMatchCountSinceLastReport < COACH_SUMMARY_REQUIRED_RANKED_MATCHES) {
+      return {
+        status: 'not_enough_new_ranked_matches',
+        message: '距离上次电子教练报告还不足 20 局排位，继续多打几局后再来。',
+        newRankedMatchCountSinceLastReport,
+        requiredNewRankedMatchCount: COACH_SUMMARY_REQUIRED_RANKED_MATCHES,
+        lastGeneratedAt: latestCoachSummary.createdAt
+      }
     }
   }
 
@@ -2554,7 +2559,6 @@ function buildCoachSummaryAnalysisBrief({
   const trendFacts = buildCoachSummaryTrendFacts(matches)
   const championFacts = buildCoachSummaryChampionFacts(matches)
   const roleFacts = buildCoachSummaryRoleFacts(matches)
-  const overallState = calculateCoachSummaryOverallState(matches)
   const matchFacts = matches.map(formatCoachSummaryMatchFact)
   const dataQualityFacts = buildCoachSummaryDataQualityFacts(dataQuality, matches.length)
   const sections = [
@@ -2572,7 +2576,6 @@ function buildCoachSummaryAnalysisBrief({
     schemaVersion: COACH_SUMMARY_ANALYSIS_BRIEF_SCHEMA_VERSION,
     language: 'zh-CN',
     text: sections.join('\n\n'),
-    overallState,
     overviewFacts,
     trendFacts,
     championFacts,
@@ -2657,13 +2660,11 @@ function buildCoachSummaryDataQualityFacts(dataQuality: CoachSummaryDataQuality,
 }
 
 export function buildCoachSummaryReportOverview(
-  snapshot: Pick<CoachSummaryInputSnapshot, 'matches' | 'analysisBrief'>
+  snapshot: Pick<CoachSummaryInputSnapshot, 'matches'>
 ): CoachSummaryOverview {
   const matches = snapshot.matches
   const outcome = calculateCoachSummaryOutcome(matches)
   const total = outcome.wins + outcome.losses
-  const overallState = snapshot.analysisBrief?.overallState ?? calculateCoachSummaryOverallState(matches)
-  const averageRp = averageNumber(matches.map(readMatchRpFinalScore))
   const primaryRoles = buildRoleGroups(matches)
     .sort(compareCoachSummaryGroups)
     .slice(0, 3)
@@ -2699,27 +2700,25 @@ export function buildCoachSummaryReportOverview(
       }
       return heroStat
     })
+  const rpTrend = buildCoachSummaryRpTrend(matches)
 
   return {
     totalMatches: matches.length,
     wins: outcome.wins,
     losses: outcome.losses,
     winRate: parseFloat(formatRateNumber(outcome.wins, total).toFixed(1)),
-    summary: `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, total)}，${averageRp === null ? '' : `平均RP${formatDecimal(averageRp)}，`}整体状态${overallState.label}。${overallState.reasons.join('；')}。`,
-    overallState: overallState.state,
-    overallStateLabel: overallState.label,
+    summary: '',
     primaryRoles,
     heroStats,
-    roleStats
+    roleStats,
+    ...(rpTrend.length ? { rpTrend } : {})
   }
 }
 
 export function buildCoachSummaryReportCardTitle(
-  snapshot: Pick<CoachSummaryInputSnapshot, 'matches' | 'analysisBrief'>
+  snapshot: Pick<CoachSummaryInputSnapshot, 'matches'>
 ): string {
-  const outcome = calculateCoachSummaryOutcome(snapshot.matches)
-  const state = snapshot.analysisBrief?.overallState ?? calculateCoachSummaryOverallState(snapshot.matches)
-  return `近20局${outcome.wins}胜，状态${state.label}`
+  return `近${snapshot.matches.length}局排位数据分析`
 }
 
 function buildChampionGroups(matches: CoachSummaryMatchDigest[]): CoachSummaryGroupAccumulator[] {
@@ -2741,6 +2740,36 @@ function buildRoleGroups(matches: CoachSummaryMatchDigest[]): CoachSummaryGroupA
     accumulateGroup(groups, label, match)
   }
   return Array.from(groups.values())
+}
+
+function buildCoachSummaryRpTrend(matches: CoachSummaryMatchDigest[]): NonNullable<CoachSummaryOverview['rpTrend']> {
+  return matches
+    .slice()
+    .reverse()
+    .flatMap(match => {
+      const score = readMatchRpFinalScore(match)
+      if (score === null) {
+        return []
+      }
+      const point = {
+        matchRef: match.matchRef,
+        score: parseFloat(score.toFixed(1)),
+        result: match.result
+      } as NonNullable<CoachSummaryOverview['rpTrend']>[number]
+      if (match.self.championId !== undefined) {
+        point.championId = match.self.championId
+      }
+      if (match.self.championDisplayName) {
+        point.championDisplayName = match.self.championDisplayName
+      }
+      if (match.self.rpIndex?.trendLabel) {
+        point.trendLabel = match.self.rpIndex.trendLabel
+      }
+      if (match.self.kdaText) {
+        point.kdaText = match.self.kdaText
+      }
+      return [point]
+    })
 }
 
 function accumulateGroup(
@@ -2810,35 +2839,6 @@ function calculateCoachSummaryOutcome(matches: CoachSummaryMatchDigest[]): { win
     losses: matches.filter(match => match.result === 'loss').length,
     unknown: matches.filter(match => match.result === 'unknown').length
   }
-}
-
-function calculateCoachSummaryOverallState(matches: CoachSummaryMatchDigest[]): CoachSummaryOverallStateSummary {
-  const outcome = calculateCoachSummaryOutcome(matches)
-  const decidedTotal = outcome.wins + outcome.losses
-  const winRate = decidedTotal > 0 ? outcome.wins / decidedTotal : 0
-  const averageRp = averageNumber(matches.map(readMatchRpFinalScore))
-  const averageGoldDiffAt15 = averageNumber(matches.map(match => match.laneDiff?.goldDiffAt15))
-  const averageKillParticipation = averageNumber(matches.map(match => match.self.stats?.killParticipation))
-  const reasons = [
-    `${matches.length}局${outcome.wins}胜${outcome.losses}负，胜率${formatRate(outcome.wins, decidedTotal)}`,
-    averageRp === null ? '' : `平均RP${formatDecimal(averageRp)}`,
-    averageGoldDiffAt15 === null ? '' : `15分钟对位经济平均${formatSignedInteger(averageGoldDiffAt15)}`,
-    averageKillParticipation === null ? '' : `参团率${formatPercent(averageKillParticipation)}`
-  ].filter(Boolean)
-
-  if (winRate >= 0.68 || (averageRp ?? 0) >= 7.2) {
-    return { state: 'excellent', label: '很好', reasons }
-  }
-  if (winRate >= 0.58 || (averageRp ?? 0) >= 6.2) {
-    return { state: 'good', label: '良好', reasons }
-  }
-  if (winRate >= 0.48) {
-    return { state: 'stable', label: '稳定', reasons }
-  }
-  if (winRate >= 0.4) {
-    return { state: 'volatile', label: '波动', reasons }
-  }
-  return { state: 'struggling', label: '低迷', reasons }
 }
 
 function readMostCommonRoleForChampion(matches: CoachSummaryMatchDigest[], championLabel: string): string {

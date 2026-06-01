@@ -39,6 +39,17 @@ export interface CoachSummaryOverview {
   }>
   heroStats?: CoachSummaryHeroStat[]
   roleStats?: CoachSummaryRoleStat[]
+  rpTrend?: CoachSummaryRpTrendPoint[]
+}
+
+export interface CoachSummaryRpTrendPoint {
+  matchRef: string
+  score: number
+  championId?: number
+  championDisplayName?: string
+  result?: 'win' | 'loss' | 'unknown'
+  trendLabel?: string
+  kdaText?: string
 }
 
 export interface CoachSummaryHeroStat {
@@ -136,4 +147,7 @@ export interface CoachSummaryMetadata {
   generatedAt: string
   snapshotSchemaVersion: string
   dataQualityConfidence: CoachSummaryConfidence
+  generatedInputAt?: string
+  latestMatchTimestamp?: number
+  latestMatchRef?: string
 }

@@ -297,6 +297,25 @@ public class LocalCacheSchemaInitializer {
                 """);
 
         jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS cost_rollups (
+                    id INT PRIMARY KEY,
+                    current_month_key VARCHAR(7),
+                    current_month_total_cny DECIMAL(18,12) DEFAULT 0,
+                    last_month_key VARCHAR(7),
+                    last_month_total_cny DECIMAL(18,12) DEFAULT 0,
+                    today_key VARCHAR(10),
+                    today_total_cny DECIMAL(18,12) DEFAULT 0,
+                    coach_count BIGINT DEFAULT 0,
+                    coach_total_cny DECIMAL(18,12) DEFAULT 0,
+                    pregame_count BIGINT DEFAULT 0,
+                    pregame_total_cny DECIMAL(18,12) DEFAULT 0,
+                    postgame_count BIGINT DEFAULT 0,
+                    postgame_total_cny DECIMAL(18,12) DEFAULT 0,
+                    updated_at BIGINT
+                )
+                """);
+
+        jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS opgg_champion_list_cache (
                     cache_key VARCHAR(255) PRIMARY KEY,
                     mode VARCHAR(64),
@@ -495,6 +514,19 @@ public class LocalCacheSchemaInitializer {
         addColumnIfMissing("cost_events", "quantity BIGINT");
         addColumnIfMissing("cost_events", "metadata_raw_json CLOB");
         addColumnIfMissing("cost_events", "created_at BIGINT");
+        addColumnIfMissing("cost_rollups", "current_month_key VARCHAR(7)");
+        addColumnIfMissing("cost_rollups", "current_month_total_cny DECIMAL(18,12) DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "last_month_key VARCHAR(7)");
+        addColumnIfMissing("cost_rollups", "last_month_total_cny DECIMAL(18,12) DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "today_key VARCHAR(10)");
+        addColumnIfMissing("cost_rollups", "today_total_cny DECIMAL(18,12) DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "coach_count BIGINT DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "coach_total_cny DECIMAL(18,12) DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "pregame_count BIGINT DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "pregame_total_cny DECIMAL(18,12) DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "postgame_count BIGINT DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "postgame_total_cny DECIMAL(18,12) DEFAULT 0");
+        addColumnIfMissing("cost_rollups", "updated_at BIGINT");
         addColumnIfMissing("opgg_champion_list_cache", "cache_key VARCHAR(255)");
         addColumnIfMissing("opgg_champion_list_cache", "mode VARCHAR(64)");
         addColumnIfMissing("opgg_champion_list_cache", "region VARCHAR(64)");

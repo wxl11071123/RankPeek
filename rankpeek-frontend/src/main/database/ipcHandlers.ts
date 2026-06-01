@@ -1,6 +1,7 @@
 import type {
   AiMemoryExportPayload,
   AiMemoryExportResult,
+  AiAnalysisDeleteOptions,
   AiAnalysisListOptions,
   AiAnalysisResultInput,
   DatabaseIpcResult,
@@ -144,6 +145,18 @@ export function registerDatabaseIpcHandlers(
     return runDatabaseHandler('db:ai:findByInputHash', logger, () => (
       getDatabase().aiAnalyses.findAnalysisByInputHash(payload)
     ))
+  })
+
+  ipcMain.handle('db:ai:deleteByAccount', (_event, payload) => {
+    if (!isAiDeletePayload(payload)) {
+      return failure('Invalid AI analysis delete payload')
+    }
+
+    return runDatabaseHandler('db:ai:deleteByAccount', logger, () => {
+      const result = getDatabase().aiAnalyses.deleteAnalysisResultsByAccount(payload.accountPuuid, payload.options)
+      options.onStorageMutation?.()
+      return result
+    })
   })
 
   ipcMain.handle('db:ai:getMemoryStats', (_event, payload) => {
@@ -372,8 +385,21 @@ function isAiAnalysisListOptions(value: unknown): value is AiAnalysisListOptions
   )
 }
 
+function isAiAnalysisDeleteOptions(value: unknown): value is AiAnalysisDeleteOptions {
+  return value === undefined || (
+    isRecord(value)
+    && isOptionalStringArray(value.analysisTypes)
+  )
+}
+
 function isAiListPayload(value: unknown): value is { accountPuuid: string; options?: AiAnalysisListOptions } {
   return isRecord(value)
     && isNonEmptyString(value.accountPuuid)
     && isAiAnalysisListOptions(value.options)
+}
+
+function isAiDeletePayload(value: unknown): value is { accountPuuid: string; options?: AiAnalysisDeleteOptions } {
+  return isRecord(value)
+    && isNonEmptyString(value.accountPuuid)
+    && isAiAnalysisDeleteOptions(value.options)
 }

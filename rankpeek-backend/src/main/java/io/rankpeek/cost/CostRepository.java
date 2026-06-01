@@ -91,6 +91,105 @@ public class CostRepository {
         return result == null ? BigDecimal.ZERO : result;
     }
 
+    public List<AiCostSourceAggregate> listAiAnalysisCostBySource() {
+        return jdbcTemplate.query("""
+                SELECT
+                    source,
+                    COUNT(*) AS event_count,
+                    COALESCE(SUM(amount_cny), 0) AS total_cost_cny
+                FROM cost_events
+                WHERE event_type = 'ai_analysis'
+                GROUP BY source
+                """, (rs, rowNum) -> new AiCostSourceAggregate(
+                rs.getString("source"),
+                rs.getLong("event_count"),
+                rs.getBigDecimal("total_cost_cny")
+        ));
+    }
+
+    public CostRollup findCostRollup() {
+        List<CostRollup> rows = jdbcTemplate.query("""
+                SELECT *
+                FROM cost_rollups
+                WHERE id = 1
+                """, this::mapRollup);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    public void upsertCostRollup(CostRollup rollup) {
+        int updated = jdbcTemplate.update("""
+                UPDATE cost_rollups
+                SET current_month_key = ?,
+                    current_month_total_cny = ?,
+                    last_month_key = ?,
+                    last_month_total_cny = ?,
+                    today_key = ?,
+                    today_total_cny = ?,
+                    coach_count = ?,
+                    coach_total_cny = ?,
+                    pregame_count = ?,
+                    pregame_total_cny = ?,
+                    postgame_count = ?,
+                    postgame_total_cny = ?,
+                    updated_at = ?
+                WHERE id = 1
+                """,
+                rollup.currentMonthKey(),
+                rollup.currentMonthTotalCny(),
+                rollup.lastMonthKey(),
+                rollup.lastMonthTotalCny(),
+                rollup.todayKey(),
+                rollup.todayTotalCny(),
+                rollup.coachCount(),
+                rollup.coachTotalCny(),
+                rollup.pregameCount(),
+                rollup.pregameTotalCny(),
+                rollup.postgameCount(),
+                rollup.postgameTotalCny(),
+                rollup.updatedAt()
+        );
+        if (updated > 0) {
+            return;
+        }
+
+        jdbcTemplate.update("""
+                INSERT INTO cost_rollups (
+                    id,
+                    current_month_key,
+                    current_month_total_cny,
+                    last_month_key,
+                    last_month_total_cny,
+                    today_key,
+                    today_total_cny,
+                    coach_count,
+                    coach_total_cny,
+                    pregame_count,
+                    pregame_total_cny,
+                    postgame_count,
+                    postgame_total_cny,
+                    updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rollup.currentMonthKey(),
+                rollup.currentMonthTotalCny(),
+                rollup.lastMonthKey(),
+                rollup.lastMonthTotalCny(),
+                rollup.todayKey(),
+                rollup.todayTotalCny(),
+                rollup.coachCount(),
+                rollup.coachTotalCny(),
+                rollup.pregameCount(),
+                rollup.pregameTotalCny(),
+                rollup.postgameCount(),
+                rollup.postgameTotalCny(),
+                rollup.updatedAt()
+        );
+    }
+
+    public void deleteAllEvents() {
+        jdbcTemplate.update("DELETE FROM cost_events");
+    }
+
     private CostEvent mapEvent(ResultSet rs, int rowNum) throws SQLException {
         return new CostEvent(
                 rs.getLong("id"),
@@ -104,6 +203,28 @@ public class CostRepository {
                 rs.getString("metadata_raw_json"),
                 rs.getLong("created_at")
         );
+    }
+
+    private CostRollup mapRollup(ResultSet rs, int rowNum) throws SQLException {
+        return new CostRollup(
+                rs.getString("current_month_key"),
+                nullToZero(rs.getBigDecimal("current_month_total_cny")),
+                rs.getString("last_month_key"),
+                nullToZero(rs.getBigDecimal("last_month_total_cny")),
+                rs.getString("today_key"),
+                nullToZero(rs.getBigDecimal("today_total_cny")),
+                rs.getLong("coach_count"),
+                nullToZero(rs.getBigDecimal("coach_total_cny")),
+                rs.getLong("pregame_count"),
+                nullToZero(rs.getBigDecimal("pregame_total_cny")),
+                rs.getLong("postgame_count"),
+                nullToZero(rs.getBigDecimal("postgame_total_cny")),
+                rs.getLong("updated_at")
+        );
+    }
+
+    private static BigDecimal nullToZero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private String writeJson(Object value) {

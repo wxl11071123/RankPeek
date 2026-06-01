@@ -337,22 +337,42 @@ export function getCoachReportHeadline({
   const reportRecord = isRecord(report) ? report : readReportFromResult(result)
   const candidates = [
     getStringField(reportRecord, 'headline'),
-    getStringField(reportRecord, 'cardTitle'),
+    readUsefulCoachCardTitle(reportRecord),
     getStringField(reportRecord, 'shortTitle'),
+    readCoachTitleHeadline(reportRecord),
     readUsefulVerdictLabel(reportRecord),
-    truncateHeadline(readNonGenericCoachTitle(reportRecord)),
     truncateHeadline(getStringField(reportRecord, 'summary'))
   ].filter((item): item is string => Boolean(item))
 
   return candidates[0] || COACH_HEADLINE_FALLBACK
 }
 
-function readNonGenericCoachTitle(reportRecord: Record<string, unknown>): string {
-  const title = getStringField(reportRecord, 'title')
-  if (!title || /^RankPeek\s*训练报告\s*#?\d*$/i.test(title.trim())) {
+function readUsefulCoachCardTitle(reportRecord: Record<string, unknown>): string {
+  const cardTitle = getStringField(reportRecord, 'cardTitle')
+  if (!cardTitle || isGenericCoachTitle(cardTitle)) {
     return ''
   }
-  return title
+  return truncateHeadline(stripGenericCoachTitlePrefix(cardTitle))
+}
+
+function readCoachTitleHeadline(reportRecord: Record<string, unknown>): string {
+  const title = getStringField(reportRecord, 'title')
+  if (!title || /^RankPeek\s*训练报告\s*#?\d*$/i.test(title.trim()) || isGenericCoachTitle(title)) {
+    return ''
+  }
+  const headline = stripGenericCoachTitlePrefix(title)
+  return isGenericCoachTitle(headline) ? '' : truncateHeadline(headline)
+}
+
+function stripGenericCoachTitlePrefix(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  const match = compact.match(/^(?:近\s*)?(?:20|二十)\s*(?:局|场)?\s*(?:排位)?\s*(?:数据)?\s*(?:电子教练|训练)?\s*(?:分析|简报|报告|复盘)\s*[：:]\s*(.+)$/u)
+  return (match?.[1] || compact).trim()
+}
+
+function isGenericCoachTitle(value: string): boolean {
+  const compact = value.replace(/\s+/g, '').trim()
+  return /^(?:近)?(?:20|二十)(?:局|场)?(?:排位)?(?:数据)?(?:电子教练|训练)?(?:分析|简报|报告|复盘)$/u.test(compact)
 }
 
 function readUsefulVerdictLabel(reportRecord: Record<string, unknown>): string {
@@ -658,13 +678,26 @@ function normalizeVerdict(record: Record<string, unknown>): CoachSummaryReportV1
 }
 
 function normalizeMetadata(record: Record<string, unknown>): CoachSummaryReportV1['metadata'] {
-  return {
+  const metadata: CoachSummaryReportV1['metadata'] = {
     modelName: getStringField(record, 'modelName') || '',
     promptVersion: getStringField(record, 'promptVersion') || '',
     generatedAt: getStringField(record, 'generatedAt') || '',
     snapshotSchemaVersion: getStringField(record, 'snapshotSchemaVersion') || '',
     dataQualityConfidence: normalizeConfidence(record.dataQualityConfidence)
   }
+  const generatedInputAt = getStringField(record, 'generatedInputAt')
+  const latestMatchTimestamp = finiteNumber(record.latestMatchTimestamp)
+  const latestMatchRef = getStringField(record, 'latestMatchRef')
+  if (generatedInputAt) {
+    metadata.generatedInputAt = generatedInputAt
+  }
+  if (latestMatchTimestamp !== null) {
+    metadata.latestMatchTimestamp = latestMatchTimestamp
+  }
+  if (latestMatchRef) {
+    metadata.latestMatchRef = latestMatchRef
+  }
+  return metadata
 }
 
 function normalizeConfidence(value: unknown): 'high' | 'medium' | 'low' {
@@ -696,6 +729,7 @@ function normalizeOverview(value: unknown): CoachSummaryReportV1['overview'] | u
   const primaryRoles = normalizePrimaryRoles(value.primaryRoles)
   const heroStats = normalizeHeroStats(value.heroStats)
   const roleStats = normalizeRoleStats(value.roleStats)
+  const rpTrend = normalizeRpTrend(value.rpTrend)
 
   if (wins !== null) {
     overview.wins = wins
@@ -716,6 +750,9 @@ function normalizeOverview(value: unknown): CoachSummaryReportV1['overview'] | u
   }
   if (roleStats.length) {
     overview.roleStats = roleStats
+  }
+  if (rpTrend.length) {
+    overview.rpTrend = rpTrend
   }
 
   return overview
@@ -784,6 +821,35 @@ function normalizeRoleStats(value: unknown): NonNullable<CoachSummaryReportV1['o
     copyOptionalNumber(item, roleStat, 'losses')
     copyOptionalNumber(item, roleStat, 'winRate')
     return [roleStat]
+  })
+}
+
+function normalizeRpTrend(value: unknown): NonNullable<CoachSummaryReportV1['overview']>['rpTrend'] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item)) {
+      return []
+    }
+    const matchRef = getStringField(item, 'matchRef')
+    const score = finiteNumber(item.score)
+    if (!matchRef || score === null) {
+      return []
+    }
+    const point = {
+      matchRef,
+      score
+    } as NonNullable<NonNullable<CoachSummaryReportV1['overview']>['rpTrend']>[number]
+    copyOptionalNumber(item, point, 'championId')
+    copyOptionalString(item, point, 'championDisplayName')
+    copyOptionalString(item, point, 'trendLabel')
+    copyOptionalString(item, point, 'kdaText')
+    const result = getStringField(item, 'result')
+    if (result === 'win' || result === 'loss' || result === 'unknown') {
+      point.result = result
+    }
+    return [point]
   })
 }
 

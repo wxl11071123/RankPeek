@@ -1,4 +1,6 @@
 import type {
+  AiAnalysisDeleteOptions,
+  AiAnalysisDeleteResult,
   AiAnalysisListOptions,
   AiAnalysisResult,
   AiAnalysisResultInput,
@@ -68,6 +70,48 @@ export function saveFallbackAiAnalysisResult(
     })
 
     return { success: true, data: saved }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+export function deleteFallbackAiAnalysisResultsByAccount(
+  accountPuuid: string,
+  options: AiAnalysisDeleteOptions | undefined = {},
+  storage: BrowserAiAnalysisStorage | null | undefined = getBrowserStorage()
+): DatabaseResult<AiAnalysisDeleteResult> {
+  if (!storage) {
+    return { success: false, error: 'Local database unavailable' }
+  }
+
+  try {
+    const store = readFallbackStore(storage)
+    const retainedRecords = applyFallbackRetention(store.records)
+    const analysisTypes = normalizeStringList(options?.analysisTypes)
+    const nextRecords = retainedRecords.filter(record => {
+      if (record.accountPuuid !== accountPuuid) {
+        return true
+      }
+      if (analysisTypes === null) {
+        return false
+      }
+      return !analysisTypes.includes(record.analysisType)
+    })
+    writeFallbackStore(storage, {
+      schemaVersion: FALLBACK_SCHEMA_VERSION,
+      nextId: store.nextId,
+      records: nextRecords
+    })
+
+    return {
+      success: true,
+      data: {
+        deletedCount: retainedRecords.length - nextRecords.length
+      }
+    }
   } catch (error) {
     return {
       success: false,
@@ -232,6 +276,13 @@ function normalizeOffset(value: number | undefined): number {
     return 0
   }
   return Math.max(0, Math.trunc(value))
+}
+
+function normalizeStringList(values: string[] | undefined): string[] | null {
+  if (!Array.isArray(values)) {
+    return null
+  }
+  return [...new Set(values.map(value => value.trim()).filter(Boolean))]
 }
 
 function normalizePositiveInteger(value: unknown, fallback: number): number {

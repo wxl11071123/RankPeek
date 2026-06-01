@@ -25,7 +25,7 @@ const report = {
   warnings: [],
   metadata: {
         modelName: 'deepseek-v4-flash',
-        promptVersion: 'coach_summary.prompt.v3',
+        promptVersion: 'coach_summary.prompt.v4',
     generatedAt: '2026-05-25T00:00:00.000Z',
     snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
     dataQualityConfidence: 'medium'
@@ -38,7 +38,7 @@ function createCoachSummaryParams() {
     snapshotSchemaVersion: 'coach_summary_input_snapshot.v2',
     dataQualityConfidence: 'medium' as const,
     promptPayload: {
-      promptVersion: 'coach_summary.prompt.v3' as const,
+      promptVersion: 'coach_summary.prompt.v4' as const,
       systemPrompt: 'system prompt',
       userPrompt: '{"currentSnapshotText":"recent games"}'
     }
@@ -81,7 +81,7 @@ test('generateCoachSummaryReport posts prompt payload to local backend without A
     const body = JSON.parse(String(calls[0]?.init.body))
     assert.equal(body.inputHash, 'coach-hash-1')
     assert.equal(body.snapshotSchemaVersion, 'coach_summary_input_snapshot.v2')
-    assert.equal(body.promptVersion, 'coach_summary.prompt.v3')
+    assert.equal(body.promptVersion, 'coach_summary.prompt.v4')
     assert.equal(body.dataQualityConfidence, 'medium')
     assert.equal(body.systemPrompt, 'system prompt')
     assert.match(body.userPrompt, /recent games/)

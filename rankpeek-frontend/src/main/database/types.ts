@@ -203,6 +203,14 @@ export interface AiAnalysisListOptions {
   matchIds?: string[]
 }
 
+export interface AiAnalysisDeleteOptions {
+  analysisTypes?: string[]
+}
+
+export interface AiAnalysisDeleteResult {
+  deletedCount: number
+}
+
 export interface AiMemoryTypeCount {
   analysisType: string
   count: number
@@ -235,6 +243,7 @@ export interface AiAnalysisRepository {
   listAnalysisResultsByAccount(accountPuuid: string, options?: AiAnalysisListOptions): AiAnalysisResult[]
   getAnalysisResultById(id: number): AiAnalysisResult | null
   findAnalysisByInputHash(inputHash: string): AiAnalysisResult | null
+  deleteAnalysisResultsByAccount(accountPuuid: string, options?: AiAnalysisDeleteOptions): AiAnalysisDeleteResult
   getMemoryStats(accountPuuid: string): AiMemoryStats
   exportMemory(accountPuuid: string): AiMemoryExportPayload
 }

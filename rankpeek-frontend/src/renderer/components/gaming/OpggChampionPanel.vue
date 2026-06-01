@@ -117,8 +117,18 @@
                     :key="`${column.key}-${index}-${id}-${idIndex}`"
                     class="opgg-icon-slot"
                   >
+                    <AssetHoverTooltip
+                      v-if="getIconUrl(section.iconType, id) && getOpggTooltipDetails(section.iconType, id)"
+                      :details="getOpggTooltipDetails(section.iconType, id)!"
+                    >
+                      <img
+                        :src="getIconUrl(section.iconType, id)"
+                        alt=""
+                        @error="markAssetLoadFailed"
+                      />
+                    </AssetHoverTooltip>
                     <img
-                      v-if="getIconUrl(section.iconType, id)"
+                      v-else-if="getIconUrl(section.iconType, id)"
                       :src="getIconUrl(section.iconType, id)"
                       alt=""
                       @error="markAssetLoadFailed"
@@ -193,8 +203,18 @@
                           class="opgg-icon-slot opgg-rune-slot"
                           :class="{ selected: slot.selected, muted: !slot.selected }"
                         >
+                          <AssetHoverTooltip
+                            v-if="getIconUrl(section.iconType, slot.id) && getOpggTooltipDetails(section.iconType, slot.id)"
+                            :details="getOpggTooltipDetails(section.iconType, slot.id)!"
+                          >
+                            <img
+                              :src="getIconUrl(section.iconType, slot.id)"
+                              alt=""
+                              @error="markAssetLoadFailed"
+                            />
+                          </AssetHoverTooltip>
                           <img
-                            v-if="getIconUrl(section.iconType, slot.id)"
+                            v-else-if="getIconUrl(section.iconType, slot.id)"
                             :src="getIconUrl(section.iconType, slot.id)"
                             alt=""
                             @error="markAssetLoadFailed"
@@ -223,8 +243,18 @@
                           class="opgg-icon-slot opgg-rune-slot"
                           :class="{ selected: slot.selected, muted: !slot.selected }"
                         >
+                          <AssetHoverTooltip
+                            v-if="getIconUrl(section.iconType, slot.id) && getOpggTooltipDetails(section.iconType, slot.id)"
+                            :details="getOpggTooltipDetails(section.iconType, slot.id)!"
+                          >
+                            <img
+                              :src="getIconUrl(section.iconType, slot.id)"
+                              alt=""
+                              @error="markAssetLoadFailed"
+                            />
+                          </AssetHoverTooltip>
                           <img
-                            v-if="getIconUrl(section.iconType, slot.id)"
+                            v-else-if="getIconUrl(section.iconType, slot.id)"
                             :src="getIconUrl(section.iconType, slot.id)"
                             alt=""
                             @error="markAssetLoadFailed"
@@ -242,8 +272,18 @@
                       <span
                         class="opgg-icon-slot opgg-rune-slot opgg-rune-shard-icon selected"
                       >
+                        <AssetHoverTooltip
+                          v-if="getIconUrl(section.iconType, slot.id) && getOpggTooltipDetails(section.iconType, slot.id)"
+                          :details="getOpggTooltipDetails(section.iconType, slot.id)!"
+                        >
+                          <img
+                            :src="getIconUrl(section.iconType, slot.id)"
+                            alt=""
+                            @error="markAssetLoadFailed"
+                          />
+                        </AssetHoverTooltip>
                         <img
-                          v-if="getIconUrl(section.iconType, slot.id)"
+                          v-else-if="getIconUrl(section.iconType, slot.id)"
                           :src="getIconUrl(section.iconType, slot.id)"
                           alt=""
                           @error="markAssetLoadFailed"
@@ -294,8 +334,18 @@
                 :key="`${section.key}-${index}-${id}-${idIndex}`"
                 class="opgg-icon-slot"
               >
+                <AssetHoverTooltip
+                  v-if="getIconUrl(section.iconType, id) && getOpggTooltipDetails(section.iconType, id)"
+                  :details="getOpggTooltipDetails(section.iconType, id)!"
+                >
+                  <img
+                    :src="getIconUrl(section.iconType, id)"
+                    alt=""
+                    @error="markAssetLoadFailed"
+                  />
+                </AssetHoverTooltip>
                 <img
-                  v-if="getIconUrl(section.iconType, id)"
+                  v-else-if="getIconUrl(section.iconType, id)"
                   :src="getIconUrl(section.iconType, id)"
                   alt=""
                   @error="markAssetLoadFailed"
@@ -327,17 +377,23 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
 import type { OpggBuildOption, OpggChampionCounter, OpggChampionDetail } from '@/services/rankpeekServerClient.ts'
 import type { OpggChampionQuery } from '@/services/opggChampionQuery'
 import { splitOpggRuneIds, type OpggRuneGroups } from '@/services/opggRuneGroups.ts'
 import {
   getAugmentIconUrl,
+  getAugmentTooltipDetails,
   getChampionIconUrl,
   getItemIconUrl,
+  getItemTooltipDetails,
   getPerkAssetDetails,
   getPerkIconUrl,
+  getPerkTooltipDetails,
   getSummonerSpellIconUrl,
-  markAssetLoadFailed
+  getSummonerSpellTooltipDetails,
+  markAssetLoadFailed,
+  type GameAssetTooltipDetails
 } from '@/utils/gameAssetUrls'
 
 type IconType = 'spell' | 'perk' | 'item' | 'skill' | 'augment'
@@ -638,6 +694,14 @@ function getIconUrl(iconType: IconType, id: number): string {
   if (iconType === 'perk') return getPerkIconUrl(id)
   if (iconType === 'item') return getItemIconUrl(id)
   return ''
+}
+
+function getOpggTooltipDetails(iconType: IconType, id: number): GameAssetTooltipDetails | null {
+  if (iconType === 'spell') return getSummonerSpellTooltipDetails(id)
+  if (iconType === 'augment') return getAugmentTooltipDetails(id)
+  if (iconType === 'perk') return getPerkTooltipDetails(id)
+  if (iconType === 'item') return getItemTooltipDetails(id)
+  return null
 }
 
 function formatPercent(value?: number | null): string {
@@ -1303,6 +1367,11 @@ function skillChipClass(id: number): string {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.opgg-icon-slot :deep(.asset-tooltip-trigger) {
+  width: 100%;
+  height: 100%;
 }
 
 .opgg-build-meta {

@@ -63,6 +63,7 @@ class AiProviderControllerTest {
                 .andExpect(jsonPath("$.data.providers[4].defaultBaseUrl").value("https://open.bigmodel.cn/api/paas/v4"))
                 .andExpect(jsonPath("$.data.providers[4].models.length()").value(0))
                 .andExpect(jsonPath("$.data.providers[5].id").value("custom-openai-compatible"))
+                .andExpect(jsonPath("$.data.providers[5].label").value("自定义厂商（OpenAI Key 兼容）"))
                 .andExpect(jsonPath("$.data.providers[5].apiKeyUrl").doesNotExist());
     }
 

@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { t } from '@/i18n'
+import { t, type MessageKey } from '@/i18n'
 import PostgameAiAnalysisModal from '@/components/match-history/PostgameAiAnalysisModal.vue'
+import CoachSummaryReportModal from '@/components/CoachSummaryReportModal.vue'
 import { apiClient } from '@/api/httpClient'
 import { useGameStore } from '@/stores/game'
 import {
   loadLocalAiAnalysisResults,
+  parseCoachSummaryReportOutput,
   type LocalAiAnalysisDisplayResult
 } from '@/services/localAiAnalysis'
 import type { PostgameAiRunOutputV1 } from '@/services/postgameAiRunPersistence'
+import type { CoachSummaryReportV1 } from '@/types/coachSummaryReport'
 import {
   buildAccountAnalysisInputSnapshot,
   type AiAnalysisInputSnapshot
@@ -19,9 +22,12 @@ import {
   type LocalAiSettings
 } from '@/services/localAiProviderClient'
 import {
-  getLocalCostEvents,
+  deleteFallbackAiAnalysisResultsByAccount
+} from '@/services/localAiAnalysisFallbackStore'
+import {
+  getLocalAiCostUsageSummary,
   getLocalCostSummary,
-  type LocalCostEvent,
+  type LocalAiCostUsageSummaryItem,
   type LocalCostSummary
 } from '@/services/localCostClient'
 import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
@@ -29,15 +35,39 @@ import { getChampionIconUrl, getProfileIconUrl, markAssetLoadFailed } from '@/ut
 type ReportTypeFilter = 'all' | 'pregame' | 'postgame' | 'praise' | 'coach'
 type ReportCategory = Exclude<ReportTypeFilter, 'all'> | 'fun' | 'other'
 type SavedPostgameReplayState = 'streaming' | 'completed'
+type DeleteReportType = 'coach' | 'postgame' | 'praise'
+type AiCostUsageKey = 'coach' | 'pregame' | 'postgame'
 
-const SAVED_POSTGAME_REPLAY_INITIAL_DELAY_MS = 180
-const SAVED_POSTGAME_REPLAY_TARGET_DURATION_MS = 5200
+const SAVED_POSTGAME_REPLAY_INITIAL_DELAY_MS = 80
+const SAVED_POSTGAME_REPLAY_TARGET_DURATION_MS = 3200
 const SAVED_POSTGAME_REPLAY_MIN_STEP_DELAY_MS = 38
 const SAVED_POSTGAME_REPLAY_MAX_STEP_DELAY_MS = 120
-const SAVED_POSTGAME_REPLAY_SENTENCE_DELAY_MS = 180
-const SAVED_POSTGAME_REPLAY_COMMA_DELAY_MS = 80
-const SAVED_POSTGAME_REPLAY_MIN_STEPS = 60
-const SAVED_POSTGAME_REPLAY_MAX_STEPS = 140
+const SAVED_POSTGAME_REPLAY_SENTENCE_DELAY_MS = 90
+const SAVED_POSTGAME_REPLAY_COMMA_DELAY_MS = 40
+const SAVED_POSTGAME_REPLAY_MIN_STEPS = 44
+const SAVED_POSTGAME_REPLAY_MAX_STEPS = 96
+const DELETE_REPORT_TYPE_OPTIONS: Array<{ key: DeleteReportType; labelKey: MessageKey; analysisTypes: string[] }> = [
+  {
+    key: 'coach',
+    labelKey: 'aiAnalysis.deleteReportsCoach',
+    analysisTypes: ['coach_summary']
+  },
+  {
+    key: 'postgame',
+    labelKey: 'aiAnalysis.deleteReportsPostgame',
+    analysisTypes: ['postgame_review', 'postgame', 'post_game', 'review']
+  },
+  {
+    key: 'praise',
+    labelKey: 'aiAnalysis.deleteReportsPraise',
+    analysisTypes: ['postgame_praise', 'praise', 'compliment']
+  }
+]
+const AI_COST_USAGE_OPTIONS: Array<{ key: AiCostUsageKey; labelKey: MessageKey }> = [
+  { key: 'coach', labelKey: 'aiAnalysis.costUsageCoach' },
+  { key: 'pregame', labelKey: 'aiAnalysis.costUsagePregame' },
+  { key: 'postgame', labelKey: 'aiAnalysis.costUsagePostgame' }
+]
 
 const gameStore = useGameStore()
 const router = useRouter()
@@ -47,6 +77,8 @@ const selectedPostgameResult = ref<LocalAiAnalysisDisplayResult | null>(null)
 const selectedPostgameChampionIdByName = ref<Record<string, number>>({})
 const selectedPostgameReplayText = ref('')
 const selectedPostgameReplayState = ref<SavedPostgameReplayState>('completed')
+const selectedCoachSummaryResult = ref<LocalAiAnalysisDisplayResult | null>(null)
+const selectedCoachSummaryReport = ref<CoachSummaryReportV1 | null>(null)
 const loadingResults = ref(false)
 const historyUnavailable = ref(false)
 const historyError = ref<string | null>(null)
@@ -59,9 +91,18 @@ const selectedReportType = ref<ReportTypeFilter>('all')
 const localAiSettings = ref<LocalAiSettings | null>(null)
 const todayLocalCostSummary = ref<LocalCostSummary | null>(null)
 const localCostSummary = ref<LocalCostSummary | null>(null)
-const recentAiCostEvents = ref<LocalCostEvent[]>([])
+const lastMonthLocalCostSummary = ref<LocalCostSummary | null>(null)
+const aiCostUsageSummary = ref<LocalAiCostUsageSummaryItem[]>([])
 const localOverviewLoading = ref(false)
 const localOverviewError = ref<string | null>(null)
+const deleteReportDialogOpen = ref(false)
+const deleteReportSelections = ref<Record<DeleteReportType, boolean>>({
+  coach: false,
+  postgame: false,
+  praise: false
+})
+const deletingReports = ref(false)
+const deleteReportsError = ref<string | null>(null)
 let loadRequestId = 0
 let prepareRequestId = 0
 let overviewRequestId = 0
@@ -87,6 +128,20 @@ const filteredAnalysisResults = computed(() => {
   return analysisResults.value.filter(result => getReportCategory(result) === selectedReportType.value)
 })
 const hasFilteredResults = computed(() => filteredAnalysisResults.value.length > 0)
+const selectedDeleteReportTypes = computed(() => (
+  DELETE_REPORT_TYPE_OPTIONS.filter(option => deleteReportSelections.value[option.key])
+))
+const selectedDeleteAnalysisTypes = computed(() => (
+  [...new Set(selectedDeleteReportTypes.value.flatMap(option => option.analysisTypes))]
+))
+const allDeleteReportTypesSelected = computed(() => (
+  DELETE_REPORT_TYPE_OPTIONS.every(option => deleteReportSelections.value[option.key])
+))
+const canDeleteSelectedReports = computed(() => (
+  Boolean(accountPuuid.value)
+  && selectedDeleteAnalysisTypes.value.length > 0
+  && !deletingReports.value
+))
 const selectedPostgameRun = computed<PostgameAiRunOutputV1 | null>(() => (
   selectedPostgameResult.value?.output.postgameRun ?? null
 ))
@@ -105,6 +160,20 @@ const localProviderStatusLabel = computed(() => {
 })
 const todayCostTotalLabel = computed(() => formatCny(todayLocalCostSummary.value?.totalCostCny ?? 0))
 const monthCostTotalLabel = computed(() => formatCny(localCostSummary.value?.totalCostCny ?? 0))
+const lastMonthCostTotalLabel = computed(() => formatCny(lastMonthLocalCostSummary.value?.totalCostCny ?? 0))
+const selectedCoachSummaryCreatedAt = computed(() => selectedCoachSummaryResult.value?.createdAt ?? null)
+const displayedAiCostUsageSummary = computed(() => {
+  const summaryByKey = new Map(aiCostUsageSummary.value.map(item => [item.key, item]))
+  return AI_COST_USAGE_OPTIONS.map(option => {
+    const item = summaryByKey.get(option.key)
+    return {
+      key: option.key,
+      label: t(option.labelKey),
+      count: item?.count ?? 0,
+      totalCostCny: item?.totalCostCny ?? 0
+    }
+  })
+})
 const currentSummonerProfileIconUrl = computed(() => {
   const summoner = currentSummoner.value
   return summoner?.profileIconId ? getProfileIconUrl(summoner.profileIconId) : ''
@@ -177,13 +246,17 @@ async function refreshLocalAiOverview() {
   localOverviewError.value = null
 
   try {
-    const today = formatDateKey(new Date())
-    const monthStart = formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
-    const [settings, todaySummary, monthSummary, costEvents] = await Promise.all([
+    const now = new Date()
+    const today = formatDateKey(now)
+    const monthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
+    const lastMonthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+    const lastMonthEnd = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 0))
+    const [settings, todaySummary, monthSummary, lastMonthSummary, costUsageSummary] = await Promise.all([
       getLocalAiSettings(),
       getLocalCostSummary({ from: today, to: today }),
       getLocalCostSummary({ from: monthStart, to: today }),
-      getLocalCostEvents({ type: 'ai_analysis', limit: 6, offset: 0 })
+      getLocalCostSummary({ from: lastMonthStart, to: lastMonthEnd }),
+      getLocalAiCostUsageSummary()
     ])
 
     if (requestId !== overviewRequestId) {
@@ -193,7 +266,8 @@ async function refreshLocalAiOverview() {
     localAiSettings.value = settings
     todayLocalCostSummary.value = todaySummary
     localCostSummary.value = monthSummary
-    recentAiCostEvents.value = costEvents
+    lastMonthLocalCostSummary.value = lastMonthSummary
+    aiCostUsageSummary.value = costUsageSummary
   } catch (error) {
     if (requestId !== overviewRequestId) {
       return
@@ -216,6 +290,63 @@ function resetPreparedSnapshot() {
 
 function countReportsByCategory(category: ReportCategory) {
   return analysisResults.value.filter(result => getReportCategory(result) === category).length
+}
+
+function openDeleteReportDialog() {
+  deleteReportsError.value = null
+  deleteReportDialogOpen.value = true
+}
+
+function closeDeleteReportDialog() {
+  if (deletingReports.value) {
+    return
+  }
+  deleteReportDialogOpen.value = false
+  deleteReportsError.value = null
+}
+
+function toggleAllDeleteReportTypes(checked: boolean) {
+  deleteReportSelections.value = {
+    coach: checked,
+    postgame: checked,
+    praise: checked
+  }
+}
+
+async function deleteSelectedAnalysisReports() {
+  if (!canDeleteSelectedReports.value) {
+    return
+  }
+
+  const puuid = accountPuuid.value
+  const analysisTypes = selectedDeleteAnalysisTypes.value
+  deletingReports.value = true
+  deleteReportsError.value = null
+
+  try {
+    const database = window.electronAPI?.database
+    if (database) {
+      const result = await database.deleteAnalysisResultsByAccount(puuid, { analysisTypes })
+      if (!result.success) {
+        throw new Error(result.error)
+      }
+    }
+
+    const fallbackResult = deleteFallbackAiAnalysisResultsByAccount(puuid, { analysisTypes })
+    if (!fallbackResult.success && !database) {
+      throw new Error(fallbackResult.error)
+    }
+
+    closeReportDetail()
+    deleteReportDialogOpen.value = false
+    toggleAllDeleteReportTypes(false)
+    placeholderNotice.value = t('aiAnalysis.deleteReportsSuccess')
+    await refreshLocalAnalysisResults()
+  } catch (error) {
+    deleteReportsError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    deletingReports.value = false
+  }
 }
 
 function getReportCategory(result: LocalAiAnalysisDisplayResult): ReportCategory {
@@ -375,12 +506,44 @@ function openMatchHistoryForReport(result: LocalAiAnalysisDisplayResult, event?:
 
 function openReportDetail(result: LocalAiAnalysisDisplayResult) {
   const postgameRun = result.output.postgameRun
-  if (!postgameRun) {
+  if (postgameRun) {
+    closeCoachReportDetail()
+    selectedPostgameResult.value = result
+    startSavedPostgameReplay(postgameRun.rawOutputText)
+    void hydrateSelectedPostgameChampionNames()
     return
   }
-  selectedPostgameResult.value = result
-  startSavedPostgameReplay(postgameRun.rawOutputText)
-  void hydrateSelectedPostgameChampionNames()
+
+  openCoachReportDetail(result)
+}
+
+function canOpenReportDetail(result: LocalAiAnalysisDisplayResult) {
+  if (result.output.postgameRun) {
+    return true
+  }
+  if (getReportCategory(result) !== 'coach') {
+    return false
+  }
+  const parsed = parseCoachSummaryReportOutput(result.outputJson)
+  return parsed.status === 'parsed' && Boolean(parsed.report)
+}
+
+function openCoachReportDetail(result: LocalAiAnalysisDisplayResult) {
+  if (getReportCategory(result) !== 'coach') {
+    return
+  }
+
+  const parsed = parseCoachSummaryReportOutput(result.outputJson)
+  if (parsed.status !== 'parsed' || !parsed.report) {
+    return
+  }
+
+  stopSavedPostgameReplay()
+  selectedPostgameReplayText.value = ''
+  selectedPostgameReplayState.value = 'completed'
+  selectedPostgameResult.value = null
+  selectedCoachSummaryResult.value = result
+  selectedCoachSummaryReport.value = parsed.report
 }
 
 function closeReportDetail() {
@@ -388,6 +551,12 @@ function closeReportDetail() {
   selectedPostgameReplayText.value = ''
   selectedPostgameReplayState.value = 'completed'
   selectedPostgameResult.value = null
+  closeCoachReportDetail()
+}
+
+function closeCoachReportDetail() {
+  selectedCoachSummaryResult.value = null
+  selectedCoachSummaryReport.value = null
 }
 
 function startSavedPostgameReplay(rawText: string) {
@@ -505,31 +674,6 @@ function normalizePositiveInteger(value: unknown): number | null {
   return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null
 }
 
-function formatCostEventTitle(event: LocalCostEvent) {
-  return [event.source, event.model].filter(Boolean).join(' / ') || t('aiAnalysis.recentRunsTitle')
-}
-
-function formatCostEventAmount(event: LocalCostEvent) {
-  return formatCny(event.amountCny ?? 0)
-}
-
-function formatCostEventDate(value: number | null | undefined) {
-  if (!value) {
-    return t('common.none')
-  }
-  const timestamp = value > 10_000_000_000 ? value : value * 1000
-  if (Number.isNaN(timestamp)) {
-    return t('common.none')
-  }
-
-  return new Date(timestamp).toLocaleString([], {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
 function formatCny(value: number) {
   return `¥${Number(value || 0).toFixed(value >= 1 ? 2 : 6)}`
 }
@@ -626,13 +770,14 @@ async function refreshLocalAnalysisResults() {
       <div class="hero-copy">
         <h1>{{ t('aiAnalysis.title') }}</h1>
         <p>{{ t('aiAnalysis.subtitle') }}</p>
+        <p v-if="placeholderNotice" class="hero-notice">{{ placeholderNotice }}</p>
       </div>
 
       <div class="status-card local-provider-card">
-        <div class="provider-status-row">
+        <div class="provider-status-row provider-info-line">
           <strong>{{ localProviderStatusLabel }}</strong>
         </div>
-        <div class="account-showcase-item league-account-showcase">
+        <div class="account-showcase-item league-account-showcase provider-info-line">
           <img
             v-if="currentSummonerProfileIconUrl"
             class="account-avatar"
@@ -645,8 +790,6 @@ async function refreshLocalAnalysisResults() {
         </div>
       </div>
     </section>
-
-    <p v-if="placeholderNotice" class="notice-line">{{ placeholderNotice }}</p>
 
     <section class="local-cost-section">
       <div class="section-heading billing-heading">
@@ -670,30 +813,25 @@ async function refreshLocalAnalysisResults() {
             <span>{{ t('aiAnalysis.costMonth') }}</span>
             <strong>{{ monthCostTotalLabel }}</strong>
           </div>
+          <div class="billing-summary-item">
+            <span>{{ t('aiAnalysis.costLastMonth') }}</span>
+            <strong>{{ lastMonthCostTotalLabel }}</strong>
+          </div>
         </div>
 
         <div class="section-heading recent-runs-heading">
-          <span>{{ t('aiAnalysis.recentRunsTitle') }}</span>
+          <span>{{ t('aiAnalysis.costUsageTitle') }}</span>
         </div>
 
-        <div v-if="recentAiCostEvents.length === 0" class="billing-state">
-          {{ t('aiAnalysis.recentRunsEmpty') }}
-        </div>
-        <div v-else class="billing-ledger-list">
+        <div class="ai-cost-usage-grid">
           <article
-            v-for="entry in recentAiCostEvents"
-            :key="entry.id"
-            class="billing-ledger-entry debit"
+            v-for="entry in displayedAiCostUsageSummary"
+            :key="entry.key"
+            class="ai-cost-usage-card"
           >
-            <div class="billing-ledger-main">
-              <strong>{{ formatCostEventTitle(entry) }}</strong>
-              <span>{{ entry.provider || 'local' }}</span>
-              <time>{{ formatCostEventDate(entry.createdAt) }}</time>
-            </div>
-            <div class="billing-ledger-numbers">
-              <strong>{{ formatCostEventAmount(entry) }}</strong>
-              <span>{{ entry.quantity ?? 0 }} tokens</span>
-            </div>
+            <span>{{ entry.label }}</span>
+            <strong>{{ formatCny(entry.totalCostCny) }}</strong>
+            <small>{{ t('aiAnalysis.costUsageCount', { count: entry.count }) }}</small>
           </article>
         </div>
       </div>
@@ -704,17 +842,28 @@ async function refreshLocalAnalysisResults() {
         <span>{{ t('aiAnalysis.historyTitle') }}</span>
       </div>
 
-      <div class="report-type-tabs" role="tablist" aria-label="AI report type filters">
+      <div class="history-toolbar">
+        <div class="report-type-tabs" role="tablist" aria-label="AI report type filters">
+          <button
+            v-for="tab in reportTypeTabs"
+            :key="tab.key"
+            class="report-type-tab"
+            :class="{ active: selectedReportType === tab.key }"
+            type="button"
+            @click="selectedReportType = tab.key"
+          >
+            <span>{{ tab.label }}</span>
+            <strong>{{ tab.count }}</strong>
+          </button>
+        </div>
+
         <button
-          v-for="tab in reportTypeTabs"
-          :key="tab.key"
-          class="report-type-tab"
-          :class="{ active: selectedReportType === tab.key }"
+          class="delete-reports-button"
           type="button"
-          @click="selectedReportType = tab.key"
+          :disabled="!currentSummoner || deletingReports"
+          @click="openDeleteReportDialog"
         >
-          <span>{{ tab.label }}</span>
-          <strong>{{ tab.count }}</strong>
+          {{ t('aiAnalysis.deleteReportsAction') }}
         </button>
       </div>
 
@@ -750,11 +899,11 @@ async function refreshLocalAnalysisResults() {
           class="report-card"
           :class="{
             invalid: result.output.status === 'invalid',
-            clickable: Boolean(result.output.postgameRun),
+            clickable: canOpenReportDetail(result),
             review: isPostgameReviewResult(result),
             praise: isPraiseReport(result)
           }"
-          :tabindex="result.output.postgameRun ? 0 : undefined"
+          :tabindex="canOpenReportDetail(result) ? 0 : undefined"
           @click="openReportDetail(result)"
           @keydown.enter="openReportDetail(result)"
         >
@@ -812,6 +961,91 @@ async function refreshLocalAnalysisResults() {
         @cancel-analysis="noopPostgameDetailAction"
         @close="closeReportDetail"
       />
+
+      <CoachSummaryReportModal
+        v-if="selectedCoachSummaryReport"
+        :open="Boolean(selectedCoachSummaryReport)"
+        :report="selectedCoachSummaryReport"
+        report-load-state="ready"
+        :created-at="selectedCoachSummaryCreatedAt"
+        @close="closeCoachReportDetail"
+      />
+
+      <div
+        v-if="deleteReportDialogOpen"
+        class="delete-report-backdrop"
+        @click.self="closeDeleteReportDialog"
+      >
+        <section
+          class="delete-report-dialog"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="t('aiAnalysis.deleteReportsAction')"
+        >
+          <header class="delete-report-dialog-header">
+            <h2>{{ t('aiAnalysis.deleteReportsAction') }}</h2>
+            <button
+              class="delete-report-dialog-close"
+              type="button"
+              :disabled="deletingReports"
+              @click="closeDeleteReportDialog"
+            >
+              ×
+            </button>
+          </header>
+
+          <p class="delete-report-dialog-copy">
+            {{ t('aiAnalysis.deleteReportsPrompt') }}
+          </p>
+
+          <div class="delete-report-options">
+            <label
+              v-for="option in DELETE_REPORT_TYPE_OPTIONS"
+              :key="option.key"
+              class="delete-report-option"
+            >
+              <input
+                v-model="deleteReportSelections[option.key]"
+                type="checkbox"
+                :disabled="deletingReports"
+              >
+              <span>{{ t(option.labelKey) }}</span>
+            </label>
+            <label class="delete-report-option select-all">
+              <input
+                type="checkbox"
+                :checked="allDeleteReportTypesSelected"
+                :disabled="deletingReports"
+                @change="toggleAllDeleteReportTypes(($event.target as HTMLInputElement).checked)"
+              >
+              <span>{{ t('aiAnalysis.deleteReportsSelectAll') }}</span>
+            </label>
+          </div>
+
+          <p v-if="deleteReportsError" class="delete-report-error">
+            {{ deleteReportsError }}
+          </p>
+
+          <footer class="delete-report-dialog-actions">
+            <button
+              class="delete-report-cancel"
+              type="button"
+              :disabled="deletingReports"
+              @click="closeDeleteReportDialog"
+            >
+              {{ t('aiAnalysis.deleteReportsCancel') }}
+            </button>
+            <button
+              class="delete-report-confirm"
+              type="button"
+              :disabled="!canDeleteSelectedReports"
+              @click="deleteSelectedAnalysisReports"
+            >
+              {{ deletingReports ? t('aiAnalysis.deleteReportsDeleting') : t('aiAnalysis.deleteReportsConfirm') }}
+            </button>
+          </footer>
+        </section>
+      </div>
     </section>
   </div>
 </template>
@@ -897,6 +1131,7 @@ async function refreshLocalAnalysisResults() {
 }
 
 .hero-copy {
+  position: relative;
   min-width: 0;
 }
 
@@ -944,6 +1179,11 @@ async function refreshLocalAnalysisResults() {
   padding: 18px;
 }
 
+.local-provider-card {
+  gap: 10px;
+  padding: 18px 20px;
+}
+
 .account-showcase-card {
   align-items: stretch;
 }
@@ -964,16 +1204,38 @@ async function refreshLocalAnalysisResults() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 0;
+  padding: 10px 0 0;
   border-top: 1px solid var(--border-subtle);
+}
+
+.provider-info-line {
+  min-height: 34px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.provider-status-row {
+  display: flex;
+  align-items: center;
+}
+
+.provider-status-row strong {
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
 }
 
 .league-account-name {
   min-width: 0;
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 780;
-  line-height: 1.35;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
 }
 
 .balance-row {
@@ -1054,6 +1316,38 @@ async function refreshLocalAnalysisResults() {
   font-weight: 600;
 }
 
+.hero-notice {
+  position: absolute;
+  top: 82px;
+  left: 0;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: min(560px, 100%);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ai-analysis-accent-rgb));
+  line-height: 1.35;
+}
+
+.hero-notice::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 999px;
+  background: rgb(var(--ai-analysis-accent-rgb));
+  box-shadow: 0 0 10px rgba(var(--ai-analysis-accent-rgb), 0.34);
+}
+
+.local-cost-section {
+  margin-top: 24px;
+}
+
 .ai-billing-section,
 .history-section {
   margin-top: 24px;
@@ -1132,11 +1426,19 @@ async function refreshLocalAnalysisResults() {
   gap: 12px;
 }
 
+.history-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
 .report-type-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 14px;
+  min-width: 0;
 }
 
 .report-type-tab {
@@ -1180,12 +1482,166 @@ async function refreshLocalAnalysisResults() {
   color: var(--accent-color);
 }
 
+.delete-reports-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 92, 92, 0.45);
+  border-radius: var(--radius-md);
+  background: rgba(255, 92, 92, 0.08);
+  color: #ff8a8a;
+  font-size: 13px;
+  font-weight: 700;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.2s ease, color 0.18s ease;
+}
+
+.delete-reports-button:hover,
+.delete-reports-button:focus-visible {
+  border-color: rgba(255, 92, 92, 0.72);
+  background: rgba(255, 92, 92, 0.14);
+  box-shadow: 0 0 0 1px rgba(255, 92, 92, 0.16), 0 0 16px rgba(255, 92, 92, 0.16);
+  color: #ffd1d1;
+  outline: none;
+}
+
+.delete-reports-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  box-shadow: none;
+}
+
+.delete-report-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.delete-report-dialog {
+  width: min(440px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.4);
+}
+
+.delete-report-dialog-header,
+.delete-report-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.delete-report-dialog-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.delete-report-dialog-close {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.delete-report-dialog-copy {
+  margin: 14px 0 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.delete-report-options {
+  display: grid;
+  gap: 10px;
+}
+
+.delete-report-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.delete-report-option.select-all {
+  border-color: rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.delete-report-option input {
+  width: 16px;
+  height: 16px;
+}
+
+.delete-report-error {
+  margin: 12px 0 0;
+  color: #ff9b9b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.delete-report-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.delete-report-cancel,
+.delete-report-confirm {
+  min-height: 36px;
+  padding: 0 15px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.delete-report-cancel {
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.delete-report-confirm {
+  border: 1px solid rgba(255, 92, 92, 0.52);
+  background: rgba(255, 92, 92, 0.16);
+  color: #ffd1d1;
+}
+
+.delete-report-cancel:disabled,
+.delete-report-confirm:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .billing-card {
   padding: 18px;
 }
 
 .billing-heading {
   align-items: center;
+}
+
+.recent-runs-heading {
+  margin: 16px 0;
 }
 
 .billing-description,
@@ -1206,7 +1662,7 @@ async function refreshLocalAnalysisResults() {
 
 .billing-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -1238,18 +1694,17 @@ async function refreshLocalAnalysisResults() {
   font-weight: 780;
 }
 
-.billing-ledger-list {
-  display: flex;
-  flex-direction: column;
+.ai-cost-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
 
-.billing-ledger-entry {
+.ai-cost-usage-card {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--border-subtle);
@@ -1257,56 +1712,21 @@ async function refreshLocalAnalysisResults() {
   background: var(--bg-tertiary);
 }
 
-.billing-ledger-main,
-.billing-ledger-numbers {
-  min-width: 0;
-}
-
-.billing-ledger-main {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.billing-ledger-main strong {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 760;
-  line-height: 1.3;
-}
-
-.billing-ledger-main span,
-.billing-ledger-main time,
-.billing-ledger-numbers span {
+.ai-cost-usage-card span,
+.ai-cost-usage-card small {
   color: var(--text-tertiary);
   font-size: 12px;
-  font-weight: 620;
+  font-weight: 650;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.billing-ledger-numbers {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-  text-align: right;
-}
-
-.billing-ledger-numbers strong {
+.ai-cost-usage-card strong {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 820;
   line-height: 1.2;
-}
-
-.billing-ledger-entry.credit .billing-ledger-numbers strong {
-  color: var(--success-color);
-}
-
-.billing-ledger-entry.debit .billing-ledger-numbers strong {
-  color: rgb(var(--ai-analysis-accent-rgb));
+  overflow-wrap: anywhere;
 }
 
 .report-card {
@@ -1547,13 +1967,8 @@ async function refreshLocalAnalysisResults() {
     grid-template-columns: 1fr;
   }
 
-  .billing-ledger-entry {
-    flex-direction: column;
-  }
-
-  .billing-ledger-numbers {
-    align-items: flex-start;
-    text-align: left;
+  .ai-cost-usage-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

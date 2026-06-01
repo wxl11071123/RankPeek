@@ -27,3 +27,12 @@ test('OP.GG window loads the standalone route and positions near the LCU window 
   assert.match(source, /function calculateAttachedWindowBounds/)
   assert.match(source, /function clampBoundsToWorkArea/)
 })
+
+test('OP.GG window uses RP-OPGG as the taskbar window title', () => {
+  const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /const OPGG_WINDOW_TITLE = 'RP-OPGG'/)
+  assert.match(source, /title: OPGG_WINDOW_TITLE/)
+  assert.match(source, /createdWindow\.setTitle\(OPGG_WINDOW_TITLE\)/)
+  assert.match(source, /createdWindow\.on\('page-title-updated', \(event\) => \{[\s\S]*event\.preventDefault\(\)[\s\S]*createdWindow\.setTitle\(OPGG_WINDOW_TITLE\)/)
+})

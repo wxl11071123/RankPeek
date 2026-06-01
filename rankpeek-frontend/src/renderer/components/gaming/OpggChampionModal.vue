@@ -70,8 +70,18 @@
                   :key="`${section.key}-${index}-${id}-${idIndex}`"
                   class="opgg-icon-slot"
                 >
+                  <AssetHoverTooltip
+                    v-if="getIconUrl(section.iconType, id) && getOpggTooltipDetails(section.iconType, id)"
+                    :details="getOpggTooltipDetails(section.iconType, id)!"
+                  >
+                    <img
+                      :src="getIconUrl(section.iconType, id)"
+                      alt=""
+                      @error="markAssetLoadFailed"
+                    />
+                  </AssetHoverTooltip>
                   <img
-                    v-if="getIconUrl(section.iconType, id)"
+                    v-else-if="getIconUrl(section.iconType, id)"
                     :src="getIconUrl(section.iconType, id)"
                     alt=""
                     @error="markAssetLoadFailed"
@@ -94,14 +104,18 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
 import type { OpggBuildOption, OpggChampionDetail } from '@/services/rankpeekServerClient.ts'
 import type { OpggChampionQuery } from '@/services/opggChampionQuery'
 import {
   getChampionIconUrl,
   getItemIconUrl,
+  getItemTooltipDetails,
   getPerkIconUrl,
+  getPerkTooltipDetails,
   getSummonerSpellIconUrl,
-  markAssetLoadFailed
+  markAssetLoadFailed,
+  type GameAssetTooltipDetails
 } from '@/utils/gameAssetUrls'
 
 type IconType = 'spell' | 'perk' | 'item' | 'skill'
@@ -145,6 +159,12 @@ function getIconUrl(iconType: IconType, id: number): string {
   if (iconType === 'perk') return getPerkIconUrl(id)
   if (iconType === 'item') return getItemIconUrl(id)
   return ''
+}
+
+function getOpggTooltipDetails(iconType: IconType, id: number): GameAssetTooltipDetails | null {
+  if (iconType === 'perk') return getPerkTooltipDetails(id)
+  if (iconType === 'item') return getItemTooltipDetails(id)
+  return null
 }
 
 function formatPercent(value?: number | null): string {
@@ -345,6 +365,11 @@ function formatSkillId(id: number): string {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.opgg-icon-slot :deep(.asset-tooltip-trigger) {
+  width: 100%;
+  height: 100%;
 }
 
 .opgg-build-meta {

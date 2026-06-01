@@ -1000,19 +1000,26 @@ test('coach_summary deterministic overview marks 12 wins in 20 games as a good r
   })
 
   assert.equal(result.status, 'ready')
-  assert.equal(result.snapshot.analysisBrief.overallState.state, 'good')
-  assert.match(result.snapshot.analysisBrief.overallState.label, /良好/)
+  assert.equal('overallState' in result.snapshot.analysisBrief, false)
 
   const overview = buildCoachSummaryReportOverview(result.snapshot)
   assert.equal(overview.totalMatches, 20)
   assert.equal(overview.wins, 12)
   assert.equal(overview.losses, 8)
   assert.equal(overview.winRate, 60)
-  assert.equal(overview.overallState, 'good')
-  assert.match(overview.summary, /状态良好/)
+  assert.equal(overview.rpTrend?.length, 20)
+  assert.equal(overview.rpTrend?.[0]?.matchRef, 'm20')
+  assert.equal(overview.rpTrend?.[19]?.matchRef, 'm01')
+  assert.equal(typeof overview.rpTrend?.[19]?.score, 'number')
+  assert.equal(typeof overview.rpTrend?.[19]?.championId, 'number')
+  assert.match(overview.rpTrend?.[19]?.kdaText ?? '', /^\d+\/\d+\/\d+/)
+  assert.equal(overview.summary, '')
+  assert.equal('overallState' in overview, false)
+  assert.equal('overallStateLabel' in overview, false)
+  assert.doesNotMatch(overview.summary, /整体状态|良好|稳定|波动|低迷|很好/)
   assert.equal(overview.heroStats?.[0]?.championId, 103)
   assert.equal(overview.heroStats?.[0]?.championCanonicalName, 'Ahri')
-  assert.match(buildCoachSummaryReportCardTitle(result.snapshot), /20局12胜/)
+  assert.equal(buildCoachSummaryReportCardTitle(result.snapshot), '近20局排位数据分析')
 })
 
 test('does not count non-ranked queues toward the 20 match requirement', async () => {
@@ -1030,13 +1037,39 @@ test('does not count non-ranked queues toward the 20 match requirement', async (
   assert.equal(result.currentRankedMatchCount, 18)
 })
 
-test('allows regenerating a coach summary even when fewer than 20 ranked games exist after the latest report', async () => {
+test('blocks regenerating a coach summary until 20 newer ranked games exist after the latest report', async () => {
   const records = Array.from({ length: 25 }, (_item, index) => makeRecord(index + 1))
   const sgpClient = makeSgpClient()
 
   const result = await prepareCoachSummaryGeneration({
     accountPuuid: ACCOUNT_PUUID,
     database: makeDatabase(records, records.map(record => makeDetail(record.matchId)), [makeAnalysisResult()]),
+    sgpHydrationClient: sgpClient
+  })
+
+  assert.equal(result.status, 'not_enough_new_ranked_matches')
+  assert.equal(result.status === 'not_enough_new_ranked_matches' ? result.newRankedMatchCountSinceLastReport : -1, 5)
+  assert.equal(result.status === 'not_enough_new_ranked_matches' ? result.requiredNewRankedMatchCount : -1, COACH_SUMMARY_REQUIRED_RANKED_MATCHES)
+  assert.equal(result.status === 'not_enough_new_ranked_matches' ? result.lastGeneratedAt : '', '2026-01-01T00:00:00.000Z')
+  assert.equal(sgpClient.detailCalls.length, 0)
+  assert.equal(sgpClient.timelineCalls.length, 0)
+})
+
+test('allows regenerating a coach summary after 20 newer ranked games exist after the latest report', async () => {
+  const records = Array.from({ length: 40 }, (_item, index) => makeRecord(index + 1))
+  const sgpClient = makeSgpClient()
+  const priorReport = makeAnalysisResult({
+    outputJson: JSON.stringify({
+      metadata: {
+        generatedInputAt: '2026-01-01T00:00:00.000Z',
+        latestMatchTimestamp: BASE_TIME - 21 * 3_600_000 + 1_920_000
+      }
+    })
+  })
+
+  const result = await prepareCoachSummaryGeneration({
+    accountPuuid: ACCOUNT_PUUID,
+    database: makeDatabase(records, records.map(record => makeDetail(record.matchId)), [priorReport]),
     sgpHydrationClient: sgpClient
   })
 

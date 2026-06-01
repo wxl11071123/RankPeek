@@ -124,6 +124,7 @@ test('getLocalAiProviders exposes domestic presets with API key links', async ()
     assert.equal(providers[3]?.defaultBaseUrl, 'https://api.minimaxi.com/v1')
     assert.equal(providers[4]?.id, 'glm')
     assert.equal(providers.at(-1)?.id, 'custom-openai-compatible')
+    assert.equal(providers.at(-1)?.label, '自定义厂商（OpenAI Key 兼容）')
     assert.equal(providers.at(-1)?.apiKeyUrl, null)
   } finally {
     globalThis.fetch = originalFetch
@@ -174,6 +175,7 @@ test('getLocalAiProviders fills presets when local backend returns an older prov
       'glm',
       'custom-openai-compatible'
     ])
+    assert.equal(providers.at(-1)?.label, '自定义厂商（OpenAI Key 兼容）')
     assert.deepEqual(providers.flatMap(provider => provider.models), [])
   } finally {
     globalThis.fetch = originalFetch

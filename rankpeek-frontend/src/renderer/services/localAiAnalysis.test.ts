@@ -12,6 +12,7 @@ import {
   parseCoachSummaryReportOutput
 } from './localAiAnalysis.ts'
 import {
+  deleteFallbackAiAnalysisResultsByAccount,
   saveFallbackAiAnalysisResult,
   type BrowserAiAnalysisStorage
 } from './localAiAnalysisFallbackStore.ts'
@@ -303,6 +304,48 @@ test('loading local AI analysis results keeps review and praise records with the
   assert.equal(result.results.every(item => item.inputHash === 'shared-postgame-hash'), true)
 })
 
+test('fallback AI analysis store deletes selected account records by analysis types', async () => {
+  const storage = createMemoryStorage()
+  for (const [analysisType, accountPuuid] of [
+    ['postgame_review', 'account-puuid'],
+    ['postgame_praise', 'account-puuid'],
+    ['coach_summary', 'account-puuid'],
+    ['match_summary', 'account-puuid'],
+    ['postgame_review', 'other-puuid']
+  ] as const) {
+    saveFallbackAiAnalysisResult({
+      accountPuuid,
+      matchId: analysisType === 'coach_summary' ? null : `${accountPuuid}-${analysisType}`,
+      analysisType,
+      inputHash: `${accountPuuid}-${analysisType}`,
+      outputJson: savedResult.outputJson
+    }, storage)
+  }
+
+  const deleted = deleteFallbackAiAnalysisResultsByAccount('account-puuid', {
+    analysisTypes: ['postgame_review', 'postgame_praise', 'coach_summary']
+  }, storage)
+  assert.equal(deleted.success, true)
+  assert.equal(deleted.success ? deleted.data.deletedCount : -1, 3)
+
+  const accountResults = await loadLocalAiAnalysisResults('account-puuid', {
+    limit: 20,
+    offset: 0,
+    database: null,
+    storage
+  })
+  assert.deepEqual(accountResults.results.map(result => result.analysisType), ['match_summary'])
+
+  const otherResults = await loadLocalAiAnalysisResults('other-puuid', {
+    limit: 20,
+    offset: 0,
+    database: null,
+    storage
+  })
+  assert.equal(otherResults.results.length, 1)
+  assert.equal(otherResults.results[0]?.analysisType, 'postgame_review')
+})
+
 test('postgame AI run envelope parses raw result without surfacing engineering metadata in history cards', () => {
   const rawOutputText = JSON.stringify({
     schemaVersion: 'postgame_review_result.v1',
@@ -518,6 +561,24 @@ const coachSummaryReport = {
     winRate: 55,
     summary: '主玩打野，贝蕾亚和凯隐占比最高。',
     primaryRoles: [{ role: 'JUNGLE', count: 16 }],
+    rpTrend: [
+      {
+        matchRef: 'm20',
+        score: 5.8,
+        championId: 233,
+        championDisplayName: '贝蕾亚',
+        result: 'win',
+        trendLabel: '稳稳当当不掉线',
+        kdaText: '6/3/8'
+      },
+      {
+        matchRef: 'm19',
+        score: 7.1,
+        championId: 141,
+        championDisplayName: '凯隐',
+        result: 'loss'
+      }
+    ],
     heroStats: [
       {
         championId: 233,
@@ -622,7 +683,10 @@ const coachSummaryReport = {
     promptVersion: 'coach_summary.prompt.v1',
     generatedAt: '2026-05-12T00:00:00Z',
     snapshotSchemaVersion: 'coach_summary.v1',
-    dataQualityConfidence: 'medium'
+    dataQualityConfidence: 'medium',
+    generatedInputAt: '2026-05-11T23:58:00.000Z',
+    latestMatchTimestamp: 1_800_000_000_000,
+    latestMatchRef: 'm01'
   }
 }
 
@@ -633,8 +697,19 @@ test('coach summary report v1 output parses structured overview and chart blocks
   assert.equal(parsed.report?.schemaVersion, 'coach_summary_report.v1')
   assert.equal(parsed.report?.overview?.heroStats?.[0]?.championDisplayName, '贝蕾亚')
   assert.equal(parsed.report?.overview?.roleStats?.[0]?.role, 'JUNGLE')
+  assert.equal(parsed.report?.overview?.rpTrend?.length, 2)
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.matchRef, 'm20')
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.score, 5.8)
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.championId, 233)
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.championDisplayName, '贝蕾亚')
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.result, 'win')
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.trendLabel, '稳稳当当不掉线')
+  assert.equal(parsed.report?.overview?.rpTrend?.[0]?.kdaText, '6/3/8')
   assert.equal(parsed.report?.chartBlocks?.length, 3)
   assert.equal(parsed.report?.chartBlocks?.[2]?.dataRef, 'aggregate.goldDiffTrend')
+  assert.equal(parsed.report?.metadata.generatedInputAt, '2026-05-11T23:58:00.000Z')
+  assert.equal(parsed.report?.metadata.latestMatchTimestamp, 1_800_000_000_000)
+  assert.equal(parsed.report?.metadata.latestMatchRef, 'm01')
 })
 
 test('coach report headline uses product fallback order and truncates long template title', () => {
@@ -655,6 +730,19 @@ test('coach report headline uses product fallback order and truncates long templ
   })
   assert.ok(fallbackTitle.length <= 18)
   assert.match(fallbackTitle, /\.\.\.$/)
+})
+
+test('coach report headline uses AI title summary instead of generic local coach titles', () => {
+  assert.equal(getCoachReportHeadline({
+    report: {
+      ...coachSummaryReport,
+      headline: '',
+      cardTitle: '近20局排位数据分析',
+      shortTitle: '',
+      verdict: { ...coachSummaryReport.verdict, label: '整体表现良好' },
+      title: '20局排位数据分析：打野英雄池波动，辅助胜率稳定'
+    }
+  }), '打野英雄池波动，辅助胜率稳定')
 })
 
 test('coach report headline never uses grade-like verdict labels as the card title', () => {

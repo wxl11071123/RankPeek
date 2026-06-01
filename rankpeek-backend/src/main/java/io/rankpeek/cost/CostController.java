@@ -35,4 +35,9 @@ public class CostController {
     ) {
         return ApiResponse.success(service.listEvents(type, limit, offset));
     }
+
+    @GetMapping("/ai-usage-summary")
+    public ApiResponse<AiCostUsageSummaryResponse> aiUsageSummary() {
+        return ApiResponse.success(service.aiUsageSummary());
+    }
 }

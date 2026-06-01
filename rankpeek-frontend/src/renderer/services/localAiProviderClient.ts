@@ -129,7 +129,7 @@ export const LOCAL_AI_PROVIDER_PRESETS: LocalAiProviderProfile[] = [
   },
   {
     id: 'custom-openai-compatible',
-    label: 'Custom OpenAI-compatible',
+    label: '自定义厂商（OpenAI Key 兼容）',
     dialect: 'openai-compatible',
     defaultBaseUrl: '',
     models: [],
@@ -305,6 +305,7 @@ function mergeLocalAiProviderProfile(
   return {
     ...preset,
     ...provider,
+    label: preset.label,
     defaultBaseUrl: provider.defaultBaseUrl || preset.defaultBaseUrl,
     models: [],
     apiKeyUrl: provider.apiKeyUrl ?? preset.apiKeyUrl,

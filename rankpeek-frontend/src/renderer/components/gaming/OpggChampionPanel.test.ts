@@ -43,6 +43,25 @@ test('OP.GG champion panel only shows augment sections for arena mode', () => {
   assert.match(buildSections, /sections\.push\(\{ key: 'augments'/)
 })
 
+test('OP.GG champion panel reuses rich asset tooltips for rune and item icons', () => {
+  const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
+  const lastItemsBlock = source.match(/<div v-if="isLastItemsSection\(section\) && section\.options\.length"[\s\S]*?<div v-else-if="section\.options\.length"/)?.[0] || ''
+  const runeTemplate = source.match(/<div v-if="section\.key === 'runes'"[\s\S]*?<div v-else-if="section\.key === 'skillOrders'"/)?.[0] || ''
+  const itemBuildBlock = source.match(/<div v-else class="opgg-icon-chain">[\s\S]*?<div v-if="section\.key !== 'runes'"/)?.[0] || ''
+
+  assert.match(source, /import AssetHoverTooltip from '@\/components\/common\/AssetHoverTooltip\.vue'/)
+  assert.match(source, /type GameAssetTooltipDetails/)
+  assert.match(source, /getItemTooltipDetails/)
+  assert.match(source, /getPerkTooltipDetails/)
+  assert.match(source, /function getOpggTooltipDetails\(iconType: IconType, id: number\): GameAssetTooltipDetails \| null/)
+  assert.match(source, /if \(iconType === 'perk'\) return getPerkTooltipDetails\(id\)/)
+  assert.match(source, /if \(iconType === 'item'\) return getItemTooltipDetails\(id\)/)
+  assert.match(lastItemsBlock, /<AssetHoverTooltip[\s\S]*getOpggTooltipDetails\(section\.iconType, id\)!/)
+  assert.match(runeTemplate, /<AssetHoverTooltip[\s\S]*getOpggTooltipDetails\(section\.iconType, slot\.id\)!/)
+  assert.match(itemBuildBlock, /<AssetHoverTooltip[\s\S]*getOpggTooltipDetails\(section\.iconType, id\)!/)
+  assert.match(source, /\.opgg-icon-slot\s+:deep\(\.asset-tooltip-trigger\)\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;/)
+})
+
 test('OP.GG champion panel shows counter champion icons in the detail header', () => {
   const source = readFileSync(new URL('./OpggChampionPanel.vue', import.meta.url), 'utf8')
 

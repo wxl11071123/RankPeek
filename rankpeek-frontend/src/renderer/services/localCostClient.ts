@@ -22,6 +22,12 @@ export interface LocalCostEvent {
   createdAt: number
 }
 
+export interface LocalAiCostUsageSummaryItem {
+  key: 'coach' | 'pregame' | 'postgame' | string
+  count: number
+  totalCostCny: number
+}
+
 export async function getLocalCostSummary(params: { from?: string; to?: string } = {}): Promise<LocalCostSummary> {
   const response = await fetch(`${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/costs/summary${toQueryString(params)}`)
   const payload = await parseLocalJson<LocalCostSummary>(response)
@@ -37,11 +43,20 @@ export async function getLocalCostEvents(params: {
   offset?: number
 } = {}): Promise<LocalCostEvent[]> {
   const response = await fetch(`${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/costs/events${toQueryString(params)}`)
-  const payload = await parseLocalJson<{ events?: LocalCostEvent[] }>(response)
+  const payload = await parseLocalJson<{ items?: LocalCostEvent[]; events?: LocalCostEvent[] }>(response)
   if (!response.ok || payload.success === false) {
     throw new Error(readLocalApiErrorMessage(payload.error?.message))
   }
-  return payload.data?.events ?? []
+  return payload.data?.items ?? payload.data?.events ?? []
+}
+
+export async function getLocalAiCostUsageSummary(): Promise<LocalAiCostUsageSummaryItem[]> {
+  const response = await fetch(`${RANKPEEK_LOCAL_SERVICE_BASE_URL}/api/v1/costs/ai-usage-summary`)
+  const payload = await parseLocalJson<{ items?: LocalAiCostUsageSummaryItem[] }>(response)
+  if (!response.ok || payload.success === false) {
+    throw new Error(readLocalApiErrorMessage(payload.error?.message))
+  }
+  return payload.data?.items ?? []
 }
 
 function toQueryString(params: Record<string, string | number | undefined>): string {

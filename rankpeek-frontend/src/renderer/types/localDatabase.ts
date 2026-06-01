@@ -174,6 +174,14 @@ export interface AiAnalysisListOptions {
   matchIds?: string[]
 }
 
+export interface AiAnalysisDeleteOptions {
+  analysisTypes?: string[]
+}
+
+export interface AiAnalysisDeleteResult {
+  deletedCount: number
+}
+
 export interface AiMemoryTypeCount {
   analysisType: string
   count: number
@@ -245,6 +253,10 @@ export interface LocalDatabaseAPI {
   ): Promise<DatabaseResult<AiAnalysisResult[]>>
   getAnalysisResultById(id: number): Promise<DatabaseResult<AiAnalysisResult | null>>
   findAnalysisByInputHash(inputHash: string): Promise<DatabaseResult<AiAnalysisResult | null>>
+  deleteAnalysisResultsByAccount(
+    accountPuuid: string,
+    options?: AiAnalysisDeleteOptions
+  ): Promise<DatabaseResult<AiAnalysisDeleteResult>>
   getAiMemoryStats(accountPuuid: string): Promise<DatabaseResult<AiMemoryStats>>
   exportAiMemory(accountPuuid: string): Promise<DatabaseResult<AiMemoryExportResult>>
   runStorageRetention(): Promise<DatabaseResult<LocalStorageRetentionResult>>

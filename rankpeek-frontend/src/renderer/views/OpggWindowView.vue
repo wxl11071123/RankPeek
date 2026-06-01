@@ -2,7 +2,17 @@
   <div class="opgg-window-view">
     <section class="opgg-toolbar">
       <div class="opgg-heading">
-        <h1>OP.GG</h1>
+        <h1>
+          <button
+            class="opgg-brand-link"
+            type="button"
+            aria-label="打开 OP.GG 官网"
+            title="打开 OP.GG 官网"
+            @click="openOfficialOpggPage"
+          >
+            OP.GG
+          </button>
+        </h1>
         <button
           v-if="activePanel === 'detail'"
           class="opgg-toolbar-back-btn"
@@ -143,6 +153,8 @@ type OpggMode = 'ranked' | 'aram' | 'arena' | 'urf' | 'nexus_blitz'
 type OpggRegion = 'kr'
 type OpggPanel = 'list' | 'detail'
 type OpggAutoApplyTrigger = 'initial' | 'champion-change'
+
+const OFFICIAL_OPGG_CHAMPIONS_URL = 'https://op.gg/lol/champions'
 
 export interface OpggManualFilterState {
   championId: number
@@ -626,6 +638,18 @@ function refreshActiveOpggPanel() {
   void loadOpggChampionList({ force: true })
 }
 
+async function openOfficialOpggPage() {
+  try {
+    const result = await window.electronAPI?.openExternal?.(OFFICIAL_OPGG_CHAMPIONS_URL)
+    if (result?.success) {
+      return
+    }
+  } catch (error) {
+    console.error('Failed to open OP.GG page', error)
+  }
+  window.open(OFFICIAL_OPGG_CHAMPIONS_URL, '_blank', 'noopener,noreferrer')
+}
+
 async function loadOpggChampionList(options: { force?: boolean } = {}) {
   opggListError.value = ''
   if (!canLoadList(filter)) {
@@ -772,6 +796,32 @@ function normalizeMode(value: unknown): OpggMode {
   margin: 0;
   font-size: 20px;
   line-height: 1;
+}
+
+.opgg-brand-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 900;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: color 0.16s ease, text-shadow 0.16s ease;
+}
+
+.opgg-brand-link:hover,
+.opgg-brand-link:focus-visible {
+  color: #1ea7ff;
+  text-shadow: 0 0 10px rgba(30, 167, 255, 0.35);
+  outline: none;
+}
+
+.opgg-brand-link:focus-visible {
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(30, 167, 255, 0.36);
 }
 
 .opgg-filter-row {

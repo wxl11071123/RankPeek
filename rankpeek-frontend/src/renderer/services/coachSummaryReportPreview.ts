@@ -19,6 +19,28 @@ export const DEV_COACH_SUMMARY_REPORT_PREVIEW: CoachSummaryReportV1 = {
       { role: 'JUNGLE', count: 17 },
       { role: 'MID', count: 3 }
     ],
+    rpTrend: [
+      { matchRef: 'm20', score: 5.7, championId: 233, championDisplayName: '贝蕾亚', result: 'loss' },
+      { matchRef: 'm19', score: 6.4, championId: 950, championDisplayName: '纳亚菲利', result: 'win' },
+      { matchRef: 'm18', score: 5.9, championId: 141, championDisplayName: '凯隐', result: 'win' },
+      { matchRef: 'm17', score: 7.2, championId: 102, championDisplayName: '希瓦娜', result: 'loss' },
+      { matchRef: 'm16', score: 6.8, championId: 233, championDisplayName: '贝蕾亚', result: 'win' },
+      { matchRef: 'm15', score: 4.9, championId: 233, championDisplayName: '贝蕾亚', result: 'loss' },
+      { matchRef: 'm14', score: 6.1, championId: 141, championDisplayName: '凯隐', result: 'win' },
+      { matchRef: 'm13', score: 7.6, championId: 141, championDisplayName: '凯隐', result: 'win' },
+      { matchRef: 'm12', score: 6.9, championId: 950, championDisplayName: '纳亚菲利', result: 'loss' },
+      { matchRef: 'm11', score: 7.1, championId: 233, championDisplayName: '贝蕾亚', result: 'win' },
+      { matchRef: 'm10', score: 6.2, championId: 102, championDisplayName: '希瓦娜', result: 'loss' },
+      { matchRef: 'm09', score: 5.4, championId: 233, championDisplayName: '贝蕾亚', result: 'loss' },
+      { matchRef: 'm08', score: 6.7, championId: 141, championDisplayName: '凯隐', result: 'win' },
+      { matchRef: 'm07', score: 7.9, championId: 141, championDisplayName: '凯隐', result: 'win' },
+      { matchRef: 'm06', score: 7.4, championId: 950, championDisplayName: '纳亚菲利', result: 'win' },
+      { matchRef: 'm05', score: 6.3, championId: 102, championDisplayName: '希瓦娜', result: 'loss' },
+      { matchRef: 'm04', score: 7.0, championId: 233, championDisplayName: '贝蕾亚', result: 'win' },
+      { matchRef: 'm03', score: 6.6, championId: 141, championDisplayName: '凯隐', result: 'win' },
+      { matchRef: 'm02', score: 7.5, championId: 233, championDisplayName: '贝蕾亚', result: 'win' },
+      { matchRef: 'm01', score: 8.0, championId: 141, championDisplayName: '凯隐', result: 'win' }
+    ],
     heroStats: [
       {
         championId: 233,

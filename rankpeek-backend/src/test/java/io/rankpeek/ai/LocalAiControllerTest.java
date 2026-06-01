@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.rankpeek.cache.LocalCacheSchemaInitializer;
 import io.rankpeek.cost.AiCostCalculator;
+import io.rankpeek.cost.CostRollup;
 import io.rankpeek.cost.CostRepository;
 import io.rankpeek.cost.CostService;
 import org.junit.jupiter.api.AfterEach;
@@ -152,13 +153,11 @@ class LocalAiControllerTest {
         assertThat(runRepository.list("pregame", "succeeded", 20, 0)).hasSize(1);
         assertThat(runRepository.list("pregame", "succeeded", 20, 0).getFirst().totalCny())
                 .isPositive();
-        assertThat(costRepository.listEvents("ai_analysis", 20, 0))
-                .hasSize(1)
-                .first()
-                .satisfies(event -> {
-                    assertThat(event.source()).isEqualTo("pregame");
-                    assertThat(event.amountCny()).isPositive();
-                });
+        assertThat(costRepository.listEvents("ai_analysis", 20, 0)).isEmpty();
+        CostRollup rollup = costRepository.findCostRollup();
+        assertThat(rollup).isNotNull();
+        assertThat(rollup.pregameCount()).isEqualTo(1);
+        assertThat(rollup.pregameTotalCny()).isPositive();
     }
 
     @Test

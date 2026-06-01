@@ -530,6 +530,62 @@ test('AI analysis repository filters by batched match ids and analysis types', (
   }
 })
 
+test('AI analysis repository deletes account records by analysis types', () => {
+  const { database, cleanup } = createTempLocalDatabase()
+
+  try {
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_1',
+      analysisType: 'postgame_review',
+      inputHash: 'review-hash',
+      outputJson: { summary: 'Review.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_2',
+      analysisType: 'postgame_praise',
+      inputHash: 'praise-hash',
+      outputJson: { summary: 'Praise.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      analysisType: 'coach_summary',
+      inputHash: 'coach-hash',
+      outputJson: { summary: 'Coach.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      analysisType: 'match_summary',
+      inputHash: 'match-hash',
+      outputJson: { summary: 'Keep.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'other-puuid',
+      analysisType: 'postgame_review',
+      inputHash: 'other-hash',
+      outputJson: { summary: 'Other account.' }
+    })
+
+    const typedDelete = database.aiAnalyses.deleteAnalysisResultsByAccount('test-puuid', {
+      analysisTypes: ['postgame_review', 'postgame_praise', 'coach_summary']
+    })
+    assert.equal(typedDelete.deletedCount, 3)
+    assert.deepEqual(
+      database.aiAnalyses.listAnalysisResultsByAccount('test-puuid', { limit: 10 }).map(result => result.analysisType),
+      ['match_summary']
+    )
+    assert.equal(database.aiAnalyses.listAnalysisResultsByAccount('other-puuid', { limit: 10 }).length, 1)
+
+    const accountDelete = database.aiAnalyses.deleteAnalysisResultsByAccount('test-puuid')
+    assert.equal(accountDelete.deletedCount, 1)
+    assert.equal(database.aiAnalyses.getMemoryStats('test-puuid').totalCount, 0)
+    assert.equal(database.aiAnalyses.getMemoryStats('other-puuid').totalCount, 1)
+  } finally {
+    cleanup()
+  }
+})
+
 test('storage retention keeps the newest 200 match records per account', () => {
   const { database, cleanup } = createTempLocalDatabase()
 

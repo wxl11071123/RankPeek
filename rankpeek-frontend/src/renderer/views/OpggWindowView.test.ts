@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 test('OP.GG window view provides manual filters and loads champion options', () => {
   const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
 
+  assert.match(source, /<h1>[\s\S]*OP\.GG[\s\S]*<\/h1>/)
   assert.match(source, /import OpggChampionPanel from '@\/components\/gaming\/OpggChampionPanel\.vue'/)
   assert.match(source, /import OpggChampionTierTable from '@\/components\/gaming\/OpggChampionTierTable\.vue'/)
   assert.match(source, /apiClient\.getChampionOptions\(\)/)
@@ -19,6 +20,16 @@ test('OP.GG window view provides manual filters and loads champion options', () 
   assert.match(source, /@change="handleRankFilterChange"/)
   assert.match(source, /@click="restoreFollowCurrentGame"/)
   assert.match(source, /@click="refreshActiveOpggPanel"/)
+})
+
+test('OP.GG window logo opens the official OP.GG page and turns blue on hover', () => {
+  const source = readFileSync(new URL('./OpggWindowView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /class="opgg-brand-link"/)
+  assert.match(source, /@click="openOfficialOpggPage"/)
+  assert.match(source, /const OFFICIAL_OPGG_CHAMPIONS_URL = 'https:\/\/op\.gg\/lol\/champions'/)
+  assert.match(source, /window\.electronAPI\?\.openExternal\?\.\(OFFICIAL_OPGG_CHAMPIONS_URL\)/)
+  assert.match(source, /\.opgg-brand-link:hover,[\s\S]*\.opgg-brand-link:focus-visible\s*\{[\s\S]*color:\s*#1ea7ff/)
 })
 
 test('OP.GG window auto applies only on page entry and own champion selection', () => {

@@ -7,6 +7,7 @@ test('OP.GG champion modal provides dialog, loading, success, error, and empty s
 
   assert.match(source, /role="dialog"/)
   assert.match(source, /aria-modal="true"/)
+  assert.match(source, /<h2 id="opgg-modal-title">OP\.GG<\/h2>/)
   assert.match(source, /class="opgg-modal-overlay"/)
   assert.match(source, /class="opgg-modal-panel"/)
   assert.match(source, /v-if="loading"/)
@@ -33,6 +34,17 @@ test('OP.GG champion modal renders core stats and build sections with local game
   assert.match(source, /coreItems/)
   assert.match(source, /getIconUrl\(section\.iconType, id\)/)
   assert.match(source, /@error="markAssetLoadFailed"/)
+})
+
+test('OP.GG champion modal reuses match-history tooltips for rune and item icons', () => {
+  const source = readFileSync(new URL('./OpggChampionModal.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /import AssetHoverTooltip from '@\/components\/common\/AssetHoverTooltip\.vue'/)
+  assert.match(source, /getItemTooltipDetails/)
+  assert.match(source, /getPerkTooltipDetails/)
+  assert.match(source, /function getOpggTooltipDetails\(iconType: IconType, id: number\): GameAssetTooltipDetails \| null \{[\s\S]*iconType === 'perk'[\s\S]*getPerkTooltipDetails\(id\)[\s\S]*iconType === 'item'[\s\S]*getItemTooltipDetails\(id\)/)
+  assert.match(source, /<AssetHoverTooltip\s+v-if="getIconUrl\(section\.iconType, id\) && getOpggTooltipDetails\(section\.iconType, id\)"[\s\S]*:details="getOpggTooltipDetails\(section\.iconType, id\)!"/)
+  assert.match(source, /\.opgg-icon-slot\s+:deep\(\.asset-tooltip-trigger\)\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;/)
 })
 
 test('OP.GG champion modal has theme-aware compact surface styling', () => {

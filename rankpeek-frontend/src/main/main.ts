@@ -49,6 +49,7 @@ const STARTUP_FORCE_TIMEOUT_MS = 10000
 const MIN_SPLASH_VISIBLE_MS = 3600
 const BACKEND_SHUTDOWN_REQUEST_TIMEOUT_MS = 2000
 const BACKEND_GRACEFUL_EXIT_TIMEOUT_MS = 5000
+const OPGG_WINDOW_TITLE = 'RP-OPGG'
 const LOG_ROTATION_MAX_BYTES = 10 * 1024 * 1024
 const LOG_ROTATION_KEEP_COUNT = 5
 const CORRUPT_BACKUP_KEEP_COUNT = 3
@@ -543,6 +544,7 @@ async function createOpggWindow(query?: OpggChampionQuery) {
       spellcheck: false
     },
     icon: getMainIconPath(),
+    title: OPGG_WINDOW_TITLE,
     titleBarStyle: 'hidden',
     thickFrame: true
   })
@@ -556,6 +558,11 @@ async function createOpggWindow(query?: OpggChampionQuery) {
   }
 
   createdWindow.removeMenu()
+  createdWindow.setTitle(OPGG_WINDOW_TITLE)
+  createdWindow.on('page-title-updated', (event) => {
+    event.preventDefault()
+    createdWindow.setTitle(OPGG_WINDOW_TITLE)
+  })
   createdWindow.on('closed', () => {
     if (opggWindow === createdWindow) {
       opggWindow = null

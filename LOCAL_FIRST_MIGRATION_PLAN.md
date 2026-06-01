@@ -152,7 +152,7 @@ POST /api/v1/ai/test
       },
       {
         "id": "custom-openai-compatible",
-        "label": "Custom OpenAI-compatible",
+        "label": "自定义厂商（OpenAI Key 兼容）",
         "dialect": "openai-compatible",
         "defaultBaseUrl": "",
         "models": [],

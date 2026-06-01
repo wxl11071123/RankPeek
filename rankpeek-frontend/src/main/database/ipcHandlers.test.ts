@@ -112,7 +112,7 @@ test('database IPC handlers support match record and AI analysis smoke operation
   }
 })
 
-test('database IPC handlers expose storage retention and AI memory stats/export without delete APIs', async () => {
+test('database IPC handlers expose storage retention, AI memory stats/export, and typed AI deletion', async () => {
   const { ipcMain, database, cleanup } = createRegisteredHandlers({
     exportAiMemory: async ({ payload }) => ({
       filePath: 'C:/RankPeek/ai-memory.json',
@@ -128,15 +128,45 @@ test('database IPC handlers expose storage retention and AI memory stats/export 
       inputHash: 'hash-1',
       outputJson: { summary: 'Keep farming.' }
     })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_2',
+      analysisType: 'postgame_review',
+      inputHash: 'hash-review',
+      outputJson: { summary: 'Review.' }
+    })
+    database.aiAnalyses.saveAnalysisResult({
+      accountPuuid: 'test-puuid',
+      matchId: 'HN1_3',
+      analysisType: 'postgame_praise',
+      inputHash: 'hash-praise',
+      outputJson: { summary: 'Praise.' }
+    })
 
     const stats = await ipcMain.invoke('db:ai:getMemoryStats', 'test-puuid')
     assert.equal(stats.success, true)
-    assert.equal(stats.data.totalCount, 1)
+    assert.equal(stats.data.totalCount, 3)
 
     const exported = await ipcMain.invoke('db:ai:exportMemory', 'test-puuid')
     assert.equal(exported.success, true)
     assert.equal(exported.data.filePath, 'C:/RankPeek/ai-memory.json')
-    assert.equal(exported.data.exportedCount, 1)
+    assert.equal(exported.data.exportedCount, 3)
+
+    const invalidDelete = await ipcMain.invoke('db:ai:deleteByAccount', { accountPuuid: '' })
+    assert.deepEqual(invalidDelete, {
+      success: false,
+      error: 'Invalid AI analysis delete payload'
+    })
+
+    const typedDelete = await ipcMain.invoke('db:ai:deleteByAccount', {
+      accountPuuid: 'test-puuid',
+      options: {
+        analysisTypes: ['postgame_review', 'postgame_praise']
+      }
+    })
+    assert.equal(typedDelete.success, true)
+    assert.equal(typedDelete.data.deletedCount, 2)
+    assert.equal(database.aiAnalyses.getMemoryStats('test-puuid').totalCount, 1)
 
     const retention = await ipcMain.invoke('db:storage:runRetention')
     assert.equal(retention.success, true)
