@@ -20,6 +20,11 @@ export interface GamingAiInlineRun {
   requestId: number
 }
 
+interface GamingAiInlineCompletedSnapshot {
+  playerVerdicts: Record<string, GamingAiPlayerStreamVerdict>
+  playerInsights: Record<string, GamingAiPlayerInsightEvent>
+}
+
 export const gamingAiInlineState = reactive<Record<GamingAiAnalysisMode, GamingAiInlineModeState>>({
   teammate: createModeState(),
   opponent: createModeState()
@@ -29,6 +34,10 @@ let requestSerial = 0
 const activeControllers: Record<GamingAiAnalysisMode, AbortController | null> = {
   teammate: null,
   opponent: null
+}
+const completedSnapshots: Record<GamingAiAnalysisMode, Record<string, GamingAiInlineCompletedSnapshot>> = {
+  teammate: {},
+  opponent: {}
 }
 
 export function beginGamingAiInlineRun(mode: GamingAiAnalysisMode, requestKey: string): GamingAiInlineRun {
@@ -114,7 +123,30 @@ export function completeGamingAiInlineRun(
   activeControllers[mode] = null
   if (gamingAiInlineState[mode].streamState !== 'failed') {
     gamingAiInlineState[mode].streamState = 'completed'
+    rememberCompletedGamingAiInlineRun(mode)
   }
+}
+
+export function hasCompletedGamingAiInlineRun(mode: GamingAiAnalysisMode, requestKey: string): boolean {
+  return Boolean(requestKey && completedSnapshots[mode][requestKey])
+}
+
+export function restoreCompletedGamingAiInlineRun(mode: GamingAiAnalysisMode, requestKey: string): boolean {
+  const snapshot = requestKey ? completedSnapshots[mode][requestKey] : null
+  if (!snapshot) {
+    return false
+  }
+
+  cancelGamingAiInlineRun(mode)
+  Object.assign(gamingAiInlineState[mode], {
+    streamState: 'completed',
+    streamError: '',
+    playerVerdicts: { ...snapshot.playerVerdicts },
+    playerInsights: { ...snapshot.playerInsights },
+    requestKey,
+    requestId: ++requestSerial
+  })
+  return true
 }
 
 export function cancelGamingAiInlineRun(mode: GamingAiAnalysisMode): void {
@@ -141,5 +173,20 @@ function createModeState(): GamingAiInlineModeState {
     playerInsights: {},
     requestKey: '',
     requestId: 0
+  }
+}
+
+function rememberCompletedGamingAiInlineRun(mode: GamingAiAnalysisMode): void {
+  const state = gamingAiInlineState[mode]
+  if (!state.requestKey) {
+    return
+  }
+  if (Object.keys(state.playerInsights).length === 0 && Object.keys(state.playerVerdicts).length === 0) {
+    return
+  }
+
+  completedSnapshots[mode][state.requestKey] = {
+    playerVerdicts: { ...state.playerVerdicts },
+    playerInsights: { ...state.playerInsights }
   }
 }

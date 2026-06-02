@@ -178,7 +178,9 @@ import {
   beginGamingAiInlineRun,
   clearGamingAiInlineMode,
   completeGamingAiInlineRun,
+  hasCompletedGamingAiInlineRun,
   isGamingAiInlineRunCurrent,
+  restoreCompletedGamingAiInlineRun,
   setGamingAiInlineError,
   setGamingAiInlineStreamState,
   upsertGamingAiInlineInsight,
@@ -462,7 +464,7 @@ function isGamingAiInlineModeBusy(mode: GamingAiAnalysisMode): boolean {
 }
 
 function canStartGamingAiInlineAnalysis(mode: GamingAiAnalysisMode): boolean {
-  return !isGamingAiInlineModeBusy(mode) && isGamingAiAnalysisReady({
+  return !isGamingAiInlineModeBusy(mode) && !hasCompletedGamingAiInlineAnalysis(mode) && isGamingAiAnalysisReady({
     mode,
     sessionData: sessionData.value
   })
@@ -530,10 +532,16 @@ function getGamingAiButtonText(mode: GamingAiAnalysisMode): string {
   if (isGamingAiInlineModeBusy(mode)) {
     return '分析中...'
   }
+  if (hasCompletedGamingAiInlineAnalysis(mode)) {
+    return '已分析'
+  }
   return mode === 'teammate' ? '队友成分' : '赛前分析'
 }
 
 function getGamingAiButtonTitle(mode: GamingAiAnalysisMode): string {
+  if (hasCompletedGamingAiInlineAnalysis(mode)) {
+    return '本局赛前分析已完成'
+  }
   if (canStartGamingAiInlineAnalysis(mode)) {
     return mode === 'teammate' ? '分析当前队友成分' : '分析当前对手阵容'
   }
@@ -548,9 +556,22 @@ function getGamingAiModePlayers(mode: GamingAiAnalysisMode): SessionSummoner[] {
 }
 
 function buildGamingAiInlineRequestKey(mode: GamingAiAnalysisMode): string {
-  const playerKeys = getGamingAiModePlayers(mode).map(getGamingAiPlayerCacheKey).join('|')
-  const requestKey = [mode, gamingAiQueueLabel.value, String(sessionData.value.queueId || 0), playerKeys].join('::')
+  const playerKeys = getGamingAiModePlayers(mode).map(getGamingAiPlayerCacheKey).sort().join('|')
+  const requestKey = [
+    mode,
+    buildGamingAiInlineSessionKey(),
+    gamingAiQueueLabel.value,
+    String(sessionData.value.queueId || 0),
+    playerKeys
+  ].join('::')
   return requestKey
+}
+
+function buildGamingAiInlineSessionKey(): string {
+  return normalizeKeyPart(sessionData.value.matchId) ||
+    normalizeKeyPart(sessionData.value.gameId) ||
+    normalizeKeyPart(sessionData.value.sessionKey) ||
+    'pending-session'
 }
 
 function buildPregameAutoAnalysisAttemptKey(mode: GamingAiAnalysisMode): string {
@@ -563,10 +584,9 @@ function buildPregameAutoAnalysisAttemptKey(mode: GamingAiAnalysisMode): string 
 }
 
 function getGamingAiPlayerCacheKey(player: SessionSummoner): string {
-  const gameName = player.summoner?.gameName?.trim()
-  const tagLine = player.summoner?.tagLine?.trim()
-  if (gameName) {
-    return `riot:${gameName}#${tagLine || ''}`
+  const puuid = player.summoner?.puuid?.trim()
+  if (puuid) {
+    return `puuid:${puuid}`
   }
 
   const summonerId = normalizeKeyPart(player.summoner?.summonerId)
@@ -574,12 +594,35 @@ function getGamingAiPlayerCacheKey(player: SessionSummoner): string {
     return `summoner:${summonerId}`
   }
 
-  const puuid = player.summoner?.puuid?.trim()
-  if (puuid) {
-    return `puuid:${puuid}`
+  const gameName = player.summoner?.gameName?.trim()
+  const tagLine = player.summoner?.tagLine?.trim()
+  if (gameName) {
+    return `riot:${gameName}#${tagLine || ''}`
   }
 
   return `slot:${player.championId || 0}:${player.selectedPosition || player.position || ''}`
+}
+
+function hasGamingAiInlineResultForRequest(mode: GamingAiAnalysisMode, requestKey: string): boolean {
+  const state = getGamingAiModeState(mode)
+  return state.requestKey === requestKey &&
+    (Object.keys(state.playerInsights).length > 0 || Object.keys(state.playerVerdicts).length > 0)
+}
+
+function hasCompletedGamingAiInlineResultForRequest(mode: GamingAiAnalysisMode, requestKey: string): boolean {
+  return getGamingAiModeState(mode).streamState === 'completed' && hasGamingAiInlineResultForRequest(mode, requestKey)
+}
+
+function hasCompletedGamingAiInlineAnalysis(mode: GamingAiAnalysisMode): boolean {
+  const requestKey = buildGamingAiInlineRequestKey(mode)
+  return hasCompletedGamingAiInlineResultForRequest(mode, requestKey) || hasCompletedGamingAiInlineRun(mode, requestKey)
+}
+
+function restoreCompletedGamingAiInlineAnalysis(mode: GamingAiAnalysisMode, requestKey: string): boolean {
+  if (hasCompletedGamingAiInlineResultForRequest(mode, requestKey)) {
+    return true
+  }
+  return restoreCompletedGamingAiInlineRun(mode, requestKey)
 }
 
 function isGamingAiInlineCacheAvailable(mode: GamingAiAnalysisMode): boolean {
@@ -602,17 +645,31 @@ function syncGamingAiInlineCacheWithSession() {
   const teammateRequestKey = buildGamingAiInlineRequestKey('teammate')
   const opponentRequestKey = buildGamingAiInlineRequestKey('opponent')
 
-  if (!isGamingAiInlineCacheAvailable('teammate') || gamingAiInlineState.teammate.requestKey !== teammateRequestKey) {
-    clearGamingAiInlineMode('teammate')
+  syncGamingAiInlineModeCache('teammate', teammateRequestKey)
+  syncGamingAiInlineModeCache('opponent', opponentRequestKey)
+}
+
+function syncGamingAiInlineModeCache(mode: GamingAiAnalysisMode, requestKey: string) {
+  if (!isGamingAiInlineCacheAvailable(mode)) {
+    clearGamingAiInlineMode(mode)
+    return
   }
 
-  if (!isGamingAiInlineCacheAvailable('opponent') || gamingAiInlineState.opponent.requestKey !== opponentRequestKey) {
-    clearGamingAiInlineMode('opponent')
+  if (gamingAiInlineState[mode].requestKey === requestKey) {
+    return
+  }
+
+  if (!restoreCompletedGamingAiInlineAnalysis(mode, requestKey)) {
+    clearGamingAiInlineMode(mode)
   }
 }
 
 async function startGamingAiInlineAnalysis(mode: GamingAiAnalysisMode) {
   if (isGamingAiInlineModeBusy(mode)) {
+    return
+  }
+  const requestKey = buildGamingAiInlineRequestKey(mode)
+  if (restoreCompletedGamingAiInlineAnalysis(mode, requestKey)) {
     return
   }
   if (!isGamingAiAnalysisReady({
@@ -622,7 +679,6 @@ async function startGamingAiInlineAnalysis(mode: GamingAiAnalysisMode) {
     return
   }
 
-  const requestKey = buildGamingAiInlineRequestKey(mode)
   const { controller, requestId } = beginGamingAiInlineRun(mode, requestKey)
   const players = mode === 'teammate' ? blueTeamPlayers.value : redTeamPlayers.value
   const snapshot = buildGamingAiInputSnapshot({
@@ -684,12 +740,6 @@ async function maybeStartPregameAutoAnalysis(mode: GamingAiAnalysisMode) {
     return
   }
   if (!canStartGamingAiInlineAnalysis(mode)) {
-    return
-  }
-
-  const requestKey = buildGamingAiInlineRequestKey(mode)
-  const state = getGamingAiModeState(mode)
-  if (state.requestKey === requestKey && (Object.keys(state.playerInsights).length > 0 || Object.keys(state.playerVerdicts).length > 0)) {
     return
   }
 

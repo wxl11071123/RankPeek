@@ -453,19 +453,27 @@ test('gaming AI analysis streams directly into persistent inline state', () => {
   assert.doesNotMatch(unmountBlock, /cancelGamingAi|clearGamingAiInline/)
 })
 
-test('gaming AI inline cache survives page unmounts and clears only when lineup state is unavailable or changes', () => {
+test('gaming AI inline cache survives page returns and restores completed one-run results', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
   const unmountBlock = source.match(/onUnmounted\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] || ''
 
+  assert.match(source, /hasCompletedGamingAiInlineRun/)
+  assert.match(source, /restoreCompletedGamingAiInlineRun/)
   assert.match(source, /function buildGamingAiInlineRequestKey\(mode: GamingAiAnalysisMode\): string/)
+  assert.match(source, /function buildGamingAiInlineSessionKey\(\): string/)
   assert.match(source, /function isGamingAiInlineCacheAvailable\(mode: GamingAiAnalysisMode\): boolean/)
   assert.match(source, /function syncGamingAiInlineCacheWithSession\(\)/)
+  assert.match(source, /function syncGamingAiInlineModeCache\(mode: GamingAiAnalysisMode, requestKey: string\)/)
+  assert.match(source, /function hasCompletedGamingAiInlineAnalysis\(mode: GamingAiAnalysisMode\): boolean/)
+  assert.match(source, /function restoreCompletedGamingAiInlineAnalysis\(mode: GamingAiAnalysisMode, requestKey: string\): boolean/)
   assert.match(source, /const teammateRequestKey = buildGamingAiInlineRequestKey\('teammate'\)/)
   assert.match(source, /const opponentRequestKey = buildGamingAiInlineRequestKey\('opponent'\)/)
-  assert.match(source, /if \(!isGamingAiInlineCacheAvailable\('teammate'\) \|\| gamingAiInlineState\.teammate\.requestKey !== teammateRequestKey\) \{/)
-  assert.match(source, /clearGamingAiInlineMode\('teammate'\)/)
-  assert.match(source, /if \(!isGamingAiInlineCacheAvailable\('opponent'\) \|\| gamingAiInlineState\.opponent\.requestKey !== opponentRequestKey\) \{/)
-  assert.match(source, /clearGamingAiInlineMode\('opponent'\)/)
+  assert.match(source, /syncGamingAiInlineModeCache\('teammate', teammateRequestKey\)/)
+  assert.match(source, /syncGamingAiInlineModeCache\('opponent', opponentRequestKey\)/)
+  assert.match(source, /if \(!restoreCompletedGamingAiInlineAnalysis\(mode, requestKey\)\) \{[\s\S]*clearGamingAiInlineMode\(mode\)/)
+  assert.match(source, /!hasCompletedGamingAiInlineAnalysis\(mode\) && isGamingAiAnalysisReady/)
+  assert.match(source, /if \(restoreCompletedGamingAiInlineAnalysis\(mode, requestKey\)\) \{[\s\S]*return/)
+  assert.match(source, /return '已分析'/)
   assert.match(source, /watch\(\s*\(\) => \[[\s\S]*buildGamingAiInlineRequestKey\('teammate'\)[\s\S]*buildGamingAiInlineRequestKey\('opponent'\)[\s\S]*\]\.join\('\|\|'\),[\s\S]*syncGamingAiInlineCacheWithSession\(\)[\s\S]*maybeStartPregameAutoAnalysis\('teammate'\)[\s\S]*maybeStartPregameAutoAnalysis\('opponent'\)[\s\S]*\{ immediate: true \}/)
   assert.doesNotMatch(unmountBlock, /clearGamingAiInlineMode|cancelGamingAiInlineRun/)
 })
@@ -484,10 +492,17 @@ test('gaming AI queue labels normalize ranked modes and exclude phase prefixes',
   assert.equal(isGamingAiAnalysisEnabledQueue({ queueId: 450, typeCn: '极地大乱斗' }), false)
 })
 
-test('gaming AI inline request source uses queue label without phase prefixes', () => {
+test('gaming AI inline request key uses stable per-game identity and queue label without phase prefixes', () => {
   const source = readFileSync(new URL('./GamingView.vue', import.meta.url), 'utf8')
+  const cacheKeyFunction = source.match(/function getGamingAiPlayerCacheKey\(player: SessionSummoner\): string \{[\s\S]*?\n\}/)?.[0] || ''
+  const puuidIndex = cacheKeyFunction.indexOf('const puuid')
+  const gameNameIndex = cacheKeyFunction.indexOf('const gameName')
 
   assert.match(source, /const gamingAiQueueLabel = computed\(\(\) => normalizeGamingQueueLabel\(sessionData\.value\)\)/)
-  assert.match(source, /const requestKey = \[mode, gamingAiQueueLabel\.value/)
+  assert.match(source, /const playerKeys = getGamingAiModePlayers\(mode\)\.map\(getGamingAiPlayerCacheKey\)\.sort\(\)\.join\('\|'\)/)
+  assert.match(source, /const requestKey = \[[\s\S]*mode,[\s\S]*buildGamingAiInlineSessionKey\(\),[\s\S]*gamingAiQueueLabel\.value/)
+  assert.match(source, /normalizeKeyPart\(sessionData\.value\.matchId\)[\s\S]*normalizeKeyPart\(sessionData\.value\.gameId\)[\s\S]*normalizeKeyPart\(sessionData\.value\.sessionKey\)/)
+  assert.doesNotMatch(source, /readNonEmptyString/)
+  assert.equal(puuidIndex > -1 && gameNameIndex > -1 && puuidIndex < gameNameIndex, true)
   assert.doesNotMatch(source, /大厅 ·|英雄选择 ·|游戏中 ·/)
 })
