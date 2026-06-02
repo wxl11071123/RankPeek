@@ -1,6 +1,7 @@
 server:
   port: 8080
   address: 127.0.0.1
+  shutdown: graceful
 
 spring:
   application:
@@ -15,17 +16,13 @@ spring:
     virtual:
       enabled: true
 
+  lifecycle:
+    timeout-per-shutdown-phase: 5s
+
 app:
   settings:
-    auto:
-      start-match-switch: false
-      start-match-delay: 0
-      accept-match-switch: false
-      accept-match-delay: 0
-      pick-champion-switch: false
-      ban-champion-switch: false
-      pick-champion-slice: []
-      ban-champion-slice: []
+    match:
+      default-queue-mode: 0
 logging:
   level:
     root: INFO

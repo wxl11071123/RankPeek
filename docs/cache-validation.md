@@ -1,0 +1,130 @@
+# 缓存链路人工验收指南
+
+本文档用于回归验收 RankPeek 的本地缓存链路、BP 阶段预热、缓存更新通知、Settings 缓存诊断面板和清理能力。
+
+## 1. 本地缓存链路说明
+
+RankPeek 的召唤师、段位、战绩和对局详情数据按以下优先级读取：
+
+1. **Caffeine 内存缓存**
+   - 命中时直接返回，避免重复请求本地数据库或 LCU。
+   - 适合短时间内重复查看同一玩家、同一局对局详情。
+
+2. **H2 本地数据库缓存**
+   - 内存缓存未命中时读取本地 H2。
+   - 保存可复用的召唤师、段位、战绩、对局详情、参与者和玩家对局索引数据。
+   - Settings 页的缓存状态面板读取的就是这部分数据库统计。
+   - Windows 正式版默认目录是 `%APPDATA%\RankPeek\cache`。
+   - 日常开发应使用 `scripts\dev-backend.bat` 启动后端；脚本会设置 `RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev`，避免 dev 后端反复读写正式版缓存。
+   - 只有在需要复现用户正式缓存问题时，才显式使用默认 `%APPDATA%\RankPeek` 数据目录启动。
+
+3. **LCU fallback**
+   - 内存和 H2 都没有可用数据，或显式 force refresh 时，才回退到 League Client Update API。
+   - LCU 成功返回后，数据会写回本地缓存，并在需要时更新内存缓存。
+   - LCU 不可用时，已有 H2 缓存应尽量保证主功能可继续显示历史数据。
+
+## 2. BP 阶段预热逻辑
+
+BP 阶段预热用于提前准备当前对局玩家的数据，减少 GamingView 展示等待时间：
+
+1. **进入 BP 后优先预热队友**
+   - 系统先拿到己方队友数据。
+   - 优先请求队友的召唤师、段位、战绩和标签分析依赖数据。
+   - 队友缓存更新完成后，会发布 cache update 事件。
+
+2. **进游戏后补齐对手**
+   - 部分模式或阶段下，对手信息可能在 BP 时不可见或不完整。
+   - 进入游戏后，系统再补充对手数据预热。
+   - 对手缓存更新完成后，同样会发布 cache update 事件。
+
+验收重点是：队友应先出现且尽快稳定，对手应在进入游戏后一段时间内逐步补齐，不应因为某个玩家预热失败阻塞整队展示。
+
+## 3. cache update 到 GamingView 静默刷新逻辑
+
+后端在玩家缓存更新完成后，通过 WebSocket topic 发布 cache update 事件。前端 `websocketClient` 订阅该事件，`GamingView` 做以下处理：
+
+1. 只处理 `PLAYER_CACHE_UPDATED` 类型事件。
+2. 只在事件中的 `puuid` 属于当前 GamingView 队伍玩家时刷新。
+3. 刷新使用静默模式，不切换页面上的 loading 状态，避免和 5 秒轮询造成按钮闪烁。
+4. cache update 刷新有节流逻辑，短时间内多次事件会合并或延迟处理。
+5. 若已有一次会话刷新正在进行，新的刷新请求会直接跳过，避免和 5 秒轮询重叠请求。
+
+验收重点是：缓存更新后卡片数据能自动变新，但刷新按钮不应频繁进入“刷新中”状态。
+
+## 4. Settings 页缓存状态和清理按钮说明
+
+Settings 页新增“本地缓存”区域，用于查看和维护缓存：
+
+- **刷新状态**
+  - 调用 `GET /api/v1/cache/status`。
+  - 返回 `enabled`、`health`、`lastError`、`lastRecoveryDirectory`、`databaseExists`、`lockFileExists`、`databaseSizeBytes`、`summonerCount`、`rankCount`、`matchCount`、`gameDetailCount`、`participantCount`、`trackedPlayerCount`、`latestMatchCreation`。
+  - `health=LOCKED` 通常表示另一个后端或打包版正在占用 H2，不应直接搬库。
+  - `health=RECOVERED` 表示启动、状态读取或 repository 层检测到可恢复 H2 损坏后，已将 `rankpeek-cache.*` 文件隔离并重建 schema。
+
+- **清理内存缓存**
+  - 调用 `POST /api/v1/cache/clear?scope=memory&confirm=true`。
+  - 只清理 Caffeine 等内存缓存，不删除 H2 数据。
+
+- **清理本地数据库缓存**
+  - 调用 `POST /api/v1/cache/clear?scope=localDb&confirm=true`。
+  - 删除 H2 中缓存表数据，不主动清理内存缓存。
+
+- **清理全部缓存**
+  - 调用 `POST /api/v1/cache/clear?scope=all&confirm=true`。
+  - 同时清理内存缓存和 H2 本地数据库缓存。
+
+- **手动修复本地 H2 缓存**
+  - 调用 `POST /api/v1/cache/repair?confirm=true`。
+  - 仅在识别为 H2/MVStore 可恢复损坏时隔离 `rankpeek-cache.*` 文件，并重新初始化 schema。
+  - 不会移动 `user-store` 等用户数据文件。
+  - 如果返回 `health=LOCKED`，先退出其他 RankPeek/Java 后端进程，再重试。
+
+所有清理按钮点击后都必须先出现浏览器确认框。用户取消时不应调用后端清理接口。
+
+## 5. 手动验收步骤
+
+1. 关闭所有 RankPeek/Java 后端进程。
+2. 使用开发数据目录启动后端：
+   ```powershell
+   .\scripts\dev-backend.bat
+   ```
+   确认日志中的 `localDataRoot` 指向 `%LOCALAPPDATA%\RankPeek-dev`，不是 `%APPDATA%\RankPeek`。
+3. 启动前端，确认客户端已连接 LCU。
+4. 打开 Settings 页，进入“本地缓存”区域。
+5. 点击“刷新状态”，确认状态接口成功返回，面板字段正常展示。
+6. 查询一个召唤师或进入 GamingView，让应用触发一次玩家数据加载。
+7. 回到 Settings 页点击“刷新状态”，确认相关计数有增长，例如 `summonerCount`、`rankCount`、`matchCount`。
+8. 进入 BP 阶段，观察队友卡片是否先加载并逐步补齐。
+9. 进入游戏后，观察对手卡片是否继续补齐。
+10. 在预热发生时观察 GamingView：玩家数据应自动刷新，刷新按钮不应频繁闪烁。
+11. 在 Settings 页点击“清理内存缓存”，确认弹出确认框；确认后刷新状态，H2 计数应保持不变。
+12. 点击“清理本地数据库缓存”，确认后刷新状态，H2 计数应归零或明显减少。
+13. 再次查询召唤师或进入对局，确认数据能从 LCU 重新拉取并重新写入缓存。
+14. 点击“清理全部缓存”，确认后再次复测一次查询链路。
+15. 如需复现用户正式缓存问题，停止 dev 后端，显式使用默认 `%APPDATA%\RankPeek` 数据目录启动；如果已有坏库，日志应显示 quarantine 目录和移动文件列表，接口应返回 `health=RECOVERED` 或明确的 `LOCKED/ERROR`。
+16. 打包版退出时检查 Electron `rankpeek.log`，应能看到 shutdown 请求、backend stdout/stderr 以及 backend 正常退出；超时才会出现 fallback kill。
+
+## 6. 常见问题排查
+
+### 数据库无数据
+
+- 确认已经执行过召唤师查询、GamingView 预热或战绩加载。
+- 点击 Settings 页“刷新状态”，查看 `enabled` 是否为 `true`。
+- 若 `enabled=false`，优先检查后端日志中 H2 初始化、表结构或数据库路径相关错误。
+- 若 `health=LOCKED`，通常是另一个后端或打包版仍在运行，先关闭占用进程，不要直接隔离数据库。
+- 若 `health=CORRUPT` 或 `ERROR`，可使用 `POST /api/v1/cache/repair?confirm=true` 手动修复；修复只会移动 `rankpeek-cache.*` 文件。
+- 若只有内存缓存命中，H2 计数可能暂时不增长；可清理内存缓存后重新查询一次。
+
+### LCU 未连接
+
+- Settings 状态接口仍应可访问，但新数据无法从 LCU 拉取。
+- 已有 H2 缓存的数据应尽量继续显示。
+- 检查英雄联盟客户端是否已启动，并确认后端日志中 LCU 认证端口、连接状态是否正常。
+- 重新连接 LCU 后，回到页面手动刷新或等待 5 秒轮询。
+
+### 清理后如何复测
+
+- 清理内存缓存后，直接回到已查过的页面刷新；如果 H2 仍有数据，页面应能较快恢复。
+- 清理本地数据库缓存后，Settings 状态计数应归零或明显减少；再次查询玩家应触发 LCU fallback。
+- 清理全部缓存后，第一次查询会比缓存命中慢；成功后再次刷新 Settings 状态，计数应重新增长。
+- 若清理接口返回 `cleared=false`，检查请求是否使用 POST 且带有 `confirm=true`。

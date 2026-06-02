@@ -65,9 +65,25 @@ public class SummonerController {
     public ApiResponse<List<MatchHistory>> getMatchHistory(
             @PathVariable String puuid,
             @RequestParam(defaultValue = "0") int begIndex,
-            @RequestParam(defaultValue = "9") int endIndex) {
-        List<MatchHistory> matches = matchHistoryService.getMatchHistory(puuid, begIndex, endIndex);
+            @RequestParam(defaultValue = "9") int endIndex,
+            @RequestParam(required = false) String source,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        List<MatchHistory> matches = matchHistoryService.getMatchHistory(puuid, begIndex, endIndex, forceRefresh, source);
         // 填充中文游戏模式名称
+        for (MatchHistory match : matches) {
+            if (match.getQueueId() != null) {
+                match.setQueueName(QueueType.getQueueNameCn(match.getQueueId()));
+            }
+        }
+        return ApiResponse.success(matches);
+    }
+
+    public ApiResponse<List<MatchHistory>> getMatchHistory(
+            String puuid,
+            int begIndex,
+            int endIndex,
+            boolean forceRefresh) {
+        List<MatchHistory> matches = matchHistoryService.getMatchHistory(puuid, begIndex, endIndex, forceRefresh);
         for (MatchHistory match : matches) {
             if (match.getQueueId() != null) {
                 match.setQueueName(QueueType.getQueueNameCn(match.getQueueId()));
@@ -92,9 +108,45 @@ public class SummonerController {
             @RequestParam(defaultValue = "49") int endIndex,
             @RequestParam(required = false) Integer queueId,
             @RequestParam(required = false) Integer championId,
-            @RequestParam(defaultValue = "10") int maxResults) {
-        List<MatchHistory> matches = matchHistoryService.getFilteredMatchHistory(puuid, begIndex, endIndex, queueId, championId, maxResults);
+            @RequestParam(defaultValue = "10") int maxResults,
+            @RequestParam(required = false) String source,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        List<MatchHistory> matches = matchHistoryService.getFilteredMatchHistory(
+                puuid,
+                begIndex,
+                endIndex,
+                queueId,
+                championId,
+                maxResults,
+                forceRefresh,
+                source
+        );
         // 填充中文游戏模式名称
+        for (MatchHistory match : matches) {
+            if (match.getQueueId() != null) {
+                match.setQueueName(QueueType.getQueueNameCn(match.getQueueId()));
+            }
+        }
+        return ApiResponse.success(matches);
+    }
+
+    public ApiResponse<List<MatchHistory>> getFilteredMatchHistory(
+            String puuid,
+            int begIndex,
+            int endIndex,
+            Integer queueId,
+            Integer championId,
+            int maxResults,
+            boolean forceRefresh) {
+        List<MatchHistory> matches = matchHistoryService.getFilteredMatchHistory(
+                puuid,
+                begIndex,
+                endIndex,
+                queueId,
+                championId,
+                maxResults,
+                forceRefresh
+        );
         for (MatchHistory match : matches) {
             if (match.getQueueId() != null) {
                 match.setQueueName(QueueType.getQueueNameCn(match.getQueueId()));
@@ -108,6 +160,34 @@ public class SummonerController {
      * @param name 召唤师名称
      * @return 服务器中文名
      */
+    @GetMapping("/matches-page/{puuid}")
+    public ApiResponse<MatchHistoryPageResponse> getMatchHistoryPage(
+            @PathVariable String puuid,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) Integer queueId,
+            @RequestParam(required = false) Integer championId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        String requestedSource = source == null || source.isBlank() ? "auto" : source;
+        MatchHistoryPageResponse response = matchHistoryService.getMatchHistoryPage(
+                puuid,
+                page,
+                pageSize,
+                requestedSource,
+                queueId,
+                championId,
+                forceRefresh,
+                null
+        );
+        for (MatchHistory match : response.getMatches()) {
+            if (match.getQueueId() != null) {
+                match.setQueueName(QueueType.getQueueNameCn(match.getQueueId()));
+            }
+        }
+        return ApiResponse.success(response);
+    }
+
     @GetMapping("/platform/{name}")
     public ApiResponse<String> getPlatformName(@PathVariable String name) {
         return ApiResponse.success(summonerService.getPlatformName(name));
@@ -122,8 +202,9 @@ public class SummonerController {
     @GetMapping("/win-rate/{puuid}")
     public ApiResponse<WinRate> getWinRate(
             @PathVariable String puuid,
-            @RequestParam(required = false) Integer mode) {
-        return ApiResponse.success(matchHistoryService.getWinRate(puuid, mode));
+            @RequestParam(required = false) Integer mode,
+            @RequestParam(required = false) String source) {
+        return ApiResponse.success(matchHistoryService.getWinRate(puuid, mode, source));
     }
 
     /**
@@ -132,8 +213,10 @@ public class SummonerController {
      * @return 包含单排和灵活组排的胜率统计
      */
     @GetMapping("/ranked-win-rates/{puuid}")
-    public ApiResponse<Map<String, WinRate>> getRankedWinRates(@PathVariable String puuid) {
-        return ApiResponse.success(matchHistoryService.getRankedWinRates(puuid));
+    public ApiResponse<Map<String, WinRate>> getRankedWinRates(
+            @PathVariable String puuid,
+            @RequestParam(required = false) String source) {
+        return ApiResponse.success(matchHistoryService.getRankedWinRates(puuid, source));
     }
 
     /**
@@ -142,8 +225,23 @@ public class SummonerController {
      * @return 对局详情
      */
     @GetMapping("/game-detail/{gameId}")
-    public ApiResponse<GameDetail> getGameDetail(@PathVariable Long gameId) {
-        return ApiResponse.success(matchHistoryService.getGameDetailById(gameId));
+    public ApiResponse<GameDetail> getGameDetail(
+            @PathVariable Long gameId,
+            @RequestParam(required = false) String source,
+            @RequestParam(defaultValue = "false") boolean sgpOnly) {
+        return ApiResponse.success(matchHistoryService.getGameDetailById(gameId, source, sgpOnly));
+    }
+
+    /**
+     * 鑾峰彇鍗曞眬鏃堕棿绾?
+     * @param gameId 瀵瑰眬 ID
+     * @return 瀵瑰眬鏃堕棿绾挎姄鍙栫粨鏋?
+     */
+    @GetMapping("/game-timeline/{gameId}")
+    public ApiResponse<MatchTimelineFetchResult> getGameTimeline(
+            @PathVariable Long gameId,
+            @RequestParam(required = false) String source) {
+        return ApiResponse.success(matchHistoryService.getGameTimelineById(gameId, source));
     }
 
     /**

@@ -1,15 +1,18 @@
 package io.rankpeek.service;
 
+import io.rankpeek.cache.MatchHistoryCacheRepository;
 import io.rankpeek.exception.LcuException;
 import io.rankpeek.exception.ResourceNotFoundException;
 import io.rankpeek.model.Summoner;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -18,12 +21,27 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SummonerService {
 
     private final LcuHttpClient lcuHttpClient;
+    private final MatchHistoryCacheRepository cacheRepository;
 
     private Cache<String, Summoner> summonerCache;
+
+    @Autowired
+    public SummonerService(LcuHttpClient lcuHttpClient,
+                           ObjectProvider<MatchHistoryCacheRepository> cacheRepositoryProvider) {
+        this(lcuHttpClient, cacheRepositoryProvider.getIfAvailable());
+    }
+
+    public SummonerService(LcuHttpClient lcuHttpClient) {
+        this(lcuHttpClient, (MatchHistoryCacheRepository) null);
+    }
+
+    public SummonerService(LcuHttpClient lcuHttpClient, MatchHistoryCacheRepository cacheRepository) {
+        this.lcuHttpClient = lcuHttpClient;
+        this.cacheRepository = cacheRepository;
+    }
 
     @PostConstruct
     public void init() {
@@ -42,6 +60,7 @@ public class SummonerService {
             Summoner summoner = lcuHttpClient.get("lol-summoner/v1/current-summoner", Summoner.class);
             if (summoner != null && summoner.getPuuid() != null) {
                 summonerCache.put(summoner.getPuuid(), summoner);
+                saveSummonerToLocalCache(summoner);
             }
             return summoner;
         } catch (Exception e) {
@@ -53,6 +72,17 @@ public class SummonerService {
      * 根据 PUUID 获取召唤师信息
      */
     public Summoner getSummonerByPuuid(String puuid) {
+        Summoner memorySummoner = summonerCache.getIfPresent(puuid);
+        if (memorySummoner != null) {
+            return memorySummoner;
+        }
+
+        Optional<Summoner> databaseSummoner = findCachedSummonerByPuuid(puuid);
+        if (databaseSummoner.isPresent()) {
+            summonerCache.put(puuid, databaseSummoner.get());
+            return databaseSummoner.get();
+        }
+
         try {
             return summonerCache.get(puuid, key -> {
                 String uri = String.format("lol-summoner/v2/summoners/puuid/%s", puuid);
@@ -60,11 +90,17 @@ public class SummonerService {
                 if (summoner == null) {
                     throw new ResourceNotFoundException("召唤师", puuid);
                 }
+                saveSummonerToLocalCache(summoner);
                 return summoner;
             });
         } catch (ResourceNotFoundException e) {
             throw e;
         } catch (Exception e) {
+            Optional<Summoner> fallback = findCachedSummonerByPuuid(puuid);
+            if (fallback.isPresent()) {
+                summonerCache.put(puuid, fallback.get());
+                return fallback.get();
+            }
             throw new LcuException("获取召唤师信息失败：" + puuid, e);
         }
     }
@@ -73,11 +109,29 @@ public class SummonerService {
      * 根据名称获取召唤师信息
      */
     public Summoner getSummonerByName(String name) {
+        Summoner memorySummoner = summonerCache.getIfPresent(name);
+        if (memorySummoner != null) {
+            return memorySummoner;
+        }
+
+        ParsedSummonerName parsedName = parseSummonerName(name);
+        Optional<Summoner> databaseSummoner = findCachedSummonerByName(parsedName);
+        if (databaseSummoner.isPresent()) {
+            cacheSummonerAliases(name, databaseSummoner.get());
+            return databaseSummoner.get();
+        }
+
         try {
             return summonerCache.get(name, key -> {
                 String encodedName = java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8);
                 String uri = String.format("lol-summoner/v1/summoners/?name=%s", encodedName);
                 Summoner summoner = lcuHttpClient.get(uri, Summoner.class);
+                if (summoner != null) {
+                    if (summoner.getPuuid() != null) {
+                        summonerCache.put(summoner.getPuuid(), summoner);
+                    }
+                    saveSummonerToLocalCache(summoner);
+                }
                 if (summoner == null) {
                     throw new ResourceNotFoundException("召唤师", name);
                 }
@@ -86,8 +140,58 @@ public class SummonerService {
         } catch (ResourceNotFoundException e) {
             throw e;
         } catch (Exception e) {
+            Optional<Summoner> fallback = findCachedSummonerByName(parsedName);
+            if (fallback.isPresent()) {
+                cacheSummonerAliases(name, fallback.get());
+                return fallback.get();
+            }
             throw new LcuException("获取召唤师信息失败：" + name, e);
         }
+    }
+
+    /**
+     * Local cache helpers.
+     */
+    private Optional<Summoner> findCachedSummonerByPuuid(String puuid) {
+        if (cacheRepository == null) {
+            return Optional.empty();
+        }
+        return cacheRepository.findSummonerByPuuid(puuid);
+    }
+
+    private Optional<Summoner> findCachedSummonerByName(ParsedSummonerName name) {
+        if (cacheRepository == null) {
+            return Optional.empty();
+        }
+        return cacheRepository.findSummonerByName(name.gameName(), name.tagLine());
+    }
+
+    private void saveSummonerToLocalCache(Summoner summoner) {
+        if (cacheRepository != null) {
+            cacheRepository.saveSummoner(summoner);
+        }
+    }
+
+    private void cacheSummonerAliases(String requestedName, Summoner summoner) {
+        summonerCache.put(requestedName, summoner);
+        if (summoner.getPuuid() != null) {
+            summonerCache.put(summoner.getPuuid(), summoner);
+        }
+    }
+
+    private ParsedSummonerName parseSummonerName(String name) {
+        if (name == null) {
+            return new ParsedSummonerName("", null);
+        }
+        String trimmed = name.trim();
+        int separator = trimmed.lastIndexOf('#');
+        if (separator > 0 && separator < trimmed.length() - 1) {
+            return new ParsedSummonerName(trimmed.substring(0, separator), trimmed.substring(separator + 1));
+        }
+        return new ParsedSummonerName(trimmed, null);
+    }
+
+    private record ParsedSummonerName(String gameName, String tagLine) {
     }
 
     /**

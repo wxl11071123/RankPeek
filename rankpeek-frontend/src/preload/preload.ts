@@ -1,11 +1,26 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type {
+  DatabaseResult,
+  LocalDatabaseAPI,
+  MatchDetail,
+  MatchDetailInput,
+  MatchRecord,
+  MatchRecordInput,
+  MatchRecordListOptions,
+  LocalStorageHealthStats,
+  LocalStorageRetentionResult,
+  SummonerAccount,
+  SummonerAccountInput
+} from '../renderer/types/localDatabase'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  openOpggWindow: (query?: unknown) => ipcRenderer.invoke('opgg:openWindow', query),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<{ success: boolean; error?: string }>,
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  clearChromiumCache: () => ipcRenderer.invoke('app:clearChromiumCache'),
   platform: process.platform,
   onBackendReady: (callback: () => void) => {
     ipcRenderer.on('backend:ready', callback)
@@ -15,5 +30,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event: Electron.IpcRendererEvent, path: string) => callback(path)
     ipcRenderer.on('tray:navigate', listener)
     return () => ipcRenderer.removeListener('tray:navigate', listener)
+  },
+  onOpggInitialQuery: (callback: (query: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, query: unknown) => callback(query)
+    ipcRenderer.on('opgg:initialQuery', listener)
+    return () => ipcRenderer.removeListener('opgg:initialQuery', listener)
+  },
+  database: {
+    upsertAccount: (account: SummonerAccountInput) => (
+      ipcRenderer.invoke('db:account:upsert', account) as Promise<DatabaseResult<SummonerAccount>>
+    ),
+    listAccounts: () => (
+      ipcRenderer.invoke('db:account:list') as Promise<DatabaseResult<SummonerAccount[]>>
+    ),
+    getLastSelectedAccount: () => (
+      ipcRenderer.invoke('db:account:getLastSelected') as Promise<DatabaseResult<SummonerAccount | null>>
+    ),
+    setLastSelectedAccount: (region: string, puuid: string) => (
+      ipcRenderer.invoke('db:account:setLastSelected', { region, puuid }) as Promise<DatabaseResult<SummonerAccount>>
+    ),
+    upsertMatchRecords: (records: MatchRecordInput[]) => (
+      ipcRenderer.invoke('db:match:upsertRecords', records) as Promise<DatabaseResult<MatchRecord[]>>
+    ),
+    listMatchRecordsByAccount: (accountPuuid: string, options?: MatchRecordListOptions) => (
+      ipcRenderer.invoke('db:match:listByAccount', { accountPuuid, options }) as Promise<DatabaseResult<MatchRecord[]>>
+    ),
+    getMatchDetail: (region: string, matchId: string) => (
+      ipcRenderer.invoke('db:match:getDetail', { region, matchId }) as Promise<DatabaseResult<MatchDetail | null>>
+    ),
+    upsertMatchDetail: (detail: MatchDetailInput) => (
+      ipcRenderer.invoke('db:match:upsertDetail', detail) as Promise<DatabaseResult<MatchDetail>>
+    ),
+    runStorageRetention: () => (
+      ipcRenderer.invoke('db:storage:runRetention') as Promise<DatabaseResult<LocalStorageRetentionResult>>
+    ),
+    getStorageHealthStats: () => (
+      ipcRenderer.invoke('db:storage:getHealthStats') as Promise<DatabaseResult<LocalStorageHealthStats>>
+    )
   }
-})
+} satisfies { database: LocalDatabaseAPI } & Record<string, unknown>)

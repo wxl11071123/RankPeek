@@ -61,12 +61,13 @@ export interface QueueInfo {
   queueType: string
   tier: string
   displayRank?: string
-  totalGames?: number
+  totalGames?: number | null
+  games?: number | null
   tierCn?: string
   division: string
   leaguePoints: number
   wins: number
-  losses: number
+  losses?: number | null
   highestTier: string
   highestDivision: string
   isProvisional: boolean
@@ -82,8 +83,22 @@ export interface MatchHistory {
   gameDuration: number
   gameCreation: number
   platformId: string
+  remake?: boolean
   participants: Participant[]
   participantIdentities: ParticipantIdentity[]
+  teamObjectives?: TeamObjectiveSummary[]
+  teamBans?: TeamBanSummary[]
+}
+
+export interface MatchHistoryPageResponse {
+  matches: MatchHistory[]
+  page: number
+  pageSize: number
+  hasNext: boolean
+  source: string
+  recordStatus: RecordStatus
+  sgpServerId?: string
+  warnings?: string[]
 }
 
 export interface Participant {
@@ -92,6 +107,11 @@ export interface Participant {
   championId: number
   spell1Id: number
   spell2Id: number
+  teamPosition?: string
+  individualPosition?: string
+  selectedPosition?: string
+  lane?: string
+  role?: string
   stats: Stats
 }
 
@@ -106,6 +126,7 @@ export interface Stats {
   totalDamageDealtToChampions: number
   totalDamageTaken: number
   totalHeal: number
+  visionScore?: number
   // 装备
   item0: number
   item1: number
@@ -120,17 +141,40 @@ export interface Stats {
   healRate?: number
   // MVP/SVP
   mvp?: string
+  doubleKills?: number
+  tripleKills?: number
+  quadraKills?: number
+  pentaKills?: number
+  largestKillingSpree?: number
+  legendaryCount?: number
   // 符文
   perk0?: number
+  perk1?: number
+  perk2?: number
+  perk3?: number
+  perk4?: number
+  perk5?: number
+  perkPrimaryStyle?: number
+  perkSubStyle?: number
+  perks?: Record<string, unknown>
   // 补兵（别名）
   minionsKilled?: number
   // 对塔伤害
   damageDealtToTurrets?: number
+  turretKills?: number
+  inhibitorKills?: number
+  turretPlatesTaken?: number
+  turretTakedowns?: number
+  inhibitorTakedowns?: number
   // 海克斯强化
   playerAugment1?: number
   playerAugment2?: number
   playerAugment3?: number
   playerAugment4?: number
+  playerAugment5?: number
+  playerAugment6?: number
+  challenges?: Record<string, unknown>
+  extraFields?: Record<string, unknown>
 }
 
 export interface ParticipantIdentity {
@@ -153,6 +197,82 @@ export interface GameState {
   connected: boolean
   phase: string
   summoner: Summoner | null
+  timestamp: number
+}
+
+export interface CacheUpdateEvent {
+  type: 'PLAYER_CACHE_UPDATED'
+  puuid: string
+  reason?: string
+  updatedScopes?: string[]
+  timestamp?: number
+}
+
+export interface CacheStatus {
+  enabled: boolean
+  health?: 'OK' | 'DISABLED' | 'RECOVERED' | 'CORRUPT' | 'LOCKED' | 'ERROR'
+  databasePath: string
+  databaseSizeBytes: number
+  lastError?: string | null
+  lastRecoveryDirectory?: string | null
+  databaseExists?: boolean
+  lockFileExists?: boolean
+  summonerCount: number
+  rankCount: number
+  matchCount: number
+  gameDetailCount: number
+  participantCount: number
+  playerMatchIndexCount: number
+  trackedPlayerCount: number
+  latestMatchCreation: number | null
+  orphanMatchCount?: number
+  orphanGameDetailCount?: number
+  orphanParticipantCount?: number
+  orphanDataScopeCount?: number
+  quarantineCount?: number
+  traceFileCount?: number
+  corruptFileCount?: number
+}
+
+export interface UserStoreStatus {
+  enabled: boolean
+  path: string
+  sizeBytes: number
+  updatedAt: number | null
+  tagConfigCount: number
+}
+
+export type CacheClearScope = 'all' | 'memory' | 'localDb'
+export type CacheClearMode = 'normal' | 'deep'
+
+export interface CacheClearFailure {
+  name: string
+  message: string
+}
+
+export interface CacheClearResult {
+  success: boolean
+  scope: CacheClearScope
+  mode?: CacheClearMode
+  message: string
+  cleared: string[]
+  failed: CacheClearFailure[]
+  deletedRows: number
+  databaseSizeBeforeBytes?: number
+  databaseSizeAfterBytes?: number
+  compacted?: boolean
+  retentionDeletedRows?: number
+  timestamp: number
+}
+
+export interface CacheRepairResult {
+  success: boolean
+  repaired: boolean
+  health: CacheStatus['health']
+  message: string
+  quarantineDirectory?: string | null
+  movedFiles: string[]
+  lastError?: string | null
   timestamp: number
 }
 
@@ -179,27 +299,9 @@ export interface LobbyMember {
   teamId: number
 }
 
-// 自动化任务状态
-export interface AutomationStatus {
-  auto_match: boolean
-  auto_accept: boolean
-  auto_pick: boolean
-  auto_ban: boolean
-}
-
 // 配置
 export interface AppConfig {
   settings: {
-    auto: {
-      startMatchSwitch: boolean
-      startMatchDelay: number
-      acceptMatchSwitch: boolean
-      acceptMatchDelay: number
-      pickChampionSwitch: boolean
-      banChampionSwitch: boolean
-      pickChampionSlice: number[]
-      banChampionSlice: number[]
-    }
     match: {
       defaultQueueMode: number
     }
@@ -212,6 +314,7 @@ export type RecordStatus = 'NORMAL' | 'PRIVATE' | 'EMPTY' | 'ERROR'
 export interface UserTag {
   recordStatus: RecordStatus
   recentData: RecentData
+  championRecentData?: RecentData | null
   tag: RankTag[]
 }
 
@@ -240,9 +343,9 @@ export interface RecentData {
 }
 
 export interface RankTag {
-  good: boolean | null
+  good?: boolean | null
   tagName: string
-  tagDesc: string
+  tagDesc?: string
 }
 
 export interface FriendAndDispute {
@@ -302,138 +405,108 @@ export interface AssetDetails {
   extra?: unknown
 }
 
-// ========== 标签配置系统 ==========
-
-// 标签配置
-export interface TagConfig {
-  id: string
-  name: string
-  desc: string
-  good: boolean | null
-  enabled: boolean
-  isDefault: boolean
-  condition: TagCondition
-}
-
-// 条件树节点
-export type TagCondition =
-  | AndCondition
-  | OrCondition
-  | NotCondition
-  | HistoryCondition
-  | CurrentQueueCondition
-  | CurrentChampionCondition
-
-export interface AndCondition {
-  type: 'and'
-  conditions: TagCondition[]
-}
-
-export interface OrCondition {
-  type: 'or'
-  conditions: TagCondition[]
-}
-
-export interface NotCondition {
-  type: 'not'
-  condition: TagCondition
-}
-
-export interface HistoryCondition {
-  type: 'history'
-  filters: MatchFilter[]
-  refresh: MatchRefresh
-}
-
-export interface CurrentQueueCondition {
-  type: 'currentQueue'
-  ids: number[]
-}
-
-export interface CurrentChampionCondition {
-  type: 'currentChampion'
-  ids: number[]
-}
-
-// 过滤器
-export type MatchFilter =
-  | QueueFilter
-  | ChampionFilter
-  | StatFilter
-
-export interface QueueFilter {
-  type: 'queue'
-  ids: number[]
-}
-
-export interface ChampionFilter {
-  type: 'champion'
-  ids: number[]
-}
-
-export interface StatFilter {
-  type: 'stat'
-  metric: string
-  op: Operator
-  value: number
-}
-
-// 刷新器
-export type MatchRefresh =
-  | CountRefresh
-  | AverageRefresh
-  | SumRefresh
-  | MaxRefresh
-  | MinRefresh
-  | StreakRefresh
-
-export interface CountRefresh {
-  type: 'count'
-  op: Operator
-  value: number
-}
-
-export interface AverageRefresh {
-  type: 'average'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface SumRefresh {
-  type: 'sum'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface MaxRefresh {
-  type: 'max'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface MinRefresh {
-  type: 'min'
-  metric: string
-  op: Operator
-  value: number
-}
-
-export interface StreakRefresh {
-  type: 'streak'
-  min: number
-  kind: StreakType
-}
-
-// 运算符
-export type Operator = '>' | '>=' | '<' | '<=' | '==' | '!='
-
-// 连胜/连败类型
-export type StreakType = 'WIN' | 'LOSS'
-
 // ========== 对局详情 ==========
+
+export type DragonType = 'infernal' | 'mountain' | 'ocean' | 'cloud' | 'hextech' | 'chemtech' | 'unknown'
+export type ObjectiveEventKind =
+  | 'turret'
+  | 'turretPlate'
+  | 'inhibitor'
+  | 'baron'
+  | 'dragon'
+  | 'elderDragon'
+  | 'herald'
+  | 'voidGrub'
+
+export interface TeamBanSummary {
+  teamId: number
+  bans: number[]
+}
+
+export interface TeamObjectiveEvent {
+  kind: ObjectiveEventKind
+  subType?: DragonType | string | null
+  teamId?: number | null
+  participantId?: number | null
+  championId?: number | null
+  timestamp?: number | null
+}
+
+export interface TeamObjectiveSummary {
+  teamId: number
+  bans?: number[]
+  turretKills?: number
+  turretPlateKills?: number
+  turretPlatesTaken?: number
+  inhibitorKills?: number
+  baronKills?: number
+  dragonKills?: number
+  elderDragonKills?: number
+  dragonKillsByType?: Partial<Record<DragonType, number>>
+  heraldKills?: number
+  voidGrubKills?: number
+  dragonSoulType?: DragonType | null
+  objectiveEvents?: TeamObjectiveEvent[]
+}
+
+// ========== 瀵瑰眬鏃堕棿绾? ==========
+
+export type MatchTimelineFetchStatus = 'FETCHED' | 'EMPTY' | 'UNAVAILABLE' | 'FAILED' | string
+
+export interface MatchTimeline {
+  gameId?: number | null
+  events?: TimelineEvent[]
+  frames?: TimelineFrame[]
+}
+
+export interface TimelineFrame {
+  timestamp?: number | null
+  participantFrames?: Record<string, ParticipantFrame>
+  events?: TimelineEvent[]
+  rawFrameJson?: string
+}
+
+export interface ParticipantFrame {
+  participantId?: number | null
+  currentGold?: number | null
+  totalGold?: number | null
+  level?: number | null
+  xp?: number | null
+  minionsKilled?: number | null
+  jungleMinionsKilled?: number | null
+  position?: TimelinePosition | null
+  rawParticipantFrameJson?: string
+}
+
+export interface TimelineEvent {
+  eventType?: string | null
+  timestamp?: number | null
+  participantId?: number | null
+  killerId?: number | null
+  victimId?: number | null
+  assistingParticipantIds?: number[]
+  position?: TimelinePosition | null
+  itemId?: number | null
+  buildingType?: string | null
+  towerType?: string | null
+  monsterType?: string | null
+  teamId?: number | null
+  rawEventJson?: string
+}
+
+export interface TimelinePosition {
+  x?: number | null
+  y?: number | null
+}
+
+export interface MatchTimelineFetchResult {
+  gameId?: number | null
+  timeline?: MatchTimeline | null
+  rawDetailJson?: string | null
+  rawTimelineJson?: string | null
+  status?: MatchTimelineFetchStatus | null
+  lastError?: string | null
+}
 
 // 对局详情
 export interface GameDetail {
@@ -446,6 +519,8 @@ export interface GameDetail {
   gameCreation: number
   participantIdentities: GameParticipantIdentity[]
   participants: GameParticipant[]
+  teamObjectives?: TeamObjectiveSummary[]
+  teamBans?: TeamBanSummary[]
 }
 
 export interface GameParticipantIdentity {
@@ -469,6 +544,9 @@ export interface GameParticipant {
   championId: number
   spell1Id: number
   spell2Id: number
+  teamPosition?: string
+  individualPosition?: string
+  selectedPosition?: string
   stats: GameStats
   timeline: GameTimeline
 }
@@ -481,17 +559,28 @@ export interface GameStats {
   totalMinionsKilled: number
   neutralMinionsKilled: number
   goldEarned: number
+  goldSpent?: number
   totalDamageDealtToChampions: number
+  magicDamageDealtToChampions?: number
+  physicalDamageDealtToChampions?: number
+  trueDamageDealtToChampions?: number
   totalDamageTaken: number
   totalHeal: number
+  visionScore?: number
+  detectorWardsPlaced?: number
   visionWardsBoughtInGame: number
   wardsPlaced: number
   wardsKilled: number
   largestMultiKill: number
+  perks?: Record<string, unknown>
+  challenges?: Record<string, unknown>
+  extraFields?: Record<string, unknown>
   doubleKills: number
   tripleKills: number
   quadraKills: number
   pentaKills: number
+  largestKillingSpree?: number
+  legendaryCount?: number
   // 符文
   perk0?: number
   perk1?: number
@@ -510,17 +599,33 @@ export interface GameStats {
   minionsKilled?: number
   // 对塔伤害
   damageDealtToTurrets?: number
+  turretKills?: number
+  inhibitorKills?: number
+  turretPlatesTaken?: number
+  turretTakedowns?: number
+  inhibitorTakedowns?: number
   // MVP/SVP
   mvp?: string
   // 伤害占比
   damageDealtToChampionsRate?: number
   damageTakenRate?: number
   healRate?: number
+  item0?: number
+  item1?: number
+  item2?: number
+  item3?: number
+  item4?: number
+  item5?: number
+  item6?: number
 }
 
 export interface GameTimeline {
   lane: string
   role: string
+  teamPosition?: string
+  positionCn?: string
+  rawLane?: string
+  rawRole?: string
 }
 
 // ========== 会话数据 ==========
@@ -535,9 +640,14 @@ export interface PreGroupMarker {
 export interface SessionSummoner {
   championId: number
   championKey: string
+  selectedPosition?: string
+  assignedPosition?: string
+  teamPosition?: string
+  individualPosition?: string
+  position?: string
   summoner: Summoner
   matchHistory: MatchHistory[]
-  userTag: UserTag
+  userTag?: UserTag | null
   rank: Rank
   meetGames: OneGamePlayer[]
   preGroupMarkers: PreGroupMarker
@@ -547,9 +657,28 @@ export interface SessionSummoner {
 // 会话数据
 export interface SessionData {
   phase: string
+  sessionKey?: string
+  gameId?: number | null
+  empty?: boolean
+  stale?: boolean
   queueType: string
   typeCn: string
   queueId: number
   teamOne: SessionSummoner[]
   teamTwo: SessionSummoner[]
+  source?: string
+  createdAt?: number
+  updatedAt?: number
+  simulatorPhase?: string
+  roundIndex?: number
+  matchId?: string
+  step?: number
+  currentSummoner?: Summoner
+  lobby?: Lobby | null
+  teammates?: SessionSummoner[]
+  opponents?: SessionSummoner[]
+  championSelect?: Record<string, unknown> | null
+  loadingScreen?: Record<string, unknown> | null
+  endOfGame?: Record<string, unknown> | null
+  matchSummary?: Record<string, unknown> | null
 }

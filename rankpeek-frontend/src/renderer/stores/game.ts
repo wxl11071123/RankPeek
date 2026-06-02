@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiClient } from '@/api/httpClient'
 import { wsClient } from '@/api/websocketClient'
+import { loadLcuGameAssetMetadataOverlay } from '@/utils/gameAssetUrls'
 import type { GameState, Summoner, Rank, QueueInfo, MatchHistory } from '@/types/api'
 
 export const useGameStore = defineStore('game', () => {
@@ -10,7 +11,13 @@ export const useGameStore = defineStore('game', () => {
   const gamePhase = ref<string>('')
   const currentSummoner = ref<Summoner | null>(null)
   const currentRank = ref<Rank | null>(null)
+  const rankLoading = ref(false)
+  const rankError = ref<string | null>(null)
   const matchHistory = ref<MatchHistory[]>([])
+  let rankRequestId = 0
+  let lastAssetMetadataOverlayRefreshAt = 0
+  let assetMetadataOverlayRefreshPromise: Promise<void> | null = null
+  const assetMetadataOverlayRefreshIntervalMs = 60_000
 
   // 计算属性
   const isConnected = computed(() => connected.value)
@@ -31,6 +38,45 @@ export const useGameStore = defineStore('game', () => {
     currentRank.value?.queueMap?.RANKED_FLEX_SR || null
   )
 
+  async function applyGameState(state: GameState, options: { confirmDisconnect?: boolean } = {}) {
+    if (!state.connected && options.confirmDisconnect !== false) {
+      const stillConnected = await apiClient.checkConnection()
+      if (stillConnected) {
+        connected.value = true
+        refreshLcuGameAssetMetadataOverlay()
+        if (state.phase) {
+          gamePhase.value = state.phase
+        }
+        if (state.summoner?.puuid) {
+          currentSummoner.value = state.summoner
+          void fetchRank(state.summoner.puuid)
+        } else if (!currentSummoner.value) {
+          void refreshSummoner()
+        }
+        return
+      }
+    }
+
+    connected.value = state.connected
+    gamePhase.value = state.phase || ''
+
+    if (!state.connected) {
+      clearConnectedSessionState()
+      return
+    }
+
+    refreshLcuGameAssetMetadataOverlay()
+    currentSummoner.value = state.summoner ?? currentSummoner.value
+
+    if (state.summoner?.puuid) {
+      void fetchRank(state.summoner.puuid)
+      return
+    }
+
+    clearRankState()
+    void refreshSummoner()
+  }
+
   /**
    * 初始化连接
    */
@@ -40,14 +86,7 @@ export const useGameStore = defineStore('game', () => {
 
     // 订阅游戏状态
     wsClient.onGameState((state: GameState) => {
-      connected.value = state.connected
-      gamePhase.value = state.phase || ''
-      currentSummoner.value = state.summoner
-
-      // 获取段位信息
-      if (state.summoner?.puuid) {
-        fetchRank(state.summoner.puuid)
-      }
+      void applyGameState(state)
     })
 
     // 初始检查
@@ -59,16 +98,25 @@ export const useGameStore = defineStore('game', () => {
    */
   async function checkConnection() {
     try {
-      const state = await apiClient.getGameState()
-      connected.value = state.connected
-      gamePhase.value = state.phase || ''
-      currentSummoner.value = state.summoner
-
-      if (state.summoner?.puuid) {
-        await fetchRank(state.summoner.puuid)
+      const connectedNow = await apiClient.checkConnection()
+      connected.value = connectedNow
+      if (!connectedNow) {
+        clearConnectedSessionState()
+        return
       }
+
+      refreshLcuGameAssetMetadataOverlay()
+      const state = await apiClient.getGameState()
+      await applyGameState(state, { confirmDisconnect: false })
     } catch {
-      connected.value = false
+      const connectedNow = await apiClient.checkConnection()
+      connected.value = connectedNow
+      if (!connectedNow) {
+        clearConnectedSessionState()
+      } else if (!currentSummoner.value) {
+        refreshLcuGameAssetMetadataOverlay()
+        void refreshSummoner()
+      }
     }
   }
 
@@ -78,6 +126,8 @@ export const useGameStore = defineStore('game', () => {
   async function refreshSummoner() {
     try {
       const summoner = await apiClient.getMySummoner()
+      connected.value = true
+      refreshLcuGameAssetMetadataOverlay()
       currentSummoner.value = summoner
       await fetchRank(summoner.puuid)
     } catch (error) {
@@ -89,14 +139,54 @@ export const useGameStore = defineStore('game', () => {
    * 获取段位信息
    */
   async function fetchRank(puuid: string): Promise<Rank | null> {
+    const requestId = ++rankRequestId
+    rankLoading.value = true
+    rankError.value = null
+    currentRank.value = null
     try {
       const rank = await apiClient.getRank(puuid)
-      currentRank.value = rank
+      if (requestId === rankRequestId) {
+        currentRank.value = rank
+      }
       return rank
     } catch (error) {
       console.error('Failed to fetch rank:', error)
+      if (requestId === rankRequestId) {
+        currentRank.value = null
+        rankError.value = 'failed'
+      }
       return null
+    } finally {
+      if (requestId === rankRequestId) {
+        rankLoading.value = false
+      }
     }
+  }
+
+  function clearRankState() {
+    rankRequestId += 1
+    currentRank.value = null
+    rankLoading.value = false
+    rankError.value = null
+  }
+
+  function clearConnectedSessionState() {
+    gamePhase.value = ''
+    currentSummoner.value = null
+    lastAssetMetadataOverlayRefreshAt = 0
+    clearRankState()
+  }
+
+  function refreshLcuGameAssetMetadataOverlay() {
+    const now = Date.now()
+    if (assetMetadataOverlayRefreshPromise) return
+    if (now - lastAssetMetadataOverlayRefreshAt < assetMetadataOverlayRefreshIntervalMs) return
+
+    lastAssetMetadataOverlayRefreshAt = now
+    assetMetadataOverlayRefreshPromise = loadLcuGameAssetMetadataOverlay()
+      .finally(() => {
+        assetMetadataOverlayRefreshPromise = null
+      })
   }
 
   /**
@@ -128,6 +218,8 @@ export const useGameStore = defineStore('game', () => {
     gamePhase,
     currentSummoner,
     currentRank,
+    rankLoading,
+    rankError,
     matchHistory,
 
     // 计算属性

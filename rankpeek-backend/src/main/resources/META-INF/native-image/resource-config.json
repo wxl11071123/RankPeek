@@ -5,6 +5,8 @@
     {"pattern": "\\Qapplication.yaml\\E"},
     {"pattern": "\\Qapplication-prod.yml\\E"},
     {"pattern": "\\Qapplication-dev.yml\\E"},
+    {"pattern": "\\Qassets/champions-16.10.1-zh_CN.json\\E"},
+    {"pattern": "\\Qsgp/league-servers.json\\E"},
     {"pattern": "META-INF/services/.*"},
     {"pattern": "\\QMETA-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports\\E"}
   ]

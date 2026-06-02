@@ -33,7 +33,7 @@ public class GameStateListener {
         log.info("游戏阶段变化：{} -> {}", event.getOldPhase(), event.getNewPhase());
         
         try {
-            pushGameState(true);
+            pushGameState(true, event.getNewPhase());
         } catch (Exception e) {
             log.error("推送游戏状态失败：{}", e.getMessage());
         }
@@ -78,10 +78,11 @@ public class GameStateListener {
     /**
      * 推送游戏状态
      */
-    private void pushGameState(boolean connected) {
+    private void pushGameState(boolean connected, String phase) {
         try {
             GameState state = new GameState();
             state.setConnected(connected);
+            state.setPhase(phase);
 
             if (connected) {
                 try {

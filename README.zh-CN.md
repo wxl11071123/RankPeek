@@ -1,137 +1,77 @@
 # RankPeek
 
-[English README](README.md)
+RankPeek 是一个英雄联盟桌面侦查工具。这个仓库是公开源码版，重点保留本地客户端集成、战绩、玩家标签、OP.GG 辅助、本地缓存和 Electron 桌面壳。
 
-RankPeek 是一款面向《英雄联盟》的桌面对局侦察工具，核心目标是在游戏开始前，帮你更快看清这把对局的风险、节奏和玩家状态。
+## 开源范围
 
-它通过读取本地 League Client（LCU）数据，提供召唤师查询、近期战绩浏览、队友与对手标签和实时会话侦察。
+已包含：
 
-## RankPeek 能做什么
+- 连接 League Client / Riot 客户端数据的本地后端。
+- Electron + Vue 桌面前端。
+- 战绩查询、召唤师查询、对局侦查、玩家标签和自动化界面。
+- 公开功能需要的本地缓存和数据库代码。
+- OP.GG 英雄辅助窗口和游戏资产渲染工具。
 
-### 对局侦察
+不包含：
 
-- 在选人阶段查看当前房间玩家信息
-- 展示单排 / 灵活组排段位
-- 用更紧凑的标签快速标记强势点和风险点
-- 明确区分隐藏战绩、暂无战绩和拉取失败
+- 私有 AI 功能和提示词。
+- 私有 RP 指数实现。
+- 托管/云端服务代码、计费/积分系统、生产部署密钥和私有运维文档。
 
-### 战绩浏览
+公开版会直接移除这些私有模块，不提供加密实现或占位实现。
 
-- 查看最近对局与队友 / 对手名单
-- 战绩页优先展示轻量摘要，减少等待时间
-- 点开详情时再懒加载完整对局数据
-- 在战绩页直接看到玩家摘要标签
+## 仓库结构
 
-### 玩家画像
-
-- 查看召唤师近期表现趋势
-- 标记最佳队友和难打对手
-- 生成适合快速扫读的摘要标签
-- 在标签分析页查看更完整的标签结果
-
-### 自动化辅助
-
-- 自动接受对局
-- 自动开始匹配
-- 自动选人 / 禁用辅助
-- 通过设置项统一管理自动化开关
-
-> [!WARNING]
-> 强烈不建议启用自动 BP、自动接受、自动匹配等自动化功能。
-> 任何针对英雄联盟客户端的自动化行为都可能带来账号风险。
-> 因使用本软件造成的封号、限制、警告或其他不良后果，均由使用者自行承担。
-
-## 工作方式
-
-RankPeek 是一套本地运行的 Windows 桌面应用，由以下部分组成：
-
-- `Electron + Vue 3 + TypeScript`：桌面前端界面
-- `Spring Boot + Java 21`：本地后端服务
-- `LCU HTTP + WebSocket`：读取英雄联盟客户端数据
-
-整个核心链路以 LCU 为主，不依赖 Riot 公网 API Key 才能完成基础侦察流程。但这也意味着，客户端本身不暴露的数据，RankPeek 只能做清晰降级，不能强行绕过。
+```text
+rankpeek-backend/      Spring Boot 本地后端
+rankpeek-frontend/     Electron + Vue 桌面应用
+docs/                  公开构建与 native-image 文档
+scripts/               公开维护脚本
+```
 
 ## 环境要求
 
-- Windows 10 / Windows 11
-- 正在运行的英雄联盟客户端
-- Node.js 18+
-- Java 21
+- Windows 10/11
+- Java 17+
 - Maven 3.9+
+- Node.js 20+
+- npm 10+
 
-如果你需要打包原生后端，还需要：
+## 本地开发
 
-- GraalVM JDK 21
-- Visual Studio Build Tools（含 C++ 组件）
+后端：
 
-## 快速开始
-
-### 1. 启动后端
-
-```powershell
+```bash
 cd rankpeek-backend
+mvn test
 mvn spring-boot:run
 ```
 
-默认地址：
+前端：
 
-```text
-http://127.0.0.1:8080
-```
-
-### 2. 启动桌面端开发模式
-
-```powershell
+```bash
 cd rankpeek-frontend
 npm install
+npm run build
+```
+
+Electron 开发：
+
+```bash
+cd rankpeek-frontend
 npm run electron:dev
 ```
 
-这会同时启动 Vite 开发服务和 Electron 外壳，适合实时调 UI。
+## 打包
 
-## 构建发布
-
-### 一键打包
-
-```powershell
-.\build.bat
-```
-
-默认产物：
-
-- `rankpeek-backend/target/rankpeek-native.exe`
-- `rankpeek-frontend/release/RankPeek Setup <version>.exe`
-- `rankpeek-frontend/release/win-unpacked/`
-
-### 只构建桌面端
-
-```powershell
-cd rankpeek-frontend
-npm install
-npm run electron:build
-```
-
-## 项目结构
+Electron 打包默认需要后端可执行文件位于：
 
 ```text
-rankpeek-frontend/   Electron + Vue 桌面客户端
-rankpeek-backend/    Spring Boot 本地服务层
-build.bat            Windows 一键构建脚本
-docs/                构建与设计文档
+rankpeek-backend/target/rankpeek-native.exe
 ```
 
-## 当前特点
+native-image 构建说明见 `docs/`。
 
-- 战绩和会话页优先走摘要标签，减少不必要的重型请求
-- 对局详情采用懒加载，首屏更快
-- 隐藏战绩会被当成明确状态处理，不再和“查不到数据”混在一起
+## License
 
-## 已知限制
-
-- RankPeek 的核心数据链路是 LCU-only
-- 如果英雄联盟客户端没有暴露某些私密数据，应用只能做清晰提示，不能突破限制
-- 当前以 Windows 桌面端体验为主
-
-## 许可证
-
-项目基于 [MIT License](LICENSE) 发布。
+见 `LICENSE`。

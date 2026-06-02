@@ -1,8 +1,9 @@
 import { Client, IMessage } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
-import type { GameState } from '@/types/api'
+import type { GameState, CacheUpdateEvent } from '@/types/api'
 
 type GameStateCallback = (state: GameState) => void
+type CacheUpdateCallback = (event: CacheUpdateEvent) => void
 type GenericCallback = (data: unknown) => void
 
 class WebSocketClient {
@@ -10,24 +11,29 @@ class WebSocketClient {
   private gameStateCallbacks: Set<GameStateCallback> = new Set()
   private championSelectCallbacks: Set<GenericCallback> = new Set()
   private lobbyCallbacks: Set<GenericCallback> = new Set()
+  private cacheUpdateCallbacks: Set<CacheUpdateCallback> = new Set()
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private baseReconnectDelay = 1000
 
   connect(): void {
-    if (this.client?.connected) {
+    if (this.client?.active || this.client?.connected) {
       return
     }
 
     const reconnectDelay = this.calculateReconnectDelay()
 
-    this.client = new Client({
+    const client = new Client({
       webSocketFactory: () => new SockJS('http://127.0.0.1:8080/ws'),
       reconnectDelay,
       onConnect: () => {
+        if (this.client !== client) {
+          return
+        }
+
         console.log('WebSocket connected')
         this.reconnectAttempts = 0
-        this.subscribeToTopics()
+        this.subscribeToTopics(client)
       },
       onDisconnect: () => {
         console.log('WebSocket disconnected')
@@ -41,7 +47,8 @@ class WebSocketClient {
       }
     })
 
-    this.client.activate()
+    this.client = client
+    client.activate()
   }
 
   private calculateReconnectDelay(): number {
@@ -66,25 +73,40 @@ class WebSocketClient {
   /**
    * 订阅主题
    */
-  private subscribeToTopics(): void {
-    if (!this.client) return
+  private subscribeToTopics(client = this.client): void {
+    if (!client?.connected) return
 
     // 游戏状态变化
-    this.client.subscribe('/topic/game-state', (message: IMessage) => {
+    client.subscribe('/topic/game-state', (message: IMessage) => {
       const data = JSON.parse(message.body) as GameState
       this.gameStateCallbacks.forEach(cb => cb(data))
     })
 
     // 选人阶段变化
-    this.client.subscribe('/topic/champion-select', (message: IMessage) => {
+    client.subscribe('/topic/champion-select', (message: IMessage) => {
       const data = JSON.parse(message.body)
       this.championSelectCallbacks.forEach(cb => cb(data))
     })
 
     // 大厅变化
-    this.client.subscribe('/topic/lobby', (message: IMessage) => {
+    client.subscribe('/topic/lobby', (message: IMessage) => {
       const data = JSON.parse(message.body)
       this.lobbyCallbacks.forEach(cb => cb(data))
+    })
+
+    client.subscribe('/topic/cache-updates', (message: IMessage) => {
+      try {
+        const data = JSON.parse(message.body) as CacheUpdateEvent
+        for (const callback of this.cacheUpdateCallbacks) {
+          try {
+            callback(data)
+          } catch (e) {
+            console.warn('Cache update callback failed', e)
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse cache update message', e)
+      }
     })
   }
 
@@ -129,6 +151,11 @@ class WebSocketClient {
   onLobby(callback: GenericCallback): () => void {
     this.lobbyCallbacks.add(callback)
     return () => this.lobbyCallbacks.delete(callback)
+  }
+
+  onCacheUpdate(callback: CacheUpdateCallback): () => void {
+    this.cacheUpdateCallbacks.add(callback)
+    return () => this.cacheUpdateCallbacks.delete(callback)
   }
 }
 

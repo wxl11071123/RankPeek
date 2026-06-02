@@ -25,6 +25,20 @@ public class SessionData {
      */
     private String phase;
 
+    private String sessionKey;
+
+    private Long gameId;
+
+    private boolean empty;
+
+    private boolean stale;
+
+    private String source;
+
+    private Long createdAt;
+
+    private Long updatedAt;
+
     /**
      * 队列类型
      */
@@ -40,6 +54,11 @@ public class SessionData {
      * 队列 ID
      */
     private Integer queueId;
+
+    /**
+     * 当前登录召唤师
+     */
+    private Summoner currentSummoner;
 
     /**
      * 我方队伍（左）

@@ -1,17 +1,28 @@
 package io.rankpeek.service;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -20,21 +31,50 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AssetService {
 
+    private static final long LCU_PERK_METADATA_REFRESH_INTERVAL_MS = 30_000L;
+    private static final String ASSET_CACHE_VERSION = "lcu";
+    private static final String BUILT_IN_CHAMPIONS_RESOURCE = "/assets/champions-16.10.1-zh_CN.json";
+    private static final ObjectMapper BUILT_IN_CHAMPION_MAPPER = new ObjectMapper();
+
     private final LcuHttpClient lcuHttpClient;
+    private final Path assetCacheRoot;
+    private final KiwiAugmentFallbackService kiwiAugmentFallbackService;
 
     // 英雄缓存
     private final Map<Long, Champion> championCache = new ConcurrentHashMap<>();
     // 装备缓存 (id -> iconPath)
     private final Map<Long, String> itemIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, ItemMetadata> itemMetadataCache = new ConcurrentHashMap<>();
     // 召唤师技能缓存 (id -> iconPath)
     private final Map<Long, String> spellIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, SpellMetadata> spellMetadataCache = new ConcurrentHashMap<>();
+    private final Map<Long, String> perkIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, PerkMetadata> perkMetadataCache = new ConcurrentHashMap<>();
+    private volatile long lastPerkMetadataRefreshAttemptAt = 0L;
     // 海克斯强化缓存 (id -> iconPath)
     private final Map<Long, String> augmentIconPathCache = new ConcurrentHashMap<>();
+    private final Map<Long, AugmentMetadata> augmentMetadataCache = new ConcurrentHashMap<>();
     // 海克斯强化稀有度缓存 (id -> rarity)
     private final Map<Long, String> augmentRarityCache = new ConcurrentHashMap<>();
+
+    @Autowired
+    public AssetService(LcuHttpClient lcuHttpClient, KiwiAugmentFallbackService kiwiAugmentFallbackService) {
+        this(lcuHttpClient, resolveDefaultAssetCacheRoot(), kiwiAugmentFallbackService);
+    }
+
+    AssetService(LcuHttpClient lcuHttpClient, Path assetCacheRoot) {
+        this(lcuHttpClient, assetCacheRoot, KiwiAugmentFallbackService.disabled());
+    }
+
+    AssetService(LcuHttpClient lcuHttpClient, Path assetCacheRoot, KiwiAugmentFallbackService kiwiAugmentFallbackService) {
+        this.lcuHttpClient = lcuHttpClient;
+        this.assetCacheRoot = assetCacheRoot;
+        this.kiwiAugmentFallbackService = kiwiAugmentFallbackService == null
+                ? KiwiAugmentFallbackService.disabled()
+                : kiwiAugmentFallbackService;
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
@@ -51,6 +91,7 @@ public class AssetService {
             loadChampions();
             loadItems();
             loadSpells();
+            loadPerks();
             loadAugments();
             log.info("资源加载完成，英雄: {}, 装备: {}, 技能: {}, 海克斯: {}",
                     championCache.size(), itemIconPathCache.size(), spellIconPathCache.size(), augmentIconPathCache.size());
@@ -86,8 +127,11 @@ public class AssetService {
             Item[] items = lcuHttpClient.get("lol-game-data/assets/v1/items.json", Item[].class);
             if (items != null) {
                 for (Item item : items) {
-                    if (item.id > 0 && item.iconPath != null && !item.iconPath.isEmpty()) {
-                        itemIconPathCache.put(item.id, item.iconPath);
+                    if (item.id > 0) {
+                        if (item.iconPath != null && !item.iconPath.isEmpty()) {
+                            itemIconPathCache.put(item.id, item.iconPath);
+                        }
+                        itemMetadataCache.put(item.id, toItemMetadata(item));
                     }
                 }
             }
@@ -105,8 +149,11 @@ public class AssetService {
             Spell[] spells = lcuHttpClient.get("lol-game-data/assets/v1/summoner-spells.json", Spell[].class);
             if (spells != null) {
                 for (Spell spell : spells) {
-                    if (spell.id > 0 && spell.iconPath != null && !spell.iconPath.isEmpty()) {
-                        spellIconPathCache.put(spell.id, spell.iconPath);
+                    if (spell.id > 0) {
+                        if (spell.iconPath != null && !spell.iconPath.isEmpty()) {
+                            spellIconPathCache.put(spell.id, spell.iconPath);
+                        }
+                        spellMetadataCache.put(spell.id, toSpellMetadata(spell));
                     }
                 }
             }
@@ -119,7 +166,53 @@ public class AssetService {
     /**
      * 加载内置英雄数据（备用）
      */
+    private synchronized void loadPerks() {
+        lastPerkMetadataRefreshAttemptAt = System.currentTimeMillis();
+        loadPerkEntries();
+        loadPerkStyles();
+        log.info("Perks loaded: {}", perkIconPathCache.size());
+    }
+
+    private void loadPerkEntries() {
+        try {
+            Perk[] perks = lcuHttpClient.get("lol-game-data/assets/v1/perks.json", Perk[].class);
+            if (perks != null) {
+                for (Perk perk : perks) {
+                    if (perk.id > 0) {
+                        if (perk.iconPath != null && !perk.iconPath.isEmpty()) {
+                            perkIconPathCache.put(perk.id, perk.iconPath);
+                        }
+                        perkMetadataCache.put(perk.id, toPerkMetadata(perk));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load perks: {}", e.getMessage());
+        }
+    }
+
+    private void loadPerkStyles() {
+        try {
+            PerkStylePayload payload = lcuHttpClient.get("lol-game-data/assets/v1/perkstyles.json", PerkStylePayload.class);
+            List<PerkStyle> styles = payload != null && payload.styles != null ? payload.styles : List.of();
+            for (PerkStyle style : styles) {
+                if (style.id > 0) {
+                    if (style.iconPath != null && !style.iconPath.isEmpty()) {
+                        perkIconPathCache.put(style.id, style.iconPath);
+                    }
+                    perkMetadataCache.put(style.id, toPerkMetadata(style));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load perk styles: {}", e.getMessage());
+        }
+    }
+
     private void loadBuiltInChampions() {
+        if (loadBuiltInChampionSnapshot()) {
+            return;
+        }
+
         // 常用英雄数据
         Map<Long, Champion> builtIn = Map.ofEntries(
                 createChampion(1, "安妮", "Annie"),
@@ -243,10 +336,11 @@ public class AssetService {
                 createChampion(163, "塔莉垭", "Taliyah"),
                 createChampion(164, "卡蜜尔", "Camille"),
                 createChampion(166, "永恩", "Yone"),
-                createChampion(200, "贝蕾亚", "Briar"),
+                createChampion(200, "卑尔维斯", "Belveth"),
                 createChampion(221, "泽丽", "Zeri"),
                 createChampion(222, "金克丝", "Jinx"),
                 createChampion(223, "塔姆", "TahmKench"),
+                createChampion(233, "贝蕾亚", "Briar"),
                 createChampion(236, "卢锡安", "Lucian"),
                 createChampion(238, "劫", "Zed"),
                 createChampion(240, "克烈", "Kled"),
@@ -284,6 +378,29 @@ public class AssetService {
         championCache.putAll(builtIn);
     }
 
+    private boolean loadBuiltInChampionSnapshot() {
+        try (InputStream input = AssetService.class.getResourceAsStream(BUILT_IN_CHAMPIONS_RESOURCE)) {
+            if (input == null) {
+                log.warn("内置英雄资源不存在: {}", BUILT_IN_CHAMPIONS_RESOURCE);
+                return false;
+            }
+
+            Champion[] champions = BUILT_IN_CHAMPION_MAPPER.readValue(input, Champion[].class);
+            Map<Long, Champion> builtIn = new LinkedHashMap<>();
+            for (Champion champion : champions) {
+                if (champion != null && champion.id > 0 && champion.name != null && !champion.name.isBlank()) {
+                    builtIn.put(champion.id, champion);
+                }
+            }
+            championCache.putAll(builtIn);
+            log.info("内置英雄资源加载完成: {}", builtIn.size());
+            return !builtIn.isEmpty();
+        } catch (IOException e) {
+            log.warn("读取内置英雄资源失败: {}", e.getMessage());
+            return false;
+        }
+    }
+
     private Map.Entry<Long, Champion> createChampion(long id, String name, String alias) {
         return Map.entry(id, new Champion(id, name, alias));
     }
@@ -310,6 +427,135 @@ public class AssetService {
     /**
      * 获取装备图标路径
      */
+    public Optional<AssetImage> getAssetImage(AssetKind kind, long id) {
+        if (kind == null || id <= 0) {
+            return Optional.empty();
+        }
+
+        Optional<AssetImage> cached = readCachedAssetImage(kind, id);
+        if (cached.isPresent()) {
+            return cached;
+        }
+
+        String iconPath = resolveLcuIconPath(kind, id);
+        if (iconPath == null || iconPath.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            byte[] imageData = lcuHttpClient.getBytes(iconPath);
+            if (imageData == null || imageData.length == 0) {
+                return Optional.empty();
+            }
+            cacheAssetImage(kind, id, iconPath, imageData);
+            return Optional.of(new AssetImage(imageData, contentTypeForIconPath(iconPath)));
+        } catch (Exception e) {
+            log.warn("Failed to load asset image from LCU: kind={}, id={}, path={}, rootCause={}",
+                    kind.wireName, id, iconPath, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private Optional<AssetImage> readCachedAssetImage(AssetKind kind, long id) {
+        try {
+            Optional<Path> cachedPath = findCachedAssetPath(kind, id);
+            if (cachedPath.isEmpty()) {
+                return Optional.empty();
+            }
+            Path path = cachedPath.get();
+            byte[] bytes = Files.readAllBytes(path);
+            if (bytes.length == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(new AssetImage(bytes, contentTypeForIconPath(path.getFileName().toString())));
+        } catch (IOException e) {
+            log.debug("Failed to read cached asset image: kind={}, id={}, rootCause={}",
+                    kind.wireName, id, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private Optional<Path> findCachedAssetPath(AssetKind kind, long id) throws IOException {
+        Path directory = assetCacheRoot.resolve(ASSET_CACHE_VERSION).resolve(kind.cacheDirectory);
+        if (!Files.isDirectory(directory)) {
+            return Optional.empty();
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, id + ".*")) {
+            for (Path path : stream) {
+                if (Files.isRegularFile(path)) {
+                    return Optional.of(path);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void cacheAssetImage(AssetKind kind, long id, String iconPath, byte[] imageData) {
+        Path target = assetCacheRoot
+                .resolve(ASSET_CACHE_VERSION)
+                .resolve(kind.cacheDirectory)
+                .resolve(id + "." + extensionForIconPath(iconPath, kind.defaultExtension));
+        try {
+            Files.createDirectories(target.getParent());
+            deleteSiblingCacheFiles(kind, id, target);
+            Files.write(target, imageData);
+        } catch (IOException e) {
+            log.debug("Failed to write cached asset image: kind={}, id={}, path={}, rootCause={}",
+                    kind.wireName, id, target, e.getMessage());
+        }
+    }
+
+    private void deleteSiblingCacheFiles(AssetKind kind, long id, Path target) throws IOException {
+        Path directory = target.getParent();
+        if (!Files.isDirectory(directory)) {
+            return;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, id + ".*")) {
+            for (Path path : stream) {
+                if (!path.equals(target)) {
+                    Files.deleteIfExists(path);
+                }
+            }
+        }
+    }
+
+    private String resolveLcuIconPath(AssetKind kind, long id) {
+        return switch (kind) {
+            case CHAMPION -> String.format("/lol-game-data/assets/v1/champion-icons/%d.png", id);
+            case PROFILE -> String.format("/lol-game-data/assets/v1/profile-icons/%d.jpg", id);
+            case ITEM -> resolveItemIconPath(id);
+            case SPELL -> resolveSpellIconPath(id);
+            case PERK -> getPerkIconPath(id);
+            case AUGMENT -> resolveAugmentIconPath(id);
+        };
+    }
+
+    private String resolveItemIconPath(long id) {
+        String path = getItemIconPath(id);
+        if (path == null || path.isBlank()) {
+            loadItems();
+            path = getItemIconPath(id);
+        }
+        return path;
+    }
+
+    private String resolveSpellIconPath(long id) {
+        String path = getSpellIconPath(id);
+        if (path == null || path.isBlank()) {
+            loadSpells();
+            path = getSpellIconPath(id);
+        }
+        return path;
+    }
+
+    private String resolveAugmentIconPath(long id) {
+        String path = augmentIconPathCache.get(id);
+        if (path == null || path.isBlank()) {
+            loadAugments();
+        }
+        return getAugmentIconPath(id);
+    }
+
     public String getItemIconPath(long id) {
         return itemIconPathCache.get(id);
     }
@@ -322,6 +568,18 @@ public class AssetService {
     }
 
     /**
+     * Get perk icon path from LCU metadata.
+     */
+    public String getPerkIconPath(long id) {
+        String path = perkIconPathCache.get(id);
+        if (path == null || path.isEmpty()) {
+            ensurePerkMetadataFresh();
+            path = perkIconPathCache.get(id);
+        }
+        return path;
+    }
+
+    /**
      * 加载海克斯强化列表 (cherry-augments)
      */
     private void loadAugments() {
@@ -329,8 +587,12 @@ public class AssetService {
             CherryAugment[] augments = lcuHttpClient.get("lol-game-data/assets/v1/cherry-augments.json", CherryAugment[].class);
             if (augments != null) {
                 for (CherryAugment augment : augments) {
-                    if (augment.id > 0 && augment.augmentSmallIconPath != null && !augment.augmentSmallIconPath.isEmpty()) {
-                        augmentIconPathCache.put(augment.id, augment.augmentSmallIconPath);
+                    if (augment.id > 0) {
+                        String iconPath = firstText(augment.augmentSmallIconPath, augment.iconPath);
+                        if (!iconPath.isEmpty()) {
+                            augmentIconPathCache.put(augment.id, iconPath);
+                        }
+                        augmentMetadataCache.put(augment.id, toAugmentMetadata(augment));
                         // 缓存稀有度
                         if (augment.rarity != null && !augment.rarity.isEmpty()) {
                             augmentRarityCache.put(augment.id, augment.rarity);
@@ -342,6 +604,7 @@ public class AssetService {
         } catch (Exception e) {
             log.warn("加载海克斯强化失败: {}", e.getMessage());
         }
+        mergeKiwiAugmentFallbacks();
     }
 
     /**
@@ -361,6 +624,305 @@ public class AssetService {
      */
     public String getAugmentRarity(long id) {
         return augmentRarityCache.getOrDefault(id, "");
+    }
+
+    public GameAssetMetadata getGameAssetMetadata() {
+        ensurePerkMetadataFresh();
+        mergeKiwiAugmentFallbacks();
+        return new GameAssetMetadata(
+                "lcu",
+                "zh_CN",
+                toStringKeyedMap(itemMetadataCache),
+                toStringKeyedMap(spellMetadataCache),
+                toStringKeyedMap(perkMetadataCache),
+                toStringKeyedMap(augmentMetadataCache)
+        );
+    }
+
+    private void mergeKiwiAugmentFallbacks() {
+        Map<Long, KiwiAugmentFallbackService.KiwiAugmentFallback> fallbacks = kiwiAugmentFallbackService.getAugmentFallbacks();
+        if (fallbacks.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<Long, KiwiAugmentFallbackService.KiwiAugmentFallback> entry : fallbacks.entrySet()) {
+            long id = entry.getKey();
+            KiwiAugmentFallbackService.KiwiAugmentFallback fallback = entry.getValue();
+            augmentMetadataCache.compute(id, (ignored, current) -> mergeKiwiAugmentFallback(current, id, fallback));
+            if (shouldFillText(augmentRarityCache.get(id)) && !firstText(fallback.rarity()).isBlank()) {
+                augmentRarityCache.put(id, fallback.rarity());
+            }
+        }
+    }
+
+    private AugmentMetadata mergeKiwiAugmentFallback(
+            AugmentMetadata current,
+            long id,
+            KiwiAugmentFallbackService.KiwiAugmentFallback fallback
+    ) {
+        if (current == null) {
+            return new AugmentMetadata(
+                    id,
+                    firstText(fallback.name()),
+                    firstText(fallback.description()),
+                    firstText(fallback.tooltip()),
+                    firstText(fallback.desc()),
+                    "",
+                    "",
+                    "",
+                    "",
+                    firstText(fallback.rarity()),
+                    ""
+            );
+        }
+
+        return new AugmentMetadata(
+                current.id(),
+                shouldFillText(current.name()) ? firstText(fallback.name(), current.name()) : current.name(),
+                shouldFillText(current.description()) ? firstText(fallback.description(), current.description()) : current.description(),
+                shouldFillText(current.tooltip()) ? firstText(fallback.tooltip(), current.tooltip()) : current.tooltip(),
+                shouldFillText(current.desc()) ? firstText(fallback.desc(), current.desc()) : current.desc(),
+                current.shortDesc(),
+                current.longDesc(),
+                current.descriptionTra(),
+                current.tooltipTra(),
+                shouldFillText(current.rarity()) ? firstText(fallback.rarity(), current.rarity()) : current.rarity(),
+                current.icon()
+        );
+    }
+
+    private boolean shouldFillText(String value) {
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+        return "暂无详细说明".equals(value.trim());
+    }
+
+    private void ensurePerkMetadataFresh() {
+        long now = System.currentTimeMillis();
+        boolean hasPerkMetadata = !perkMetadataCache.isEmpty();
+        if (hasPerkMetadata && now - lastPerkMetadataRefreshAttemptAt < LCU_PERK_METADATA_REFRESH_INTERVAL_MS) {
+            return;
+        }
+        loadPerks();
+    }
+
+    private <T> Map<String, T> toStringKeyedMap(Map<Long, T> source) {
+        Map<String, T> result = new LinkedHashMap<>();
+        source.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> result.put(String.valueOf(entry.getKey()), entry.getValue()));
+        return result;
+    }
+
+    private ItemMetadata toItemMetadata(Item item) {
+        ItemGold gold = normalizeGold(item.gold, firstPositive(item.priceTotal, item.total, item.price), item.base, item.sell);
+        return new ItemMetadata(
+                item.id,
+                firstText(item.name),
+                firstText(item.description),
+                firstText(item.tooltip),
+                firstText(item.plaintext),
+                normalizePublicIcon("items", item.id, item.iconPath),
+                gold,
+                firstPositive(item.total, item.priceTotal),
+                item.price,
+                normalizeIdList(item.from),
+                normalizeIdList(item.into),
+                normalizeStats(item.stats)
+        );
+    }
+
+    private AugmentMetadata toAugmentMetadata(CherryAugment augment) {
+        String iconPath = firstText(augment.augmentSmallIconPath, augment.iconPath);
+        return new AugmentMetadata(
+                augment.id,
+                firstText(augment.name, augment.nameTra),
+                firstText(augment.description, augment.descriptionTra, augment.desc, augment.tooltip, augment.tooltipTra, augment.longDesc, augment.shortDesc),
+                firstText(augment.tooltip),
+                firstText(augment.desc),
+                firstText(augment.shortDesc),
+                firstText(augment.longDesc),
+                firstText(augment.descriptionTra),
+                firstText(augment.tooltipTra),
+                firstText(augment.rarity),
+                normalizePublicIcon("augments", augment.id, iconPath)
+        );
+    }
+
+    private PerkMetadata toPerkMetadata(Perk perk) {
+        return new PerkMetadata(
+                perk.id,
+                firstText(perk.name),
+                firstText(perk.description, perk.longDesc, perk.shortDesc, perk.tooltip),
+                firstText(perk.tooltip),
+                firstText(perk.shortDesc),
+                firstText(perk.longDesc),
+                normalizeTextList(perk.endOfGameStatDescs),
+                firstText(perk.iconPath)
+        );
+    }
+
+    private PerkMetadata toPerkMetadata(PerkStyle style) {
+        return new PerkMetadata(
+                style.id,
+                firstText(style.name),
+                firstText(style.tooltip),
+                firstText(style.tooltip),
+                "",
+                "",
+                List.of(),
+                firstText(style.iconPath)
+        );
+    }
+
+    private SpellMetadata toSpellMetadata(Spell spell) {
+        return new SpellMetadata(
+                spell.id,
+                firstText(spell.name),
+                firstText(spell.description),
+                firstText(spell.tooltip),
+                firstText(spell.plaintext),
+                normalizePublicIcon("summoner-spells", spell.id, spell.iconPath)
+        );
+    }
+
+    private ItemGold normalizeGold(ItemGold gold, Long totalFallback, Long baseFallback, Long sellFallback) {
+        Long total = gold != null ? firstPositive(gold.total(), totalFallback) : totalFallback;
+        Long base = gold != null ? firstPositive(gold.base(), baseFallback) : baseFallback;
+        Long sell = gold != null ? firstPositive(gold.sell(), sellFallback) : sellFallback;
+        return total != null || base != null || sell != null ? new ItemGold(total, base, sell) : null;
+    }
+
+    private List<Long> normalizeIdList(List<Long> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(value -> value != null && value > 0)
+                .toList();
+    }
+
+    private Map<String, Number> normalizeStats(Map<String, Number> values) {
+        if (values == null) {
+            return Map.of();
+        }
+        Map<String, Number> stats = new LinkedHashMap<>();
+        values.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank())
+                .filter(entry -> entry.getValue() != null)
+                .forEach(entry -> stats.put(entry.getKey(), entry.getValue()));
+        return stats;
+    }
+
+    private Long firstPositive(Long... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Long value : values) {
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static List<String> normalizeTextList(Object value) {
+        if (value instanceof String text) {
+            return text.isBlank() ? List.of() : List.of(text);
+        }
+        if (value instanceof List<?> values) {
+            return values.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(text -> !text.isBlank())
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private String normalizePublicIcon(String directory, long id, String iconPath) {
+        if (iconPath == null || iconPath.isBlank()) {
+            return "";
+        }
+        String normalized = iconPath.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        String fileName = index >= 0 ? normalized.substring(index + 1) : normalized;
+        if (fileName.isBlank()) {
+            fileName = id + ".png";
+        }
+        return directory + "/" + fileName;
+    }
+
+    private static Path resolveDefaultAssetCacheRoot() {
+        String appData = System.getenv("APPDATA");
+        if (appData != null && !appData.isBlank()) {
+            return Paths.get(appData, "RankPeek", "game-assets");
+        }
+        String home = System.getProperty("user.home", ".");
+        return Paths.get(home, ".rankpeek", "game-assets");
+    }
+
+    private static String extensionForIconPath(String iconPath, String defaultExtension) {
+        String normalized = iconPath == null ? "" : iconPath.replace('\\', '/');
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+        int slashIndex = normalized.lastIndexOf('/');
+        String fileName = slashIndex >= 0 ? normalized.substring(slashIndex + 1) : normalized;
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex >= 0 && dotIndex + 1 < fileName.length()) {
+            String extension = fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+            if (extension.matches("[a-z0-9]{1,5}")) {
+                return extension;
+            }
+        }
+        return defaultExtension;
+    }
+
+    private static String contentTypeForIconPath(String iconPath) {
+        String extension = extensionForIconPath(iconPath, "png");
+        return switch (extension) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "svg" -> "image/svg+xml";
+            case "webp" -> "image/webp";
+            default -> "image/png";
+        };
+    }
+
+    public enum AssetKind {
+        CHAMPION("champion", "champion", "png"),
+        ITEM("item", "item", "png"),
+        SPELL("spell", "spell", "png"),
+        PERK("perk", "perk", "png"),
+        AUGMENT("augment", "augment", "png"),
+        PROFILE("profile", "profile", "jpg");
+
+        private final String wireName;
+        private final String cacheDirectory;
+        private final String defaultExtension;
+
+        AssetKind(String wireName, String cacheDirectory, String defaultExtension) {
+            this.wireName = wireName;
+            this.cacheDirectory = cacheDirectory;
+            this.defaultExtension = defaultExtension;
+        }
+    }
+
+    public record AssetImage(byte[] bytes, String contentType) {
     }
 
     // ========== 内部模型 ==========
@@ -390,14 +952,138 @@ public class AssetService {
     public record ChampionOption(long value, String label, String realName, String nickname) {
     }
 
+    public record GameAssetMetadata(
+            String version,
+            String locale,
+            Map<String, ItemMetadata> items,
+            Map<String, SpellMetadata> summonerSpells,
+            Map<String, PerkMetadata> perks,
+            Map<String, AugmentMetadata> augments
+    ) {
+    }
+
+    public record GameAssetMetadataEntry(long id) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ItemGold(
+            @JsonProperty("total") Long total,
+            @JsonProperty("base") Long base,
+            @JsonProperty("sell") Long sell
+    ) {
+    }
+
+    public record ItemMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String plaintext,
+            String icon,
+            ItemGold gold,
+            Long total,
+            Long price,
+            List<Long> from,
+            List<Long> into,
+            Map<String, Number> stats
+    ) {
+    }
+
+    public record SpellMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String plaintext,
+            String icon
+    ) {
+    }
+
+    public record PerkMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String shortDesc,
+            String longDesc,
+            List<String> endOfGameStatDescs,
+            String icon
+    ) {
+        public PerkMetadata(
+                long id,
+                String name,
+                String description,
+                String tooltip,
+                String shortDesc,
+                String longDesc,
+                String icon
+        ) {
+            this(id, name, description, tooltip, shortDesc, longDesc, List.of(), icon);
+        }
+    }
+
+    public record AugmentMetadata(
+            long id,
+            String name,
+            String description,
+            String tooltip,
+            String desc,
+            String shortDesc,
+            String longDesc,
+            String descriptionTra,
+            String tooltipTra,
+            String rarity,
+            String icon
+    ) {
+    }
+
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Item {
         @JsonProperty("id")
         private long id;
 
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("plaintext")
+        private String plaintext;
+
         @JsonProperty("iconPath")
         private String iconPath;
+
+        @JsonProperty("gold")
+        private ItemGold gold;
+
+        @JsonProperty("total")
+        private Long total;
+
+        @JsonProperty("price")
+        private Long price;
+
+        @JsonProperty("priceTotal")
+        private Long priceTotal;
+
+        @JsonProperty("base")
+        private Long base;
+
+        @JsonProperty("sell")
+        private Long sell;
+
+        @JsonProperty("from")
+        private List<Long> from;
+
+        @JsonProperty("into")
+        private List<Long> into;
+
+        @JsonProperty("stats")
+        private Map<String, Number> stats;
     }
 
     @Data
@@ -405,6 +1091,74 @@ public class AssetService {
     public static class Spell {
         @JsonProperty("id")
         private long id;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("plaintext")
+        private String plaintext;
+
+        @JsonProperty("iconPath")
+        private String iconPath;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Perk {
+        @JsonProperty("id")
+        private long id;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("shortDesc")
+        private String shortDesc;
+
+        @JsonProperty("longDesc")
+        private String longDesc;
+
+        private List<String> endOfGameStatDescs = List.of();
+
+        @JsonProperty("endOfGameStatDescs")
+        @JsonAlias({"endOfGameStatDesc", "endOfGameStats", "endOfGameStatDescriptions"})
+        public void setEndOfGameStatDescs(Object endOfGameStatDescs) {
+            this.endOfGameStatDescs = normalizeTextList(endOfGameStatDescs);
+        }
+
+        @JsonProperty("iconPath")
+        private String iconPath;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PerkStylePayload {
+        @JsonProperty("styles")
+        private List<PerkStyle> styles;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PerkStyle {
+        @JsonProperty("id")
+        private long id;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
 
         @JsonProperty("iconPath")
         private String iconPath;
@@ -438,11 +1192,35 @@ public class AssetService {
         @JsonProperty("augmentSmallIconPath")
         private String augmentSmallIconPath;
 
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("description")
+        private String description;
+
+        @JsonProperty("tooltip")
+        private String tooltip;
+
+        @JsonProperty("desc")
+        private String desc;
+
+        @JsonProperty("shortDesc")
+        private String shortDesc;
+
+        @JsonProperty("longDesc")
+        @JsonAlias("longDescription")
+        private String longDesc;
+
         @JsonProperty("nameTRA")
         private String nameTra;
 
         @JsonProperty("descriptionTRA")
+        @JsonAlias("descriptionTra")
         private String descriptionTra;
+
+        @JsonProperty("tooltipTRA")
+        @JsonAlias("tooltipTra")
+        private String tooltipTra;
 
         @JsonProperty("rarity")
         private String rarity;

@@ -15,17 +15,16 @@ import io.rankpeek.model.RecordStatus;
 import io.rankpeek.model.Summoner;
 import io.rankpeek.model.UserTag;
 import io.rankpeek.model.UserTagSummary;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import io.rankpeek.service.matchhistory.MatchHistorySource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Builds full and lightweight user-tag views.
@@ -35,16 +34,19 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class UserTagService {
 
+    private static final int RECENT_MATCH_SAMPLE_LIMIT = 20;
+    private static final int TAG_MATCH_LOOKBACK_LIMIT = 50;
+    private static final int REMAKE_DURATION_THRESHOLD_SECONDS = 300;
+    private static final int RANKED_ANALYSIS_MODE = 0;
+    private static final String CASUAL_PLAYER_TAG_NAME = "娱乐玩家";
+    private static final String CASUAL_PLAYER_TAG_DESC = "近 50 场没有可分析的排位对局，最近主要在玩娱乐模式。";
+
     private final LcuHttpClient lcuHttpClient;
     private final SummonerService summonerService;
     private final MatchHistoryService matchHistoryService;
     private final TagConfigService tagConfigService;
     private final RankService rankService;
-
-    private final Cache<Long, GameDetail> gameDetailCache = Caffeine.newBuilder()
-            .maximumSize(500)
-            .expireAfterWrite(30, TimeUnit.MINUTES)
-            .build();
+    private final AssetService assetService;
 
     public UserTag getUserTagByName(String name, Integer mode) {
         try {
@@ -61,26 +63,31 @@ public class UserTagService {
     }
 
     public UserTag getUserTagByPuuid(String puuid, Integer mode) {
-        int normalizedMode = normalizeMode(mode);
         Rank rank = safeGetRank(puuid);
 
-        MatchHistoryFetchResult fetchResult;
+        TagMatchSample matchSample;
         try {
-            fetchResult = matchHistoryService.getMatchHistoryFetchResult(puuid);
+            matchSample = getRecentTagMatchHistory(puuid);
         } catch (Exception e) {
-            log.error("Failed to fetch match history for full tag view, puuid={}", puuid, e);
-            return createEmptyTag(normalizedMode, RecordStatus.ERROR);
+            log.error("Failed to fetch match history for full tag view, puuidPrefix={}", puuidPrefix(puuid), e);
+            return createEmptyTag(RANKED_ANALYSIS_MODE, RecordStatus.ERROR);
         }
 
-        RecordStatus status = matchHistoryService.resolveRecordStatus(fetchResult, rank);
-        List<MatchHistory> recentMatches = sliceMatches(fetchResult.getMatches(), 0, 19);
+        RecordStatus status = matchHistoryService.resolveRecordStatus(matchSample.statusFetchResult(), rank);
+        List<MatchHistory> recentMatches = matchSample.rankedMatches();
         if (status != RecordStatus.NORMAL) {
-            return createEmptyTag(normalizedMode, status);
+            return createEmptyTag(RANKED_ANALYSIS_MODE, status);
+        }
+        if (recentMatches == null || recentMatches.isEmpty()) {
+            if (isCasualOnlyLookback(matchSample.allMatches())) {
+                return createCasualPlayerTag(RANKED_ANALYSIS_MODE);
+            }
+            return createEmptyTag(RANKED_ANALYSIS_MODE, RecordStatus.EMPTY);
         }
 
         try {
             List<MatchHistory> enrichedHistory = enrichMatchHistory(recentMatches);
-            RecentData recentData = calculateRecentData(enrichedHistory, puuid, normalizedMode);
+            RecentData recentData = calculateRecentData(enrichedHistory, puuid, RANKED_ANALYSIS_MODE);
             Map<String, List<OneGamePlayer>> oneGamePlayersMap = analyzeOneGamePlayers(enrichedHistory, puuid);
             recentData.setOneGamePlayersMap(oneGamePlayersMap);
             calculateFriendAndDispute(oneGamePlayersMap, recentData);
@@ -88,25 +95,60 @@ public class UserTagService {
             return UserTag.builder()
                     .recordStatus(status)
                     .recentData(recentData)
-                    .tag(buildTags(enrichedHistory, puuid, normalizedMode, oneGamePlayersMap))
+                    .tag(buildTags(enrichedHistory, puuid, RANKED_ANALYSIS_MODE, oneGamePlayersMap))
                     .build();
         } catch (Exception e) {
-            log.error("Failed to build full user tag, puuid={}", puuid, e);
-            return createEmptyTag(normalizedMode, RecordStatus.ERROR);
+            log.error("Failed to build full user tag, puuidPrefix={}", puuidPrefix(puuid), e);
+            return createEmptyTag(RANKED_ANALYSIS_MODE, RecordStatus.ERROR);
         }
     }
 
     public UserTagSummary getUserTagSummaryByPuuid(String puuid, Integer mode) {
-        int normalizedMode = normalizeMode(mode);
         Rank rank = safeGetRank(puuid);
 
         try {
-            MatchHistoryFetchResult fetchResult = matchHistoryService.getMatchHistoryFetchResult(puuid);
-            RecordStatus status = matchHistoryService.resolveRecordStatus(fetchResult, rank);
-            return buildSummary(puuid, normalizedMode, fetchResult.getMatches(), status, false);
+            TagMatchSample matchSample = getRecentTagMatchHistory(puuid);
+            RecordStatus status = matchHistoryService.resolveRecordStatus(matchSample.statusFetchResult(), rank);
+            if (status == RecordStatus.NORMAL
+                    && matchSample.rankedMatches().isEmpty()
+                    && isCasualOnlyLookback(matchSample.allMatches())) {
+                return createCasualPlayerSummary(RANKED_ANALYSIS_MODE);
+            }
+            return buildSummary(puuid, RANKED_ANALYSIS_MODE, matchSample.rankedMatches(), status, false);
         } catch (Exception e) {
-            log.warn("Failed to fetch user tag summary, puuid={}", puuid, e);
-            return createEmptySummary(normalizedMode, RecordStatus.ERROR);
+            log.warn("Failed to fetch user tag summary, puuidPrefix={}", puuidPrefix(puuid), e);
+            return createEmptySummary(RANKED_ANALYSIS_MODE, RecordStatus.ERROR);
+        }
+    }
+
+    private TagMatchSample getRecentTagMatchHistory(String puuid) {
+        List<MatchHistory> cachedMatches = getCachedTagMatchHistory(puuid);
+        if (!cachedMatches.isEmpty()) {
+            return buildTagMatchSample(puuid, cachedMatches, "cache");
+        }
+
+        List<MatchHistory> matches = matchHistoryService.getMatchHistory(
+                puuid,
+                0,
+                TAG_MATCH_LOOKBACK_LIMIT - 1,
+                TAG_MATCH_LOOKBACK_LIMIT
+        );
+        return buildTagMatchSample(puuid, matches, "auto");
+    }
+
+    private List<MatchHistory> getCachedTagMatchHistory(String puuid) {
+        try {
+            List<MatchHistory> matches = matchHistoryService.getMatchHistory(
+                    puuid,
+                    0,
+                    TAG_MATCH_LOOKBACK_LIMIT - 1,
+                    false,
+                    MatchHistorySource.CACHE
+            );
+            return matches != null ? matches : List.of();
+        } catch (Exception e) {
+            log.debug("Failed to read cached match history for user tag, puuidPrefix={}", puuidPrefix(puuid), e);
+            return List.of();
         }
     }
 
@@ -114,19 +156,18 @@ public class UserTagService {
                                                          Integer mode,
                                                          Rank rank,
                                                          List<MatchHistory> matchHistory) {
-        int normalizedMode = normalizeMode(mode);
-        RecordStatus status;
-        if (matchHistory == null) {
-            status = RecordStatus.ERROR;
-        } else if (!matchHistory.isEmpty()) {
-            status = RecordStatus.NORMAL;
-        } else {
-            status = matchHistoryService.resolveRecordStatus(
-                    MatchHistoryFetchResult.builder().matches(List.of()).rawEmpty(true).build(),
-                    rank
-            );
+        List<MatchHistory> lookbackMatches = normalizeTagLookbackMatches(matchHistory);
+        List<MatchHistory> rankedSample = selectRecentRankedMatches(lookbackMatches, puuid, RECENT_MATCH_SAMPLE_LIMIT);
+        RecordStatus status = resolvePrefetchedSummaryStatus(matchHistory, rankedSample);
+        logTagMatchSample(puuid, "prefetched", lookbackMatches.size(), rankedSample.size());
+        if (status == RecordStatus.EMPTY && rankedSample.isEmpty() && isCasualOnlyLookback(lookbackMatches)) {
+            return createCasualPlayerSummary(RANKED_ANALYSIS_MODE);
         }
-        return buildSummary(puuid, normalizedMode, matchHistory, status, true);
+        return buildSummary(puuid, RANKED_ANALYSIS_MODE, rankedSample, status, true);
+    }
+
+    public UserTagSummary getUserTagSummaryFromMatches(String puuid, Integer mode, List<MatchHistory> matchHistory) {
+        return buildSummaryFromPrefetchedData(puuid, mode, safeGetRank(puuid), matchHistory);
     }
 
     public Map<String, UserTagSummary> getUserTagSummaryBatch(List<String> puuids, Integer mode) {
@@ -148,12 +189,22 @@ public class UserTagService {
                                         List<MatchHistory> matchHistory,
                                         RecordStatus status,
                                         boolean includePlayerMap) {
-        if (status != RecordStatus.NORMAL || matchHistory == null || matchHistory.isEmpty()) {
+        if (status != RecordStatus.NORMAL) {
             return createEmptySummary(mode, status);
+        }
+        if (matchHistory == null || matchHistory.isEmpty()) {
+            return createEmptySummary(mode, RecordStatus.EMPTY);
         }
 
         try {
-            List<MatchHistory> recentMatches = sliceMatches(matchHistory, 0, 19);
+            List<MatchHistory> recentMatches = selectRecentRankedMatches(
+                    matchHistory,
+                    puuid,
+                    RECENT_MATCH_SAMPLE_LIMIT
+            );
+            if (recentMatches.isEmpty()) {
+                return createEmptySummary(mode, RecordStatus.EMPTY);
+            }
             RecentData recentData = calculateRecentData(recentMatches, puuid, mode);
             Map<String, List<OneGamePlayer>> oneGamePlayersMap = null;
             if (includePlayerMap) {
@@ -167,7 +218,7 @@ public class UserTagService {
                     .tag(buildTags(recentMatches, puuid, mode, oneGamePlayersMap))
                     .build();
         } catch (Exception e) {
-            log.warn("Failed to build summary tag, puuid={}", puuid, e);
+            log.warn("Failed to build summary tag, puuidPrefix={}", puuidPrefix(puuid), e);
             return createEmptySummary(mode, RecordStatus.ERROR);
         }
     }
@@ -184,15 +235,16 @@ public class UserTagService {
         if (hasStablePremade(playerMap)) {
             addTagIfMissing(tags, RankTag.builder()
                     .good(null)
-                    .tagName("开黑仔")
+                    .tagName("开黑")
                     .tagDesc("最近固定队友出现得很勤，十有八九不是单排。")
                     .build());
         }
 
-        if (hasSignatureChampion(matchHistory, puuid, mode)) {
+        SignatureChampionTag signatureChampion = findSignatureChampion(matchHistory, puuid, mode);
+        if (signatureChampion != null) {
             addTagIfMissing(tags, RankTag.builder()
                     .good(true)
-                    .tagName("绝活哥")
+                    .tagName(signatureChampion.tagName())
                     .tagDesc("最近反复拿同一个英雄，熟练度路线很明显。")
                     .build());
         }
@@ -217,7 +269,7 @@ public class UserTagService {
                 .anyMatch(games -> games.size() >= 3 && games.stream().allMatch(OneGamePlayer::getIsMyTeam));
     }
 
-    private boolean hasSignatureChampion(List<MatchHistory> matchHistory, String puuid, int mode) {
+    private SignatureChampionTag findSignatureChampion(List<MatchHistory> matchHistory, String puuid, int mode) {
         Map<Integer, Integer> championCount = new LinkedHashMap<>();
         int total = 0;
 
@@ -236,11 +288,22 @@ public class UserTagService {
         }
 
         if (total < 4) {
-            return false;
+            return null;
         }
 
-        int topCount = championCount.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-        return topCount >= 4 && topCount * 2 >= total;
+        Map.Entry<Integer, Integer> topChampion = championCount.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .orElse(null);
+        if (topChampion == null || topChampion.getValue() < 4 || topChampion.getValue() * 2 < total) {
+            return null;
+        }
+
+        return new SignatureChampionTag(
+                topChampion.getKey(),
+                ChampionTagFormatter.signatureTagName(assetService, topChampion.getKey()),
+                topChampion.getValue(),
+                total
+        );
     }
 
     private int tagPriority(RankTag tag) {
@@ -254,16 +317,16 @@ public class UserTagService {
         if (name.endsWith("连败")) {
             return 1;
         }
+        if (ChampionTagFormatter.isSignatureTagName(name)) {
+            return 10;
+        }
         return switch (name) {
             case "高胜率" -> 2;
             case "低迷" -> 3;
             case "稳定C" -> 4;
             case "高伤" -> 5;
-            case "暴毙" -> 6;
-            case "摆烂" -> 7;
             case "娱乐" -> 8;
-            case "开黑仔" -> 9;
-            case "绝活哥" -> 10;
+            case "开黑" -> 9;
             case "小火龙" -> 11;
             default -> 50;
         };
@@ -273,7 +336,7 @@ public class UserTagService {
         try {
             return rankService.getRankByPuuid(puuid);
         } catch (Exception e) {
-            log.debug("Failed to fetch rank, puuid={}", puuid, e);
+            log.debug("Failed to fetch rank, puuidPrefix={}", puuidPrefix(puuid), e);
             return null;
         }
     }
@@ -281,8 +344,7 @@ public class UserTagService {
     private List<MatchHistory> enrichMatchHistory(List<MatchHistory> matchHistory) {
         for (MatchHistory game : matchHistory) {
             try {
-                GameDetail detail = gameDetailCache.get(game.getGameId(),
-                        id -> lcuHttpClient.get("lol-match-history/v1/games/" + id, GameDetail.class));
+                GameDetail detail = matchHistoryService.getGameDetailById(game.getGameId());
 
                 if (detail == null || detail.getParticipants() == null) {
                     continue;
@@ -407,7 +469,7 @@ public class UserTagService {
             }
 
             MatchHistory.Participant participant = getParticipantByPuuid(game, puuid);
-            if (participant == null || participant.getStats() == null) {
+            if (!hasRenderableCurrentParticipant(participant)) {
                 continue;
             }
 
@@ -604,7 +666,7 @@ public class UserTagService {
         oneGamePlayersMap.values().stream()
                 .filter(games -> games.size() >= 3)
                 .forEach(games -> {
-                    boolean allSameTeam = games.stream().allMatch(OneGamePlayer::getIsMyTeam);
+                    boolean allSameTeam = games.stream().allMatch(game -> Boolean.TRUE.equals(game.getIsMyTeam()));
                     if (allSameTeam) {
                         friendsList.add(games);
                     } else {
@@ -617,7 +679,7 @@ public class UserTagService {
         int friendsLosses = 0;
 
         for (List<OneGamePlayer> games : friendsList.stream().limit(5).toList()) {
-            int wins = (int) games.stream().filter(OneGamePlayer::getWin).count();
+            int wins = (int) games.stream().filter(game -> Boolean.TRUE.equals(game.getWin())).count();
             int losses = games.size() - wins;
             friendsWins += wins;
             friendsLosses += losses;
@@ -642,14 +704,14 @@ public class UserTagService {
 
         for (List<OneGamePlayer> games : disputeList.stream().limit(5).toList()) {
             List<OneGamePlayer> enemyGames = games.stream()
-                    .filter(game -> !game.getIsMyTeam())
+                    .filter(game -> Boolean.FALSE.equals(game.getIsMyTeam()))
                     .toList();
 
             if (enemyGames.isEmpty()) {
                 continue;
             }
 
-            int wins = (int) enemyGames.stream().filter(OneGamePlayer::getWin).count();
+            int wins = (int) enemyGames.stream().filter(game -> Boolean.TRUE.equals(game.getWin())).count();
             int losses = enemyGames.size() - wins;
             disputeWins += wins;
             disputeLosses += losses;
@@ -685,11 +747,35 @@ public class UserTagService {
                 .build();
     }
 
+    private UserTag createCasualPlayerTag(int mode) {
+        return UserTag.builder()
+                .recordStatus(RecordStatus.NORMAL)
+                .recentData(createEmptyRecentData(mode))
+                .tag(List.of(createCasualPlayerRankTag()))
+                .build();
+    }
+
     private UserTagSummary createEmptySummary(int mode, RecordStatus recordStatus) {
         return UserTagSummary.builder()
                 .recordStatus(recordStatus)
                 .recentData(createEmptyRecentData(mode))
                 .tag(new ArrayList<>())
+                .build();
+    }
+
+    private UserTagSummary createCasualPlayerSummary(int mode) {
+        return UserTagSummary.builder()
+                .recordStatus(RecordStatus.NORMAL)
+                .recentData(createEmptyRecentData(mode))
+                .tag(List.of(createCasualPlayerRankTag()))
+                .build();
+    }
+
+    private RankTag createCasualPlayerRankTag() {
+        return RankTag.builder()
+                .good(true)
+                .tagName(CASUAL_PLAYER_TAG_NAME)
+                .tagDesc(CASUAL_PLAYER_TAG_DESC)
                 .build();
     }
 
@@ -700,22 +786,135 @@ public class UserTagService {
                 .build();
     }
 
-    private List<MatchHistory> sliceMatches(List<MatchHistory> matches, int begIndex, int endIndex) {
+    private RecordStatus resolvePrefetchedSummaryStatus(List<MatchHistory> matchHistory,
+                                                        List<MatchHistory> rankedSample) {
+        if (matchHistory == null) {
+            return RecordStatus.ERROR;
+        }
+        if (matchHistory.isEmpty() || rankedSample == null || rankedSample.isEmpty()) {
+            return RecordStatus.EMPTY;
+        }
+        return RecordStatus.NORMAL;
+    }
+
+    private boolean isCasualOnlyLookback(List<MatchHistory> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return false;
+        }
+        return matches.stream()
+                .filter(match -> match != null)
+                .noneMatch(match -> isSoloOrFlexRanked(match.getQueueId()));
+    }
+
+    private List<MatchHistory> selectRecentRankedMatches(List<MatchHistory> matches, String puuid, int limit) {
         if (matches == null || matches.isEmpty()) {
             return List.of();
         }
 
-        int beg = Math.max(0, begIndex);
-        int end = Math.min(endIndex + 1, matches.size());
-        if (beg >= end) {
+        int normalizedLimit = Math.max(1, limit);
+        List<MatchHistory> selected = new ArrayList<>();
+        for (MatchHistory game : matches) {
+            if (game == null) {
+                continue;
+            }
+            if (isSoloOrFlexRanked(game.getQueueId()) && !isRemake(game) && hasRenderableMatchForPuuid(game, puuid)) {
+                selected.add(game);
+                if (selected.size() >= normalizedLimit) {
+                    break;
+                }
+            }
+        }
+        return selected;
+    }
+
+    private TagMatchSample buildTagMatchSample(String puuid, List<MatchHistory> matches, String source) {
+        List<MatchHistory> lookbackMatches = normalizeTagLookbackMatches(matches);
+        List<MatchHistory> rankedSample = selectRecentRankedMatches(lookbackMatches, puuid, RECENT_MATCH_SAMPLE_LIMIT);
+        logTagMatchSample(puuid, source, lookbackMatches.size(), rankedSample.size());
+        return new TagMatchSample(lookbackMatches, rankedSample);
+    }
+
+    private List<MatchHistory> normalizeTagLookbackMatches(List<MatchHistory> matches) {
+        if (matches == null || matches.isEmpty()) {
             return List.of();
         }
+        return matches.stream()
+                .filter(match -> match != null)
+                .sorted(Comparator.comparingLong(this::matchCreationOrZero).reversed())
+                .limit(TAG_MATCH_LOOKBACK_LIMIT)
+                .toList();
+    }
 
-        return new ArrayList<>(matches.subList(beg, end));
+    private long matchCreationOrZero(MatchHistory match) {
+        return match != null && match.getGameCreation() != null ? match.getGameCreation() : 0L;
+    }
+
+    private void logTagMatchSample(String puuid, String source, int fetchedMatchesSize, int rankedSampleSize) {
+        log.info("User tag match sample debug: puuidPrefix={}, lookbackLimit={}, fetchedMatches={}, rankedSample={}, source={}",
+                puuidPrefix(puuid),
+                TAG_MATCH_LOOKBACK_LIMIT,
+                fetchedMatchesSize,
+                rankedSampleSize,
+                source);
+    }
+
+    private boolean isSoloOrFlexRanked(Integer queueId) {
+        return queueId != null
+                && (queueId == QueueType.QUEUE_SOLO_5X5 || queueId == QueueType.QUEUE_FLEX_SR);
+    }
+
+    private boolean isRemake(MatchHistory match) {
+        if (match == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(match.getRemake())) {
+            return true;
+        }
+        Integer duration = match.getGameDuration();
+        return duration != null && duration > 0 && duration < REMAKE_DURATION_THRESHOLD_SECONDS;
+    }
+
+    private boolean hasRenderableMatchForPuuid(MatchHistory match, String puuid) {
+        return hasRenderableCurrentParticipant(getParticipantByPuuid(match, puuid));
+    }
+
+    private boolean hasRenderableCurrentParticipant(MatchHistory.Participant participant) {
+        return participant != null
+                && participant.getChampionId() != null
+                && participant.getChampionId() > 0
+                && hasCompleteCurrentStats(participant.getStats());
+    }
+
+    private boolean hasCompleteCurrentStats(MatchHistory.Stats stats) {
+        return stats != null
+                && stats.getWin() != null
+                && stats.getKills() != null
+                && stats.getDeaths() != null
+                && stats.getAssists() != null;
     }
 
     private int normalizeMode(Integer mode) {
         return mode != null ? mode : 0;
+    }
+
+    private String puuidPrefix(String puuid) {
+        if (puuid == null || puuid.isBlank()) {
+            return "null";
+        }
+        return puuid.substring(0, Math.min(8, puuid.length()));
+    }
+
+    private record TagMatchSample(List<MatchHistory> allMatches, List<MatchHistory> rankedMatches) {
+        private MatchHistoryFetchResult statusFetchResult() {
+            List<MatchHistory> safeAllMatches = allMatches != null ? allMatches : List.of();
+            return MatchHistoryFetchResult.builder()
+                    .matches(safeAllMatches)
+                    .rawEmpty(safeAllMatches.isEmpty())
+                    .build();
+        }
+    }
+
+    private record SignatureChampionTag(Integer championId, String tagName, int count, int total) {
     }
 
     private enum MatchMetric {

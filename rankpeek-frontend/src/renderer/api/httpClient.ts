@@ -3,24 +3,36 @@ import type {
   AppConfig,
   AramBalanceData,
   AssetDetails,
-  AutomationStatus,
+  CacheClearResult,
+  CacheClearMode,
+  CacheClearScope,
+  CacheRepairResult,
+  CacheStatus,
   ChampionOption,
   GameDetail,
   GameModeOption,
   GameState,
   Lobby,
   MatchHistory,
+  MatchHistoryPageResponse,
+  MatchTimelineFetchResult,
   Rank,
   SessionData,
   Summoner,
-  TagConfig,
+  UserStoreStatus,
   UserTag,
   UserTagSummary,
   WinRate
 } from '@/types/api'
-import axios, { AxiosError, AxiosInstance } from 'axios'
+import axios, { AxiosError, AxiosInstance, type AxiosRequestConfig } from 'axios'
 
-const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    suppressErrorLog?: boolean
+  }
+}
+
+export const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'
 
 class ApiError extends Error {
   code: number
@@ -55,10 +67,13 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
-        if (error.response?.status === 503) {
+        const suppressErrorLog = error.config?.suppressErrorLog === true || axios.isCancel(error) || error.code === 'ERR_CANCELED'
+        if (error.response?.status === 503 && !suppressErrorLog) {
           console.warn('LCU 服务不可用')
         }
-        console.error('API Error:', error.message)
+        if (!suppressErrorLog) {
+          console.error('API Error:', error.message)
+        }
         return Promise.reject(error)
       }
     )
@@ -88,8 +103,17 @@ class ApiClient {
   /**
    * 发送 POST 请求并解包响应数据
    */
-  private async post<T>(url: string, data?: unknown): Promise<T> {
-    const { data: response } = await this.client.post<ApiResponse<T>>(url, data)
+  private async post<T>(
+    url: string,
+    data?: unknown,
+    params?: Record<string, unknown>,
+    config?: Pick<AxiosRequestConfig, 'signal' | 'suppressErrorLog'>
+  ): Promise<T> {
+    const { data: response } = await this.client.post<ApiResponse<T>>(url, data, {
+      params,
+      signal: config?.signal,
+      suppressErrorLog: config?.suppressErrorLog
+    })
     if (response.code !== 200) {
       throw new ApiError(response.message, response.code, response.timestamp)
     }
@@ -101,16 +125,6 @@ class ApiClient {
    */
   private async putVoid(url: string, data?: unknown): Promise<void> {
     const { data: response } = await this.client.put<ApiResponse<void>>(url, data)
-    if (response.code !== 200) {
-      throw new ApiError(response.message, response.code, response.timestamp)
-    }
-  }
-
-  /**
-   * 发送 DELETE 请求（无返回数据）
-   */
-  private async deleteVoid(url: string): Promise<void> {
-    const { data: response } = await this.client.delete<ApiResponse<void>>(url)
     if (response.code !== 200) {
       throw new ApiError(response.message, response.code, response.timestamp)
     }
@@ -152,8 +166,17 @@ class ApiClient {
    * @param begIndex 起始索引（inclusive）
    * @param endIndex 结束索引（inclusive）
    */
-  async getMatchHistory(puuid: string, begIndex = 0, endIndex = 9): Promise<MatchHistory[]> {
-    return this.get<MatchHistory[]>(`/summoner/matches/${puuid}`, { begIndex, endIndex })
+  async getMatchHistory(
+    puuid: string,
+    begIndex = 0,
+    endIndex = 9,
+    options: { forceRefresh?: boolean } = {}
+  ): Promise<MatchHistory[]> {
+    return this.get<MatchHistory[]>(`/summoner/matches/${puuid}`, {
+      begIndex,
+      endIndex,
+      forceRefresh: options.forceRefresh === true
+    })
   }
 
   /**
@@ -167,9 +190,41 @@ class ApiClient {
       queueId?: number
       championId?: number
       maxResults?: number
+      forceRefresh?: boolean
     } = {}
   ): Promise<MatchHistory[]> {
-    return this.get<MatchHistory[]>(`/summoner/matches-filtered/${puuid}`, options)
+    return this.get<MatchHistory[]>(`/summoner/matches-filtered/${puuid}`, {
+      begIndex: options.begIndex,
+      endIndex: options.endIndex,
+      queueId: options.queueId,
+      championId: options.championId,
+      maxResults: options.maxResults,
+      forceRefresh: options.forceRefresh === true
+    })
+  }
+
+  /**
+   * 获取分页战绩
+   */
+  async getMatchHistoryPage(
+    puuid: string,
+    options: {
+      page?: number
+      pageSize?: number
+      source?: 'auto' | 'sgp' | 'lcu' | 'cache'
+      queueId?: number
+      championId?: number
+      forceRefresh?: boolean
+    } = {}
+  ): Promise<MatchHistoryPageResponse> {
+    return this.get<MatchHistoryPageResponse>(`/summoner/matches-page/${puuid}`, {
+      page: options.page,
+      pageSize: options.pageSize,
+      source: options.source ?? 'auto',
+      queueId: options.queueId,
+      championId: options.championId,
+      forceRefresh: options.forceRefresh === true
+    })
   }
 
   /**
@@ -248,57 +303,6 @@ class ApiClient {
     }
   }
 
-  // ========== 自动化 API ==========
-
-  /**
-   * 获取自动化任务状态
-   */
-  async getAutomationStatus(): Promise<AutomationStatus> {
-    return this.get<AutomationStatus>('/automation/status')
-  }
-
-  /**
-   * 启动自动匹配
-   */
-  async startAutoMatch(): Promise<void> {
-    return this.postVoid('/automation/match/start')
-  }
-
-  /**
-   * 停止自动匹配
-   */
-  async stopAutoMatch(): Promise<void> {
-    return this.postVoid('/automation/match/stop')
-  }
-
-  /**
-   * 设置自动接受
-   */
-  async setAutoAccept(enabled: boolean): Promise<void> {
-    return this.postVoid(`/automation/accept/${enabled}`)
-  }
-
-  /**
-   * 设置自动选人
-   */
-  async setAutoPick(enabled: boolean): Promise<void> {
-    return this.postVoid(`/automation/pick/${enabled}`)
-  }
-
-  /**
-   * 设置自动禁人
-   */
-  async setAutoBan(enabled: boolean): Promise<void> {
-    return this.postVoid(`/automation/ban/${enabled}`)
-  }
-
-  /**
-   * 批量设置自动化
-   */
-  async setBatchAutomation(settings: Record<string, boolean>): Promise<void> {
-    return this.postVoid('/automation/batch', settings)
-  }
-
   // ========== 配置 API ==========
 
   /**
@@ -355,11 +359,24 @@ class ApiClient {
   /**
    * 批量获取用户标签摘要
    */
-  async getUserTagSummaryBatch(puuids: string[], mode = 0): Promise<Record<string, UserTagSummary>> {
+  async getUserTagSummaryBatch(
+    puuids: string[],
+    mode = 0,
+    options?: Pick<AxiosRequestConfig, 'signal' | 'suppressErrorLog'>
+  ): Promise<Record<string, UserTagSummary>> {
     if (puuids.length === 0) {
       return {}
     }
-    return this.post<Record<string, UserTagSummary>>('/user-tag/batch-summary', { puuids, mode })
+    return this.post<Record<string, UserTagSummary>>('/user-tag/batch-summary', { puuids, mode }, undefined, options)
+  }
+
+  async getUserTagSummaryFromMatches(
+    puuid: string,
+    matches: MatchHistory[],
+    mode = 0,
+    options?: Pick<AxiosRequestConfig, 'signal' | 'suppressErrorLog'>
+  ): Promise<UserTagSummary> {
+    return this.post<UserTagSummary>('/user-tag/summary-from-matches', { puuid, mode, matches }, undefined, options)
   }
 
   // ========== Fandom API ==========
@@ -392,6 +409,24 @@ class ApiClient {
     return this.get<{ hasData: boolean; message: string }>('/fandom/status')
   }
 
+  // ========== Cache API ==========
+
+  async getCacheStatus(): Promise<CacheStatus> {
+    return this.get<CacheStatus>('/cache/status')
+  }
+
+  async clearCache(scope: CacheClearScope, confirm = true, mode: CacheClearMode = 'normal'): Promise<CacheClearResult> {
+    return this.post<CacheClearResult>('/cache/clear', undefined, { scope, confirm, mode })
+  }
+
+  async repairCache(confirm = true): Promise<CacheRepairResult> {
+    return this.post<CacheRepairResult>('/cache/repair', undefined, { confirm })
+  }
+
+  async getUserStoreStatus(): Promise<UserStoreStatus> {
+    return this.get<UserStoreStatus>('/user-store/status')
+  }
+
   // ========== 资源 API ==========
 
   /**
@@ -408,71 +443,19 @@ class ApiClient {
     return this.get<AssetDetails>(`/asset/detail/${type}/${id}`)
   }
 
-  // ========== 标签配置 API ==========
-
-  /**
-   * 获取所有标签配置
-   */
-  async getTagConfigs(): Promise<TagConfig[]> {
-    return this.get<TagConfig[]>('/tag-config')
-  }
-
-  /**
-   * 保存标签配置列表
-   */
-  async saveTagConfigs(configs: TagConfig[]): Promise<void> {
-    return this.postVoid('/tag-config', configs)
-  }
-
-  /**
-   * 添加标签配置
-   */
-  async addTagConfig(config: TagConfig): Promise<void> {
-    return this.postVoid('/tag-config/add', config)
-  }
-
-  /**
-   * 更新标签配置
-   */
-  async updateTagConfig(id: string, config: TagConfig): Promise<void> {
-    return this.putVoid(`/tag-config/${id}`, config)
-  }
-
-  /**
-   * 删除标签配置
-   */
-  async deleteTagConfig(id: string): Promise<void> {
-    return this.deleteVoid(`/tag-config/${id}`)
-  }
-
-  /**
-   * 切换标签启用状态
-   */
-  async toggleTagConfig(id: string): Promise<void> {
-    return this.postVoid(`/tag-config/${id}/toggle`)
-  }
-
-  /**
-   * 重置为默认配置
-   */
-  async resetTagConfigs(): Promise<void> {
-    return this.postVoid('/tag-config/reset')
-  }
-
-  /**
-   * 获取默认标签配置
-   */
-  async getDefaultTagConfigs(): Promise<TagConfig[]> {
-    return this.get<TagConfig[]>('/tag-config/defaults')
-  }
-
   // ========== 对局详情 API ==========
 
   /**
    * 获取单局详情
    */
-  async getGameDetail(gameId: number): Promise<GameDetail> {
-    return this.get<GameDetail>(`/summoner/game-detail/${gameId}`)
+  async getGameDetail(
+    gameId: number,
+    options: { source?: 'auto' | 'sgp' | 'lcu'; sgpOnly?: boolean } = {}
+  ): Promise<GameDetail> {
+    return this.get<GameDetail>(`/summoner/game-detail/${gameId}`, {
+      source: options.source ?? 'auto',
+      sgpOnly: options.sgpOnly === true
+    })
   }
 
   // ========== 会话数据 API ==========
@@ -480,8 +463,24 @@ class ApiClient {
   /**
    * 获取完整会话数据（包含双方队伍所有玩家信息）
    */
-  async getSessionData(mode?: number): Promise<SessionData> {
-    return this.get<SessionData>('/session/data', mode != null ? { mode } : undefined)
+  /**
+   * 鑾峰彇鍗曞眬鏃堕棿绾?
+   */
+  async getGameTimeline(
+    gameId: number,
+    options: { source?: 'auto' | 'sgp' | 'lcu' | 'cache'; sgpOnly?: boolean } = {}
+  ): Promise<MatchTimelineFetchResult> {
+    return this.get<MatchTimelineFetchResult>(`/summoner/game-timeline/${gameId}`, {
+      source: options.source ?? 'auto',
+      sgpOnly: options.sgpOnly === true
+    })
+  }
+
+  async getSessionData(mode?: number, options: { forceRefresh?: boolean } = {}): Promise<SessionData> {
+    return this.get<SessionData>(
+      '/session/data',
+      mode != null ? { mode, forceRefresh: options.forceRefresh === true } : { forceRefresh: options.forceRefresh === true }
+    )
   }
 }
 

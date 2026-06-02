@@ -73,5 +73,14 @@ public class GameSession {
 
         @JsonProperty("selectedPosition")
         private String selectedPosition;
+
+        @JsonProperty("assignedPosition")
+        private String assignedPosition;
+
+        @JsonProperty("teamPosition")
+        private String teamPosition;
+
+        @JsonProperty("individualPosition")
+        private String individualPosition;
     }
 }

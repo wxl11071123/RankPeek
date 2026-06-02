@@ -10,42 +10,55 @@ import io.rankpeek.model.TagConfig.StreakType;
 import io.rankpeek.model.TagConfig.TagCondition;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Manages tag configuration rules and default migrations.
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TagConfigService {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final File configFile = new File("tag-config.json");
+    private final UserStoreService userStoreService;
+    private final ObjectMapper objectMapper;
+    private final Path legacyConfigPath;
 
     private List<TagConfig> tagConfigs = new ArrayList<>();
+
+    @Autowired
+    public TagConfigService(UserStoreService userStoreService) {
+        this(userStoreService, new ObjectMapper(), Path.of("tag-config.json"));
+    }
+
+    TagConfigService(UserStoreService userStoreService, ObjectMapper objectMapper, Path legacyConfigPath) {
+        this.userStoreService = userStoreService;
+        this.objectMapper = objectMapper;
+        this.legacyConfigPath = legacyConfigPath;
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
         loadConfig();
     }
 
-    public List<TagConfig> getAllTagConfigs() {
+    public synchronized List<TagConfig> getAllTagConfigs() {
         return new ArrayList<>(tagConfigs);
     }
 
-    public void saveTagConfigs(List<TagConfig> configs) {
+    public synchronized void saveTagConfigs(List<TagConfig> configs) {
         this.tagConfigs = new ArrayList<>(configs);
         persistConfig();
     }
@@ -291,19 +304,22 @@ public class TagConfigService {
         return value != null ? value : 0;
     }
 
-    private void loadConfig() {
+    private synchronized void loadConfig() {
         List<TagConfig> defaults = getDefaultTags();
-        if (configFile.exists()) {
-            try {
-                tagConfigs = objectMapper.readValue(configFile, new TypeReference<>() {
-                });
-                tagConfigs = mergeDefaultConfigs(tagConfigs, defaults);
-                persistConfig();
-                log.info("Loaded {} tag configs", tagConfigs.size());
-            } catch (IOException e) {
-                log.warn("Failed to load tag config, using defaults: {}", e.getMessage());
-                tagConfigs = defaults;
-            }
+        List<TagConfig> storedConfigs = userStoreService.getTagConfigs();
+        if (!storedConfigs.isEmpty()) {
+            tagConfigs = mergeDefaultConfigs(storedConfigs, defaults);
+            persistConfig();
+            log.info("Loaded {} tag configs from user store", tagConfigs.size());
+            return;
+        }
+
+        Optional<List<TagConfig>> legacyConfigs = readLegacyConfigs();
+        if (legacyConfigs.isPresent()) {
+            tagConfigs = mergeDefaultConfigs(legacyConfigs.get(), defaults);
+            persistConfig();
+            log.info("Migrated {} legacy tag configs from {} into user store; legacy file was left untouched",
+                    tagConfigs.size(), legacyConfigPath);
             return;
         }
 
@@ -311,10 +327,27 @@ public class TagConfigService {
         persistConfig();
     }
 
+    private Optional<List<TagConfig>> readLegacyConfigs() {
+        if (Files.notExists(legacyConfigPath)) {
+            return Optional.empty();
+        }
+
+        try {
+            List<TagConfig> legacyConfigs = objectMapper.readValue(legacyConfigPath.toFile(), new TypeReference<>() {
+            });
+            return Optional.ofNullable(legacyConfigs);
+        } catch (IOException e) {
+            log.warn("Failed to migrate legacy tag config from {}, using defaults: {}", legacyConfigPath, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
     private List<TagConfig> mergeDefaultConfigs(List<TagConfig> existing, List<TagConfig> defaults) {
         Map<String, TagConfig> existingById = new LinkedHashMap<>();
         for (TagConfig config : existing) {
-            existingById.put(config.getId(), config);
+            if (config != null && config.getId() != null) {
+                existingById.put(config.getId(), config);
+            }
         }
 
         List<TagConfig> merged = new ArrayList<>();
@@ -335,8 +368,8 @@ public class TagConfigService {
 
     private void persistConfig() {
         try {
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(configFile, tagConfigs);
-        } catch (IOException e) {
+            userStoreService.saveTagConfigs(tagConfigs);
+        } catch (RuntimeException e) {
             log.error("Failed to save tag config: {}", e.getMessage());
         }
     }
@@ -371,7 +404,7 @@ public class TagConfigService {
                 "最近这人赢得多，状态肉眼可见地在线。",
                 true,
                 List.of(new MatchFilter.QueueFilter(seriousQueueIds)),
-                new MatchRefresh.AverageRefresh("win", Operator.GTE, 0.65)
+                new MatchRefresh.AverageRefresh("win", Operator.GTE, 0.60)
         ));
 
         defaults.add(defaultHistoryTag(
@@ -380,7 +413,7 @@ public class TagConfigService {
                 "最近赢少输多，手感和节奏都不太对。",
                 false,
                 List.of(new MatchFilter.QueueFilter(seriousQueueIds)),
-                new MatchRefresh.AverageRefresh("win", Operator.LT, 0.35)
+                new MatchRefresh.AverageRefresh("win", Operator.LT, 0.40)
         ));
 
         defaults.add(defaultHistoryTag(
@@ -404,37 +437,20 @@ public class TagConfigService {
                 new MatchRefresh.CountRefresh(Operator.GTE, 4.0)
         ));
 
-        defaults.add(defaultHistoryTag(
-                "default_feeding",
-                "暴毙",
-                "最近几把死得偏多，团前蒸发概率不低。",
-                false,
-                List.of(
-                        new MatchFilter.QueueFilter(seriousQueueIds),
-                        new MatchFilter.StatFilter("deaths", Operator.GTE, 8.0)
-                ),
-                new MatchRefresh.CountRefresh(Operator.GTE, 4.0)
-        ));
-
-        defaults.add(defaultHistoryTag(
-                "default_inting",
-                "摆烂",
-                "最近数据松松垮垮，像是在随便交差。",
-                false,
-                List.of(
-                        new MatchFilter.QueueFilter(seriousQueueIds),
-                        new MatchFilter.StatFilter("kda", Operator.LTE, 1.5)
-                ),
-                new MatchRefresh.CountRefresh(Operator.GTE, 4.0)
-        ));
-
-        defaults.add(defaultHistoryTag(
+        defaults.add(new TagConfig(
                 "default_casual",
                 "娱乐",
                 "最近主要在玩娱乐模式，排位样本不算多。",
                 null,
-                List.of(new MatchFilter.QueueFilter(casualQueueIds)),
-                new MatchRefresh.CountRefresh(Operator.GTE, 6.0)
+                true,
+                true,
+                new TagCondition.AndCondition(List.of(
+                        new TagCondition.NotCondition(new TagCondition.CurrentQueueCondition(casualQueueIds)),
+                        new TagCondition.HistoryCondition(
+                                List.of(new MatchFilter.QueueFilter(casualQueueIds)),
+                                new MatchRefresh.CountRefresh(Operator.GT, 10.0)
+                        )
+                ))
         ));
 
         defaults.add(defaultHistoryTag(
@@ -469,28 +485,28 @@ public class TagConfigService {
         );
     }
 
-    public void resetToDefault() {
+    public synchronized void resetToDefault() {
         tagConfigs = getDefaultTags();
         persistConfig();
     }
 
-    public void addTagConfig(TagConfig config) {
+    public synchronized void addTagConfig(TagConfig config) {
         tagConfigs.add(config);
         persistConfig();
     }
 
-    public void updateTagConfig(String id, TagConfig config) {
+    public synchronized void updateTagConfig(String id, TagConfig config) {
         tagConfigs.removeIf(item -> item.getId().equals(id));
         tagConfigs.add(config);
         persistConfig();
     }
 
-    public void deleteTagConfig(String id) {
+    public synchronized void deleteTagConfig(String id) {
         tagConfigs.removeIf(item -> item.getId().equals(id));
         persistConfig();
     }
 
-    public void toggleTagConfig(String id) {
+    public synchronized void toggleTagConfig(String id) {
         tagConfigs.stream()
                 .filter(item -> item.getId().equals(id))
                 .findFirst()

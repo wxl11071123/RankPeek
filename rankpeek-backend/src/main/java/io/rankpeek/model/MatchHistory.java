@@ -1,10 +1,13 @@
 package io.rankpeek.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 对局记录模型
@@ -44,6 +47,10 @@ public class MatchHistory {
     @JsonProperty("mapId")
     private Integer mapId;
 
+    @JsonProperty("remake")
+    @JsonAlias("isRemake")
+    private Boolean remake;
+
     @JsonProperty("participants")
     private List<Participant> participants;
 
@@ -70,6 +77,21 @@ public class MatchHistory {
 
         @JsonProperty("spell2Id")
         private Integer spell2Id;
+
+        @JsonProperty("teamPosition")
+        private String teamPosition;
+
+        @JsonProperty("individualPosition")
+        private String individualPosition;
+
+        @JsonProperty("selectedPosition")
+        private String selectedPosition;
+
+        @JsonProperty("lane")
+        private String lane;
+
+        @JsonProperty("role")
+        private String role;
 
         @JsonProperty("stats")
         private Stats stats;
@@ -111,6 +133,9 @@ public class MatchHistory {
         @JsonProperty("totalHeal")
         private Integer totalHeal;
 
+        @JsonProperty("visionScore")
+        private Integer visionScore;
+
         @JsonProperty("item0")
         private Integer item0;
 
@@ -144,14 +169,74 @@ public class MatchHistory {
         @JsonProperty("mvp")
         private String mvp;
 
+        @JsonProperty("doubleKills")
+        private Integer doubleKills;
+
+        @JsonProperty("tripleKills")
+        private Integer tripleKills;
+
+        @JsonProperty("quadraKills")
+        private Integer quadraKills;
+
+        @JsonProperty("pentaKills")
+        private Integer pentaKills;
+
+        @JsonProperty("largestKillingSpree")
+        private Integer largestKillingSpree;
+
+        @JsonProperty("legendaryCount")
+        private Integer legendaryCount;
+
         @JsonProperty("perk0")
         private Integer perk0;
+
+        @JsonProperty("perk1")
+        private Integer perk1;
+
+        @JsonProperty("perk2")
+        private Integer perk2;
+
+        @JsonProperty("perk3")
+        private Integer perk3;
+
+        @JsonProperty("perk4")
+        private Integer perk4;
+
+        @JsonProperty("perk5")
+        private Integer perk5;
+
+        @JsonProperty("perkPrimaryStyle")
+        private Integer perkPrimaryStyle;
+
+        @JsonProperty("perkSubStyle")
+        private Integer perkSubStyle;
+
+        @JsonProperty("perks")
+        private Map<String, Object> perks;
 
         @JsonProperty("minionsKilled")
         private Integer minionsKilled;
 
         @JsonProperty("damageDealtToTurrets")
         private Integer damageDealtToTurrets;
+
+        @JsonProperty("earlyGoldDiff")
+        private Integer earlyGoldDiff;
+
+        @JsonProperty("laneGoldDiff15")
+        private Integer laneGoldDiff15;
+
+        @JsonProperty("goldDiff15")
+        private Integer goldDiff15;
+
+        @JsonProperty("goldDiffAt15")
+        private Integer goldDiffAt15;
+
+        @JsonProperty("goldDifferenceAt15")
+        private Integer goldDifferenceAt15;
+
+        @JsonProperty("fifteenMinuteGoldDiff")
+        private Integer fifteenMinuteGoldDiff;
 
         @JsonProperty("playerAugment1")
         private Integer playerAugment1;
@@ -164,6 +249,12 @@ public class MatchHistory {
 
         @JsonProperty("playerAugment4")
         private Integer playerAugment4;
+
+        @JsonProperty("challenges")
+        private Map<String, Object> challenges;
+
+        @JsonProperty("extraFields")
+        private Map<String, Object> extraFields = new HashMap<>();
     }
 
     /**

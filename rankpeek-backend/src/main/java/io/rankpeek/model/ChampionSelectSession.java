@@ -108,6 +108,18 @@ public class ChampionSelectSession {
         @JsonProperty("championPickIntent")
         private Integer championPickIntent;
 
+        @JsonProperty("selectedPosition")
+        private String selectedPosition;
+
+        @JsonProperty("assignedPosition")
+        private String assignedPosition;
+
+        @JsonProperty("teamPosition")
+        private String teamPosition;
+
+        @JsonProperty("individualPosition")
+        private String individualPosition;
+
         @JsonProperty("selectedSkinId")
         private Integer selectedSkinId;
 

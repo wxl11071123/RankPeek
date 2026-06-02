@@ -3,6 +3,7 @@ package io.rankpeek.controller;
 import io.rankpeek.model.*;
 import io.rankpeek.service.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/session")
 @RequiredArgsConstructor
+@Slf4j
 public class SessionController {
 
     private final LcuHttpClient lcuHttpClient;
@@ -19,6 +21,7 @@ public class SessionController {
     private final ChampionSelectService championSelectService;
     private final SessionAnalysisService sessionAnalysisService;
     private final SummonerService summonerService;
+    private final LcuWindowBoundsService lcuWindowBoundsService;
 
     /**
      * 获取游戏状态
@@ -31,14 +34,25 @@ public class SessionController {
             boolean connected = lcuHttpClient.isConnected();
             state.setConnected(connected);
 
-            if (connected) {
-                String phase = gameFlowService.getGamePhase();
-                state.setPhase(phase);
-
-                state.setSummoner(summonerService.getMySummoner());
+            if (!connected) {
+                return ApiResponse.success(state);
             }
         } catch (Exception e) {
+            log.warn("LCU connection check failed while building game state: {}", e.getMessage());
             state.setConnected(false);
+            return ApiResponse.success(state);
+        }
+
+        try {
+            state.setPhase(gameFlowService.getGamePhase());
+        } catch (Exception e) {
+            log.warn("LCU connected but game phase lookup failed: {}", e.getMessage());
+        }
+
+        try {
+            state.setSummoner(summonerService.getMySummoner());
+        } catch (Exception e) {
+            log.warn("LCU connected but current summoner lookup failed: {}", e.getMessage());
         }
 
         return ApiResponse.success(state);
@@ -103,13 +117,20 @@ public class SessionController {
         return ApiResponse.success(lcuHttpClient.isConnected());
     }
 
+    @GetMapping("/lcu-window-bounds")
+    public ApiResponse<LcuWindowBounds> getLcuWindowBounds() {
+        return ApiResponse.success(lcuWindowBoundsService.findLcuWindowBounds());
+    }
+
     /**
      * 获取完整会话数据（包含双方队伍所有玩家信息）
      * @param mode 队列模式（可选，<=0 表示全部）
      * @return 完整会话数据
      */
     @GetMapping("/data")
-    public ApiResponse<SessionData> getSessionData(@RequestParam(required = false) Integer mode) {
-        return ApiResponse.success(sessionAnalysisService.getSessionData(mode));
+    public ApiResponse<SessionData> getSessionData(
+            @RequestParam(required = false) Integer mode,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        return ApiResponse.success(sessionAnalysisService.getSessionData(mode, forceRefresh));
     }
 }

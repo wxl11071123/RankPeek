@@ -1,41 +1,43 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from '@/i18n'
 import type { RankTag, RecordStatus } from '@/types/api'
 
 const props = withDefaults(defineProps<{
   recordStatus?: RecordStatus
   tags?: RankTag[]
-  limit?: number
+  limit?: number | null
   compact?: boolean
   showEmpty?: boolean
 }>(), {
   recordStatus: 'NORMAL',
   tags: () => [],
-  limit: 2,
+  limit: null,
   compact: false,
   showEmpty: false
 })
 
-const visibleTags = computed(() => props.tags.slice(0, props.limit))
+const { t } = useI18n()
+const visibleTags = computed(() => props.limit == null ? props.tags : props.tags.slice(0, props.limit))
 
 const statusMeta = computed(() => {
   switch (props.recordStatus) {
     case 'PRIVATE':
       return {
-        label: '战绩隐藏',
-        desc: 'LCU 内无法看到该玩家的近期对局。',
+        label: t('badge.private'),
+        desc: t('badge.privateDescription'),
         className: 'private'
       }
     case 'EMPTY':
       return {
-        label: '暂无对局',
-        desc: '近期可用数据不足，暂时无法展示。',
+        label: t('badge.empty'),
+        desc: t('badge.emptyDescription'),
         className: 'empty'
       }
     case 'ERROR':
       return {
-        label: '加载失败',
-        desc: '这次标签数据加载失败。',
+        label: t('badge.error'),
+        desc: t('badge.errorDescription'),
         className: 'error'
       }
     default:
@@ -67,7 +69,7 @@ const statusMeta = computed(() => {
       </span>
     </template>
 
-    <span v-else-if="showEmpty" class="status-chip empty">暂无标签</span>
+    <span v-else-if="showEmpty" class="status-chip empty">{{ t('badge.noTags') }}</span>
   </div>
 </template>
 

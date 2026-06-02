@@ -20,6 +20,6 @@
       "@/*": ["src/renderer/*"]
     }
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.d.ts", "src/renderer/**/*.tsx", "src/renderer/**/*.vue"],
+  "include": ["src/vite-env.d.ts", "src/renderer/**/*.ts", "src/renderer/**/*.d.ts", "src/renderer/**/*.tsx", "src/renderer/**/*.vue"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

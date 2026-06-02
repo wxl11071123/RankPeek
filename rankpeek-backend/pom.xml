@@ -19,6 +19,8 @@
 
     <properties>
         <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <jna.version>5.14.0</jna.version>
         <caffeine.version>3.1.8</caffeine.version>
         <okhttp.version>4.12.0</okhttp.version>
@@ -38,6 +40,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
         </dependency>
 
         <!-- 配置处理器 (编译时) -->
@@ -87,14 +99,6 @@
             <artifactId>jackson-dataformat-yaml</artifactId>
         </dependency>
 
-        <!-- Source: https://mvnrepository.com/artifact/com.alibaba/dashscope-sdk-java -->
-        <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>dashscope-sdk-java</artifactId>
-            <version>2.22.11</version>
-            <scope>compile</scope>
-        </dependency>
-
         <!-- Lombok (编译时) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -140,7 +144,7 @@
                             <artifactId>spring-boot-configuration-processor</artifactId>
                         </exclude>
                     </excludes>
-                    <jvmArguments>-Xms32m -Xmx128m</jvmArguments>
+                    <jvmArguments>-Xms128m -Xmx512m</jvmArguments>
                     <!-- 分层构建，优化体积和启动速度 -->
                     <layers>
                         <enabled>true</enabled>
@@ -241,9 +245,12 @@
                                 <buildArg>--initialize-at-run-time=com.sun.jna.CallbackReference</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.Structure</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.Kernel32</buildArg>
+                                <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.User32</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.WinNT</buildArg>
+                                <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.WinUser</buildArg>
                                 <buildArg>--initialize-at-run-time=com.sun.jna.platform.win32.Tlhelp32</buildArg>
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.Kernel32</buildArg>
+                                <buildArg>--initialize-at-run-time=io.rankpeek.jna.User32</buildArg>
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.Ntdll</buildArg>
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.ProcessUtils</buildArg>
 
