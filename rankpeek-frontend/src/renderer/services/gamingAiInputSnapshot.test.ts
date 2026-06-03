@@ -194,8 +194,10 @@ test('prefers hydrated teammates and opponents over raw team aliases', () => {
     currentSummonerPuuid: 'hydrated-ally'
   })
 
-  assert.match(snapshot.teammateSnapshot.players[0]?.summaryLine ?? '', /HydratedAlly#1234/)
-  assert.match(snapshot.opponentSnapshot.players[0]?.summaryLine ?? '', /HydratedEnemy#1234/)
+  assert.match(snapshot.teammateSnapshot.players[0]?.summaryLine ?? '', /^你 战绩状态：/)
+  assert.match(snapshot.opponentSnapshot.players[0]?.summaryLine ?? '', /^敌方1 战绩状态：/)
+  assert.doesNotMatch(snapshot.teammateSnapshot.text, /HydratedAlly#1234|HydratedEnemy#1234|用户ID/)
+  assert.doesNotMatch(snapshot.opponentSnapshot.text, /HydratedAlly#1234|HydratedEnemy#1234|用户ID/)
   assert.equal(snapshot.mode, 'opponent')
 })
 
@@ -223,10 +225,11 @@ test('turns each player into one compact natural-language line only', () => {
   const normalized = snapshot.teammateSnapshot.players[0]
 
   assert.equal(normalized?.key, 'puuid:ikun-puuid')
-  assert.equal(normalized?.summaryLine, '练习两年半的ikun#58092（用户） 战绩状态：正常。当前位置：打野，tag：高胜率、稳定C、高伤，场均击杀/死亡/助攻：8.0/4.0/5.0，平均KDA：3.3，胜率：65.0%，伤转：161.4%，样本数：20，参团率：12.5%，最近对局：德邦总管 上路 胜 1/2/3、德邦总管 打野 负 2/2/3、德邦总管 打野 胜 3/2/3、德邦总管 上路 负 4/2/3、德邦总管 打野 胜 5/2/3、德邦总管 打野 负 6/2/3、德邦总管 上路 胜 7/2/3、德邦总管 打野 负 8/2/3、德邦总管 打野 胜 9/2/3、德邦总管 上路 负 10/2/3、德邦总管 打野 胜 11/2/3、德邦总管 打野 负 12/2/3、德邦总管 上路 胜 13/2/3、德邦总管 打野 负 14/2/3、德邦总管 打野 胜 15/2/3、德邦总管 上路 负 16/2/3、德邦总管 打野 胜 17/2/3、德邦总管 打野 负 18/2/3、德邦总管 上路 胜 19/2/3、德邦总管 打野 负 20/2/3。')
+  assert.equal(normalized?.summaryLine, '你 战绩状态：正常。当前位置：打野，tag：高胜率、稳定C、高伤，场均击杀/死亡/助攻：8.0/4.0/5.0，平均KDA：3.3，胜率：65.0%，伤转：161.4%，样本数：20，参团率：12.5%，最近对局：德邦总管 上路 胜 1/2/3、德邦总管 打野 负 2/2/3、德邦总管 打野 胜 3/2/3、德邦总管 上路 负 4/2/3、德邦总管 打野 胜 5/2/3、德邦总管 打野 负 6/2/3、德邦总管 上路 胜 7/2/3、德邦总管 打野 负 8/2/3、德邦总管 打野 胜 9/2/3、德邦总管 上路 负 10/2/3、德邦总管 打野 胜 11/2/3、德邦总管 打野 负 12/2/3、德邦总管 上路 胜 13/2/3、德邦总管 打野 负 14/2/3、德邦总管 打野 胜 15/2/3、德邦总管 上路 负 16/2/3、德邦总管 打野 胜 17/2/3、德邦总管 打野 负 18/2/3、德邦总管 上路 胜 19/2/3、德邦总管 打野 负 20/2/3。')
 
-  assert.match(snapshot.teammateSnapshot.text ?? '', /^当前snapshot时间：.+。模式：单双排。用户ID：练习两年半的ikun#58092。阵营：我方。/)
-  assert.match(snapshot.teammateSnapshot.text ?? '', /练习两年半的ikun#58092（用户） 战绩状态：正常。当前位置：打野/)
+  assert.match(snapshot.teammateSnapshot.text ?? '', /^当前snapshot时间：.+。模式：单双排。阵营：我方。/)
+  assert.match(snapshot.teammateSnapshot.text ?? '', /你 战绩状态：正常。当前位置：打野/)
+  assert.doesNotMatch(snapshot.teammateSnapshot.text ?? '', /练习两年半的ikun#58092|用户ID/)
   assert.equal((snapshot.teammateSnapshot.text ?? '').match(/德邦总管/g)?.length, 20)
   assert.match(snapshot.opponentSnapshot.text ?? '', /阵营：敌方。/)
 

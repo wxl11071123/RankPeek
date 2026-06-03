@@ -50,10 +50,10 @@ export function buildGamingAiInputSnapshot(input: {
   const generatedAt = new Date().toISOString()
   const context = createSnapshotContext(input.sessionData, generatedAt, currentSummoner)
 
-  const teammatePlayers = allyPlayers.map(player => toInputPlayer(player, currentIdentity))
-  const opponentPlayers = enemyPlayers.map(player => toInputPlayer(player, currentIdentity))
-  const teammateSnapshot = createTeamSnapshot('ally', teammatePlayers, context.generatedAt, context.queueName, context.currentSummoner)
-  const opponentSnapshot = createTeamSnapshot('enemy', opponentPlayers, context.generatedAt, context.queueName, context.currentSummoner)
+  const teammatePlayers = allyPlayers.map((player, index) => toInputPlayer(player, currentIdentity, 'ally', index))
+  const opponentPlayers = enemyPlayers.map((player, index) => toInputPlayer(player, currentIdentity, 'enemy', index))
+  const teammateSnapshot = createTeamSnapshot('ally', teammatePlayers, context.generatedAt, context.queueName)
+  const opponentSnapshot = createTeamSnapshot('enemy', opponentPlayers, context.generatedAt, context.queueName)
 
   return {
     schemaVersion: 'gaming_ai_input_snapshot.v2',
@@ -119,11 +119,10 @@ function createTeamSnapshot(
   side: GamingAiTeamSide,
   players: GamingAiInputPlayer[],
   generatedAt: string,
-  queueName: string,
-  currentSummoner: CurrentSummonerSnapshot | undefined
+  queueName: string
 ): GamingAiTeamSnapshot {
   const sideLabel = side === 'ally' ? '我方' : '敌方'
-  const header = `当前snapshot时间：${generatedAt}。模式：${queueName}。用户ID：${formatCurrentSummonerDisplayName(currentSummoner)}。阵营：${sideLabel}。`
+  const header = `当前snapshot时间：${generatedAt}。模式：${queueName}。阵营：${sideLabel}。`
   const body = players.map(player => player.summaryLine).join('\n\n')
 
   return {
@@ -147,7 +146,9 @@ interface CurrentSummonerIdentity {
 
 function toInputPlayer(
   player: SessionSummoner,
-  currentIdentity: CurrentSummonerIdentity
+  currentIdentity: CurrentSummonerIdentity,
+  side: GamingAiTeamSide,
+  index: number
 ): GamingAiInputPlayer {
   const recentData = player.userTag?.recentData
   const wins = finiteNumberOrZero(recentData?.selectWins)
@@ -174,15 +175,16 @@ function toInputPlayer(
     groupRate: toFiniteNumber(recentData?.groupRate)
   }
 
+  const isSelf = isCurrentSummonerPlayer(player, currentIdentity)
   const inputPlayer: Omit<GamingAiInputPlayer, 'summaryLine'> = {
     key: getPlayerSnapshotKey(player),
-    isSelf: isCurrentSummonerPlayer(player, currentIdentity)
+    isSelf
   }
 
   return {
     ...inputPlayer,
     summaryLine: formatGamingAiInputPlayerSummary({
-      displayName: formatDisplayName(player.summoner),
+      playerRef: formatAnonymousPlayerRef(side, index, isSelf),
       isSelf: inputPlayer.isSelf,
       selectedPosition,
       recordStatus,
@@ -195,7 +197,7 @@ function toInputPlayer(
 }
 
 interface GamingAiInputPlayerSummaryInput {
-  displayName: string
+  playerRef: string
   isSelf: boolean
   selectedPosition?: string
   recordStatus: RecordStatus
@@ -215,8 +217,14 @@ interface GamingAiInputPlayerSummaryInput {
 }
 
 function formatGamingAiInputPlayerSummary(input: GamingAiInputPlayerSummaryInput): string {
-  const displayName = input.isSelf ? `${input.displayName}（用户）` : input.displayName
-  return `${displayName} 战绩状态：${formatRecordStatusLabel(input.recordStatus)}。当前位置：${formatPositionLabel(input.selectedPosition)}，tag：${input.tags.length ? input.tags.join('、') : '无'}，场均击杀/死亡/助攻：${formatNumber(input.metrics.kills)}/${formatNumber(input.metrics.deaths)}/${formatNumber(input.metrics.assists)}，平均KDA：${formatNumber(input.metrics.kda)}，胜率：${formatPercent(input.metrics.winRate)}，伤转：${formatPercent(input.metrics.damageConversionRate)}，样本数：${input.metrics.sample}，参团率：${formatPercent(input.metrics.groupRate)}，最近对局：${formatRecentMatches(input.recentMatches, input.puuid)}。`
+  return `${input.playerRef} 战绩状态：${formatRecordStatusLabel(input.recordStatus)}。当前位置：${formatPositionLabel(input.selectedPosition)}，tag：${input.tags.length ? input.tags.join('、') : '无'}，场均击杀/死亡/助攻：${formatNumber(input.metrics.kills)}/${formatNumber(input.metrics.deaths)}/${formatNumber(input.metrics.assists)}，平均KDA：${formatNumber(input.metrics.kda)}，胜率：${formatPercent(input.metrics.winRate)}，伤转：${formatPercent(input.metrics.damageConversionRate)}，样本数：${input.metrics.sample}，参团率：${formatPercent(input.metrics.groupRate)}，最近对局：${formatRecentMatches(input.recentMatches, input.puuid)}。`
+}
+
+function formatAnonymousPlayerRef(side: GamingAiTeamSide, index: number, isSelf: boolean): string {
+  if (isSelf) {
+    return '你'
+  }
+  return `${side === 'ally' ? '我方' : '敌方'}${index + 1}`
 }
 
 function formatRecentMatches(matchHistory: MatchHistory[] | undefined, puuid?: string): string {
@@ -329,16 +337,6 @@ function normalizeCurrentSummoner(identity: CurrentSummonerIdentity): CurrentSum
     ...(gameName ? { gameName } : {}),
     ...(tagLine ? { tagLine } : {})
   }
-}
-
-function formatCurrentSummonerDisplayName(summoner: CurrentSummonerSnapshot | undefined): string {
-  const gameName = readNonEmptyString(summoner?.gameName)
-  const tagLine = readNonEmptyString(summoner?.tagLine)
-  if (gameName) {
-    return tagLine ? `${gameName}#${tagLine}` : gameName
-  }
-
-  return readNonEmptyString(summoner?.puuid) || '未知用户'
 }
 
 function isCurrentSummonerPlayer(player: SessionSummoner, identity: CurrentSummonerIdentity): boolean {

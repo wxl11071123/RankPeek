@@ -236,6 +236,7 @@ public class LocalAiAnalysisService {
                                 - 必须为 allowedPlayerKeys 里的每个 playerKey 输出一行，不能输出其他 playerKey。
                                 - label 必须使用当前模式允许的固定标签，不准自创。
                                 - text 必须是 1 到 2 句话，不能有小标题、列表、编号或换行。
+                                - text 不要出现召唤师名、用户ID、playerKey、puuid、#tag 或其他身份信息，只使用“你/我方N/敌方N”这类匿名称呼。
                                 %s
                                 snapshotText:
                                 %s

@@ -22,6 +22,7 @@ export interface HomeChartEntry {
   damageRate: number | null
   goldDiff15: number | null
   visionScore: number | null
+  rpIndex?: number | null
 }
 
 export type HomeChartDetailLookup = Map<number, GameDetail> | Record<string, GameDetail | undefined>
@@ -64,7 +65,8 @@ export function createHomeChartEntries(
 export function createHomeChartEntry(
   match: MatchHistory,
   puuid: string,
-  detail?: GameDetail | null
+  detail?: GameDetail | null,
+  rpIndex?: number | null
 ): HomeChartEntry | null {
   const matchParticipant = getMatchParticipantByPuuid(match, puuid)
   if (!matchParticipant || !hasPositiveChampionId(matchParticipant.championId)) {
@@ -115,7 +117,8 @@ export function createHomeChartEntry(
     totalDamage: readNumber(stats, ['totalDamageDealtToChampions']),
     damageRate: calculateDamageConversion(stats),
     goldDiff15: calculateGoldDiff15(stats),
-    visionScore: readVisionScore(stats)
+    visionScore: readVisionScore(stats),
+    ...(rpIndex != null ? { rpIndex: roundOneDecimal(rpIndex) } : {})
   }
 }
 
@@ -144,9 +147,10 @@ export function mergeHomeChartDetail(
   entry: HomeChartEntry,
   match: MatchHistory,
   detail: GameDetail | null,
-  puuid: string
+  puuid: string,
+  rpIndex?: number | null
 ): HomeChartEntry {
-  const enhancedEntry = createHomeChartEntry(match, puuid, detail)
+  const enhancedEntry = createHomeChartEntry(match, puuid, detail, rpIndex)
   return enhancedEntry ?? entry
 }
 
@@ -355,4 +359,8 @@ function readNumber(record: StatsRecord | null, keys: string[]): number | null {
     }
   }
   return null
+}
+
+function roundOneDecimal(value: number): number {
+  return Number(value.toFixed(1))
 }

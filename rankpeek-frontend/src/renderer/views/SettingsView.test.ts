@@ -139,6 +139,26 @@ test('settings page keeps common local settings and local service diagnostics', 
   assert.match(source, /checkLocalRankPeekServer/)
 })
 
+test('settings page exposes in-app feedback without log upload', () => {
+  assert.match(source, /submitRankPeekFeedback/)
+  assert.match(source, /getOrCreateCloudInstallationId/)
+  assert.match(source, /feedbackDialogOpen/)
+  assert.match(source, /openFeedbackDialog/)
+  assert.match(source, /sendRankPeekFeedback/)
+  assert.match(source, /settings\.feedbackAction/)
+  assert.match(source, /settings\.feedbackTitle/)
+  assert.match(source, /settings\.feedbackDescription/)
+  assert.match(source, /settings\.feedbackMessage/)
+  assert.match(source, /settings\.feedbackContact/)
+  assert.match(source, /settings\.feedbackPrivacyNote/)
+  assert.match(source, /<textarea[\s\S]*v-model\.trim="feedbackForm\.message"[\s\S]*settings\.feedbackMessagePlaceholder/)
+  assert.match(source, /v-model\.trim="feedbackForm\.contact"/)
+  assert.match(source, /appVersion:\s*appVersion\.value/)
+  assert.match(source, /platform:\s*window\.electronAPI\?\.platform \?\? navigator\.platform/)
+  assert.match(source, /installationId:\s*getOrCreateCloudInstallationId\(\)/)
+  assert.doesNotMatch(source, /log upload|upload log|上传日志|附带日志|includeLog|logs:/i)
+})
+
 test('settings page shows compact sponsor codes at the bottom and keeps GitHub on the open-source repo', () => {
   assert.match(source, /import sponsorAlipayQr from '@\/assets\/support\/rankpeek-alipay-qr\.png'/)
   assert.match(source, /import sponsorWechatQr from '@\/assets\/support\/rankpeek-wechat-qr\.png'/)
@@ -222,7 +242,19 @@ test('settings local AI copy exists in both locales', () => {
     'settings.aiTestConnection',
     'settings.aiSettingsSaved',
     'settings.aiConnectionReady',
-    'settings.aiSettingsUnavailable'
+    'settings.aiSettingsUnavailable',
+    'settings.feedbackAction',
+    'settings.feedbackTitle',
+    'settings.feedbackDescription',
+    'settings.feedbackMessage',
+    'settings.feedbackMessagePlaceholder',
+    'settings.feedbackContact',
+    'settings.feedbackContactPlaceholder',
+    'settings.feedbackPrivacyNote',
+    'settings.feedbackSubmit',
+    'settings.feedbackSubmitting',
+    'settings.feedbackSent',
+    'settings.feedbackFailed'
   ]) {
     assert.ok(zh.includes(`'${key}'`), `zh-CN should include ${key}`)
     assert.ok(en.includes(`'${key}'`), `en-US should include ${key}`)

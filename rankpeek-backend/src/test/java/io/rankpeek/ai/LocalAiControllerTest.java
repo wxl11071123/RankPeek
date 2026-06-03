@@ -161,6 +161,53 @@ class LocalAiControllerTest {
     }
 
     @Test
+    void pregameStreamRepairsMojibakeAndNormalizesBarePuuidKeys() throws Exception {
+        String mojibakeLabel = mojibake("上等马");
+        String mojibakeText = mojibake("近期状态稳定，可以信任。");
+        configureSuccessfulProvider("""
+                data: {"model":"deepseek-v4-flash","choices":[{"delta":{"content":"{\\\"playerKey\\\":\\\"ally-puuid\\\",\\\"label\\\":\\\"%s\\\",\\\"tone\\\":\\\"carry\\\",\\\"text\\\":\\\"%s\\\"}\\n"}}]}
+
+                data: [DONE]
+
+                """.formatted(mojibakeLabel, mojibakeText));
+
+        MvcResult result = mockMvc.perform(post("/api/v1/ai/pregame/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content("""
+                                {
+                                  "mode": "teammate",
+                                  "queueId": 420,
+                                  "allyTeamTags": ["当前snapshot时间：2026-06-03T00:00:00.000Z。模式：单双排。阵营：我方。\\n\\n你 战绩状态：正常。"],
+                                  "enemyTeamTags": [],
+                                  "snapshotSchemaVersion": "gaming_ai_input_snapshot.v2",
+                                  "snapshot": {
+                                    "mode": "teammate",
+                                    "teammateSnapshot": {
+                                      "players": [
+                                        {"key": "puuid:ally-puuid", "isSelf": true, "summaryLine": "你 战绩状态：正常。"}
+                                      ]
+                                    }
+                                  }
+                                }
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        MvcResult streamResult = mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andReturn();
+        String streamBody = streamResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(streamBody)
+                .contains("event:player_insight", "puuid:ally-puuid", "上等马", "近期状态稳定，可以信任。")
+                .doesNotContain(mojibakeLabel);
+
+        LocalAiRun run = runRepository.list("pregame", "succeeded", 20, 0).getFirst();
+        assertThat(run.responseRawJson()).contains("puuid:ally-puuid", "上等马", "近期状态稳定，可以信任。");
+        assertThat(run.responseRawJson()).doesNotContain(mojibakeLabel);
+    }
+
+    @Test
     void postgameStreamDoesNotRequireAuthorization() throws Exception {
         configureSuccessfulProvider("""
                 data: {"model":"deepseek-v4-flash","choices":[{"delta":{"content":"{\\\"schemaVersion\\\":\\\"postgame_review_result.v1\\\",\\\"levels\\\":[{\\\"label\\\":\\\"夯\\\",\\\"players\\\":[]}],\\\"summary\\\":\\\"客观总结\\\"}"}}]}
@@ -364,6 +411,10 @@ class LocalAiControllerTest {
                         new BigDecimal("2")
                 )
         ));
+    }
+
+    private String mojibake(String value) {
+        return new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1);
     }
 
     private void respondWithSse(HttpExchange exchange, String sseBody) throws IOException {
