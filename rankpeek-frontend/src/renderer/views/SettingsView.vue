@@ -33,6 +33,8 @@ import brandSymbolBlack from '@/assets/branding/rankpeek-symbol-black.png'
 import brandSymbolWhite from '@/assets/branding/rankpeek-symbol-white.png'
 import brandEyeBlack from '@/assets/branding/rankpeek-eye-black.png'
 import brandEyeWhite from '@/assets/branding/rankpeek-eye-white.png'
+import sponsorAlipayQr from '@/assets/support/rankpeek-alipay-qr.png'
+import sponsorWechatQr from '@/assets/support/rankpeek-wechat-qr.png'
 
 interface AiPricingFormState {
   currency: string
@@ -43,6 +45,12 @@ interface AiPricingFormState {
 
 interface AiProviderFormState extends Omit<SaveLocalAiSettingsRequest, 'pricing'> {
   pricing: AiPricingFormState
+}
+
+interface SponsorOption {
+  id: 'alipay' | 'wechat'
+  labelKey: 'settings.supportAlipay' | 'settings.supportWechat'
+  image: string
 }
 
 const themeStore = useThemeStore()
@@ -70,6 +78,7 @@ const localAiApiKeys = ref<LocalAiProviderApiKey[]>([])
 const selectedApiKeyId = ref('')
 const aiProviderStatusMessage = ref('')
 const apiKeyDialogOpen = ref(false)
+const activeSponsorId = ref<SponsorOption['id'] | ''>('')
 const newApiKeyInput = ref('')
 const newApiKeyNameInput = ref('')
 let aiModelRefreshTimer: number | null = null
@@ -97,6 +106,18 @@ const aiProviderForm = reactive<AiProviderFormState>({
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
 const githubIssuesUrl = 'https://github.com/wxl11071123/rankpeek/issues'
+const sponsorOptions: SponsorOption[] = [
+  {
+    id: 'alipay',
+    labelKey: 'settings.supportAlipay',
+    image: sponsorAlipayQr
+  },
+  {
+    id: 'wechat',
+    labelKey: 'settings.supportWechat',
+    image: sponsorWechatQr
+  }
+]
 
 const showcaseBackgroundLines = computed(() => [
   t('settings.showcaseLine1'),
@@ -145,6 +166,10 @@ const modelSelectOptions = computed(() => {
 
 const selectedApiKey = computed(() =>
   localAiApiKeys.value.find(key => key.id === selectedApiKeyId.value) ?? null
+)
+
+const activeSponsorOption = computed(() =>
+  sponsorOptions.find(option => option.id === activeSponsorId.value) ?? null
 )
 
 function toggleAiProviderEnabled() {
@@ -651,6 +676,14 @@ async function openExternal(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
+
+function openSponsorModal(id: SponsorOption['id']) {
+  activeSponsorId.value = id
+}
+
+function closeSponsorModal() {
+  activeSponsorId.value = ''
+}
 </script>
 
 <template>
@@ -1071,6 +1104,37 @@ async function openExternal(url: string) {
       </div>
     </section>
 
+    <section class="settings-section support-section">
+      <h2>{{ t('settings.supportRankPeek') }}</h2>
+      <div class="support-card">
+        <div class="support-copy">
+          <h3>{{ t('settings.supportRankPeek') }}</h3>
+          <p>{{ t('settings.supportDescription') }}</p>
+        </div>
+        <div
+          class="support-options"
+          role="list"
+        >
+          <button
+            v-for="option in sponsorOptions"
+            :key="option.id"
+            class="support-code-button"
+            type="button"
+            role="listitem"
+            :aria-label="t('settings.supportOpenQr', { name: t(option.labelKey) })"
+            @click="openSponsorModal(option.id)"
+          >
+            <span class="support-code-thumb">
+              <img
+                :src="option.image"
+                :alt="t(option.labelKey)"
+              >
+            </span>
+            <span class="support-code-label">{{ t(option.labelKey) }}</span>
+          </button>
+        </div>
+      </div>
+    </section>
     <div
       v-if="apiKeyDialogOpen"
       class="settings-modal-overlay"
@@ -1129,7 +1193,40 @@ async function openExternal(url: string) {
         </footer>
       </section>
     </div>
-  </div>
+
+    <div
+      v-if="activeSponsorOption"
+      class="settings-modal-overlay"
+      @click.self="closeSponsorModal"
+    >
+      <section
+        class="settings-modal-panel support-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="support-qr-title"
+      >
+        <header class="settings-modal-header support-modal-header">
+          <h2 id="support-qr-title">{{ t(activeSponsorOption.labelKey) }}</h2>
+          <button
+            class="support-modal-close"
+            type="button"
+            :aria-label="t('settings.supportCloseQr')"
+            @click="closeSponsorModal"
+          >
+            {{ t('settings.supportCloseQr') }}
+          </button>
+        </header>
+
+        <div class="support-modal-body">
+          <img
+            class="support-modal-qr"
+            :src="activeSponsorOption.image"
+            :alt="t(activeSponsorOption.labelKey)"
+          >
+          <p>{{ t('settings.supportScanHint') }}</p>
+        </div>
+      </section>
+    </div>  </div>
 </template>
 
 <style scoped>
@@ -1169,7 +1266,8 @@ async function openExternal(url: string) {
 .page-header p,
 .ai-provider-header p,
 .setting-copy p,
-.app-info p {
+.app-info p,
+.support-copy p {
   margin: 6px 0 0;
   color: var(--text-secondary);
   font-size: 13px;
@@ -1178,7 +1276,8 @@ async function openExternal(url: string) {
 
 .ai-provider-card,
 .settings-list,
-.about-card {
+.about-card,
+.support-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -1212,7 +1311,8 @@ async function openExternal(url: string) {
 
 .ai-provider-header h2,
 .setting-copy h3,
-.app-info h3 {
+.app-info h3,
+.support-copy h3 {
   margin: 0;
   color: var(--text-primary);
   font-family: var(--font-display);
@@ -1592,6 +1692,9 @@ async function openExternal(url: string) {
 
 .about-section {
   margin-top: 8px;
+}
+
+.support-section {
   margin-bottom: 0;
 }
 
@@ -1642,6 +1745,124 @@ async function openExternal(url: string) {
   border-top: 1px solid var(--border-subtle);
 }
 
+.support-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.support-copy h3 {
+  font-size: 16px;
+}
+
+.support-options {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.support-code-button {
+  width: 124px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.support-code-button:hover,
+.support-code-button:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.12), 0 0 16px rgba(var(--accent-rgb), 0.14);
+  outline: none;
+}
+
+.support-code-thumb {
+  width: 92px;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.support-code-thumb img,
+.support-modal-qr {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.support-code-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.support-modal-panel {
+  width: min(100%, 420px);
+}
+
+.support-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.support-modal-close {
+  min-height: 30px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.support-modal-close:hover,
+.support-modal-close:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  outline: none;
+}
+
+.support-modal-body {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 4px 22px 24px;
+}
+
+.support-modal-qr {
+  width: min(72vw, 320px);
+  height: min(72vw, 320px);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.support-modal-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
 .about-card {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr) 248px;
@@ -1845,7 +2066,8 @@ async function openExternal(url: string) {
 @media (max-width: 760px) {
   .ai-provider-header,
   .setting-row,
-  .form-actions {
+  .form-actions,
+  .support-card {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1869,6 +2091,19 @@ async function openExternal(url: string) {
   .ai-provider-header-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .support-options {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .support-card {
+    grid-template-columns: 1fr;
+  }
+
+  .support-code-button {
+    flex: 1 1 124px;
   }
 
   .primary-btn,

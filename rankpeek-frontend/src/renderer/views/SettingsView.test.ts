@@ -139,6 +139,36 @@ test('settings page keeps common local settings and local service diagnostics', 
   assert.match(source, /checkLocalRankPeekServer/)
 })
 
+test('settings page shows compact sponsor codes at the bottom and keeps GitHub on the open-source repo', () => {
+  assert.match(source, /import sponsorAlipayQr from '@\/assets\/support\/rankpeek-alipay-qr\.png'/)
+  assert.match(source, /import sponsorWechatQr from '@\/assets\/support\/rankpeek-wechat-qr\.png'/)
+  assert.match(source, /const githubRepoUrl = 'https:\/\/github\.com\/wxl11071123\/rankpeek'/)
+  assert.match(source, /const githubIssuesUrl = 'https:\/\/github\.com\/wxl11071123\/rankpeek\/issues'/)
+  assert.doesNotMatch(source, /rankpeek-rebuild/)
+  assert.match(source, /const sponsorOptions(?:: SponsorOption\[\])? = \[/)
+  assert.match(source, /const activeSponsorOption = computed/)
+  assert.match(source, /function openSponsorModal\(id: SponsorOption\['id'\]\)/)
+  assert.match(source, /function closeSponsorModal\(\)/)
+  assert.match(source, /class="settings-section support-section"/)
+  assert.match(source, /v-for="option in sponsorOptions"/)
+  assert.match(source, /@click="openSponsorModal\(option\.id\)"/)
+  assert.match(source, /support-modal-panel/)
+  assert.match(source, /activeSponsorOption/)
+
+  for (const key of [
+    'settings.supportRankPeek',
+    'settings.supportDescription',
+    'settings.supportAlipay',
+    'settings.supportWechat',
+    'settings.supportScanHint',
+    'settings.supportOpenQr',
+    'settings.supportCloseQr'
+  ]) {
+    assert.ok(zh.includes(`'${key}'`), `zh-CN should include ${key}`)
+    assert.ok(en.includes(`'${key}'`), `en-US should include ${key}`)
+  }
+})
+
 test('settings AI pricing inputs are manual text fields without number steppers', () => {
   const pricingPanelMatch = source.match(/<div class="pricing-panel">([\s\S]*?)<\/div>\s*<\/form>/)
   assert.ok(pricingPanelMatch, 'AI pricing panel should render inside the local AI form')
