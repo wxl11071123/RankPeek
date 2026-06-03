@@ -4599,6 +4599,22 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   --metric-bar-width: 74%;
   --overview-augment-slot-size: 16px;
   --overview-augment-strip-width: 106px;
+  --rp-trend-badge-border: rgba(124, 156, 255, 0.32);
+  --rp-trend-badge-bg: rgba(42, 59, 108, 0.38);
+  --rp-info-button-border: rgba(143, 162, 216, 0.42);
+  --rp-info-button-bg: rgba(14, 19, 34, 0.72);
+  --rp-score-card-border: rgba(143, 162, 216, 0.2);
+  --rp-score-card-bg: rgba(15, 20, 34, 0.84);
+  --rp-score-card-shadow: none;
+  --rp-score-card-selected-shadow: inset 0 0 0 4px color-mix(in srgb, var(--rp-player-color) 64%, transparent);
+  --rp-chart-grid-line: rgba(143, 162, 216, 0.14);
+  --rp-chart-zero-line: rgba(210, 220, 255, 0.28);
+  --rp-chart-hover-line: rgba(225, 232, 255, 0.58);
+  --rp-chart-hover-point-stroke: #f8fbff;
+  --rp-chart-tooltip-border: rgba(143, 162, 216, 0.22);
+  --rp-chart-tooltip-bg: rgba(7, 10, 18, 0.96);
+  --rp-chart-tooltip-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+  --rp-empty-border: rgba(143, 162, 216, 0.24);
   width: 100%;
   min-width: 0;
   margin-top: 8px;
@@ -4612,6 +4628,22 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 }
 
 :global([data-theme="light"] .inline-match-detail) {
+  --rp-trend-badge-border: rgba(62, 107, 188, 0.24);
+  --rp-trend-badge-bg: rgba(232, 240, 255, 0.92);
+  --rp-info-button-border: rgba(45, 76, 120, 0.22);
+  --rp-info-button-bg: rgba(255, 255, 255, 0.86);
+  --rp-score-card-border: rgba(24, 35, 54, 0.12);
+  --rp-score-card-bg: rgba(255, 255, 255, 0.92);
+  --rp-score-card-shadow: 0 1px 2px rgba(17, 31, 52, 0.08);
+  --rp-score-card-selected-shadow: inset 0 0 0 3px color-mix(in srgb, var(--rp-player-color) 48%, transparent), 0 0 0 1px rgba(255, 255, 255, 0.86);
+  --rp-chart-grid-line: rgba(75, 92, 122, 0.16);
+  --rp-chart-zero-line: rgba(47, 65, 93, 0.24);
+  --rp-chart-hover-line: rgba(42, 79, 128, 0.38);
+  --rp-chart-hover-point-stroke: #ffffff;
+  --rp-chart-tooltip-border: rgba(45, 76, 120, 0.16);
+  --rp-chart-tooltip-bg: rgba(255, 255, 255, 0.98);
+  --rp-chart-tooltip-shadow: 0 12px 28px rgba(17, 31, 52, 0.18);
+  --rp-empty-border: rgba(24, 35, 54, 0.16);
   background: rgba(246, 249, 253, 0.94);
   border-color: rgba(24, 35, 54, 0.12);
 }
@@ -5563,11 +5595,11 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 }
 
 .rp-trend-badge {
-  border: 1px solid rgba(124, 156, 255, 0.32);
+  border: 1px solid var(--rp-trend-badge-border);
   border-radius: 999px;
   padding: 4px 10px;
   color: var(--text-primary);
-  background: rgba(42, 59, 108, 0.38);
+  background: var(--rp-trend-badge-bg);
   font-size: 12px;
   font-weight: 700;
 }
@@ -5598,10 +5630,10 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 .rp-info-button {
   width: 22px;
   height: 22px;
-  border: 1px solid rgba(143, 162, 216, 0.42);
+  border: 1px solid var(--rp-info-button-border);
   border-radius: 50%;
   color: var(--text-secondary);
-  background: rgba(14, 19, 34, 0.72);
+  background: var(--rp-info-button-bg);
   font-size: 12px;
   font-weight: 800;
   line-height: 1;
@@ -5636,16 +5668,17 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   min-width: 0;
   min-height: 72px;
   place-items: center;
-  border: 1px solid rgba(143, 162, 216, 0.2);
+  border: 1px solid var(--rp-score-card-border);
   border-radius: 8px;
   padding: 7px 5px 6px;
   color: var(--text-primary);
-  background: rgba(15, 20, 34, 0.84);
+  background: var(--rp-score-card-bg);
+  box-shadow: var(--rp-score-card-shadow);
 }
 
 .rp-score-card.selected {
   border-color: var(--rp-player-color);
-  box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--rp-player-color) 64%, transparent);
+  box-shadow: var(--rp-score-card-selected-shadow);
 }
 
 .rp-score-card-avatar {
@@ -5690,12 +5723,12 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 
 .rp-chart-grid line,
 .rp-chart-time-axis line {
-  stroke: rgba(143, 162, 216, 0.14);
+  stroke: var(--rp-chart-grid-line);
   stroke-width: 1;
 }
 
 .rp-chart-grid line.zero {
-  stroke: rgba(210, 220, 255, 0.28);
+  stroke: var(--rp-chart-zero-line);
 }
 
 .rp-chart-grid text,
@@ -5713,13 +5746,13 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
 }
 
 .rp-chart-hover-line {
-  stroke: rgba(225, 232, 255, 0.58);
+  stroke: var(--rp-chart-hover-line);
   stroke-width: 1.2;
 }
 
 .rp-chart-hover-point {
   fill: var(--rp-player-color);
-  stroke: #f8fbff;
+  stroke: var(--rp-chart-hover-point-stroke);
   stroke-width: 1.5;
 }
 
@@ -5730,12 +5763,12 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   min-width: 70px;
   gap: 6px;
   transform: translate(-50%, -100%);
-  border: 1px solid rgba(143, 162, 216, 0.22);
+  border: 1px solid var(--rp-chart-tooltip-border);
   border-radius: 8px;
   padding: 9px 12px;
   color: var(--text-primary);
-  background: rgba(7, 10, 18, 0.96);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+  background: var(--rp-chart-tooltip-bg);
+  box-shadow: var(--rp-chart-tooltip-shadow);
   pointer-events: none;
 }
 
@@ -5764,7 +5797,7 @@ function isRenderableGameDetail(detail: GameDetail | null): detail is GameDetail
   display: grid;
   min-height: 220px;
   place-items: center;
-  border: 1px dashed rgba(143, 162, 216, 0.24);
+  border: 1px dashed var(--rp-empty-border);
   border-radius: 8px;
   color: var(--text-secondary);
   font-size: 13px;
