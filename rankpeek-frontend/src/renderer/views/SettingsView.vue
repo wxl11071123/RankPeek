@@ -10,6 +10,10 @@ import {
   extractCacheClearErrorMessage
 } from '@/services/cacheClearFeedback'
 import {
+  getOrCreateCloudInstallationId,
+  submitRankPeekFeedback
+} from '@/services/rankpeekCloudClient'
+import {
   LOCAL_AI_PROVIDER_PRESETS,
   deleteLocalAiProviderApiKey,
   formatLocalAiProviderApiKeyLabel,
@@ -54,7 +58,7 @@ interface SponsorOption {
 }
 
 const themeStore = useThemeStore()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 
 const appVersion = ref('1.0.0')
 const defaultMatchQueueMode = ref(0)
@@ -81,6 +85,9 @@ const apiKeyDialogOpen = ref(false)
 const activeSponsorId = ref<SponsorOption['id'] | ''>('')
 const newApiKeyInput = ref('')
 const newApiKeyNameInput = ref('')
+const feedbackDialogOpen = ref(false)
+const sendingFeedback = ref(false)
+const feedbackStatusMessage = ref('')
 let aiModelRefreshTimer: number | null = null
 let lastAutoModelRefreshKey = ''
 let aiKeyListTimer: number | null = null
@@ -102,6 +109,11 @@ const aiProviderForm = reactive<AiProviderFormState>({
   webSearchEnabled: false,
   deepThinkingEnabled: false,
   pricing: emptyAiPricing()
+})
+
+const feedbackForm = reactive({
+  contact: '',
+  message: ''
 })
 
 const githubRepoUrl = 'https://github.com/wxl11071123/rankpeek'
@@ -386,6 +398,50 @@ function closeAddApiKeyDialog() {
 function resetNewApiKeyForm() {
   newApiKeyInput.value = ''
   newApiKeyNameInput.value = ''
+}
+
+function openFeedbackDialog() {
+  feedbackStatusMessage.value = ''
+  feedbackDialogOpen.value = true
+}
+
+function closeFeedbackDialog() {
+  if (sendingFeedback.value) {
+    return
+  }
+  feedbackDialogOpen.value = false
+}
+
+async function sendRankPeekFeedback() {
+  const message = feedbackForm.message.trim()
+  if (message.length < 10) {
+    feedbackStatusMessage.value = t('settings.feedbackFailed')
+    return
+  }
+
+  sendingFeedback.value = true
+  feedbackStatusMessage.value = ''
+
+  try {
+    await submitRankPeekFeedback({
+      category: 'other',
+      contact: feedbackForm.contact,
+      message
+    }, {
+      appVersion: appVersion.value,
+      platform: window.electronAPI?.platform ?? navigator.platform,
+      locale: locale.value,
+      installationId: getOrCreateCloudInstallationId()
+    })
+    feedbackForm.contact = ''
+    feedbackForm.message = ''
+    feedbackStatusMessage.value = t('settings.feedbackSent')
+  } catch (error) {
+    console.error('Failed to submit RankPeek feedback', error)
+    feedbackStatusMessage.value = t('settings.feedbackFailed')
+  } finally {
+    sendingFeedback.value = false
+  }
 }
 
 async function saveAiProviderApiKey() {
@@ -1073,6 +1129,13 @@ function closeSponsorModal() {
             >
               {{ t('settings.issueFeedback') }}
             </a>
+            <button
+              class="about-link-button"
+              type="button"
+              @click="openFeedbackDialog"
+            >
+              {{ t('settings.feedbackAction') }}
+            </button>
           </div>
         </div>
         <div class="app-showcase">
@@ -1135,6 +1198,7 @@ function closeSponsorModal() {
         </div>
       </div>
     </section>
+
     <div
       v-if="apiKeyDialogOpen"
       class="settings-modal-overlay"
@@ -1195,6 +1259,76 @@ function closeSponsorModal() {
     </div>
 
     <div
+      v-if="feedbackDialogOpen"
+      class="settings-modal-overlay"
+      @click.self="closeFeedbackDialog"
+    >
+      <section
+        class="settings-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rankpeek-feedback-title"
+      >
+        <header class="settings-modal-header">
+          <h2 id="rankpeek-feedback-title">{{ t('settings.feedbackTitle') }}</h2>
+          <p>{{ t('settings.feedbackDescription') }}</p>
+        </header>
+
+        <form
+          class="settings-modal-form"
+          @submit.prevent="sendRankPeekFeedback"
+        >
+          <label class="form-field">
+            <span>{{ t('settings.feedbackMessage') }}</span>
+            <textarea
+              v-model.trim="feedbackForm.message"
+              class="text-input textarea-input"
+              :placeholder="t('settings.feedbackMessagePlaceholder')"
+              rows="5"
+            ></textarea>
+          </label>
+
+          <label class="form-field">
+            <span>{{ t('settings.feedbackContact') }}</span>
+            <input
+              v-model.trim="feedbackForm.contact"
+              class="text-input"
+              :placeholder="t('settings.feedbackContactPlaceholder')"
+              type="text"
+            >
+          </label>
+
+          <p class="feedback-privacy-note">{{ t('settings.feedbackPrivacyNote') }}</p>
+          <p
+            v-if="feedbackStatusMessage"
+            class="status-message"
+          >
+            {{ feedbackStatusMessage }}
+          </p>
+        </form>
+
+        <footer class="settings-modal-actions">
+          <button
+            class="secondary-btn"
+            type="button"
+            :disabled="sendingFeedback"
+            @click="closeFeedbackDialog"
+          >
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            class="primary-btn"
+            type="button"
+            :disabled="sendingFeedback || feedbackForm.message.trim().length < 10"
+            @click="sendRankPeekFeedback"
+          >
+            {{ sendingFeedback ? t('settings.feedbackSubmitting') : t('settings.feedbackSubmit') }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div
       v-if="activeSponsorOption"
       class="settings-modal-overlay"
       @click.self="closeSponsorModal"
@@ -1226,7 +1360,8 @@ function closeSponsorModal() {
           <p>{{ t('settings.supportScanHint') }}</p>
         </div>
       </section>
-    </div>  </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -1730,6 +1865,13 @@ function closeSponsorModal() {
   letter-spacing: 0;
 }
 
+.settings-modal-header p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .settings-modal-form {
   display: flex;
   flex-direction: column;
@@ -1863,6 +2005,22 @@ function closeSponsorModal() {
   line-height: 1.5;
   text-align: center;
 }
+
+.textarea-input {
+  min-height: 118px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.feedback-privacy-note {
+  margin: -2px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .about-card {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr) 248px;
@@ -1907,14 +2065,20 @@ function closeSponsorModal() {
   margin-top: 12px;
 }
 
-.about-links a {
+.about-links a,
+.about-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.about-links a:hover {
+.about-links a:hover,
+.about-link-button:hover {
   color: var(--accent-color);
 }
 

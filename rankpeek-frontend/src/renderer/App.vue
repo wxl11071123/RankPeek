@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import AppAnnouncements from '@/components/AppAnnouncements.vue'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import Sidebar from '@/components/layout/Sidebar.vue'
 import { createGameflowAutoNavigator } from '@/services/gameflowAutoNavigation'
@@ -65,6 +66,7 @@ onBeforeUnmount(() => {
     <div class="app-content">
       <Sidebar v-if="!isStandaloneRoute" />
       <main class="main-content" :class="{ 'main-content-standalone': isStandaloneRoute }">
+        <AppAnnouncements v-if="!isStandaloneRoute" />
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />

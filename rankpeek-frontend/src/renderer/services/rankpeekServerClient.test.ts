@@ -111,18 +111,25 @@ test('diagnostics check treats invalid diagnostics payloads as unavailable', asy
   }
 })
 
-test('renderer source no longer keeps cloud account, credit, or API host references', () => {
+test('renderer source keeps cloud account and credit clients removed while allowing the narrow cloud bridge', () => {
   const forbiddenPatterns = [
     new RegExp(['rankpeek', 'AuthClient'].join('')),
-    new RegExp(['rankpeek', 'CreditsClient'].join('')),
-    new RegExp(['api', 'rankpeek', 'cn'].join('\\.'))
+    new RegExp(['rankpeek', 'CreditsClient'].join(''))
   ]
+  const cloudApiHostPattern = new RegExp(['api', 'rankpeek', 'cn'].join('\\.'))
+  const allowedCloudBridgeFiles = new Set([
+    'services\\rankpeekCloudClient.ts',
+    'services\\rankpeekCloudClient.test.ts'
+  ])
 
   for (const filePath of listRendererTextFiles(rendererRootPath)) {
     const source = readFileSync(filePath, 'utf8')
     const label = relative(rendererRootPath, filePath)
     for (const pattern of forbiddenPatterns) {
       assert.doesNotMatch(source, pattern, `${label} should not match ${pattern}`)
+    }
+    if (!allowedCloudBridgeFiles.has(label)) {
+      assert.doesNotMatch(source, cloudApiHostPattern, `${label} should not call the public cloud API directly`)
     }
   }
 })

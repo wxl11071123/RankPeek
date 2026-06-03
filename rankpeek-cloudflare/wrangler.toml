@@ -1,0 +1,21 @@
+name = "rankpeek-api"
+main = "src/index.mjs"
+compatibility_date = "2026-06-02"
+workers_dev = true
+
+[vars]
+FEEDBACK_FROM_EMAIL = "notify@rankpeek.cn"
+FEEDBACK_RECIPIENT_EMAIL = "619123277@qq.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rankpeek-api"
+database_id = "4e8b9733-9670-4651-8c61-dde1dfcc7c46"
+
+[[send_email]]
+name = "EMAIL"
+destination_address = "619123277@qq.com"
+
+[[routes]]
+pattern = "api.rankpeek.cn"
+custom_domain = true
