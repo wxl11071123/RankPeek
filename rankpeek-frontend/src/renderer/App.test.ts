@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 test('standalone routes keep title bar but hide sidebar and skip main-window auto navigation', () => {
   const source = readFileSync(new URL('./App.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /import AppAnnouncements from '@\/components\/AppAnnouncements\.vue'/)
+  assert.doesNotMatch(source, /import AppAnnouncements from '@\/components\/AppAnnouncements\.vue'/)
   assert.match(source, /const isStandaloneRoute = computed\(\(\) => isStandaloneRuntimeRoute\(\)\)/)
   assert.match(source, /function isStandaloneRuntimeRoute\(\)[\s\S]*router\.currentRoute\.value\.meta\.standalone === true[\s\S]*window\.location\.hash\.startsWith\('#\/opgg'\)/)
   assert.match(source, /if \(!isStandaloneRuntimeRoute\(\)\) \{[\s\S]*void gameStore\.initConnection\(\)/)
@@ -14,7 +14,7 @@ test('standalone routes keep title bar but hide sidebar and skip main-window aut
   assert.match(source, /clearInterval\(standaloneConnectionTimer\)/)
   assert.match(source, /<TitleBar \/>/)
   assert.match(source, /<Sidebar v-if="!isStandaloneRoute" \/>/)
-  assert.match(source, /<AppAnnouncements v-if="!isStandaloneRoute" \/>/)
+  assert.doesNotMatch(source, /<AppAnnouncements v-if="!isStandaloneRoute" \/>/)
   assert.match(source, /:class="\{ 'main-content-standalone': isStandaloneRoute \}"/)
 })
 

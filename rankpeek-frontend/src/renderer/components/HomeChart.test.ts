@@ -40,6 +40,19 @@ test('home chart uses reliable match history instead of the legacy filtered hist
   assert.match(homeView, /<HomeChart[^>]*:summoner="currentSummoner"/)
 })
 
+test('home chart uses RP index as the default trend metric', () => {
+  const source = readFileSync(new URL('./HomeChart.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /type MetricKey =[\s\S]*\| 'rpIndex'/)
+  assert.match(source, /const selectedMetric = ref<MetricKey>\('rpIndex'\)/)
+  assert.match(source, /METRIC_OPTIONS:[\s\S]*\{ value: 'rpIndex', label: 'RP 指数' \}/)
+  assert.match(source, /function getMetricValue\(entry: ChartEntry, metric: MetricKey\): number \| null \{[\s\S]*metric === 'rpIndex'[\s\S]*entry\.rpIndex/)
+  assert.match(source, /function formatMetricValue\(value: number \| null, metric = selectedMetric\.value\): string \{[\s\S]*metric === 'rpIndex'[\s\S]*value\.toFixed\(1\)/)
+  assert.match(source, /function formatAxisValue\(value: number, metric: MetricKey\): string \{[\s\S]*metric === 'rpIndex'[\s\S]*value\.toFixed\(1\)/)
+  assert.doesNotMatch(source, /selectedMetric = ref<MetricKey>\('kda'\)/)
+  assert.doesNotMatch(source, /\{ value: 'kda', label: 'KDA 比率' \}/)
+})
+
 test('home chart card only applies the shared outer glow on hover or focus', () => {
   const source = readFileSync(new URL('./HomeChart.vue', import.meta.url), 'utf8')
   const baseRule = extractRule(source, '.home-chart-card')

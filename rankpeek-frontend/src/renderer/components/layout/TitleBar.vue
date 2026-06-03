@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AnnouncementCenter from '@/components/AnnouncementCenter.vue'
 import { useGameStore } from '@/stores/game'
 import { t } from '@/i18n'
 
@@ -28,6 +29,8 @@ const close = () => window.electronAPI?.closeWindow()
       <div v-if="gameStore.summonerName" class="summoner-info">
         {{ gameStore.summonerName }}
       </div>
+
+      <AnnouncementCenter />
     </div>
 
     <div class="window-controls">

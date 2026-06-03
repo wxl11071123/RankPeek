@@ -260,6 +260,15 @@ test('goldDiff15 reads earlyGoldDiff, laneGoldDiff15, and challenge aliases', ()
   assert.equal(challenge?.goldDiff15, 99)
 })
 
+test('mergeHomeChartDetail preserves computed RP index final score for charting', () => {
+  const [entry] = createHomeChartEntries([createMatch()], SELF_PUUID)
+  assert.ok(entry)
+
+  const enhanced = mergeHomeChartDetail(entry, createMatch(), createDetail(), SELF_PUUID, 7.234)
+
+  assert.equal(enhanced.rpIndex, 7.2)
+})
+
 test('detail loading helper limits concurrency and keeps failures isolated', async () => {
   let active = 0
   let maxActive = 0

@@ -1,12 +1,15 @@
+import { renderAdminPage } from './admin-page.mjs'
+
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,POST,OPTIONS',
-  'access-control-allow-headers': 'content-type'
+  'access-control-allow-headers': 'content-type, authorization'
 }
 
 const FEEDBACK_MAX_PER_HOUR = 5
 const FEEDBACK_CATEGORIES = new Set(['bug', 'suggestion', 'other'])
+const ANNOUNCEMENT_LEVELS = new Set(['info', 'warning', 'critical'])
 
 export async function handleRequest(request, env, options = {}) {
   if (request.method === 'OPTIONS') {
@@ -18,8 +21,39 @@ export async function handleRequest(request, env, options = {}) {
     return handleFeedback(request, env, options)
   }
 
+  if (url.pathname === '/app/announcements/archive' && request.method === 'GET') {
+    return handleAnnouncementArchive(url, env, options)
+  }
+
   if (url.pathname === '/app/announcements' && request.method === 'GET') {
     return handleAnnouncements(url, env, options)
+  }
+
+  if (url.pathname === '/admin' && request.method === 'GET') {
+    return new Response(renderAdminPage(), {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8'
+      }
+    })
+  }
+
+  if (url.pathname === '/admin/announcements' && request.method === 'GET') {
+    return withAdminAuth(request, env, () => handleAdminAnnouncementList(env))
+  }
+
+  if (url.pathname === '/admin/announcements' && request.method === 'POST') {
+    return withAdminAuth(request, env, () => handleAdminAnnouncementCreate(request, env, options))
+  }
+
+  const adminAnnouncementMatch = url.pathname.match(/^\/admin\/announcements\/([^/]+)$/)
+  if (adminAnnouncementMatch && request.method === 'PATCH') {
+    return withAdminAuth(request, env, () => handleAdminAnnouncementPatch(
+      decodeURIComponent(adminAnnouncementMatch[1]),
+      request,
+      env,
+      options
+    ))
   }
 
   return jsonResponse({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } }, 404)
@@ -122,6 +156,160 @@ async function handleAnnouncements(url, env, options) {
   return jsonResponse({ success: true, data: announcements })
 }
 
+async function handleAnnouncementArchive(url, env, options) {
+  if (!env.DB) {
+    return jsonResponse({ success: false, error: { code: 'DB_UNAVAILABLE', message: 'Database is not configured' } }, 503)
+  }
+
+  const version = normalizeQueryValue(url.searchParams.get('version')) || '0.0.0'
+  const platform = normalizeQueryValue(url.searchParams.get('platform')) || 'unknown'
+  const locale = normalizeQueryValue(url.searchParams.get('locale')) || 'zh-CN'
+  const channel = normalizeQueryValue(url.searchParams.get('channel')) || 'stable'
+  const limit = normalizeLimit(url.searchParams.get('limit'), 20, 50)
+  const now = options.now ?? new Date()
+
+  const result = await env.DB.prepare(`
+    select
+      id, title, body, level, link_url, min_version, max_version,
+      platforms, locales, channels, starts_at, ends_at, enabled, created_at
+    from announcements
+    where enabled = 1
+    order by created_at desc
+    limit 100
+  `).all()
+
+  const announcements = (result.results ?? [])
+    .filter(row => isAnnouncementVisibleInArchiveFor(row, { version, platform, locale, channel, now }))
+    .slice(0, limit)
+    .map(mapAnnouncementRow)
+
+  return jsonResponse({ success: true, data: announcements })
+}
+
+async function handleAdminAnnouncementList(env) {
+  if (!env.DB) {
+    return jsonResponse({ success: false, error: { code: 'DB_UNAVAILABLE', message: 'Database is not configured' } }, 503)
+  }
+
+  const result = await env.DB.prepare(`
+    select
+      id, title, body, level, link_url, min_version, max_version,
+      platforms, locales, channels, starts_at, ends_at, enabled, created_at, updated_at
+    from announcements
+    order by created_at desc
+    limit 100
+  `).all()
+
+  return jsonResponse({
+    success: true,
+    data: (result.results ?? []).map(mapAdminAnnouncementRow)
+  })
+}
+
+async function handleAdminAnnouncementCreate(request, env, options) {
+  if (!env.DB) {
+    return jsonResponse({ success: false, error: { code: 'DB_UNAVAILABLE', message: 'Database is not configured' } }, 503)
+  }
+
+  const body = await readJsonBody(request)
+  if (!body.ok) {
+    return validationError('Request body must be valid JSON')
+  }
+
+  const payload = normalizeAnnouncementPayload(body.value)
+  if (!payload.ok) {
+    return validationError(payload.message)
+  }
+
+  const id = crypto.randomUUID()
+  const now = (options.now ?? new Date()).toISOString()
+  const announcement = { id, ...payload.value, createdAt: now, updatedAt: now }
+
+  await env.DB.prepare(`
+    insert into announcements (
+      id, title, body, level, link_url, min_version, max_version,
+      platforms, locales, channels, starts_at, ends_at, enabled, created_at, updated_at
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    announcement.id,
+    announcement.title,
+    announcement.body,
+    announcement.level,
+    announcement.linkUrl,
+    announcement.minVersion,
+    announcement.maxVersion,
+    announcement.platforms,
+    announcement.locales,
+    announcement.channels,
+    announcement.startsAt,
+    announcement.endsAt,
+    announcement.enabled ? 1 : 0,
+    announcement.createdAt,
+    announcement.updatedAt
+  ).run()
+
+  return jsonResponse({ success: true, data: announcement })
+}
+
+async function handleAdminAnnouncementPatch(id, request, env, options) {
+  if (!env.DB) {
+    return jsonResponse({ success: false, error: { code: 'DB_UNAVAILABLE', message: 'Database is not configured' } }, 503)
+  }
+
+  const announcementId = normalizeString(id, 120)
+  if (!announcementId) {
+    return validationError('Announcement id is required')
+  }
+
+  const body = await readJsonBody(request)
+  if (!body.ok) {
+    return validationError('Request body must be valid JSON')
+  }
+
+  const payload = normalizeAnnouncementPayload(body.value)
+  if (!payload.ok) {
+    return validationError(payload.message)
+  }
+
+  const updatedAt = (options.now ?? new Date()).toISOString()
+  const announcement = { id: announcementId, ...payload.value, updatedAt }
+
+  await env.DB.prepare(`
+    update announcements
+    set title = ?,
+        body = ?,
+        level = ?,
+        link_url = ?,
+        min_version = ?,
+        max_version = ?,
+        platforms = ?,
+        locales = ?,
+        channels = ?,
+        starts_at = ?,
+        ends_at = ?,
+        enabled = ?,
+        updated_at = ?
+    where id = ?
+  `).bind(
+    announcement.title,
+    announcement.body,
+    announcement.level,
+    announcement.linkUrl,
+    announcement.minVersion,
+    announcement.maxVersion,
+    announcement.platforms,
+    announcement.locales,
+    announcement.channels,
+    announcement.startsAt,
+    announcement.endsAt,
+    announcement.enabled ? 1 : 0,
+    announcement.updatedAt,
+    announcement.id
+  ).run()
+
+  return jsonResponse({ success: true, data: announcement })
+}
+
 async function readJsonBody(request) {
   try {
     const value = await request.json()
@@ -165,9 +353,63 @@ function normalizeFeedbackPayload(value) {
   }
 }
 
+function normalizeAnnouncementPayload(value) {
+  if (!isRecord(value)) {
+    return { ok: false, message: 'Announcement payload must be an object' }
+  }
+
+  const title = normalizeString(value.title, 120)
+  if (!title) {
+    return { ok: false, message: 'Announcement title is required' }
+  }
+
+  const body = normalizeString(value.body, 2000)
+  if (!body) {
+    return { ok: false, message: 'Announcement body is required' }
+  }
+
+  const linkUrl = normalizeOptionalUrl(value.linkUrl)
+  if (!linkUrl.ok) {
+    return linkUrl
+  }
+
+  const startsAt = normalizeOptionalIsoDate(value.startsAt, 'startsAt')
+  if (!startsAt.ok) {
+    return startsAt
+  }
+
+  const endsAt = normalizeOptionalIsoDate(value.endsAt, 'endsAt')
+  if (!endsAt.ok) {
+    return endsAt
+  }
+
+  return {
+    ok: true,
+    value: {
+      title,
+      body,
+      level: normalizeAnnouncementLevel(value.level),
+      linkUrl: linkUrl.value,
+      minVersion: normalizeNullableString(value.minVersion, 40),
+      maxVersion: normalizeNullableString(value.maxVersion, 40),
+      platforms: normalizeCsvSetting(value.platforms, 'all'),
+      locales: normalizeCsvSetting(value.locales, 'all'),
+      channels: normalizeCsvSetting(value.channels, 'stable'),
+      startsAt: startsAt.value,
+      endsAt: endsAt.value,
+      enabled: value.enabled !== false
+    }
+  }
+}
+
 function normalizeCategory(value) {
   const category = normalizeString(value, 30)
   return FEEDBACK_CATEGORIES.has(category) ? category : 'other'
+}
+
+function normalizeAnnouncementLevel(value) {
+  const level = normalizeString(value, 20).toLowerCase()
+  return ANNOUNCEMENT_LEVELS.has(level) ? level : 'info'
 }
 
 function normalizeString(value, maxLength) {
@@ -175,6 +417,53 @@ function normalizeString(value, maxLength) {
     return ''
   }
   return truncate(value.trim(), maxLength)
+}
+
+function normalizeNullableString(value, maxLength) {
+  const normalized = normalizeString(value, maxLength)
+  return normalized || null
+}
+
+function normalizeCsvSetting(value, fallback) {
+  const normalized = normalizeString(value, 260)
+  const entries = normalized
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean)
+  return entries.length ? Array.from(new Set(entries)).join(',') : fallback
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = normalizeNullableString(value, 300)
+  if (!normalized) {
+    return { ok: true, value: null }
+  }
+
+  let url
+  try {
+    url = new URL(normalized)
+  } catch {
+    return { ok: false, message: 'Announcement linkUrl must be a valid HTTP URL' }
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return { ok: false, message: 'Announcement linkUrl must be a valid HTTP URL' }
+  }
+
+  return { ok: true, value: normalized }
+}
+
+function normalizeOptionalIsoDate(value, fieldName) {
+  const normalized = normalizeNullableString(value, 40)
+  if (!normalized) {
+    return { ok: true, value: null }
+  }
+
+  if (!Number.isFinite(Date.parse(normalized))) {
+    return { ok: false, message: `Announcement ${fieldName} must be a valid ISO date` }
+  }
+
+  return { ok: true, value: normalized }
 }
 
 function truncate(value, maxLength) {
@@ -252,6 +541,16 @@ function isAnnouncementActiveFor(row, request) {
   )
 }
 
+function isAnnouncementVisibleInArchiveFor(row, request) {
+  return (
+    hasAnnouncementStarted(row, request.now) &&
+    matchesCsv(row.channels, request.channel) &&
+    matchesCsv(row.locales, request.locale) &&
+    matchesPlatform(row.platforms, request.platform) &&
+    matchesVersionRange(request.version, row.min_version, row.max_version)
+  )
+}
+
 function isWithinTimeWindow(row, now) {
   const time = now.getTime()
   if (row.starts_at && Date.parse(row.starts_at) > time) {
@@ -261,6 +560,10 @@ function isWithinTimeWindow(row, now) {
     return false
   }
   return true
+}
+
+function hasAnnouncementStarted(row, now) {
+  return !row.starts_at || Date.parse(row.starts_at) <= now.getTime()
 }
 
 function matchesCsv(csv, value) {
@@ -331,8 +634,51 @@ function mapAnnouncementRow(row) {
   }
 }
 
+function mapAdminAnnouncementRow(row) {
+  return {
+    ...mapAnnouncementRow(row),
+    minVersion: row.min_version || null,
+    maxVersion: row.max_version || null,
+    platforms: row.platforms || 'all',
+    locales: row.locales || 'all',
+    channels: row.channels || 'stable',
+    enabled: row.enabled !== 0,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  }
+}
+
 function normalizeQueryValue(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeLimit(value, fallback, max) {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.max(1, Math.min(max, parsed))
+}
+
+async function withAdminAuth(request, env, handler) {
+  const configuredToken = normalizeString(env.ADMIN_TOKEN, 300)
+  if (!configuredToken) {
+    return jsonResponse({
+      success: false,
+      error: { code: 'ADMIN_TOKEN_MISSING', message: 'Admin token is not configured' }
+    }, 503)
+  }
+
+  const header = request.headers.get('authorization') || ''
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || ''
+  if (token !== configuredToken) {
+    return jsonResponse({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Admin authorization is required' }
+    }, 401)
+  }
+
+  return handler()
 }
 
 function jsonResponse(payload, status = 200) {

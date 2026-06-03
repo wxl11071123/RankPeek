@@ -4,9 +4,12 @@ import {
   RANKPEEK_CLOUD_API_BASE_URL,
   buildRankPeekFeedbackPayload,
   dismissRankPeekAnnouncement,
+  fetchRankPeekAnnouncementArchive,
   fetchRankPeekAnnouncements,
   getOrCreateCloudInstallationId,
   isRankPeekAnnouncementDismissed,
+  isRankPeekAnnouncementRead,
+  markRankPeekAnnouncementRead,
   submitRankPeekFeedback
 } from './rankpeekCloudClient.ts'
 
@@ -157,4 +160,59 @@ test('announcements fetch filters locally dismissed ids', async () => {
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('announcement archive fetches recent announcements without dismissed filtering', async () => {
+  const storage = new MemoryStorage()
+  dismissRankPeekAnnouncement('announcement-1', storage)
+
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify({
+      success: true,
+      data: [
+        {
+          id: 'announcement-1',
+          title: 'Old',
+          body: 'Still visible in archive',
+          level: 'info',
+          linkUrl: null,
+          startsAt: null,
+          endsAt: '2026-05-01T00:00:00.000Z'
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }) as typeof fetch
+
+  try {
+    const announcements = await fetchRankPeekAnnouncementArchive({
+      version: '1.0.0',
+      platform: 'win32',
+      locale: 'zh-CN',
+      channel: 'stable'
+    }, { storage, limit: 20 })
+
+    assert.deepEqual(announcements.map(item => item.id), ['announcement-1'])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.url, 'https://api.rankpeek.cn/app/announcements/archive?version=1.0.0&platform=win32&locale=zh-CN&channel=stable&limit=20')
+    assert.equal(calls[0]?.init?.method, 'GET')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('announcement read state is stored separately from dismissed state', () => {
+  const storage = new MemoryStorage()
+
+  markRankPeekAnnouncementRead('announcement-1', storage)
+  dismissRankPeekAnnouncement('announcement-2', storage)
+
+  assert.equal(isRankPeekAnnouncementRead('announcement-1', storage), true)
+  assert.equal(isRankPeekAnnouncementRead('announcement-2', storage), false)
+  assert.equal(isRankPeekAnnouncementDismissed('announcement-2', storage), true)
 })

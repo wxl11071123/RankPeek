@@ -57,12 +57,15 @@ interface ApiResponse<T> {
 interface CloudClientOptions {
   baseUrl?: string
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+  includeDismissedAnnouncements?: boolean
+  limit?: number
 }
 
 const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
 const DEFAULT_CLOUD_API_BASE_URL = 'https://api.rankpeek.cn'
 const INSTALLATION_ID_STORAGE_KEY = 'rankpeek.cloud.installationId'
 const DISMISSED_ANNOUNCEMENTS_STORAGE_KEY = 'rankpeek.cloud.dismissedAnnouncements'
+const READ_ANNOUNCEMENTS_STORAGE_KEY = 'rankpeek.cloud.readAnnouncements'
 
 export const RANKPEEK_CLOUD_API_BASE_URL = normalizeCloudApiBaseUrl(
   viteEnv?.VITE_RANKPEEK_CLOUD_API_BASE_URL || DEFAULT_CLOUD_API_BASE_URL
@@ -108,20 +111,35 @@ export async function fetchRankPeekAnnouncements(
   query: RankPeekAnnouncementQuery,
   options: CloudClientOptions = {}
 ): Promise<RankPeekAnnouncement[]> {
-  const params = new URLSearchParams({
-    version: query.version,
-    platform: query.platform,
-    locale: query.locale,
-    channel: query.channel || 'stable'
-  })
+  const params = buildAnnouncementQueryParams(query)
 
   try {
     const response = await fetch(`${resolveBaseUrl(options)}/app/announcements?${params.toString()}`, {
       method: 'GET'
     })
     const announcements = await readApiResponse<RankPeekAnnouncement[]>(response)
+    if (options.includeDismissedAnnouncements) {
+      return announcements
+    }
     const storage = options.storage ?? getBrowserStorage()
     return announcements.filter(announcement => !isRankPeekAnnouncementDismissed(announcement.id, storage))
+  } catch {
+    return []
+  }
+}
+
+export async function fetchRankPeekAnnouncementArchive(
+  query: RankPeekAnnouncementQuery,
+  options: CloudClientOptions = {}
+): Promise<RankPeekAnnouncement[]> {
+  const params = buildAnnouncementQueryParams(query)
+  params.set('limit', String(normalizeLimit(options.limit, 20, 50)))
+
+  try {
+    const response = await fetch(`${resolveBaseUrl(options)}/app/announcements/archive?${params.toString()}`, {
+      method: 'GET'
+    })
+    return readApiResponse<RankPeekAnnouncement[]>(response)
   } catch {
     return []
   }
@@ -145,26 +163,65 @@ export function dismissRankPeekAnnouncement(
   id: string,
   storage: Pick<Storage, 'getItem' | 'setItem'> | null = getBrowserStorage()
 ): void {
-  const trimmedId = id.trim()
-  if (!trimmedId) {
-    return
-  }
-
-  const ids = readDismissedAnnouncementIds(storage)
-  ids.add(trimmedId)
-  storage?.setItem(DISMISSED_ANNOUNCEMENTS_STORAGE_KEY, JSON.stringify(Array.from(ids).slice(-80)))
+  storeAnnouncementId(id, storage, DISMISSED_ANNOUNCEMENTS_STORAGE_KEY)
 }
 
 export function isRankPeekAnnouncementDismissed(
   id: string,
   storage: Pick<Storage, 'getItem'> | null = getBrowserStorage()
 ): boolean {
-  return readDismissedAnnouncementIds(storage).has(id)
+  return readStoredAnnouncementIds(storage, DISMISSED_ANNOUNCEMENTS_STORAGE_KEY).has(id)
 }
 
-function readDismissedAnnouncementIds(storage: Pick<Storage, 'getItem'> | null): Set<string> {
+export function markRankPeekAnnouncementRead(
+  id: string,
+  storage: Pick<Storage, 'getItem' | 'setItem'> | null = getBrowserStorage()
+): void {
+  storeAnnouncementId(id, storage, READ_ANNOUNCEMENTS_STORAGE_KEY)
+}
+
+export function isRankPeekAnnouncementRead(
+  id: string,
+  storage: Pick<Storage, 'getItem'> | null = getBrowserStorage()
+): boolean {
+  return readStoredAnnouncementIds(storage, READ_ANNOUNCEMENTS_STORAGE_KEY).has(id)
+}
+
+function buildAnnouncementQueryParams(query: RankPeekAnnouncementQuery): URLSearchParams {
+  return new URLSearchParams({
+    version: query.version,
+    platform: query.platform,
+    locale: query.locale,
+    channel: query.channel || 'stable'
+  })
+}
+
+function normalizeLimit(value: number | undefined, fallback: number, max: number): number {
+  const numericValue = typeof value === 'number' ? value : Number.NaN
+  if (!Number.isFinite(numericValue)) {
+    return fallback
+  }
+  return Math.max(1, Math.min(max, Math.trunc(numericValue)))
+}
+
+function storeAnnouncementId(
+  id: string,
+  storage: Pick<Storage, 'getItem' | 'setItem'> | null,
+  storageKey: string
+): void {
+  const trimmedId = id.trim()
+  if (!trimmedId) {
+    return
+  }
+
+  const ids = readStoredAnnouncementIds(storage, storageKey)
+  ids.add(trimmedId)
+  storage?.setItem(storageKey, JSON.stringify(Array.from(ids).slice(-80)))
+}
+
+function readStoredAnnouncementIds(storage: Pick<Storage, 'getItem'> | null, storageKey: string): Set<string> {
   try {
-    const raw = storage?.getItem(DISMISSED_ANNOUNCEMENTS_STORAGE_KEY)
+    const raw = storage?.getItem(storageKey)
     const parsed = raw ? JSON.parse(raw) : []
     return new Set(Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [])
   } catch {

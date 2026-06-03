@@ -6,13 +6,15 @@ import {
   mergeHomeChartDetail,
   runWithConcurrencyLimit
 } from '@/services/homeChartEntries'
+import { createMatchRpIndexModel } from '@/services/matchRpIndex'
 import { loadReliableMatchHistory } from '@/services/reliableMatchHistory'
 import type { HomeChartEntry } from '@/services/homeChartEntries'
-import type { MatchHistory, Summoner } from '@/types/api'
+import type { GameDetail, MatchHistory, MatchTimeline, Summoner } from '@/types/api'
 import { getChampionIconUrl, markAssetLoadFailed } from '@/utils/gameAssetUrls'
 
 type QueueMode = 420 | 440
 type MetricKey =
+  | 'rpIndex'
   | 'kda'
   | 'kills'
   | 'deaths'
@@ -146,7 +148,7 @@ const QUEUE_OPTIONS: Array<{ value: QueueMode; label: string }> = [
 ]
 
 const METRIC_OPTIONS: Array<{ value: MetricKey; label: string }> = [
-  { value: 'kda', label: 'KDA 比率' },
+  { value: 'rpIndex', label: 'RP 指数' },
   { value: 'kills', label: '击杀' },
   { value: 'deaths', label: '死亡' },
   { value: 'assists', label: '助攻' },
@@ -188,7 +190,7 @@ const DETAIL_REQUEST_CONCURRENCY = 4
 const LOAD_ERROR_TEXT = '战绩趋势加载失败'
 
 const selectedQueue = ref<QueueMode>(420)
-const selectedMetric = ref<MetricKey>('kda')
+const selectedMetric = ref<MetricKey>('rpIndex')
 const selectedLane = ref<LaneKey>('all')
 const entries = ref<ChartEntry[]>([])
 const loading = ref(false)
@@ -387,13 +389,15 @@ async function hydrateEntryDetails(
   const matchesToHydrate = matches.slice(0, LOOKBACK_MATCH_COUNT)
   await runWithConcurrencyLimit(matchesToHydrate, DETAIL_REQUEST_CONCURRENCY, async match => {
     const detail = await apiClient.getGameDetail(match.gameId)
+    const timeline = await loadMatchTimelineForRpIndex(match.gameId)
+    const rpIndex = calculateCurrentPlayerRpIndex(detail, timeline, puuid)
     if (chartRequestId !== requestId || currentDetailRequestId !== detailRequestId) {
       return
     }
 
     entries.value = entries.value.map(entry =>
       entry.gameId === match.gameId
-        ? mergeHomeChartDetail(entry, match, detail, puuid)
+        ? mergeHomeChartDetail(entry, match, detail, puuid, rpIndex)
         : entry
     )
   }, (detailError, match) => {
@@ -401,8 +405,20 @@ async function hydrateEntryDetails(
   })
 }
 
+async function loadMatchTimelineForRpIndex(gameId: number): Promise<MatchTimeline | null> {
+  try {
+    const result = await apiClient.getGameTimeline(gameId)
+    return result.timeline ?? null
+  } catch (timelineError) {
+    console.warn(`Failed to hydrate home chart RP index timeline for game ${gameId}`, timelineError)
+    return null
+  }
+}
 
 function getMetricValue(entry: ChartEntry, metric: MetricKey): number | null {
+  if (metric === 'rpIndex') {
+    return entry.rpIndex ?? null
+  }
   if (metric === 'kda') {
     return (entry.kills + entry.assists) / Math.max(1, entry.deaths)
   }
@@ -455,6 +471,7 @@ function createDomain(values: number[], metric: MetricKey): { min: number; max: 
 
 function shouldAnchorZero(metric: MetricKey): boolean {
   return (
+    metric === 'rpIndex' ||
     metric === 'kda' ||
     metric === 'kills' ||
     metric === 'deaths' ||
@@ -473,6 +490,9 @@ function formatMetricValue(value: number | null, metric = selectedMetric.value):
   if (value == null) {
     return '暂无数据'
   }
+  if (metric === 'rpIndex') {
+    return value.toFixed(1)
+  }
   if (metric === 'kda') {
     return value.toFixed(2)
   }
@@ -487,6 +507,9 @@ function formatMetricValue(value: number | null, metric = selectedMetric.value):
 }
 
 function formatAxisValue(value: number, metric: MetricKey): string {
+  if (metric === 'rpIndex') {
+    return value.toFixed(1)
+  }
   if (metric === 'damageRate') {
     return `${value.toFixed(1)}%`
   }
@@ -543,6 +566,29 @@ function formatDate(timestamp: number): string {
 
 function resolveChampionCdnUrl(championId: number): string {
   return getChampionIconUrl(championId)
+}
+
+function calculateCurrentPlayerRpIndex(
+  detail: GameDetail | null | undefined,
+  timeline: MatchTimeline | null | undefined,
+  puuid: string
+): number | null {
+  const participantId = findParticipantIdByPuuid(detail, puuid)
+  if (participantId == null) {
+    return null
+  }
+
+  const model = createMatchRpIndexModel(timeline, detail)
+  if (model.status !== 'ready') {
+    return null
+  }
+
+  return model.players.find(player => player.participantId === participantId)?.finalScore ?? null
+}
+
+function findParticipantIdByPuuid(detail: GameDetail | null | undefined, puuid: string): number | null {
+  const identity = detail?.participantIdentities?.find(item => item.player?.puuid === puuid)
+  return typeof identity?.participantId === 'number' ? identity.participantId : null
 }
 
 function pointClipId(point: ChartPoint): string {
