@@ -51,6 +51,23 @@ function assertOrdered(source: string, snippets: string[]): void {
   assert.deepEqual([...indexes].sort((left, right) => left - right), indexes)
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function extractRule(source: string, selector: string): string {
+  const normalizedSource = source.replace(/\r\n/g, '\n')
+  const normalizedSelector = selector.replace(/\r\n/g, '\n')
+  const match = new RegExp(`(^|\\n)${escapeRegex(normalizedSelector)}\\s*\\{`).exec(normalizedSource)
+  assert.ok(match, `missing selector: ${selector}`)
+  const index = match.index + (match[1] ? match[1].length : 0)
+  const start = normalizedSource.indexOf('{', index)
+  assert.notEqual(start, -1, `missing rule start: ${selector}`)
+  const end = normalizedSource.indexOf('\n}', start)
+  assert.notEqual(end, -1, `missing rule end: ${selector}`)
+  return normalizedSource.slice(index, end + 2)
+}
+
 interface ObjectiveCountHarness {
   readStructureObjectiveCount: (teamId: number, summary: Record<string, unknown>, sourceKey: string) => number | null
   formatObjectiveTitle: (label: string, count: number | null) => string
@@ -486,7 +503,8 @@ test('RP tab renders score cards, multi-line chart, empty selection, and input e
   const selectedCardRule = source.match(/\.rp-score-card\.selected \{[\s\S]*?\n\}/)?.[0] || ''
   assert.doesNotMatch(rpScoreCardBlock, /:title=|title=/)
   assert.doesNotMatch(source, /function getRpScoreCardTitle/)
-  assert.match(selectedCardRule, /box-shadow:\s*inset 0 0 0 4px/)
+  assert.match(selectedCardRule, /box-shadow:\s*var\(--rp-score-card-selected-shadow\)/)
+  assert.match(source, /--rp-score-card-selected-shadow:\s*inset 0 0 0 4px/)
   assert.match(rpBlock, /class="rp-chart-svg"/)
   assert.match(rpBlock, /v-for="series in rpSelectedSeries"/)
   assert.match(rpBlock, /class="rp-chart-hover-line"/)
@@ -503,6 +521,31 @@ test('RP tab renders score cards, multi-line chart, empty selection, and input e
   assert.match(rpHeadingBlock, /rpTrendBadges\.length/)
   assert.match(zh, /'matchDetail\.rpEmptySelection': '选择玩家查看 RP 曲线'/)
   assert.match(en, /'matchDetail\.rpEmptySelection': 'Select players to view RP curves'/)
+})
+
+test('light theme gives RP index cards and chart readable surface colors', () => {
+  const source = readInlineDetailSource()
+  const rootRule = extractRule(source, '.inline-match-detail')
+  const lightRule = extractRule(source, ':global([data-theme="light"] .inline-match-detail)')
+  const scoreCardRule = extractRule(source, '.rp-score-card')
+  const trendBadgeRule = extractRule(source, '.rp-trend-badge')
+  const infoButtonRule = extractRule(source, '.rp-info-button')
+  const tooltipRule = extractRule(source, '.rp-chart-tooltip')
+  const gridRule = extractRule(source, '.rp-chart-grid line,\n.rp-chart-time-axis line')
+
+  assert.match(rootRule, /--rp-score-card-bg:/)
+  assert.match(rootRule, /--rp-chart-tooltip-bg:/)
+  assert.match(lightRule, /--rp-score-card-bg:\s*rgba\(255,\s*255,\s*255,\s*0\.92\)/)
+  assert.match(lightRule, /--rp-trend-badge-bg:\s*rgba\(232,\s*240,\s*255,\s*0\.92\)/)
+  assert.match(lightRule, /--rp-info-button-bg:\s*rgba\(255,\s*255,\s*255,\s*0\.86\)/)
+  assert.match(lightRule, /--rp-chart-tooltip-bg:\s*rgba\(255,\s*255,\s*255,\s*0\.98\)/)
+  assert.match(lightRule, /--rp-chart-hover-point-stroke:\s*#ffffff/)
+  assert.match(scoreCardRule, /background:\s*var\(--rp-score-card-bg\)/)
+  assert.match(scoreCardRule, /border:\s*1px solid var\(--rp-score-card-border\)/)
+  assert.match(trendBadgeRule, /background:\s*var\(--rp-trend-badge-bg\)/)
+  assert.match(infoButtonRule, /background:\s*var\(--rp-info-button-bg\)/)
+  assert.match(tooltipRule, /background:\s*var\(--rp-chart-tooltip-bg\)/)
+  assert.match(gridRule, /stroke:\s*var\(--rp-chart-grid-line\)/)
 })
 
 test('RP chart uses a high-contrast fixed ten-color palette', () => {
@@ -908,11 +951,11 @@ test('timeline API types and client method are defined without touching game-det
   assert.match(clientSource, /async getGameDetail\(/)
 })
 
-test('timeline chart work stays out of HomeChart and home chart entries', () => {
+test('timeline chart UI work stays out of HomeChart and home chart entries', () => {
   const homeChart = readFileSync(new URL('../HomeChart.vue', import.meta.url), 'utf8')
   const homeChartEntries = readFileSync(new URL('../../services/homeChartEntries.ts', import.meta.url), 'utf8')
 
-  assert.doesNotMatch(homeChart, /getGameTimeline|MatchTimeline|timelineRankedOnly|timeline-chart-shell/)
+  assert.doesNotMatch(homeChart, /timelineRankedOnly|timeline-chart-shell|timeline-chart-stage|timeline-event-track/)
   assert.doesNotMatch(homeChartEntries, /getGameTimeline|MatchTimeline|timelineRankedOnly|timeline-chart-shell/)
 })
 
