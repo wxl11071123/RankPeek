@@ -75,6 +75,14 @@ test('sidebar retires standalone tag analysis and tag config entries', () => {
   assert.match(source, /path: '\/settings', iconSvg: settingsGearIconSvg, labelKey: 'nav\.settings'/)
 })
 
+test('sidebar nav items do not show native browser title tooltips', () => {
+  const source = readRendererFile('components/layout/Sidebar.vue')
+  const navItemBlock = source.match(/<li[\s\S]*?@click="navigateTo\(item\.path\)"[\s\S]*?>/)?.[0] || ''
+
+  assert.match(navItemBlock, /:aria-label="t\(item\.labelKey\)"/)
+  assert.doesNotMatch(navItemBlock, /:title=|title=/)
+})
+
 test('sidebar nav labels keep bold weight and size across states', () => {
   const source = readRendererFile('components/layout/Sidebar.vue')
   const activeRule = extractRule(source, '.nav-item.active')

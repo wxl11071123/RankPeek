@@ -151,12 +151,12 @@ class SummonerControllerTest {
                 .gameId(7001L)
                 .status("FETCHED")
                 .build();
-        when(matchHistoryService.getGameTimelineById(7001L, "sgp")).thenReturn(result);
+        when(matchHistoryService.getGameTimelineById(7001L, "sgp", "HN1")).thenReturn(result);
 
-        ApiResponse<MatchTimelineFetchResult> response = controller.getGameTimeline(7001L, "sgp");
+        ApiResponse<MatchTimelineFetchResult> response = controller.getGameTimeline(7001L, "sgp", "HN1");
 
         assertThat(response.getData()).isSameAs(result);
-        verify(matchHistoryService).getGameTimelineById(7001L, "sgp");
+        verify(matchHistoryService).getGameTimelineById(7001L, "sgp", "HN1");
     }
 
     @Test

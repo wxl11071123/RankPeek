@@ -53,6 +53,14 @@ test('home chart uses RP index as the default trend metric', () => {
   assert.doesNotMatch(source, /\{ value: 'kda', label: 'KDA 比率' \}/)
 })
 
+test('home chart passes match platform id to SGP detail and timeline hydration for RP index', () => {
+  const source = readFileSync(new URL('./HomeChart.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /apiClient\.getGameDetail\(match\.gameId,\s*\{\s*source:\s*'sgp',\s*sgpServerId:\s*match\.platformId\s*\}\)/)
+  assert.match(source, /apiClient\.getGameTimeline\(gameId,\s*\{\s*source:\s*'sgp',\s*sgpServerId\s*\}\)/)
+  assert.match(source, /async function loadMatchTimelineForRpIndex\(gameId: number,\s*sgpServerId: string\)/)
+})
+
 test('home chart card only applies the shared outer glow on hover or focus', () => {
   const source = readFileSync(new URL('./HomeChart.vue', import.meta.url), 'utf8')
   const baseRule = extractRule(source, '.home-chart-card')

@@ -228,8 +228,9 @@ public class SummonerController {
     public ApiResponse<GameDetail> getGameDetail(
             @PathVariable Long gameId,
             @RequestParam(required = false) String source,
-            @RequestParam(defaultValue = "false") boolean sgpOnly) {
-        return ApiResponse.success(matchHistoryService.getGameDetailById(gameId, source, sgpOnly));
+            @RequestParam(defaultValue = "false") boolean sgpOnly,
+            @RequestParam(required = false) String sgpServerId) {
+        return ApiResponse.success(matchHistoryService.getGameDetailById(gameId, source, sgpOnly, sgpServerId));
     }
 
     /**
@@ -240,8 +241,9 @@ public class SummonerController {
     @GetMapping("/game-timeline/{gameId}")
     public ApiResponse<MatchTimelineFetchResult> getGameTimeline(
             @PathVariable Long gameId,
-            @RequestParam(required = false) String source) {
-        return ApiResponse.success(matchHistoryService.getGameTimelineById(gameId, source));
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String sgpServerId) {
+        return ApiResponse.success(matchHistoryService.getGameTimelineById(gameId, source, sgpServerId));
     }
 
     /**

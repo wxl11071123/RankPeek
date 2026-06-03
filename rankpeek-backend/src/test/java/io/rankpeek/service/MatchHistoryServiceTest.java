@@ -1,6 +1,7 @@
 package io.rankpeek.service;
 
 import io.rankpeek.cache.MatchHistoryCacheRepository;
+import io.rankpeek.model.MatchDataScopeCache;
 import io.rankpeek.model.MatchHistory;
 import io.rankpeek.model.MatchHistoryFetchResult;
 import io.rankpeek.model.MatchHistoryPageResponse;
@@ -331,6 +332,38 @@ class MatchHistoryServiceTest {
         assertThat(result.getStatus()).isEqualTo("FETCHED");
         verify(sgpMatchHistoryProvider).fetchGameTimeline(130L, options(MatchHistorySource.SGP, false));
         verify(sgpMatchHistoryProvider, never()).fetchGameDetail(any(Long.class), any(MatchHistoryQueryOptions.class));
+    }
+
+    @Test
+    void getGameTimelineById_sourceSgpUsesRequestedServerId() {
+        MatchHistoryService sourceAwareService = sourceAwareService();
+        MatchTimelineFetchResult fetched = timelineResult(133L);
+        when(sgpMatchHistoryProvider.fetchGameTimeline(133L, options(MatchHistorySource.SGP, false, "HN1")))
+                .thenReturn(fetched);
+
+        MatchTimelineFetchResult result = sourceAwareService.getGameTimelineById(133L, "sgp", "HN1");
+
+        assertThat(result).isSameAs(fetched);
+        verify(sgpMatchHistoryProvider).fetchGameTimeline(133L, options(MatchHistorySource.SGP, false, "HN1"));
+        verify(sgpMatchHistoryProvider, never()).fetchGameTimeline(133L, options(MatchHistorySource.SGP, false));
+    }
+
+    @Test
+    void getGameTimelineById_sourceSgpWithRequestedServerIdIgnoresFailedCachedTimeline() {
+        MatchHistoryService sourceAwareService = sourceAwareServiceWithCacheRepository();
+        MatchDataScopeCache cachedFailure = new MatchDataScopeCache();
+        cachedFailure.setGameId(134L);
+        cachedFailure.setTimelineStatus("FAILED");
+        cachedFailure.setLastError("coarse CN region cannot resolve server id");
+        when(cacheRepository.findMatchDataScope(134L)).thenReturn(Optional.of(cachedFailure));
+        MatchTimelineFetchResult fetched = timelineResult(134L);
+        when(sgpMatchHistoryProvider.fetchGameTimeline(134L, options(MatchHistorySource.SGP, false, "HN1")))
+                .thenReturn(fetched);
+
+        MatchTimelineFetchResult result = sourceAwareService.getGameTimelineById(134L, "sgp", "HN1");
+
+        assertThat(result).isSameAs(fetched);
+        verify(sgpMatchHistoryProvider).fetchGameTimeline(134L, options(MatchHistorySource.SGP, false, "HN1"));
     }
 
     @Test
@@ -2218,6 +2251,10 @@ class MatchHistoryServiceTest {
     }
 
     private MatchHistoryQueryOptions options(MatchHistorySource source, boolean forceRefresh) {
+        return options(source, forceRefresh, null);
+    }
+
+    private MatchHistoryQueryOptions options(MatchHistorySource source, boolean forceRefresh, String sgpServerId) {
         return new MatchHistoryQueryOptions(
                 0,
                 99,
@@ -2226,7 +2263,7 @@ class MatchHistoryServiceTest {
                 50,
                 forceRefresh,
                 source,
-                null,
+                sgpServerId,
                 null
         );
     }

@@ -308,6 +308,26 @@ public class MatchHistoryService {
         );
     }
 
+    private MatchHistoryQueryOptions withSgpServerId(MatchHistoryQueryOptions options, String sgpServerId) {
+        MatchHistoryQueryOptions safeOptions = options == null
+                ? MatchHistoryQueryOptions.defaultFor(MatchHistorySource.AUTO, false)
+                : options;
+        String normalizedSgpServerId = sgpServerId == null || sgpServerId.isBlank()
+                ? safeOptions.sgpServerId()
+                : sgpServerId.trim();
+        return new MatchHistoryQueryOptions(
+                safeOptions.begIndex(),
+                safeOptions.endIndex(),
+                safeOptions.queueId(),
+                safeOptions.championId(),
+                safeOptions.maxResults(),
+                safeOptions.forceRefresh(),
+                safeOptions.preferredSource(),
+                normalizedSgpServerId,
+                safeOptions.tag()
+        );
+    }
+
     private String matchHistoryCacheKey(String puuid, MatchHistoryQueryOptions options, MatchHistorySource source) {
         return String.join("|",
                 normalizeSource(source).name(),
@@ -1019,13 +1039,24 @@ public class MatchHistoryService {
     }
 
     public MatchTimelineFetchResult getGameTimelineById(Long gameId, String source) {
-        return getGameTimelineById(gameId, MatchHistorySource.fromRequest(source));
+        return getGameTimelineById(gameId, source, null);
+    }
+
+    public MatchTimelineFetchResult getGameTimelineById(Long gameId, String source, String sgpServerId) {
+        return getGameTimelineById(gameId, MatchHistorySource.fromRequest(source), sgpServerId);
     }
 
     public MatchTimelineFetchResult getGameTimelineById(Long gameId, MatchHistorySource source) {
-        MatchHistoryQueryOptions options = MatchHistoryQueryOptions.defaultFor(normalizeSource(source), false);
+        return getGameTimelineById(gameId, source, null);
+    }
+
+    public MatchTimelineFetchResult getGameTimelineById(Long gameId, MatchHistorySource source, String sgpServerId) {
+        MatchHistoryQueryOptions options = withSgpServerId(
+                MatchHistoryQueryOptions.defaultFor(normalizeSource(source), false),
+                sgpServerId
+        );
         Optional<MatchTimelineFetchResult> cachedTimeline = loadCachedGameTimeline(gameId);
-        if (cachedTimeline.isPresent()) {
+        if (cachedTimeline.isPresent() && shouldUseCachedGameTimeline(cachedTimeline.get(), options)) {
             return cachedTimeline.get();
         }
         if (normalizeSource(options.preferredSource()) == MatchHistorySource.CACHE) {
@@ -1087,6 +1118,18 @@ public class MatchHistoryService {
                         .build());
     }
 
+    private boolean shouldUseCachedGameTimeline(MatchTimelineFetchResult cachedTimeline,
+                                                MatchHistoryQueryOptions options) {
+        if (cachedTimeline == null) {
+            return false;
+        }
+        String sgpServerId = options == null ? null : options.sgpServerId();
+        if (sgpServerId == null || sgpServerId.isBlank()) {
+            return true;
+        }
+        return "FETCHED".equalsIgnoreCase(cachedTimeline.getStatus()) && hasTimelineFrames(cachedTimeline);
+    }
+
     private MatchTimelineFetchResult normalizeTimelineFetchResult(Long gameId, MatchTimelineFetchResult result) {
         if (result == null) {
             return unavailableTimelineResult(gameId, "Timeline provider returned no result");
@@ -1131,12 +1174,23 @@ public class MatchHistoryService {
     }
 
     public GameDetail getGameDetailById(Long gameId, String source, boolean sgpOnly) {
-        return getGameDetailById(gameId, MatchHistorySource.fromRequest(source), sgpOnly);
+        return getGameDetailById(gameId, source, sgpOnly, null);
+    }
+
+    public GameDetail getGameDetailById(Long gameId, String source, boolean sgpOnly, String sgpServerId) {
+        return getGameDetailById(gameId, MatchHistorySource.fromRequest(source), sgpOnly, sgpServerId);
     }
 
     public GameDetail getGameDetailById(Long gameId, MatchHistorySource source, boolean sgpOnly) {
+        return getGameDetailById(gameId, source, sgpOnly, null);
+    }
+
+    public GameDetail getGameDetailById(Long gameId, MatchHistorySource source, boolean sgpOnly, String sgpServerId) {
         MatchHistorySource requestedSource = sgpOnly ? MatchHistorySource.SGP : normalizeSource(source);
-        MatchHistoryQueryOptions options = MatchHistoryQueryOptions.defaultFor(requestedSource, false);
+        MatchHistoryQueryOptions options = withSgpServerId(
+                MatchHistoryQueryOptions.defaultFor(requestedSource, false),
+                sgpServerId
+        );
         if (normalizeSource(options.preferredSource()) == MatchHistorySource.CACHE) {
             return loadCachedGameDetail(gameId).orElse(null);
         }
@@ -1177,7 +1231,7 @@ public class MatchHistoryService {
                 detail = mergeLcuObjectiveFallback(gameId, detail);
             }
             if (resolvedProvider.source() == MatchHistorySource.SGP) {
-                detail = hydrateTurretPlateObjectivesFromTimeline(gameId, detail);
+                detail = hydrateTurretPlateObjectivesFromTimeline(gameId, detail, options.sgpServerId());
             }
             if (usesDatabaseCache(resolvedProvider.source()) && cacheRepository != null) {
                 cacheRepository.saveGameDetail(detail);
@@ -1489,13 +1543,13 @@ public class MatchHistoryService {
         return !hasTeamObjectives(detail) || hasMissingFallbackObjectiveFields(detail);
     }
 
-    private GameDetail hydrateTurretPlateObjectivesFromTimeline(Long gameId, GameDetail detail) {
+    private GameDetail hydrateTurretPlateObjectivesFromTimeline(Long gameId, GameDetail detail, String sgpServerId) {
         if (!shouldHydrateTurretPlateObjectives(detail)) {
             return detail;
         }
 
         try {
-            MatchTimelineFetchResult timelineResult = getGameTimelineById(gameId, MatchHistorySource.SGP);
+            MatchTimelineFetchResult timelineResult = getGameTimelineById(gameId, MatchHistorySource.SGP, sgpServerId);
             if (timelineResult == null || timelineResult.getTimeline() == null) {
                 return detail;
             }

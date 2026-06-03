@@ -388,8 +388,11 @@ async function hydrateEntryDetails(
 ) {
   const matchesToHydrate = matches.slice(0, LOOKBACK_MATCH_COUNT)
   await runWithConcurrencyLimit(matchesToHydrate, DETAIL_REQUEST_CONCURRENCY, async match => {
-    const detail = await apiClient.getGameDetail(match.gameId)
-    const timeline = await loadMatchTimelineForRpIndex(match.gameId)
+    const detail = await apiClient.getGameDetail(match.gameId, {
+      source: 'sgp',
+      sgpServerId: match.platformId
+    })
+    const timeline = await loadMatchTimelineForRpIndex(match.gameId, match.platformId)
     const rpIndex = calculateCurrentPlayerRpIndex(detail, timeline, puuid)
     if (chartRequestId !== requestId || currentDetailRequestId !== detailRequestId) {
       return
@@ -405,9 +408,12 @@ async function hydrateEntryDetails(
   })
 }
 
-async function loadMatchTimelineForRpIndex(gameId: number): Promise<MatchTimeline | null> {
+async function loadMatchTimelineForRpIndex(gameId: number, sgpServerId: string): Promise<MatchTimeline | null> {
   try {
-    const result = await apiClient.getGameTimeline(gameId)
+    const result = await apiClient.getGameTimeline(gameId, {
+      source: 'sgp',
+      sgpServerId
+    })
     return result.timeline ?? null
   } catch (timelineError) {
     console.warn(`Failed to hydrate home chart RP index timeline for game ${gameId}`, timelineError)

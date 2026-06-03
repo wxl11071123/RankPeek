@@ -60,7 +60,6 @@ function navigateTo(path: string) {
           :key="item.path"
           class="nav-item"
           :class="{ active: currentPath === item.path }"
-          :title="t(item.labelKey)"
           :aria-label="t(item.labelKey)"
           @click="navigateTo(item.path)"
         >
