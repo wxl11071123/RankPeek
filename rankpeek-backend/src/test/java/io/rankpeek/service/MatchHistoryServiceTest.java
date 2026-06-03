@@ -548,7 +548,7 @@ class MatchHistoryServiceTest {
                 .filteredOn(summary -> Integer.valueOf(200).equals(summary.getTeamId()))
                 .singleElement()
                 .extracting(io.rankpeek.model.GameDetail.TeamObjectiveSummary::getObjectiveEvents)
-                .asList()
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.LIST)
                 .singleElement()
                 .satisfies(event -> {
                     io.rankpeek.model.GameDetail.TeamObjectiveEvent objectiveEvent =
@@ -600,7 +600,7 @@ class MatchHistoryServiceTest {
                 .filteredOn(summary -> Integer.valueOf(200).equals(summary.getTeamId()))
                 .singleElement()
                 .extracting(io.rankpeek.model.GameDetail.TeamObjectiveSummary::getObjectiveEvents)
-                .asList()
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.LIST)
                 .singleElement()
                 .extracting("kind", "teamId", "participantId", "championId")
                 .containsExactly("turretPlate", 200, 6, 106);

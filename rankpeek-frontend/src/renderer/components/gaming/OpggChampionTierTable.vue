@@ -73,7 +73,7 @@ import type {
   OpggChampionListItem,
   OpggChampionPositionStats,
   OpggChampionStats
-} from '@/services/rankpeekServerClient.ts'
+} from '@/services/rankpeekDataClient.ts'
 import type { ChampionOption } from '@/types/api'
 import {
   getChampionIconUrl,

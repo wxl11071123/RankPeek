@@ -8,7 +8,7 @@ RankPeek 是一款面向《英雄联盟》的 Windows 桌面工具。它通过�
 
 - `rankpeek-frontend`：Electron + Vue 3 桌面客户端。
 - `rankpeek-backend`：运行在 `127.0.0.1:8080` 的本地 Windows 服务，负责 LCU、SGP、资产、战绩、AI、OP.GG 数据、国服 meta 数据和本地成本流水。
-- `rankpeek-server`：历史/参考云端服务。普通桌面开发和桌面打包不再需要它。
+- `rankpeek-cloudflare`：Cloudflare Worker API，负责官网反馈、公开公告和管理员公告后台。
 
 ## 当前功能
 
@@ -113,19 +113,6 @@ npm run electron:dev
 
 打开桌面应用的设置页并配置 AI provider。API key 由本地 backend 存储在本地，不会发送给 RankPeek 云端服务。
 
-## 历史云端服务
-
-`rankpeek-server` 不再是打包桌面应用的必需组件。它保留在仓库中，作为 AI prompt、OP.GG 数据、国服 meta sync 和旧管理工具的参考代码。
-
-只有在明确开发历史/参考服务时才需要启动它：
-
-```powershell
-cd rankpeek-server
-mvn spring-boot:run
-```
-
-更多说明见 [rankpeek-server/README.md](rankpeek-server/README.md)。
-
 ## 构建
 
 ### 前端 Bundle
@@ -175,13 +162,6 @@ cd rankpeek-backend
 mvn test
 ```
 
-历史 server 参考测试：
-
-```powershell
-cd rankpeek-server
-mvn test
-```
-
 仓库守卫：
 
 ```powershell
@@ -194,8 +174,8 @@ node scripts/check-no-cloud-server.mjs
 ```text
 rankpeek-frontend/              Electron + Vue 桌面客户端
 rankpeek-backend/               本地 Windows 服务，负责 LCU、SGP、AI、OP.GG、国服 meta、成本和缓存
-rankpeek-server/                历史/参考云端服务，打包桌面应用不依赖它
-rankpeek-server/deploy/ubuntu/  历史生产部署脚本和模板
+rankpeek-cloudflare/            Cloudflare Worker API，负责反馈和公告
+rankpeek-website/               官网源码
 docs/                           规划、部署和产品说明
 scripts/                        开发脚本和仓库守卫脚本
 build.bat                       Windows 原生 backend + Electron 打包辅助脚本

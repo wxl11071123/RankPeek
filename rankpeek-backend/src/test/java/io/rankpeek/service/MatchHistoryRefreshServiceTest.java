@@ -15,10 +15,10 @@ import java.util.concurrent.TimeUnit;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class MatchHistoryRefreshServiceTest {
@@ -36,8 +36,9 @@ class MatchHistoryRefreshServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(scheduler.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS)))
-                .thenReturn(mock(ScheduledFuture.class));
+        doReturn(scheduledFutureMock())
+                .when(scheduler)
+                .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
         refreshService = new MatchHistoryRefreshService(
                 matchHistoryService,
                 rankService,
@@ -101,5 +102,10 @@ class MatchHistoryRefreshServiceTest {
                 "GameEndDelayedRefresh",
                 List.of("matchHistory")
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ScheduledFuture<?> scheduledFutureMock() {
+        return mock(ScheduledFuture.class);
     }
 }

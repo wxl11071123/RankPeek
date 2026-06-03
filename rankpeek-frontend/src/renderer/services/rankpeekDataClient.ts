@@ -4,13 +4,13 @@ import {
 } from './rankpeekLocalServiceClient.ts'
 
 export const RANKPEEK_DATA_API_BASE_URL = RANKPEEK_LOCAL_SERVICE_BASE_URL
-export const RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT = '/api/v1/system/identity'
+export const RANKPEEK_DATA_DIAGNOSTICS_ENDPOINT = '/api/v1/system/identity'
 
-const RANKPEEK_SERVER_UNAVAILABLE_MESSAGE = 'rankpeek local backend unavailable; confirm 127.0.0.1:8080 is running.'
+const RANKPEEK_DATA_UNAVAILABLE_MESSAGE = 'rankpeek local backend unavailable; confirm 127.0.0.1:8080 is running.'
 
-export const normalizeRankPeekServerBaseUrl = normalizeRankPeekLocalServiceBaseUrl
+export const normalizeRankPeekDataBaseUrl = normalizeRankPeekLocalServiceBaseUrl
 
-interface RankPeekServerDiagnosticsResponse {
+interface RankPeekDataDiagnosticsResponse {
   success?: boolean
   code?: number
   message?: string
@@ -24,7 +24,7 @@ interface RankPeekServerDiagnosticsResponse {
   } | null
 }
 
-interface RankPeekServerApiResponse<T> {
+interface RankPeekDataApiResponse<T> {
   success?: boolean
   code?: number
   message?: string
@@ -125,7 +125,7 @@ export interface OpggChampionListRequest {
   tier: string
 }
 
-export type RankPeekServerDiagnosticsCheck =
+export type RankPeekDataDiagnosticsCheck =
   | {
     available: true
     service: string
@@ -137,26 +137,26 @@ export type RankPeekServerDiagnosticsCheck =
     message: string
   }
 
-export async function checkRankPeekServerDiagnostics(): Promise<RankPeekServerDiagnosticsCheck> {
+export async function checkRankPeekDataDiagnostics(): Promise<RankPeekDataDiagnosticsCheck> {
   try {
-    const response = await fetch(`${RANKPEEK_DATA_API_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`, {
+    const response = await fetch(`${RANKPEEK_DATA_API_BASE_URL}${RANKPEEK_DATA_DIAGNOSTICS_ENDPOINT}`, {
       method: 'GET',
       headers: { Accept: 'application/json' }
     })
 
     if (!response.ok) {
-      return { available: false, message: `${RANKPEEK_SERVER_UNAVAILABLE_MESSAGE} (HTTP ${response.status})` }
+      return { available: false, message: `${RANKPEEK_DATA_UNAVAILABLE_MESSAGE} (HTTP ${response.status})` }
     }
 
     const payload = await parseDiagnosticsResponse(response)
     if (payload.success === false || (payload.code !== undefined && payload.code !== 200)) {
       return {
         available: false,
-        message: payload.error?.message || payload.message || RANKPEEK_SERVER_UNAVAILABLE_MESSAGE
+        message: payload.error?.message || payload.message || RANKPEEK_DATA_UNAVAILABLE_MESSAGE
       }
     }
     if (!payload.data) {
-      return { available: false, message: RANKPEEK_SERVER_UNAVAILABLE_MESSAGE }
+      return { available: false, message: RANKPEEK_DATA_UNAVAILABLE_MESSAGE }
     }
 
     return {
@@ -166,13 +166,13 @@ export async function checkRankPeekServerDiagnostics(): Promise<RankPeekServerDi
       version: payload.data.version || 'unknown'
     }
   } catch {
-    return { available: false, message: RANKPEEK_SERVER_UNAVAILABLE_MESSAGE }
+    return { available: false, message: RANKPEEK_DATA_UNAVAILABLE_MESSAGE }
   }
 }
 
-async function parseDiagnosticsResponse(response: Response): Promise<RankPeekServerDiagnosticsResponse> {
+async function parseDiagnosticsResponse(response: Response): Promise<RankPeekDataDiagnosticsResponse> {
   try {
-    return await response.json() as RankPeekServerDiagnosticsResponse
+    return await response.json() as RankPeekDataDiagnosticsResponse
   } catch {
     return {}
   }
@@ -201,7 +201,7 @@ export function getLatestChampionMeta(championId: number, tierScope: string): Pr
         championMetaCache.delete(cacheKey)
         return null
       }
-      const payload = await parseServerJson<CnChampionMeta[]>(response)
+      const payload = await parseDataJson<CnChampionMeta[]>(response)
       if (payload.success === false || !Array.isArray(payload.data) || payload.data.length === 0) {
         championMetaCache.delete(cacheKey)
         return null
@@ -237,7 +237,7 @@ export async function getOpggChampionDetail(query: OpggChampionDetailRequest): P
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
-  const payload = await parseServerJson<OpggChampionDetail>(response)
+  const payload = await parseDataJson<OpggChampionDetail>(response)
   if (!response.ok || payload.success === false || (payload.code !== undefined && payload.code !== 200)) {
     throw new Error(payload.error?.message || payload.message || `OP.GG detail request failed: HTTP ${response.status}`)
   }
@@ -259,16 +259,16 @@ export async function getOpggChampionList(query: OpggChampionListRequest): Promi
     method: 'GET',
     headers: { Accept: 'application/json' }
   })
-  const payload = await parseServerJson<OpggChampionList>(response)
+  const payload = await parseDataJson<OpggChampionList>(response)
   if (!response.ok || payload.success === false || (payload.code !== undefined && payload.code !== 200)) {
     throw new Error(payload.error?.message || payload.message || `OP.GG champion list request failed: HTTP ${response.status}`)
   }
   return payload.data || null
 }
 
-async function parseServerJson<T>(response: Response): Promise<RankPeekServerApiResponse<T>> {
+async function parseDataJson<T>(response: Response): Promise<RankPeekDataApiResponse<T>> {
   try {
-    return await response.json() as RankPeekServerApiResponse<T>
+    return await response.json() as RankPeekDataApiResponse<T>
   } catch {
     return {}
   }

@@ -1670,7 +1670,7 @@ test('coach summary report fixture does not mention Nidalee when the snapshot do
   assert.equal(result.status, 'ready')
   assert.doesNotMatch(JSON.stringify(result.snapshot), /Nidalee/)
 
-  const reportFixture = readFileSync(new URL('../../../../rankpeek-server/src/test/resources/fixtures/coach-summary-report-v1.example.json', import.meta.url), 'utf8')
+  const reportFixture = readFileSync(new URL('./__fixtures__/coach-summary-report-v1.example.json', import.meta.url), 'utf8')
   assert.doesNotMatch(reportFixture, /Nidalee/)
 })
 

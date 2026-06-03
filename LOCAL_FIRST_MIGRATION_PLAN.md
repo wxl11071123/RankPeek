@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Current status:** This document is historical migration context. The cleanup decision has now been made: the legacy `rankpeek-server` source, CI, and production deployment docs were removed. The desktop app may now call the Cloudflare announcements/feedback API at `https://api.rankpeek.cn`; legacy account, credits, billing, auth, and hosted AI server flows remain disallowed. Keep the remaining `rankpeek-server` references below as historical notes, not as current repository structure.
+
 **Goal:** Move RankPeek from a cloud-account product to a local-first desktop product while preserving AI analysis as the core feature, supporting user-selected AI providers, local usage/cost tracking, OP.GG data, CN meta comparison, and removal of login/register/credits.
 
 **Architecture:** `rankpeek-backend` becomes the only service boundary for packaged desktop builds. `rankpeek-frontend` talks to `http://127.0.0.1:8080` for LCU, SGP, AI, OP.GG, CN meta, and cost ledgers. `rankpeek-server` becomes reference code only; its auth, credits, email, admin, and billing flows are removed from the shipping app.

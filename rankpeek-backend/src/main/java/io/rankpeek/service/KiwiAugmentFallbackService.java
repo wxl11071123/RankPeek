@@ -160,7 +160,7 @@ public class KiwiAugmentFallbackService {
             return;
         }
 
-        node.fields().forEachRemaining(entry -> collectPayloadEntries(entry.getValue(), entries));
+        node.properties().forEach(entry -> collectPayloadEntries(entry.getValue(), entries));
     }
 
     private KiwiAugmentFallback toFallback(JsonNode node) {

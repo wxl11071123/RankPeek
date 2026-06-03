@@ -22,7 +22,6 @@ const allowedExtensions = new Set([
 ])
 
 const forbiddenPatterns = [
-  { label: 'production RankPeek cloud API host', pattern: /https:\/\/api\.rankpeek\.cn/g },
   { label: 'legacy cloud server base URL symbol', pattern: /RANKPEEK_SERVER_BASE_URL/g },
   { label: 'legacy auth client', pattern: /rankpeekAuthClient/g },
   { label: 'legacy credits client', pattern: /rankpeekCreditsClient/g }

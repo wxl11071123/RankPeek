@@ -1,4 +1,6 @@
 import type { GameState } from '../types/api.ts'
+import { apiClient } from '../api/httpClient.ts'
+import { wsClient } from '../api/websocketClient.ts'
 
 export type GameflowPhaseCallback = (phase: string) => void
 
@@ -13,33 +15,22 @@ export function normalizeGameflowPhase(phase: unknown): string {
   return typeof phase === 'string' ? phase.trim() : ''
 }
 
-async function getDefaultWsClient() {
-  const { wsClient } = await import('../api/websocketClient.ts')
-  return wsClient
-}
-
 function defaultConnect() {
-  void getDefaultWsClient().then((client) => client.connect())
+  wsClient.connect()
 }
 
 function defaultOnGameState(callback: (state: GameState) => void): () => void {
-  let active = true
   let unsubscribe: (() => void) | null = null
 
-  void getDefaultWsClient().then((client) => {
-    if (!active) return
-    unsubscribe = client.onGameState(callback)
-  })
+  unsubscribe = wsClient.onGameState(callback)
 
   return () => {
-    active = false
     unsubscribe?.()
     unsubscribe = null
   }
 }
 
 async function getDefaultGamePhase(): Promise<string> {
-  const { apiClient } = await import('../api/httpClient.ts')
   return apiClient.getGamePhase()
 }
 

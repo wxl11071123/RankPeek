@@ -105,7 +105,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
-import type { OpggBuildOption, OpggChampionDetail } from '@/services/rankpeekServerClient.ts'
+import type { OpggBuildOption, OpggChampionDetail } from '@/services/rankpeekDataClient.ts'
 import type { OpggChampionQuery } from '@/services/opggChampionQuery'
 import {
   getChampionIconUrl,

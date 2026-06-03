@@ -8,7 +8,7 @@ The packaged desktop app is local-first:
 
 - `rankpeek-frontend`: Electron + Vue 3 desktop app.
 - `rankpeek-backend`: local Windows service on `127.0.0.1:8080` for LCU, SGP, assets, match history, AI, OP.GG data, CN meta data, and local cost ledgers.
-- `rankpeek-server`: legacy/reference cloud service. It is no longer required for normal desktop development or packaged desktop builds.
+- `rankpeek-cloudflare`: Cloudflare Worker API for website feedback, public announcements, and the admin announcement console.
 
 ## Current Features
 
@@ -113,19 +113,6 @@ npm run electron:dev
 
 Open Settings in the desktop app and configure an AI provider. Keys are stored locally by the local backend and are not sent to RankPeek cloud services.
 
-## Legacy Cloud Server
-
-`rankpeek-server` is no longer required for the packaged desktop app. It remains in the repository as reference code for AI prompts, OP.GG data, CN meta sync, and previous admin tooling.
-
-Only start it when you intentionally work on the legacy/reference service:
-
-```powershell
-cd rankpeek-server
-mvn spring-boot:run
-```
-
-More details live in [rankpeek-server/README.md](rankpeek-server/README.md).
-
 ## Build
 
 ### Frontend Bundles
@@ -175,13 +162,6 @@ cd rankpeek-backend
 mvn test
 ```
 
-Legacy server reference tests:
-
-```powershell
-cd rankpeek-server
-mvn test
-```
-
 Repository guards:
 
 ```powershell
@@ -194,8 +174,8 @@ node scripts/check-no-cloud-server.mjs
 ```text
 rankpeek-frontend/              Electron + Vue desktop app
 rankpeek-backend/               Local Windows service for LCU, SGP, AI, OP.GG, CN meta, costs, and cache
-rankpeek-server/                Legacy/reference cloud service, not required by packaged desktop builds
-rankpeek-server/deploy/ubuntu/  Legacy production deployment scripts and templates
+rankpeek-cloudflare/            Cloudflare Worker API for feedback and announcements
+rankpeek-website/               Public website source
 docs/                           Planning, deployment, and product notes
 scripts/                        Development and repository guard scripts
 build.bat                       Windows native-backend + Electron packaging helper
@@ -207,7 +187,7 @@ build.bat                       Windows native-backend + Electron packaging help
 - AI provider credentials are user-owned and configured locally.
 - AI snapshots are intentionally compact and natural-language oriented to reduce cost and avoid sending raw game payloads.
 - Local AI runs, token usage, OP.GG cache, CN meta cache, and cost records are stored in the local backend database.
-- The packaged desktop app must not require account registration, email verification, recharge, credits, or the legacy cloud server.
+- The packaged desktop app must not require account registration, email verification, recharge, credits, or a hosted billing service.
 
 ## Known Limits
 

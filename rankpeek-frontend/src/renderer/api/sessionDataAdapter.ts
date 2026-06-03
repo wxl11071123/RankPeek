@@ -1,4 +1,5 @@
 import type { SessionData } from '../types/api.ts'
+import { apiClient } from './httpClient.ts'
 
 export const SIMULATOR_SESSION_DATA_FLAG = 'rankpeek.dev.simulatorSessionData'
 
@@ -45,6 +46,5 @@ export async function getGamingSessionData(sources: GamingSessionDataSources = {
   if (sources.getLiveSessionData) {
     return sources.getLiveSessionData(options)
   }
-  const { apiClient } = await import('./httpClient.ts')
   return apiClient.getSessionData(undefined, options)
 }

@@ -8,6 +8,7 @@ import type {
   RecordStatus,
   Summoner
 } from '../types/api.ts'
+import { apiClient } from '../api/httpClient.ts'
 import type { LocalDatabaseAPI, MatchRecordListOptions } from '../types/localDatabase.ts'
 import { isRenderableMatchForPuuid } from '../../shared/matchQuality.ts'
 
@@ -283,7 +284,6 @@ function normalizeMinQualityMatches(minQualityMatches?: number): number {
   return Math.max(1, Math.floor(minQualityMatches))
 }
 
-async function getDefaultApiClient(): Promise<ReliableMatchHistoryApi> {
-  const module = await import('../api/httpClient.ts')
-  return module.apiClient
+function getDefaultApiClient(): ReliableMatchHistoryApi {
+  return apiClient
 }

@@ -1,4 +1,4 @@
-import { Client, IMessage } from '@stomp/stompjs'
+import { Client, type IMessage } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
 import type { GameState, CacheUpdateEvent } from '@/types/api'
 

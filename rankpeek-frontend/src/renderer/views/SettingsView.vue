@@ -30,7 +30,7 @@ import {
   type LocalAiSettings,
   type SaveLocalAiSettingsRequest
 } from '@/services/localAiProviderClient'
-import { checkRankPeekServerDiagnostics } from '@/services/rankpeekServerClient'
+import { checkRankPeekDataDiagnostics } from '@/services/rankpeekDataClient'
 import { clearFrontendTransientCache } from '@/utils/frontendCache'
 import { getDefaultMatchQueueMode, setCachedDefaultMatchQueueMode } from '@/utils/matchPreferences'
 import brandSymbolBlack from '@/assets/branding/rankpeek-symbol-black.png'
@@ -645,11 +645,11 @@ function buildAiProviderTestRequest() {
   }
 }
 
-async function checkLocalRankPeekServer() {
+async function checkLocalRankPeekBackend() {
   checkingLocalServer.value = true
 
   try {
-    const result = await checkRankPeekServerDiagnostics()
+    const result = await checkRankPeekDataDiagnostics()
     if (result.available) {
       window.alert(t('settings.localServerAvailable', {
         mode: result.mode,
@@ -774,7 +774,7 @@ function closeSponsorModal() {
             class="secondary-btn compact"
             type="button"
             :disabled="checkingLocalServer"
-            @click="checkLocalRankPeekServer"
+            @click="checkLocalRankPeekBackend"
           >
             {{ checkingLocalServer ? t('settings.checkingLocalServer') : t('settings.checkLocalServer') }}
           </button>

@@ -257,7 +257,7 @@ class SgpGameDetailMapperTest {
         redObjectives.putObject("turret").put("kills", 7);
         redObjectives.putObject("inhibitor").put("kills", 1);
         redObjectives.putObject("turretPlate").put("kills", 9);
-        redObjectives.with("dragon").put("soulType", "OCEAN_DRAGON");
+        ((ObjectNode) redObjectives.get("dragon")).put("soulType", "OCEAN_DRAGON");
         response.set("game", game);
 
         GameDetail detail = mapper.mapGameDetails(response);

@@ -4,14 +4,14 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  checkRankPeekServerDiagnostics,
+  checkRankPeekDataDiagnostics,
   getLatestChampionMeta,
   getOpggChampionDetail,
   getOpggChampionList,
-  normalizeRankPeekServerBaseUrl,
+  normalizeRankPeekDataBaseUrl,
   RANKPEEK_DATA_API_BASE_URL,
-  RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT
-} from './rankpeekServerClient.ts'
+  RANKPEEK_DATA_DIAGNOSTICS_ENDPOINT
+} from './rankpeekDataClient.ts'
 
 const rendererRootPath = fileURLToPath(new URL('..', import.meta.url))
 const textFileExtensions = new Set(['.js', '.json', '.mjs', '.ts', '.tsx', '.vue'])
@@ -33,9 +33,9 @@ test('uses the local backend endpoint by default', () => {
 })
 
 test('normalizes configured local backend base URLs', () => {
-  assert.equal(normalizeRankPeekServerBaseUrl(' http://127.0.0.1:8080/ '), 'http://127.0.0.1:8080')
-  assert.equal(normalizeRankPeekServerBaseUrl('http://localhost:8080///'), 'http://localhost:8080')
-  assert.equal(normalizeRankPeekServerBaseUrl(''), 'http://127.0.0.1:8080')
+  assert.equal(normalizeRankPeekDataBaseUrl(' http://127.0.0.1:8080/ '), 'http://127.0.0.1:8080')
+  assert.equal(normalizeRankPeekDataBaseUrl('http://localhost:8080///'), 'http://localhost:8080')
+  assert.equal(normalizeRankPeekDataBaseUrl(''), 'http://127.0.0.1:8080')
 })
 
 test('checks local backend diagnostics through the configured endpoint', async () => {
@@ -61,7 +61,7 @@ test('checks local backend diagnostics through the configured endpoint', async (
   }) as typeof fetch
 
   try {
-    const result = await checkRankPeekServerDiagnostics()
+    const result = await checkRankPeekDataDiagnostics()
 
     assert.deepEqual(result, {
       available: true,
@@ -70,7 +70,7 @@ test('checks local backend diagnostics through the configured endpoint', async (
       version: 'unknown'
     })
     assert.equal(calls.length, 1)
-    assert.equal(calls[0]?.url, `${RANKPEEK_DATA_API_BASE_URL}${RANKPEEK_SERVER_DIAGNOSTICS_ENDPOINT}`)
+    assert.equal(calls[0]?.url, `${RANKPEEK_DATA_API_BASE_URL}${RANKPEEK_DATA_DIAGNOSTICS_ENDPOINT}`)
     assert.equal(calls[0]?.init?.method, 'GET')
   } finally {
     globalThis.fetch = originalFetch
@@ -84,7 +84,7 @@ test('diagnostics check returns unavailable instead of throwing', async () => {
   }) as typeof fetch
 
   try {
-    const result = await checkRankPeekServerDiagnostics()
+    const result = await checkRankPeekDataDiagnostics()
 
     assert.equal(result.available, false)
     assert.match(result.available ? '' : result.message, /rankpeek local backend/)
@@ -102,7 +102,7 @@ test('diagnostics check treats invalid diagnostics payloads as unavailable', asy
   })) as typeof fetch
 
   try {
-    const result = await checkRankPeekServerDiagnostics()
+    const result = await checkRankPeekDataDiagnostics()
 
     assert.equal(result.available, false)
     assert.match(result.available ? '' : result.message, /rankpeek local backend/)

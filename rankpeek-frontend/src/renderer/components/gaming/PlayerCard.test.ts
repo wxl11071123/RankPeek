@@ -138,15 +138,15 @@ test('moves pre-group marker to the id row and filters the premade scout tag', (
 
 test('player card fetches cached exact-tier 101 meta only for current champion samples', () => {
   const source = readFileSync(new URL('./PlayerCard.vue', import.meta.url), 'utf8')
-  const serverClient = readFileSync(new URL('../../services/rankpeekServerClient.ts', import.meta.url), 'utf8')
+  const dataClient = readFileSync(new URL('../../services/rankpeekDataClient.ts', import.meta.url), 'utf8')
 
-  assert.match(serverClient, /export interface CnChampionMeta/)
-  assert.match(serverClient, /const championMetaCache = new Map<string, Promise<CnChampionMeta \| null>>\(\)/)
-  assert.match(serverClient, /getLatestChampionMeta\(championId: number, tierScope: string\)/)
-  assert.match(serverClient, /\/api\/v1\/cn-meta\/champions\/\$\{encodeURIComponent\(String\(championId\)\)\}\/latest\?tierScope=/)
-  assert.match(serverClient, /championMetaCache\.has\(cacheKey\)/)
+  assert.match(dataClient, /export interface CnChampionMeta/)
+  assert.match(dataClient, /const championMetaCache = new Map<string, Promise<CnChampionMeta \| null>>\(\)/)
+  assert.match(dataClient, /getLatestChampionMeta\(championId: number, tierScope: string\)/)
+  assert.match(dataClient, /\/api\/v1\/cn-meta\/champions\/\$\{encodeURIComponent\(String\(championId\)\)\}\/latest\?tierScope=/)
+  assert.match(dataClient, /championMetaCache\.has\(cacheKey\)/)
 
-  assert.match(source, /import \{ getLatestChampionMeta, type CnChampionMeta \} from '@\/services\/rankpeekServerClient'/)
+  assert.match(source, /import \{ getLatestChampionMeta, type CnChampionMeta \} from '@\/services\/rankpeekDataClient'/)
   assert.match(source, /const cnMeta = ref<CnChampionMeta \| null>\(null\)/)
   assert.match(source, /const exactTierScope = computed\(\(\) =>/)
   assert.match(source, /const shouldFetchCnMeta = computed\(\(\) =>/)

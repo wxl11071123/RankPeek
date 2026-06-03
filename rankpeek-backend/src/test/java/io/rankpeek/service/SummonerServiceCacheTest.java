@@ -41,8 +41,10 @@ class SummonerServiceCacheTest {
     @Test
     void getSummonerByPuuid_fallsBackToDatabaseWhenLcuFails() {
         Summoner cached = createSummoner("puuid-1", "Tester", "CN1");
-        when(repository.findSummonerByPuuid("puuid-1")).thenReturn(Optional.empty(), Optional.of(cached));
-        when(lcuHttpClient.get("lol-summoner/v2/summoners/puuid/puuid-1", Summoner.class))
+        when(repository.findSummonerByPuuid("puuid-1"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(cached));
+        when(lcuHttpClient.<Summoner>get("lol-summoner/v2/summoners/puuid/puuid-1", Summoner.class))
                 .thenThrow(new RuntimeException("LCU down"));
 
         assertThat(service.getSummonerByPuuid("puuid-1")).isSameAs(cached);
@@ -51,7 +53,7 @@ class SummonerServiceCacheTest {
     @Test
     void getSummonerByName_savesLcuResult() {
         Summoner fetched = createSummoner("puuid-1", "Tester", "CN1");
-        when(lcuHttpClient.get("lol-summoner/v1/summoners/?name=Tester%23CN1", Summoner.class))
+        when(lcuHttpClient.<Summoner>get("lol-summoner/v1/summoners/?name=Tester%23CN1", Summoner.class))
                 .thenReturn(fetched);
 
         assertThat(service.getSummonerByName("Tester#CN1")).isSameAs(fetched);

@@ -8,6 +8,7 @@ import type {
 } from '../types/localDatabase'
 import type { GameDetail, MatchTimeline, MatchTimelineFetchResult } from '../types/api'
 import type { CoachSummaryOverview } from '../types/coachSummaryReport'
+import { apiClient } from '../api/httpClient.ts'
 import { stableStringify } from './aiAnalysisInputSnapshot.ts'
 import { createMatchRpIndexModel, type RpTrendLabel } from './matchRpIndex.ts'
 
@@ -3673,7 +3674,6 @@ function getRendererDatabase(): CoachSummaryDatabase | null {
 function getDefaultCoachSummarySgpHydrationClient(): CoachSummarySgpHydrationClient {
   return {
     fetchRecentMatchSummariesFromSgpOnly: async (accountPuuid: string, pageSize: number) => {
-      const { apiClient } = await import('../api/httpClient.ts')
       const response = await apiClient.getMatchHistoryPage(accountPuuid, {
         page: 1,
         pageSize,
@@ -3683,11 +3683,9 @@ function getDefaultCoachSummarySgpHydrationClient(): CoachSummarySgpHydrationCli
       return response.matches
     },
     fetchGameDetailFromSgpOnly: async (gameId: number) => {
-      const { apiClient } = await import('../api/httpClient.ts')
       return apiClient.getGameDetail(gameId, { source: 'sgp', sgpOnly: true })
     },
     fetchGameTimelineFromSgpOnly: async (gameId: number) => {
-      const { apiClient } = await import('../api/httpClient.ts')
       return apiClient.getGameTimeline(gameId, { source: 'sgp', sgpOnly: true })
     }
   }

@@ -145,7 +145,7 @@ import {
   type OpggChampionDetail,
   type OpggChampionList,
   type OpggChampionPositionStats
-} from '@/services/rankpeekServerClient.ts'
+} from '@/services/rankpeekDataClient.ts'
 import type { ChampionOption, SessionData, Summoner } from '@/types/api'
 import { championOptionMatchesSearch } from '@/utils/championSearchAliases'
 

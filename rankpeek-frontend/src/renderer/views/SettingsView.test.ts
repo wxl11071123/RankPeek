@@ -108,7 +108,7 @@ test('settings local AI controls use compact switch and key action layout', () =
   assert.ok(headerMatch, 'AI provider header should be directly above the provider form')
   assert.match(headerMatch[1], /class="ai-provider-header-actions"/)
   assert.match(headerMatch[1], /class="settings-switch"[\s\S]*@click="toggleAiProviderEnabled"[\s\S]*settings\.aiEnabled/)
-  assert.match(headerMatch[1], /settings\.aiEnabled[\s\S]*@click="checkLocalRankPeekServer"/)
+  assert.match(headerMatch[1], /settings\.aiEnabled[\s\S]*@click="checkLocalRankPeekBackend"/)
   assert.doesNotMatch(source, /<label class="toggle-row">[\s\S]*aiProviderForm\.enabled/)
 
   const switchButtons = [...source.matchAll(/class="settings-switch"/g)]
@@ -135,8 +135,8 @@ test('settings page keeps common local settings and local service diagnostics', 
   assert.match(source, /clearUserCache/)
   assert.match(source, /themeStore\.setTheme\('light'\)/)
   assert.match(source, /themeStore\.setTheme\('dark'\)/)
-  assert.match(source, /checkRankPeekServerDiagnostics/)
-  assert.match(source, /checkLocalRankPeekServer/)
+  assert.match(source, /checkRankPeekDataDiagnostics/)
+  assert.match(source, /checkLocalRankPeekBackend/)
 })
 
 test('settings page exposes in-app feedback without log upload', () => {

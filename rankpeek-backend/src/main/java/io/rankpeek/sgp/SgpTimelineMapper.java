@@ -80,7 +80,7 @@ public class SgpTimelineMapper {
             return participantFrames;
         }
 
-        participantFramesNode.fields().forEachRemaining(entry -> {
+        participantFramesNode.properties().forEach(entry -> {
             MatchTimeline.ParticipantFrame participantFrame = mapParticipantFrame(entry.getValue());
             participantFrames.put(entry.getKey(), participantFrame);
         });

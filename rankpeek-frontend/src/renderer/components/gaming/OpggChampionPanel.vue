@@ -378,7 +378,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AssetHoverTooltip from '@/components/common/AssetHoverTooltip.vue'
-import type { OpggBuildOption, OpggChampionCounter, OpggChampionDetail } from '@/services/rankpeekServerClient.ts'
+import type { OpggBuildOption, OpggChampionCounter, OpggChampionDetail } from '@/services/rankpeekDataClient.ts'
 import type { OpggChampionQuery } from '@/services/opggChampionQuery'
 import { splitOpggRuneIds, type OpggRuneGroups } from '@/services/opggRuneGroups.ts'
 import {

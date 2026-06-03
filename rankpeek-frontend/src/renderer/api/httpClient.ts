@@ -24,7 +24,7 @@ import type {
   UserTagSummary,
   WinRate
 } from '@/types/api'
-import axios, { AxiosError, AxiosInstance, type AxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
