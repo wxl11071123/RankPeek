@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-const githubUrl = 'https://github.com/wxl11071123/rankpeek-rebuild'
+const githubUrl = 'https://github.com/wxl11071123/rankpeek'
 const releaseUrl = `${githubUrl}/releases/tag/v1.0.0`
 const downloadUrl = 'https://rankpeek-downloads.cn-nb1.rains3.com/RankPeek%20Setup%201.0.0.exe'
 const qqGroup = '598234692'
