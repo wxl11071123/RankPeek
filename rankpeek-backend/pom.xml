@@ -263,9 +263,9 @@
                                 <buildArg>--initialize-at-run-time=io.rankpeek.jna.ProcessUtils</buildArg>
 
                                 <!-- 配置文件路径 -->
-                                <buildArg>-H:ReflectionConfigurationFiles=${project.basedir}/src/main/resources/META-INF/native-image/reflect-config.json</buildArg>
-                                <buildArg>-H:DynamicProxyConfigurationFiles=${project.basedir}/src/main/resources/META-INF/native-image/proxy-config.json</buildArg>
-                                <buildArg>-H:ResourceConfigurationFiles=${project.basedir}/src/main/resources/META-INF/native-image/resource-config.json</buildArg>
+                                <buildArg>-H:ReflectionConfigurationFiles=&quot;${project.basedir}/src/main/resources/META-INF/native-image/reflect-config.json&quot;</buildArg>
+                                <buildArg>-H:DynamicProxyConfigurationFiles=&quot;${project.basedir}/src/main/resources/META-INF/native-image/proxy-config.json&quot;</buildArg>
+                                <buildArg>-H:ResourceConfigurationFiles=&quot;${project.basedir}/src/main/resources/META-INF/native-image/resource-config.json&quot;</buildArg>
                             </buildArgs>
                             <metadataRepository>
                                 <enabled>true</enabled>
