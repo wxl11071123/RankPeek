@@ -2,104 +2,161 @@
 
 [简体中文](README.zh-CN.md)
 
-RankPeek is a Windows desktop companion for League of Legends. It reads the local League Client through a local backend, keeps local caches, and lets users configure their own AI provider for analysis.
+RankPeek is a Windows desktop companion for League of Legends, providing real-time match history lookup, game analysis, and data tracking.
 
-The packaged desktop app is local-first:
+## Features
 
-- `rankpeek-frontend`: Electron + Vue 3 desktop app.
-- `rankpeek-backend`: local Windows service on `127.0.0.1:8080` for LCU, SGP, assets, match history, AI, OP.GG data, CN meta data, and local cost ledgers.
-- `rankpeek-cloudflare`: Cloudflare Worker API for website feedback, public announcements, and the admin announcement console.
+### Real-time Game Scouting
 
-## Current Features
+- **Current Account**: Home page displays current account, rank, and recent form
+- **Game Info**: Shows detailed teammate and opponent information during champion select
+- **Auto Navigation**: Automatically switches pages based on game flow phase (lobby, matchmaking, champion select, in-game)
+- **Local Persistence**: Match history, details, and OP.GG cache stored locally
 
-### Desktop Scouting
+### Match History
 
-- Current account, rank, recent form, and local service status on the home page.
-- Champion-select and in-game views for teammates and opponents.
-- Automatic app navigation for gameflow phases, without old queue, accept, pick, or ban automation.
-- Local persistence for match records, match details, AI reports, OP.GG cache, CN meta cache, and cost records.
+- **My Match History**: View your own historical game records
+- **Summoner Lookup**: Search other players' match history
+- **Match Details**: Lazy-loaded detail panels with team overview, rune/build details, and data charts
+- **Filtering**: Filter matches by mode, champion, and time period
 
-### Match History And RP Index
+### OP.GG Data
 
-- My match history and summoner lookup views.
-- Lazy-loaded match detail panels with team overview, rune/build details, charts, and timeline-backed detail tabs.
-- RP Index for ranked Solo/Duo and Flex games when timeline and matchup data are available.
-- Compact AI snapshots built from match facts instead of raw oversized payloads.
+- **Champion Tier List**: Built-in OP.GG-style champion strength rankings
+- **Champion Details**: View champion win rate, pick rate, ban rate, and more
+- **Multi-dimensional Filtering**: Filter by rank, mode, region, and role
+- **Local Cache**: Data proxied and cached locally to avoid redundant requests
 
-### Local AI Analysis
+### Local Cache System
 
-- Pregame analysis for current lobby and team context.
-- Postgame review and praise mode.
-- Electronic Coach analysis for recent ranked games.
-- User-owned AI provider configuration in Settings: provider, base URL, model, API key, API key setup link, web-search/deep-thinking toggles, and optional user-entered pricing.
-- Model choices are refreshed from the provider's `/models` endpoint after the user enters Base URL + API key; failed refreshes still allow manual model entry.
-- OpenAI-compatible provider presets for DeepSeek, Qwen, MiniMax, MiMo, GLM, plus custom compatible services.
-- Local run history, token usage, cache-hit/cache-miss accounting, and cost estimates.
+- **Match Cache**: Historical matches stored locally, reducing API requests
+- **Asset Cache**: Champion portraits, item icons, and other resources cached locally
+- **OP.GG Cache**: OP.GG data synchronized locally for faster loading
 
-### OP.GG And CN Meta Data
+## Download
 
-- Standalone OP.GG-style champion page inside Electron.
-- Champion list and champion detail views with rank, queue, region, role, and champion filters.
-- Local backend proxy/cache for OP.GG data to avoid renderer CORS and centralize throttling.
-- Local backend storage/sync endpoints for CN meta, patch, LPL, and prompt-context data.
+### Option 1: Download Installer
 
-### Local Cost Ledger
+Visit [GitHub Releases](https://github.com/wxl11071123/rankpeek/releases) to download the latest installer.
 
-- AI costs are recorded locally from provider token usage when usage is available.
-- AI cost rates are optional user-entered values; blank rates are treated as unknown cost.
-- No RankPeek account, registration, recharge, credit balance, or hosted billing flow is required.
+### Option 2: Build from Source
 
-## Safety Position
+Refer to the "Developer Guide" section below.
 
-RankPeek is not an automation product. Old auto queue, auto accept, auto pick, and auto ban UI paths are intentionally not part of the current desktop app.
-
-Any feature that controls the League client should be treated as high-risk and reviewed separately. Users are responsible for any account consequences caused by client automation.
-
-## Requirements
-
-For normal desktop development:
+## System Requirements
 
 - Windows 10 or Windows 11
-- A running League of Legends client
+- Running League of Legends client (required for LCU features)
+- Node.js 18+ (required for building from source)
+- Java 21 (required for building from source)
+- Maven 3.9+ (required for building from source)
+
+## Usage
+
+1. Launch the RankPeek desktop application
+2. Ensure the League of Legends client is running
+3. The application will automatically detect the currently logged-in account
+4. View current account status and recent matches on the home page
+5. During champion select, teammate and opponent information will be displayed automatically
+
+---
+
+# Developer Guide
+
+The following content is intended for developers who wish to participate in development or build the project themselves.
+
+## Architecture
+
+RankPeek uses a local-first architecture with all data processing done locally:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    RankPeek Desktop                          │
+│                    (Electron + Vue 3)                        │
+├─────────────────────────────────────────────────────────────┤
+│                    Local Backend                             │
+│              (Spring Boot on port 8080)                      │
+├─────────────────────────────────────────────────────────────┤
+│         ┌──────────┬──────────┬──────────┬──────────┐        │
+│         │   LCU    │   SGP    │  Assets  │  Cache   │        │
+│         └──────────┴──────────┴──────────┴──────────┘        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Core Components
+
+| Component | Tech Stack | Responsibility |
+|-----------|------------|----------------|
+| `rankpeek-frontend` | Electron + Vue 3 + TypeScript | Desktop client UI |
+| `rankpeek-backend` | Java 21 + Spring Boot | Local backend service |
+| `rankpeek-cloudflare` | Cloudflare Workers | Website API (feedback, announcements) |
+| `rankpeek-website` | Vue 3 + Vite | Official website |
+
+### Backend Service Modules
+
+The local backend (`rankpeek-backend`) provides the following services:
+
+- **LCU Connection**: Read local League Client data
+- **SGP Interface**: Fetch Riot service data
+- **Asset Service**: Champion, item, rune resource management
+- **Match Storage**: SQLite local database persistence
+- **OP.GG Proxy**: OP.GG data request proxy and caching
+- **CN Meta Data**: Chinese server meta, patch, and LPL data sync
+
+## Project Structure
+
+```
+rankpeek-rebuild/
+├── rankpeek-frontend/              # Electron + Vue desktop client
+│   ├── src/
+│   │   ├── main/                   # Electron main process
+│   │   ├── preload/                # Electron preload scripts
+│   │   └── renderer/               # Vue renderer process
+│   │       ├── components/         # Vue components
+│   │       ├── views/              # Page views
+│   │       ├── stores/             # Pinia state management
+│   │       ├── services/           # Business services
+│   │       └── utils/              # Utility functions
+│   └── public/                     # Static assets
+│       └── game-assets/            # Game assets (local cache)
+│
+├── rankpeek-backend/               # Local backend service
+│   └── src/main/java/com/rankpeek/
+│       ├── controller/             # REST controllers
+│       ├── service/                # Business services
+│       ├── model/                  # Data models
+│       └── config/                 # Configuration classes
+│
+├── rankpeek-cloudflare/            # Cloudflare Worker
+│   └── src/
+│
+├── rankpeek-website/               # Official website
+│   └── src/
+│
+├── docs/                           # Documentation
+├── scripts/                        # Development scripts
+└── build.bat                       # Windows packaging script
+```
+
+## Development Environment Setup
+
+### Prerequisites
+
+- Windows 10/11
 - Node.js 18+
-- Java 21
+- Java 21 (GraalVM recommended)
 - Maven 3.9+
+- Running League of Legends client (required for testing LCU features)
 
-For native installer packaging:
-
-- GraalVM JDK 21
-- Visual Studio Build Tools with C++ support
-- A valid `GRAALVM_HOME` path in `build.bat`
-
-For AI analysis:
-
-- A user-provided OpenAI-compatible API key, or a provider/test mode that does not require one.
-
-## Quick Start: Desktop Development
-
-Normal desktop work uses only the local backend plus the Electron frontend.
-
-### 1. Start The Local Backend
+### Step 1: Start Local Backend
 
 ```powershell
 .\scripts\dev-backend.bat
 ```
 
-This starts `rankpeek-backend` on:
+This starts the backend service at `http://127.0.0.1:8080` and sets the development data directory to `%LOCALAPPDATA%\RankPeek-dev`.
 
-```text
-http://127.0.0.1:8080
-```
-
-It also sets:
-
-```text
-RANKPEEK_LOCAL_DATA_ROOT=%LOCALAPPDATA%\RankPeek-dev
-```
-
-That keeps development cache separate from packaged app data.
-
-### 2. Start Electron
+### Step 2: Start Electron Frontend
 
 ```powershell
 cd rankpeek-frontend
@@ -107,15 +164,20 @@ npm install
 npm run electron:dev
 ```
 
-`electron:dev` builds the Electron main/preload bundles, starts Vite, and opens the desktop shell. In development mode, Electron expects the local backend to already be running on port `8080`.
+The `electron:dev` command will:
+1. Build Electron main/preload
+2. Start Vite dev server
+3. Open the desktop application window
 
-### 3. Configure AI
+### Step 3: Verify Development Environment
 
-Open Settings in the desktop app and configure an AI provider. Keys are stored locally by the local backend and are not sent to RankPeek cloud services.
+1. Ensure backend service is running on port 8080
+2. Ensure League of Legends client is running (for LCU functionality testing)
+3. Check if the home page displays account information in the Electron app
 
-## Build
+## Build & Deploy
 
-### Frontend Bundles
+### Build Frontend Bundle
 
 ```powershell
 cd rankpeek-frontend
@@ -123,7 +185,7 @@ npm install
 npm run build
 ```
 
-### Electron Installer
+### Build Electron Installer
 
 ```powershell
 cd rankpeek-frontend
@@ -131,23 +193,22 @@ npm install
 npm run electron:build
 ```
 
-The Electron package expects a native local backend at:
+Build artifacts are located in `rankpeek-frontend/release/` directory.
 
-```text
-rankpeek-backend/target/rankpeek-native.exe
-```
-
-### Full Windows Installer Script
+### Full Windows Packaging
 
 ```powershell
 .\build.bat
 ```
 
-This script runs repository guards, builds the native `rankpeek-backend` binary, and then runs the Electron build. It is Windows-specific and expects `GRAALVM_HOME` to be adjusted for the local machine.
+This script will:
+1. Run repository guard checks
+2. Build native backend binary (requires GraalVM)
+3. Build Electron installer
 
-## Test Commands
+## Testing
 
-Frontend targeted tests:
+### Frontend Tests
 
 ```powershell
 cd rankpeek-frontend
@@ -155,47 +216,50 @@ node --test src/renderer/services/*.test.ts
 npm run build:renderer
 ```
 
-Local backend tests:
+### Backend Tests
 
 ```powershell
 cd rankpeek-backend
 mvn test
 ```
 
-Repository guards:
+### Repository Guards
 
 ```powershell
 node scripts/check-no-automation.mjs
 node scripts/check-no-cloud-server.mjs
 ```
 
-## Project Layout
+## Open Source Scope
 
-```text
-rankpeek-frontend/              Electron + Vue desktop app
-rankpeek-backend/               Local Windows service for LCU, SGP, AI, OP.GG, CN meta, costs, and cache
-rankpeek-cloudflare/            Cloudflare Worker API for feedback and announcements
-rankpeek-website/               Public website source
-docs/                           Planning, deployment, and product notes
-scripts/                        Development and repository guard scripts
-build.bat                       Windows native-backend + Electron packaging helper
-```
+This repository is the open source version of RankPeek. The following features are **not included** in their complete implementation:
 
-## Data And Privacy Boundaries
+- **RP Index**: A player rating system based on match data
+- **AI Analysis**: Pre-game analysis, post-game review, electronic coach, and other AI features
 
-- The local backend reads the local League Client and match-related sources for the desktop experience.
-- AI provider credentials are user-owned and configured locally.
-- AI snapshots are intentionally compact and natural-language oriented to reduce cost and avoid sending raw game payloads.
-- Local AI runs, token usage, OP.GG cache, CN meta cache, and cost records are stored in the local backend database.
-- The packaged desktop app must not require account registration, email verification, recharge, credits, or a hosted billing service.
+These features involve core algorithms and commercial value. To prevent technical abuse (such as modified versions being sold), the related code is not included in the open source repository.
 
-## Known Limits
+The open source version retains the complete:
+- Desktop client framework (Electron + Vue 3)
+- Local backend service architecture (Spring Boot)
+- LCU/SGP data reading
+- Match history lookup and display
+- OP.GG data integration
+- Local cache system
 
-- RankPeek is Windows-first.
-- The League client must be running for LCU-backed features.
-- Some history, timeline, rune/build, OP.GG, or CN meta data may be unavailable when upstream sources do not expose it.
-- RP Index is limited to ranked 420/440 matches with usable timeline and complete matchup data.
-- AI quality, latency, usage metadata, and cost visibility depend on the user-selected provider.
+## Data & Privacy
+
+- All data processing is done locally, with no cloud service dependency
+- AI credentials are configured by the user and stored locally
+- No personal user information is collected
+- No account registration or login required
+
+## Known Limitations
+
+- Windows only
+- LCU features require the League of Legends client to be running
+- Some data depends on upstream services (Riot API, OP.GG) and may be unavailable
+- OP.GG data may have delays
 
 ## License
 
