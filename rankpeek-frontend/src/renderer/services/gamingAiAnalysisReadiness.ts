@@ -28,9 +28,14 @@ function isPregameAnalysisPhase(phase: string | undefined): boolean {
 }
 
 function isPlayerReadComplete(player: SessionSummoner): boolean {
-  return hasPlayerIdentity(player) &&
-    player.isLoading !== true &&
-    COMPLETED_RECORD_STATUSES.has(player.userTag?.recordStatus ?? '')
+  if (player.isLoading === true) {
+    return false
+  }
+  if (!hasPlayerIdentity(player)) {
+    return false
+  }
+  const recordStatus = player.userTag?.recordStatus
+  return !recordStatus || COMPLETED_RECORD_STATUSES.has(recordStatus)
 }
 
 function hasPlayerIdentity(player: SessionSummoner): boolean {

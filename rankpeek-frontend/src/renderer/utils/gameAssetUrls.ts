@@ -1,3 +1,5 @@
+import bundledMetadataJson from '../data/metadata.json'
+
 const COMMUNITY_DRAGON_RAW = 'https://raw.communitydragon.org/latest'
 const COMMUNITY_DRAGON_GAME_DATA = `${COMMUNITY_DRAGON_RAW}/plugins/rcp-be-lol-game-data/global/default/v1`
 const COMMUNITY_DRAGON_MINIMAP_ICONS = `${COMMUNITY_DRAGON_RAW}/game/assets/ux/minimap/icons`
@@ -176,6 +178,8 @@ let metadataOverlay: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 let metadata: GameAssetMetadata = normalizeMetadata(EMPTY_METADATA)
 const failedAssetUrls = new Set<string>()
 const fallbackChains = new Map<string, string[]>()
+
+setGameAssetMetadata(bundledMetadataJson as Partial<GameAssetMetadata>)
 
 export function getChampionIconUrl(championId?: number | null): string {
   return resolveAssetUrl('champion', championId)
